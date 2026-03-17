@@ -226,7 +226,7 @@ To elaborate: the more tiers available, the more precisely a transaction's urgen
 | | Tier add/remove frequency | How often tier count changes |
 | | Tier add/remove signal | Price-driven (paper: last-tier price thresholds) vs demand-driven (fill-rate thresholds) |
 | | Price boundary enforcement | Whether p_{i+1} ≤ μ_i × p_i (slower tiers must be cheaper) is actively enforced |
-| **Admission & overflow** | Overflow policy | Queue in mempool / reject at submission / reject with retry |
+| **Admission & overflow** | Overflow policy | Queue in mempool / reject |
 | | Rejection data visibility | Does aggregated rejection/overflow data influence repricing? |
 | | Overflow pricing mode | Overflow counted as fill-rate vs linear additive price increment |
 | | Retry policy | Enabled/disabled, backoff curve, per-urgency-band retry limits |

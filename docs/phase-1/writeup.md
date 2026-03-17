@@ -133,7 +133,7 @@ Questions for Research
 
 Tier structure and dynamics:
 
-1. Is it ok to populate a blocks tiers not based on exact delay specified by the transaction, but rather in terms of delay buckets : 0-1 block delay, 1-5 block delay, etc.
+1. Is it ok to populate a block's tiers not based on exact delay specified by the transaction, but rather in terms of delay buckets : 0-1 block delay, 1-5 block delay, etc.
 2. Would having a fixed number of tiers negatively impact the goals of the paper's solution?
 3. In the paper, the calculation to add or remove tiers occurs regularly, after a specific number of blocks: tFreq. This is counter-intuitive to me, since it seems that this interval should depend on certain factors, such as transaction volume.
 4. The paper treats txs as homogenous in size and fee. On Cardano, transactions have 3 parameters by which block fullness is determined, and from which fee is calculated: size, and 2 parameters of ExUnits. How do we best use these parameters to specify tier sizes?
@@ -144,7 +144,7 @@ Delay, maturity, and validation:
 6. If B is txs/block, and n is incoming txs/slot, do we just convert txs per slot into txs per block by multiplying by slots per block? In Praos, there isn't a guarantee of either 1 block per slot OR 1 slot per block. Blocks are not a measure of time - how are we supposed to treat it as a rate?
 
 7. We were thinking of guaranteeing transactions mature for the right amount of blocks in the following way (slightly different than what the paper says):
-   * When a block producer makes a block, it lists transaction IDs of transactions that arrived in the pool right before producing the block, and are not currently mature (call this list immatureTxIDs), along with how many blocks ago it arrived
+   * When a block producer makes a block, it lists transaction IDs of transactions that arrived in the pool right before producing the block, and are not currently mature (call this list immatureTxIDs), along with how many blocks ago each transaction arrived
    * The transaction bodies of immature transactions are not included in blocks
    * Immature transactions are not validated until they reach maturity
    * When transactions have matured (or are top-tier), and have been validated, they can be included in blocks. During block validation, nodes check that the block contains only transactions that have been previously announced as "pending" and have waited the required delay (or they are top-tier)

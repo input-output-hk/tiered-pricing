@@ -1,6 +1,6 @@
 This brief write-up closes out Phase 1: Requirements Gathering and Analysis.
 
-This phase ended up producing more than was initially intended; giving us clarity on the paper's mechanism, and preliminary simulation signals for how it interacts with a variety of loads.
+This phase ended up producing more than was initially intended, giving us clarity on the paper's mechanism, and preliminary simulation signals for how it interacts with a variety of loads.
 
 These preliminary signals give us guidance for concrete experimental results in the next phase.
 

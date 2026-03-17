@@ -229,7 +229,6 @@ To elaborate: the more tiers available, the more precisely a transaction's urgen
 | **Admission & overflow** | Overflow policy | Queue in mempool / reject |
 | | Rejection data visibility | Does aggregated rejection/overflow data influence repricing? |
 | | Overflow pricing mode | Overflow counted as fill-rate vs linear additive price increment |
-| | Retry policy | Enabled/disabled, backoff curve, per-urgency-band retry limits |
 | **Capacity** | Tier size allocation | Fixed fractions vs dynamic rebalancing based on observed demand |
 | | Tier 0 reservation | None / partial / full RB reservation for fastest tier |
 | | Target utilisation | Fill-rate threshold separating price-increasing from price-decreasing |

@@ -16,7 +16,7 @@ These preliminary signals give us guidance for concrete experimental results in 
 
 ---
 
-Optimisation target:
+## Optimisation Target
 Our working assumption is that we must optimise for price stability while minimising utility loss through delay or rejection. Note that these two things are not the same, and can even be at odds with each other. 
 The quicker price adjustments occur, the less time tiers will be mispriced when under rapidly changing loads, but the more time will be spent mispriced due to oscillation. Similarly, the slower price adjustments take,
 the longer it'll take for changing demands to be caught up with, from a pricing perspective.
@@ -28,7 +28,7 @@ we need to worry about, simple Ethereum-style dynamic pricing may be sufficient.
 
 ---
 
-Where the paper's assumptions diverge from Cardano / linear-Leios:
+## Paper Divergences
 
 **Block production rate is fixed and uniform.** The paper assumes a constant throughput B (txs/block) with one block per time unit. Linear-Leios has two block types (RB, EB) with different production rates (~1 per 20 slots vs ~1 per 56 slots) and neither is guaranteed per-slot.
 
@@ -50,7 +50,7 @@ Where the paper's assumptions diverge from Cardano / linear-Leios:
 
 ---
 
-Structural direction:
+## Structural Direction
 
 Something to note - linear-Leios introduces a complication for the paper's solution; the paper assumes a fixed block rate `B` for transactions/block. In linear-Leios, `B` is variable, since we have RBs and EBs. Preliminarily, we've decided that "Delay" in this context should just be counted in RBs.
 
@@ -72,12 +72,12 @@ In addition to this finding, we've spotted some potential implementation conside
 
 ---
 
-Plutus impact:
+## Plutus Impact
 Depending on whether or not the Plutus/Ledger/Product teams think it is relevant to include the transaction tier in the TxInfo data passed to Plutus scripts, a new version of Plutus may or may not be needed. If the TxInfo remains the same (i.e. unaware of the tx's tier), it appears that no changes are needed. If it is decided that scripts should see the tier, a new version of Plutus, with the relevant change to TxInfo is needed. Only scripts written in this new version will be able to view the tier. Old-version scripts would not be shown tier information.
 
 ---
 
-Ledger impact:
+## Ledger Impact
 Let us define TxTier, which includes:
 (1) the tierCoeff, which is the coefficient by which the minfee of the transaction must be multiplied to determine the actual minimum fee the transaction must pay to be processed
 (2) the timeToWait, which is the delay that must be imposed on the transaction (looked up at the time of transaction construction) corresponding to the tierCoeff
@@ -109,7 +109,7 @@ This change will not be backwards compatible (with transactions not specifying t
 
 ---
 
-Definitions:
+## Definitions
 
 | Term | Definition |
 |---|---|
@@ -131,7 +131,7 @@ It should be noted that the distinction between demand and load is a new introdu
 
 ---
 
-Questions for Research
+## Questions for Research
 
 Tier structure and dynamics:
 
@@ -167,7 +167,7 @@ Linear-Leios specific:
 
 ---
 
-Questions for Experiments:
+## Questions for Experiments
 
 1. Does the paper's solution applied to linear-Leios result in performance greater than or equal to its application to a Praos-like structure?
 2. How does the EB = slow lane, RB = fast lane shaped solution compare to the paper-like solution's performance?
@@ -178,7 +178,7 @@ Questions for Experiments:
 
 ---
 
-Discussion of engineering techniques for simulations:
+## Simulation Engineering
 
 * **Reproducibility:** all randomness (transaction arrivals, mechanism internals) should be seeded, so that the same seed and parameter set always produces an identical run.
 * **A/B comparison as primary unit:** mechanism design questions are inherently comparative. Each experiment should measure against a well-understood baseline (fixed-fee or single-tier EIP-1559), not in isolation.
@@ -195,7 +195,7 @@ We should also have clear, readable reporting of key metrics, such as inclusion 
 
 ---
 
-Good UX:
+## Good UX
 
 * Submitters of a transaction can know (by some mechanism) if the tier they've subscribed to is likely to be full in most nodes, thus giving them the opportunity to retry
 * Submitters of a transaction should be able to reliably know, with a fair degree of accuracy, the true expected latency of inclusion for their transaction before submitting
@@ -203,7 +203,7 @@ Good UX:
 
 ---
 
-Preliminary security discussion:
+## Preliminary Security Discussion
 
 Note - the paper doesn't discuss the topic of security.
 
@@ -213,7 +213,7 @@ To elaborate: the more tiers available, the more precisely a transaction's urgen
 
 ---
 
-Design space options:
+## Design Space Options
 
 | Category | Knob | Options |
 |---|---|---|

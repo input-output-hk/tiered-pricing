@@ -1,6 +1,7 @@
 use std::{
     collections::{BTreeMap, HashSet, VecDeque},
     fmt::Display,
+    path::Path,
     sync::{Arc, atomic::AtomicU64},
     time::Duration,
 };
@@ -14,8 +15,10 @@ use tracing::info;
 
 use crate::{
     clock::Timestamp,
-    model::{Transaction, TransactionId},
+    model::{ActorId, Transaction, TransactionId, UrgencyProfile},
     probability::FloatDistribution,
+    tx_actors::{ActorConfig, ActorsFile},
+    tx_pricing::{PricingFile, PricingMechanismConfig},
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -57,6 +60,55 @@ impl From<DistributionConfig> for FloatDistribution {
     }
 }
 
+#[derive(Debug, Copy, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum TxGenerator {
+    Legacy,
+    Actors,
+}
+
+#[derive(Debug, Copy, Clone, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum TierDelayUnit {
+    #[default]
+    Slots,
+    Blocks,
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct NaiveRbEbPathLatencyConfig {
+    pub rb_slots: u64,
+    pub eb_slots: u64,
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct TierSelectionPathLatencyConfig {
+    pub rb_delay_units: u64,
+    pub eb_delay_units: u64,
+}
+
+#[derive(Debug, Copy, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum PricingKind {
+    Baseline,
+    Eip1559,
+    Tiered,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub struct RawPricingConfig {
+    #[serde(rename = "type")]
+    pub kind: Option<PricingKind>,
+    pub config_path: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub struct RawActorsConfig {
+    pub config_path: String,
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct RawParameters {
@@ -65,6 +117,8 @@ pub struct RawParameters {
     pub relay_strategy: RelayStrategy,
     pub simulate_transactions: bool,
     pub timestamp_resolution_ms: f64,
+    #[serde(default = "default_seed")]
+    pub seed: u64,
 
     // Leios protocol configuration
     pub leios_stage_length_slots: u64,
@@ -77,6 +131,8 @@ pub struct RawParameters {
     pub leios_mempool_size_bytes: Option<u64>,
     pub praos_chain_quality: u64,
     pub praos_fallback_enabled: bool,
+    #[serde(default)]
+    pub rb_inline_txs_with_endorsement_enabled: bool,
     pub linear_vote_stage_length_slots: u64,
     pub linear_diffuse_stage_length_slots: u64,
     pub linear_eb_propagation_criteria: EBPropagationCriteria,
@@ -91,6 +147,20 @@ pub struct RawParameters {
     pub tx_conflict_fraction: Option<f64>,
     pub tx_start_time: Option<f64>,
     pub tx_stop_time: Option<f64>,
+    #[serde(default)]
+    pub tx_generator: Option<TxGenerator>,
+    #[serde(default)]
+    pub enforce_tier_delay: bool,
+    #[serde(default)]
+    pub tier_delay_unit: TierDelayUnit,
+    #[serde(default = "default_rb_path_latency_slots")]
+    pub rb_path_latency_slots: u64,
+    #[serde(default = "default_eb_path_latency_slots")]
+    pub eb_path_latency_slots: u64,
+    #[serde(default)]
+    pub pricing: Option<RawPricingConfig>,
+    #[serde(default)]
+    pub actors: Option<RawActorsConfig>,
 
     // Ranking block configuration
     pub rb_generation_probability: f64,
@@ -570,6 +640,20 @@ pub(crate) struct RealTransactionConfig {
 }
 
 impl RealTransactionConfig {
+    pub fn next_transaction_id(&self) -> TransactionId {
+        use std::sync::atomic::Ordering::Relaxed;
+        TransactionId::new(self.next_id.fetch_add(1, Relaxed))
+    }
+
+    pub fn next_input_id(&self) -> u64 {
+        use std::sync::atomic::Ordering::Relaxed;
+        self.input_id.fetch_add(1, Relaxed) + 1
+    }
+
+    pub fn sample_shard<R: Rng + ?Sized>(&self, rng: &mut R) -> u64 {
+        rng.random_range(0..self.ib_shards)
+    }
+
     pub fn new_tx(&self, rng: &mut ChaCha20Rng, conflict_fraction: Option<f64>) -> Transaction {
         use std::sync::atomic::Ordering::Relaxed;
         let id = TransactionId::new(self.next_id.fetch_add(1, Relaxed));
@@ -585,10 +669,28 @@ impl RealTransactionConfig {
         let overcollateralization_factor = self.overcollateralization_factor.sample(rng) as u64;
         Transaction {
             id,
+            actor_id: ActorId::new(0),
             shard,
             bytes,
+            submission_slot: 0,
+            mempool_entry_slot: None,
+            mempool_entry_rb_index: None,
+            value: u64::MAX,
+            urgency: UrgencyProfile::Indifferent,
+            posted_fee: None,
+            tier_preference: None,
+            tier_version_created_slot: None,
+            tier_delay_slots: None,
+            tier_price_per_byte_at_assignment: None,
+            eb_tier_preference: None,
+            eb_tier_version_created_slot: None,
+            eb_posted_fee: None,
+            eb_tier_delay_slots: None,
+            eb_tier_price_per_byte_at_assignment: None,
+            assigned_block_kind: None,
             input_id,
             overcollateralization_factor,
+            urgency_component_index: None,
         }
     }
 }
@@ -608,10 +710,28 @@ impl MockTransactionConfig {
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         Transaction {
             id: TransactionId::new(id),
+            actor_id: ActorId::new(0),
             shard: 0,
             bytes,
+            submission_slot: 0,
+            mempool_entry_slot: None,
+            mempool_entry_rb_index: None,
+            value: u64::MAX,
+            urgency: UrgencyProfile::Indifferent,
+            posted_fee: None,
+            tier_preference: None,
+            tier_version_created_slot: None,
+            tier_delay_slots: None,
+            tier_price_per_byte_at_assignment: None,
+            eb_tier_preference: None,
+            eb_tier_version_created_slot: None,
+            eb_posted_fee: None,
+            eb_tier_delay_slots: None,
+            eb_tier_price_per_byte_at_assignment: None,
+            assigned_block_kind: None,
             input_id: id,
             overcollateralization_factor: 0,
+            urgency_component_index: None,
         }
     }
 }
@@ -712,6 +832,7 @@ pub struct SimConfiguration {
     pub vote_threshold: u64,
     pub(crate) total_stake: u64,
     pub(crate) praos_fallback: bool,
+    pub(crate) rb_inline_txs_with_endorsement: bool,
     pub(crate) header_diffusion_time: Duration,
     pub(crate) ib_generation_time: Duration,
     pub(crate) relay_strategy: RelayStrategy,
@@ -739,6 +860,12 @@ pub struct SimConfiguration {
     pub(crate) cpu_times: CpuTimeConfig,
     pub(crate) sizes: BlockSizeConfig,
     pub(crate) transactions: TransactionConfig,
+    pub(crate) tx_generator: TxGenerator,
+    pub(crate) enforce_tier_delay: bool,
+    pub(crate) tier_delay_unit: TierDelayUnit,
+    pub(crate) naive_rb_eb_path_latency: NaiveRbEbPathLatencyConfig,
+    pub(crate) pricing: Option<PricingMechanismConfig>,
+    pub(crate) actors: Option<Vec<ActorConfig>>,
     pub(crate) attacks: AttackConfig,
 }
 
@@ -764,10 +891,33 @@ impl SimConfiguration {
                 params.ib_shard_period_length_slots
             );
         }
+        if params.rb_path_latency_slots == 0 || params.eb_path_latency_slots == 0 {
+            bail!("rb/eb path latency slots must be >= 1");
+        }
         let total_stake = topology.nodes.iter().map(|n| n.stake).sum();
         let attacks = AttackConfig::build(&params, &mut topology);
+
+        let mut pricing = load_pricing_config(&params)?;
+        let mut actors = load_actors_config(&params)?;
+        let tx_generator = resolve_tx_generator(&params, &actors)?;
+
+        if !params.simulate_transactions && tx_generator == TxGenerator::Actors {
+            bail!("tx-generator actors requires simulate-transactions = true");
+        }
+        if tx_generator == TxGenerator::Actors {
+            if actors.as_ref().is_none_or(|a| a.is_empty()) {
+                bail!("actors config must contain at least one actor");
+            }
+            if pricing.is_none() {
+                bail!("pricing config must be provided when using actors generator");
+            }
+        } else if pricing.is_some() || actors.is_some() {
+            info!("ignoring pricing/actors config because tx-generator is legacy");
+            pricing = None;
+            actors = None;
+        }
         Ok(Self {
-            seed: 0,
+            seed: params.seed,
             timestamp_resolution: duration_ms(params.timestamp_resolution_ms),
             slots: None,
             emit_conformance_events: false,
@@ -781,6 +931,7 @@ impl SimConfiguration {
             variant: params.leios_variant,
             total_stake,
             praos_fallback: params.praos_fallback_enabled,
+            rb_inline_txs_with_endorsement: params.rb_inline_txs_with_endorsement_enabled,
             header_diffusion_time: duration_ms(params.leios_header_diffusion_time_ms),
             ib_generation_time: duration_ms(params.leios_ib_generation_time_ms),
             relay_strategy: params.relay_strategy,
@@ -809,9 +960,150 @@ impl SimConfiguration {
             cpu_times: CpuTimeConfig::new(&params),
             sizes: BlockSizeConfig::new(&params),
             transactions: TransactionConfig::new(&params),
+            tx_generator,
+            enforce_tier_delay: params.enforce_tier_delay,
+            tier_delay_unit: params.tier_delay_unit,
+            naive_rb_eb_path_latency: NaiveRbEbPathLatencyConfig {
+                rb_slots: params.rb_path_latency_slots,
+                eb_slots: params.eb_path_latency_slots,
+            },
+            pricing,
+            actors,
             attacks,
         })
     }
+
+    pub fn actors(&self) -> Option<&[ActorConfig]> {
+        self.actors.as_deref()
+    }
+
+    pub fn enforce_tier_delay(&self) -> bool {
+        self.enforce_tier_delay
+    }
+
+    pub fn tier_delay_unit(&self) -> TierDelayUnit {
+        self.tier_delay_unit
+    }
+
+    pub(crate) fn tier_selection_path_latencies(&self) -> TierSelectionPathLatencyConfig {
+        match self.tier_delay_unit {
+            TierDelayUnit::Slots => TierSelectionPathLatencyConfig {
+                rb_delay_units: self.naive_rb_eb_path_latency.rb_slots.max(1),
+                eb_delay_units: self.naive_rb_eb_path_latency.eb_slots.max(1),
+            },
+            TierDelayUnit::Blocks => {
+                let expected_slots_per_block = self.expected_slots_per_settlement_block();
+                TierSelectionPathLatencyConfig {
+                    rb_delay_units: self
+                        .naive_rb_eb_path_latency
+                        .rb_slots
+                        .max(1)
+                        .div_ceil(expected_slots_per_block),
+                    eb_delay_units: self
+                        .naive_rb_eb_path_latency
+                        .eb_slots
+                        .max(1)
+                        .div_ceil(expected_slots_per_block),
+                }
+            }
+        }
+    }
+
+    fn expected_slots_per_settlement_block(&self) -> u64 {
+        if self.block_generation_probability.is_finite() && self.block_generation_probability > 0.0
+        {
+            (1.0 / self.block_generation_probability).ceil().max(1.0) as u64
+        } else {
+            1
+        }
+    }
+}
+
+fn resolve_tx_generator(
+    params: &RawParameters,
+    actors: &Option<Vec<ActorConfig>>,
+) -> Result<TxGenerator> {
+    Ok(params.tx_generator.unwrap_or_else(|| {
+        if actors.is_some() {
+            TxGenerator::Actors
+        } else {
+            TxGenerator::Legacy
+        }
+    }))
+}
+
+fn load_pricing_config(params: &RawParameters) -> Result<Option<PricingMechanismConfig>> {
+    let Some(raw) = &params.pricing else {
+        return Ok(None);
+    };
+    let config_path = Path::new(&raw.config_path);
+    let mut pricing = PricingFile::from_path(config_path)?.pricing_mechanism;
+    if let Some(kind) = raw.kind {
+        if !pricing_kind_matches(kind, &pricing) {
+            bail!(
+                "pricing config kind {:?} does not match pricing.type {:?}",
+                pricing,
+                kind
+            );
+        }
+    }
+    if let PricingMechanismConfig::TieredPricing { tiered_config } = &mut pricing {
+        let legacy_separate_pool = tiered_config.eb_total_capacity.is_some();
+        let needs_separate_pool = tiered_config.separate_eb_pool
+            || legacy_separate_pool
+            || tiered_config.block_selection_policy
+                == crate::tx_pricing::TierBlockSelectionPolicy::ContinuousRbEb;
+
+        if legacy_separate_pool
+            && tiered_config.eb_total_capacity != Some(params.eb_referenced_txs_max_size_bytes)
+        {
+            info!(
+                "pricing.eb_total_capacity is deprecated; using eb-referenced-txs-max-size-bytes ({}) instead",
+                params.eb_referenced_txs_max_size_bytes
+            );
+        }
+
+        tiered_config.eb_total_capacity = if needs_separate_pool {
+            Some(params.eb_referenced_txs_max_size_bytes)
+        } else {
+            None
+        };
+
+        tiered_config
+            .validate()
+            .map_err(|err| anyhow!("invalid tiered config: {}", err))?;
+    }
+    Ok(Some(pricing))
+}
+
+fn load_actors_config(params: &RawParameters) -> Result<Option<Vec<ActorConfig>>> {
+    let Some(raw) = &params.actors else {
+        return Ok(None);
+    };
+    let config_path = Path::new(&raw.config_path);
+    let actors = ActorsFile::from_path(config_path)?.actors;
+    Ok(Some(actors))
+}
+
+fn pricing_kind_matches(kind: PricingKind, config: &PricingMechanismConfig) -> bool {
+    match (kind, config) {
+        (PricingKind::Baseline, PricingMechanismConfig::Baseline { .. }) => true,
+        (PricingKind::Eip1559, PricingMechanismConfig::Eip1559 { .. }) => true,
+        (PricingKind::Tiered, PricingMechanismConfig::TieredPricing { .. }) => true,
+        _ => false,
+    }
+}
+
+fn default_seed() -> u64 {
+    42
+}
+
+fn default_rb_path_latency_slots() -> u64 {
+    20
+}
+
+fn default_eb_path_latency_slots() -> u64 {
+    56
 }
 
 fn duration_ms(ms: f64) -> Duration {

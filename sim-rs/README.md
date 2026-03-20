@@ -35,3 +35,26 @@ Assuming an output file `simplified.json`:
 ```
 
 This will output a ΔQ expression for use with the `delta_q` web tool corresponding to the probabilistic choice between all diffusion traces contained in the JSON file.
+
+## Timestamped experiment runs
+
+To avoid accidentally overwriting previous outputs, use the helper script:
+
+```sh
+scripts/run_sim_timestamped.sh \
+  --experiment parameters/experiments/leios-tiered-eb-on.yaml \
+  --label never-stale-2000 \
+  --slots 2000
+```
+
+For a compare run:
+
+```sh
+scripts/run_sim_timestamped.sh \
+  --experiment parameters/experiments/leios-tiered-eb-on.yaml \
+  --compare-experiment parameters/experiments/leios-tiered-eb-on-legacy-revalidate.yaml \
+  --label never-vs-legacy \
+  --slots 2000
+```
+
+Each run writes to a unique directory under `output/eb-compare/<timestamp>-<label>/`.

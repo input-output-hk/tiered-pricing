@@ -1,0 +1,26 @@
+# Rust build artifacts
+**/target/
+
+# Simulation outputs
+sim-rs/output/
+sim-rs/sim-rs/output/
+sim-rs/*.jsonl
+sim-rs/metrics_comparison.txt
+sim-rs/time_series.csv
+sim-rs/tiered_plot.html
+
+# Profiling / packaging artifacts
+flamegraph.svg
+perf.data*
+*.tar
+
+# Python cache artifacts
+**/__pycache__/
+*.py[cod]
+
+# IDE / editor / OS noise
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store

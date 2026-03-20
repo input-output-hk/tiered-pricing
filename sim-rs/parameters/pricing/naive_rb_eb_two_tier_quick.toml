@@ -1,0 +1,19 @@
+[pricing_mechanism]
+kind = "tiered_pricing"
+
+[pricing_mechanism.tiered_config]
+total_capacity = 12000
+max_tiers = 2
+tier_size_fractions = [0.0, 0.5]
+base_fee_change_denominator = 8
+target_utilisation = 0.5
+delay_update_period_slots = 200
+delay_increase_threshold = 0.9
+delay_decrease_prob = 0.25
+min_delay_ratio = 1.0
+tier_update_period_slots = 400
+add_tier_threshold = 0
+remove_tier_threshold = 0
+new_tier_price = 90
+new_tier_delay_ratio = 1.0
+block_selection_policy = "naive_rb_eb_two_tier"

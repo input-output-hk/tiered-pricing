@@ -28,6 +28,10 @@ impl Timestamp {
     pub fn with_resolution(self, delta: Duration) -> Self {
         Self(self.0.next_multiple_of(delta.as_nanos() as u64))
     }
+
+    pub(crate) fn as_nanos(self) -> u64 {
+        self.0
+    }
 }
 
 impl Add<Duration> for Timestamp {

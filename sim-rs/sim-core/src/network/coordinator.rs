@@ -3,6 +3,7 @@ use std::{cmp::Reverse, collections::HashMap, fmt::Debug, hash::Hash, time::Dura
 use anyhow::Result;
 use priority_queue::PriorityQueue;
 use tokio::{select, sync::mpsc};
+use tracing::warn;
 
 use crate::{
     clock::{ClockBarrier, Timestamp},
@@ -10,6 +11,8 @@ use crate::{
 };
 
 use super::connection::Connection;
+
+const NETWORK_YIELD_INTERVAL: usize = 1_024;
 
 pub struct NetworkCoordinator<TProtocol, TMessage> {
     source: mpsc::UnboundedReceiver<Message<TProtocol, TMessage>>,
@@ -57,6 +60,7 @@ impl<TProtocol: Clone + Eq + Hash, TMessage: Debug> NetworkCoordinator<TProtocol
     }
 
     pub async fn run(&mut self, clock: &mut ClockBarrier) -> Result<()> {
+        let mut processed_events = 0usize;
         loop {
             let waiter = match self.events.peek() {
                 Some((_, Reverse(timestamp))) => clock.wait_until(*timestamp),
@@ -65,16 +69,25 @@ impl<TProtocol: Clone + Eq + Hash, TMessage: Debug> NetworkCoordinator<TProtocol
             select! {
                 () = waiter => {
                     let (link, Reverse(timestamp)) = self.events.pop().unwrap();
-                    assert!(clock.now() >= timestamp);
+                    let now = clock.now();
+                    assert!(now >= timestamp);
                     let connection = self.connections.get_mut(&link).unwrap();
-                    for (body, _) in connection.recv_many(timestamp) {
+                    for (body, _) in connection.recv_many(now) {
                         clock.start_task();
-                        let _ = self
+                        let send_result = self
                             .sinks
                             .get(&link.to)
                             .unwrap()
                             .send((link.from, body));
-                    };
+                        if send_result.is_err() {
+                            warn!("dropping network message to closed sink {}", link.to);
+                            clock.finish_task();
+                        }
+                        processed_events += 1;
+                        if processed_events % NETWORK_YIELD_INTERVAL == 0 {
+                            tokio::task::yield_now().await;
+                        }
+                    }
                     if let Some(timestamp) = connection.next_arrival_time() {
                         self.events.push(link, Reverse(timestamp));
                     }
@@ -82,6 +95,10 @@ impl<TProtocol: Clone + Eq + Hash, TMessage: Debug> NetworkCoordinator<TProtocol
                 Some(message) = self.source.recv() => {
                     self.schedule_message(message, clock.now());
                     clock.finish_task();
+                    processed_events += 1;
+                    if processed_events % NETWORK_YIELD_INTERVAL == 0 {
+                        tokio::task::yield_now().await;
+                    }
                 }
             }
         }

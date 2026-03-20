@@ -9,6 +9,7 @@ anyhow = "1"
 async-stream = "0.3"
 dashmap = "6"
 futures = "0.3"
+indexmap = "2"
 netsim-async = { git = "https://github.com/input-output-hk/ce-netsim.git", rev = "9d1e26c" }
 num-traits = "0.2"
 priority-queue = "2"
@@ -16,6 +17,7 @@ rand = "0.9"
 rand_chacha = "0.9"
 rand_distr = "0.5"
 serde = { version = "1", features = ["derive"] }
+toml = "0.9"
 tokio = { version = "1", features = ["macros"] }
 tokio-util = "0.7"
 tracing = "0.1"

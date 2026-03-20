@@ -18,6 +18,7 @@ simulate-transactions: true
 treat-blocks-as-full: false
 cleanup-policies: ["cleanup-expired-vote"]
 timestamp-resolution-ms: 0.000001
+seed: 42
 
 ################################################################################
 # Leios Protocol Configuration
@@ -36,6 +37,8 @@ leios-mempool-size-bytes: null
 # TODO: revise default
 praos-chain-quality: 40
 praos-fallback-enabled: true
+# If true, RBs may include inline TXs even when they carry an EB endorsement.
+rb-inline-txs-with-endorsement-enabled: false
 
 linear-vote-stage-length-slots: 5
 linear-diffuse-stage-length-slots: 5
@@ -65,6 +68,24 @@ tx-validation-cpu-time-ms: 1.5
 tx-validation-cpu-time-ms-per-byte: 0
 tx-max-size-bytes: 16384
 tx-conflict-fraction: 0
+enforce-tier-delay: false
+# Unit for enforced tier delay: "slots" or "blocks" (default)
+tier-delay-unit: blocks
+# For lane-partitioned tier selection policies, actors can value lanes by protocol
+# path latency (CIP-0164 reports ~20s RB inclusion and ~45-60s EB inclusion).
+# When tier-delay-unit is "blocks", these slot latencies are converted to expected
+# settlement-block counts using the RB generation cadence.
+rb-path-latency-slots: 20
+eb-path-latency-slots: 56
+
+# Transaction generator selection
+# tx-generator: legacy # "legacy" or "actors"
+
+# Tiered pricing / actor configs (used with tx-generator: actors)
+# pricing:
+#   config-path: "./configs/tiered.toml"
+# actors:
+#   config-path: "./configs/actors/realistic_mix.toml"
 
 ################################################################################
 # Ranking Block Configuration

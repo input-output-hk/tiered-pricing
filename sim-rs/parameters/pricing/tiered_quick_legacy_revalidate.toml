@@ -1,0 +1,24 @@
+[pricing_mechanism]
+kind = "tiered_pricing"
+
+[pricing_mechanism.tiered_config]
+# Legacy inclusion semantics for comparison runs:
+# inclusion revalidates assigned tier against current active tier set and price.
+assignment_semantics = "legacy_revalidate_current_tier"
+total_capacity = 90112
+separate_eb_pool = true
+max_tiers = 4
+tier_size_fractions = [0.0, 0.25, 0.25, 0.25]
+base_fee_change_denominator = 8
+target_utilisation = 0.5
+delay_update_period_slots = 200
+delay_increase_threshold = 0.9
+delay_increase_thresholds = [0.9, 0.9, 0.9]
+delay_decrease_prob = 0.25
+min_delay_ratio = 2.0
+min_delay_ratios = [2.0, 2.0, 2.0]
+tier_update_period_slots = 400
+add_tier_threshold = 100
+remove_tier_threshold = 70
+new_tier_price = 90
+new_tier_delay_ratio = 2.0

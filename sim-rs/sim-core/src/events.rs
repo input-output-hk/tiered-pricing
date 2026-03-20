@@ -8,9 +8,11 @@ use crate::{
     clock::{Clock, Timestamp},
     config::{NodeConfiguration, NodeId},
     model::{
-        Block, BlockId, CpuTaskId, EndorserBlockId, InputBlockId, LinearRankingBlock, NoVoteReason,
-        Transaction, TransactionId, TransactionLostReason, VoteBundle, VoteBundleId,
+        ActorId, Block, BlockId, CpuTaskId, EndorserBlockId, InputBlockId, LinearRankingBlock,
+        NoVoteReason, TierId, Transaction, TransactionId, TransactionLostReason,
+        TransactionRejectReason, UrgencyProfile, VoteBundle, VoteBundleId,
     },
+    tx_pricing::BlockKind,
 };
 
 #[derive(Debug, Clone)]
@@ -66,10 +68,111 @@ pub struct Endorsement<Node: Display = NodeId> {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct TierInfo {
+    pub id: TierId,
+    pub capacity_bytes: u64,
+    pub delay: u64,
+    pub price_per_byte: u64,
+    pub utilisation: f64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TxProducerPhase {
+    StartSlot,
+    Generated,
+    Waiting,
+}
+
+impl TxProducerPhase {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            TxProducerPhase::StartSlot => "start_slot",
+            TxProducerPhase::Generated => "generated",
+            TxProducerPhase::Waiting => "waiting",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NodeHandlerKind {
+    Message,
+    NewSlot,
+    NewTx,
+    CpuTask,
+    TimedEvent,
+    CustomEvent,
+}
+
+impl NodeHandlerKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            NodeHandlerKind::Message => "message",
+            NodeHandlerKind::NewSlot => "new_slot",
+            NodeHandlerKind::NewTx => "new_tx",
+            NodeHandlerKind::CpuTask => "cpu_task",
+            NodeHandlerKind::TimedEvent => "timed_event",
+            NodeHandlerKind::CustomEvent => "custom_event",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NodeHandlerPhase {
+    Start,
+    Finish,
+}
+
+impl NodeHandlerPhase {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            NodeHandlerPhase::Start => "start",
+            NodeHandlerPhase::Finish => "finish",
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RetryLane {
+    Ranking,
+    Endorser,
+}
+
+#[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type")]
 pub enum Event {
     GlobalSlot {
         slot: u64,
+    },
+    ActorRegistered {
+        actor_id: u64,
+        name: String,
+    },
+    ClockDiagnostics {
+        slot: u64,
+        tasks_in_flight: u64,
+        actors_running: u64,
+        actors_total: u64,
+        running_actor_ids: Vec<u64>,
+        last_task_started_by: Option<u64>,
+        last_task_finished_by: Option<u64>,
+        last_wait_actor: Option<u64>,
+        last_wait_until_nanos: Option<u64>,
+        last_woken_actor: Option<u64>,
+        last_advance_to_nanos: Option<u64>,
+        wait_queue_len: u64,
+    },
+    TxProducerDiagnostics {
+        slot: u64,
+        phase: TxProducerPhase,
+    },
+    NodeHandlerDiagnostics {
+        node: Node,
+        kind: NodeHandlerKind,
+        phase: NodeHandlerPhase,
     },
     Slot {
         node: Node,
@@ -101,10 +204,15 @@ pub enum Event {
     TXGenerated {
         id: TransactionId,
         publisher: Node,
+        actor_id: ActorId,
         size_bytes: u64,
         shard: u64,
+        submission_slot: u64,
+        value: u64,
+        urgency: UrgencyProfile,
         input_id: u64,
         overcollateralization_factor: u64,
+        urgency_component_index: Option<u16>,
     },
     TXSent {
         id: TransactionId,
@@ -116,6 +224,48 @@ pub enum Event {
         id: TransactionId,
         sender: Node,
         recipient: Node,
+    },
+    TXRejected {
+        id: TransactionId,
+        node: Node,
+        reason: TransactionRejectReason,
+    },
+    TXTierAssigned {
+        id: TransactionId,
+        node: Node,
+        block_kind: BlockKind,
+        tier: TierId,
+        tier_version_created_slot: u64,
+        posted_fee: u64,
+        tier_delay_slots: u64,
+    },
+    TXRetryScheduled {
+        id: TransactionId,
+        node: Node,
+        actor_id: ActorId,
+        attempt: u32,
+        delay_slots: u64,
+        retained_value_ratio: f64,
+        lane: RetryLane,
+        tier: TierId,
+    },
+    TXOverflowChecked {
+        id: TransactionId,
+        node: Node,
+        block_kind: BlockKind,
+        tier: TierId,
+        pending_bytes: u64,
+        tier_capacity_bytes: u64,
+        overfull: bool,
+    },
+    TXOverflowRejected {
+        id: TransactionId,
+        node: Node,
+        block_kind: BlockKind,
+        tier: TierId,
+        pending_bytes: u64,
+        tier_capacity_bytes: u64,
+        retry_scheduled: bool,
     },
     TXLost {
         id: TransactionId,
@@ -277,6 +427,22 @@ pub enum Event {
         sender: Node,
         recipient: Node,
     },
+    TierPricesUpdated {
+        node: Node,
+        block_kind: BlockKind,
+        slot: u64,
+        delay_update_triggered: bool,
+        tier_update_triggered: bool,
+        tiers: Vec<TierInfo>,
+    },
+    TierCreated {
+        node: Node,
+        tier: TierInfo,
+    },
+    TierRemoved {
+        node: Node,
+        tier: TierId,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -319,6 +485,58 @@ impl EventTracker {
 
     pub fn track_global_slot(&self, slot: u64) {
         self.send(Event::GlobalSlot { slot });
+    }
+
+    pub fn track_clock_diagnostics(
+        &self,
+        slot: u64,
+        tasks_in_flight: u64,
+        actors_running: u64,
+        actors_total: u64,
+        running_actor_ids: Vec<u64>,
+        last_task_started_by: Option<u64>,
+        last_task_finished_by: Option<u64>,
+        last_wait_actor: Option<u64>,
+        last_wait_until_nanos: Option<u64>,
+        last_woken_actor: Option<u64>,
+        last_advance_to_nanos: Option<u64>,
+        wait_queue_len: u64,
+    ) {
+        self.send(Event::ClockDiagnostics {
+            slot,
+            tasks_in_flight,
+            actors_running,
+            actors_total,
+            running_actor_ids,
+            last_task_started_by,
+            last_task_finished_by,
+            last_wait_actor,
+            last_wait_until_nanos,
+            last_woken_actor,
+            last_advance_to_nanos,
+            wait_queue_len,
+        });
+    }
+
+    pub fn track_tx_producer_diagnostics(&self, slot: u64, phase: TxProducerPhase) {
+        self.send(Event::TxProducerDiagnostics { slot, phase });
+    }
+
+    pub fn track_node_handler_diagnostics(
+        &self,
+        node: NodeId,
+        kind: NodeHandlerKind,
+        phase: NodeHandlerPhase,
+    ) {
+        self.send(Event::NodeHandlerDiagnostics {
+            node: self.to_node(node),
+            kind,
+            phase,
+        });
+    }
+
+    pub fn track_actor_registered(&self, actor_id: u64, name: String) {
+        self.send(Event::ActorRegistered { actor_id, name });
     }
 
     pub fn track_slot(&self, node: NodeId, slot: u64) {
@@ -483,10 +701,15 @@ impl EventTracker {
         self.send(Event::TXGenerated {
             id: transaction.id,
             publisher: self.to_node(publisher),
+            actor_id: transaction.actor_id,
             size_bytes: transaction.bytes,
             shard: transaction.shard,
+            submission_slot: transaction.submission_slot,
+            value: transaction.value,
+            urgency: transaction.urgency.clone(),
             input_id: transaction.input_id,
             overcollateralization_factor: transaction.overcollateralization_factor,
+            urgency_component_index: transaction.urgency_component_index,
         });
     }
 
@@ -509,6 +732,108 @@ impl EventTracker {
             id,
             sender: self.to_node(sender),
             recipient: self.to_node(recipient),
+        });
+    }
+
+    pub fn track_transaction_rejected(
+        &self,
+        id: TransactionId,
+        node: NodeId,
+        reason: TransactionRejectReason,
+    ) {
+        self.send(Event::TXRejected {
+            id,
+            node: self.to_node(node),
+            reason,
+        });
+    }
+
+    pub fn track_transaction_tier_assigned(
+        &self,
+        id: TransactionId,
+        node: NodeId,
+        block_kind: BlockKind,
+        tier: TierId,
+        tier_version_created_slot: u64,
+        posted_fee: u64,
+        tier_delay_slots: u64,
+    ) {
+        self.send(Event::TXTierAssigned {
+            id,
+            node: self.to_node(node),
+            block_kind,
+            tier,
+            tier_version_created_slot,
+            posted_fee,
+            tier_delay_slots,
+        });
+    }
+
+    pub fn track_transaction_retry_scheduled(
+        &self,
+        id: TransactionId,
+        node: NodeId,
+        actor_id: ActorId,
+        attempt: u32,
+        delay_slots: u64,
+        retained_value_ratio: f64,
+        lane: BlockKind,
+        tier: TierId,
+    ) {
+        self.send(Event::TXRetryScheduled {
+            id,
+            node: self.to_node(node),
+            actor_id,
+            attempt,
+            delay_slots,
+            retained_value_ratio,
+            lane: match lane {
+                BlockKind::RankingBlock => RetryLane::Ranking,
+                BlockKind::EndorserBlock => RetryLane::Endorser,
+            },
+            tier,
+        });
+    }
+
+    pub fn track_transaction_overflow_checked(
+        &self,
+        id: TransactionId,
+        node: NodeId,
+        block_kind: BlockKind,
+        tier: TierId,
+        pending_bytes: u64,
+        tier_capacity_bytes: u64,
+        overfull: bool,
+    ) {
+        self.send(Event::TXOverflowChecked {
+            id,
+            node: self.to_node(node),
+            block_kind,
+            tier,
+            pending_bytes,
+            tier_capacity_bytes,
+            overfull,
+        });
+    }
+
+    pub fn track_transaction_overflow_rejected(
+        &self,
+        id: TransactionId,
+        node: NodeId,
+        block_kind: BlockKind,
+        tier: TierId,
+        pending_bytes: u64,
+        tier_capacity_bytes: u64,
+        retry_scheduled: bool,
+    ) {
+        self.send(Event::TXOverflowRejected {
+            id,
+            node: self.to_node(node),
+            block_kind,
+            tier,
+            pending_bytes,
+            tier_capacity_bytes,
+            retry_scheduled,
         });
     }
 
@@ -799,6 +1124,39 @@ impl EventTracker {
             producer: self.to_node(votes.id.producer),
             sender: self.to_node(sender),
             recipient: self.to_node(recipient),
+        });
+    }
+
+    pub fn track_tier_prices_updated(
+        &self,
+        node: NodeId,
+        block_kind: BlockKind,
+        slot: u64,
+        delay_update_triggered: bool,
+        tier_update_triggered: bool,
+        tiers: Vec<TierInfo>,
+    ) {
+        self.send(Event::TierPricesUpdated {
+            node: self.to_node(node),
+            block_kind,
+            slot,
+            delay_update_triggered,
+            tier_update_triggered,
+            tiers,
+        });
+    }
+
+    pub fn track_tier_created(&self, node: NodeId, tier: TierInfo) {
+        self.send(Event::TierCreated {
+            node: self.to_node(node),
+            tier,
+        });
+    }
+
+    pub fn track_tier_removed(&self, node: NodeId, tier: TierId) {
+        self.send(Event::TierRemoved {
+            node: self.to_node(node),
+            tier,
         });
     }
 

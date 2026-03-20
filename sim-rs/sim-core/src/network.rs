@@ -28,6 +28,10 @@ impl<TProtocol: Clone + Eq + Hash, TMessage: Debug> Network<TProtocol, TMessage>
         }
     }
 
+    pub fn actor_id(&self) -> u64 {
+        self.clock.id()
+    }
+
     pub fn set_edge_policy(
         &mut self,
         from: NodeId,

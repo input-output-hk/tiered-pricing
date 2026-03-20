@@ -340,7 +340,15 @@ impl TestDriver {
             result.is_none()
         });
         self.process_events(node, events);
-        result.expect("no CPU tasks matching filter")
+        result.unwrap_or_else(|| {
+            panic!(
+                "no CPU tasks matching filter for node {node}; all queued tasks: {:?}",
+                self.queued
+                    .iter()
+                    .map(|(node_id, queued)| (*node_id, queued.tasks.clone()))
+                    .collect::<Vec<_>>()
+            )
+        })
     }
 
     fn process_events(&mut self, node: NodeId, mut events: EventResult<LinearLeiosNode>) {

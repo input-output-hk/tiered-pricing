@@ -1,0 +1,85 @@
+# Low-value-skewed variant of paper_like_quick.toml.
+# The mix shifts much more demand into cheaper, less urgent transactions so EB
+# tiers should see more natural uptake without changing arrival rates or sizes.
+
+[[actors]]
+name = "correlated_first_half"
+arrival_rate = 0.0
+arrival_pattern = { kind = "phased", phases = [{ start_slot = 0, end_slot = 500, rate = 16.0 }, { start_slot = 500, end_slot = 1000, rate = 34.0 }] }
+tx_size = { kind = "normal", params = [400, 100] }
+value_distribution = { kind = "constant", params = [0] }
+urgency = { kind = "indifferent" }
+
+[[actors.value_urgency_components]]
+name = "high_val_high_urg"
+weight = 0.02
+value_distribution = { kind = "normal", params = [4000000.0, 1500000.0] }
+urgency_u_distribution = { kind = "uniform", params = [1.03, 1.06] }
+
+[[actors.value_urgency_components]]
+name = "med_high_val_med_urg"
+weight = 0.05
+value_distribution = { kind = "normal", params = [1500000.0, 600000.0] }
+urgency_u_distribution = { kind = "uniform", params = [1.02, 1.05] }
+
+[[actors.value_urgency_components]]
+name = "med_val_med_urg"
+weight = 0.13
+value_distribution = { kind = "normal", params = [600000.0, 300000.0] }
+urgency_u_distribution = { kind = "uniform", params = [1.015, 1.04] }
+
+[[actors.value_urgency_components]]
+name = "low_med_val_low_urg"
+weight = 0.30
+value_distribution = { kind = "normal", params = [120000.0, 60000.0] }
+urgency_u_distribution = { kind = "uniform", params = [1.006, 1.02] }
+
+[[actors.value_urgency_components]]
+name = "low_val_low_urg"
+weight = 0.50
+value_distribution = { kind = "normal", params = [25000.0, 15000.0] }
+urgency_u_distribution = { kind = "uniform", params = [1.002, 1.01] }
+
+[[actors]]
+name = "uncorrelated_second_half"
+arrival_rate = 0.0
+arrival_pattern = { kind = "phased", phases = [{ start_slot = 1000, end_slot = 1500, rate = 24.0 }, { start_slot = 1500, end_slot = 2000, rate = 16.0 }] }
+tx_size = { kind = "normal", params = [500, 120] }
+value_distribution = { kind = "constant", params = [0] }
+urgency = { kind = "indifferent" }
+
+[[actors.value_urgency_components]]
+name = "low_val_low_urg"
+weight = 0.50
+value_distribution = { kind = "normal", params = [35000.0, 15000.0] }
+urgency_u_distribution = { kind = "uniform", params = [1.002, 1.01] }
+
+[[actors.value_urgency_components]]
+name = "low_val_med_urg"
+weight = 0.25
+value_distribution = { kind = "normal", params = [80000.0, 30000.0] }
+urgency_u_distribution = { kind = "uniform", params = [1.003, 1.012] }
+
+[[actors.value_urgency_components]]
+name = "med_val_low_urg"
+weight = 0.15
+value_distribution = { kind = "normal", params = [180000.0, 70000.0] }
+urgency_u_distribution = { kind = "uniform", params = [1.004, 1.016] }
+
+[[actors.value_urgency_components]]
+name = "med_val_med_urg"
+weight = 0.07
+value_distribution = { kind = "normal", params = [400000.0, 150000.0] }
+urgency_u_distribution = { kind = "uniform", params = [1.008, 1.022] }
+
+[[actors.value_urgency_components]]
+name = "high_val_med_urg"
+weight = 0.02
+value_distribution = { kind = "normal", params = [900000.0, 300000.0] }
+urgency_u_distribution = { kind = "uniform", params = [1.01, 1.028] }
+
+[[actors.value_urgency_components]]
+name = "high_val_high_urg"
+weight = 0.01
+value_distribution = { kind = "normal", params = [1600000.0, 500000.0] }
+urgency_u_distribution = { kind = "uniform", params = [1.018, 1.045] }

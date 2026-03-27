@@ -366,7 +366,7 @@ fn is_new_rb_task(
     task: &CpuTask,
 ) -> Option<(Arc<LinearRankingBlock>, Option<Arc<LinearEndorserBlock>>)> {
     match task {
-        CpuTask::RBBlockGenerated(rb, eb) => Some((
+        CpuTask::RBBlockGenerated(rb, eb, _) => Some((
             Arc::new(rb.clone()),
             eb.as_ref().map(|(eb, _)| Arc::new(eb.clone())),
         )),

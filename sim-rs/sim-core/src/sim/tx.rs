@@ -214,8 +214,7 @@ fn generate_actor_transactions(
         let count = sample_arrivals(actor, slot, rng);
         for _ in 0..count {
             let bytes = actor.tx_size.sample_u64(rng).min(config.max_size);
-            let (value, urgency, urgency_component_index) =
-                sample_value_and_urgency(actor, rng);
+            let (value, urgency, urgency_component_index) = sample_value_and_urgency(actor, rng);
             let tx = Transaction {
                 id: config.next_transaction_id(),
                 actor_id: actor.id,

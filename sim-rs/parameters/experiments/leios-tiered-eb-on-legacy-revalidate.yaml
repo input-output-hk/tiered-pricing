@@ -6,8 +6,8 @@ leios-header-diffusion-time-ms: 2000.0
 linear-vote-stage-length-slots: 3
 linear-diffuse-stage-length-slots: 4
 vote-threshold: 180
-eb-referenced-txs-max-size-bytes: 16384000
+eb-referenced-txs-max-size-bytes: 270336
 pricing:
-  config-path: "parameters/pricing/tiered_quick_legacy_revalidate.toml"
+  config-path: "parameters/pricing/tiered_paper_exact_quick.toml"
 actors:
-  config-path: "parameters/actors/paper_like_quick.toml"
+  config-path: "parameters/actors/paper_exact_moderate_quick.toml"

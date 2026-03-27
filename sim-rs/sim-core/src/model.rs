@@ -121,13 +121,16 @@ pub enum UrgencyProfile {
     Urgent,
     #[serde(alias = "ExponentialDecay")]
     ExponentialDecay {
-        /// Portion of value retained each additional slot, in millionths.
-        /// 1_000_000 means no decay, 500_000 means 50% retained per extra slot.
+        /// Portion of value retained per delay unit, in millionths.
+        /// 1_000_000 means no decay, 500_000 means 50% retained per unit.
+        /// The delay unit (slots or blocks) is determined by tier_delay_unit config.
+        /// Both tier selection and welfare metrics respect this setting.
         retained_per_million: u32,
     },
     #[serde(alias = "LinearDecay")]
     LinearDecay {
-        /// Absolute value lost for each additional slot beyond delay=1.
+        /// Absolute value lost per delay unit beyond delay=1.
+        /// Same unit semantics as ExponentialDecay.
         value_drop_per_slot: u64,
     },
     #[serde(alias = "ValuationTable")]

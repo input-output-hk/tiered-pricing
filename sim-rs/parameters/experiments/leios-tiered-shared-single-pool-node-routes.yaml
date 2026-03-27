@@ -1,17 +1,15 @@
 leios-variant: linear
 tx-generator: actors
-enforce-tier-delay: false
+enforce-tier-delay: true
 tier-delay-unit: blocks
 seed: 42
-rb-path-latency-slots: 20
-eb-path-latency-slots: 56
-rb-inline-txs-with-endorsement-enabled: false
 leios-header-diffusion-time-ms: 2000.0
 linear-vote-stage-length-slots: 3
 linear-diffuse-stage-length-slots: 4
 vote-threshold: 180
+rb-inline-txs-with-endorsement-enabled: false
 eb-referenced-txs-max-size-bytes: 270336
 pricing:
-  config-path: "parameters/pricing/naive_rb_eb_two_tier_quick.toml"
+  config-path: "parameters/pricing/tiered_shared_single_pool_quick.toml"
 actors:
   config-path: "parameters/actors/paper_exact_moderate_quick.toml"

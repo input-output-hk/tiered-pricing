@@ -1261,11 +1261,30 @@ impl PricingMechanism {
         }
     }
 
+    pub fn effective_tier_capacity_for_block_kind(
+        &self,
+        block_kind: BlockKind,
+        tier_id: TierId,
+        block_capacity: u64,
+    ) -> Option<u64> {
+        match self {
+            PricingMechanism::Tiered(pricing) => {
+                pricing.effective_tier_capacity_for_block_kind(block_kind, tier_id, block_capacity)
+            }
+            _ => None,
+        }
+    }
+
     pub fn uses_continuous_rb_eb(&self) -> bool {
         matches!(
             self.block_selection_policy(),
             Some(TierBlockSelectionPolicy::ContinuousRbEb)
         )
+    }
+
+    pub fn uses_lane_partitioned_tiers(&self) -> bool {
+        self.block_selection_policy()
+            .map_or(false, |p| p.is_lane_partitioned())
     }
 
     pub fn overflow_retry_policy(&self) -> Option<OverflowRetryPolicy> {
@@ -1391,6 +1410,15 @@ impl PricingMechanism {
         }
     }
 
+    pub fn cloned_tiers_for_block_kind(&self, block_kind: BlockKind) -> Option<Vec<Tier>> {
+        match self {
+            PricingMechanism::Tiered(pricing) => {
+                Some(pricing.cloned_tiers_for_block_kind(block_kind))
+            }
+            _ => None,
+        }
+    }
+
     pub fn tiers_for_block_kind(&self, block_kind: BlockKind) -> Option<&[Tier]> {
         match self {
             PricingMechanism::Tiered(pricing) => match block_kind {
@@ -1425,14 +1453,9 @@ impl PricingMechanism {
 
     pub fn tier_utilisations_for_block_kind(&self, block_kind: BlockKind) -> Vec<f64> {
         match self {
-            PricingMechanism::Tiered(pricing) => match block_kind {
-                BlockKind::EndorserBlock => pricing
-                    .eb_state
-                    .as_ref()
-                    .map(|s| s.last_utilisations.clone())
-                    .unwrap_or_default(),
-                BlockKind::RankingBlock => pricing.state.last_utilisations.clone(),
-            },
+            PricingMechanism::Tiered(pricing) => {
+                pricing.tier_utilisations_for_block_kind(block_kind)
+            }
             _ => Vec::new(),
         }
     }
@@ -1632,7 +1655,132 @@ impl TieredPricing {
             }
             BlockKind::RankingBlock => {}
         }
+        // For lane-partitioned policies without a separate EB pool (e.g. NaiveRbEbTwoTier),
+        // filter tiers to only those matching the requested block kind's lane.
+        if self.config.block_selection_policy.is_lane_partitioned() {
+            let target_lane = tier_lane_for_block_kind(block_kind);
+            return PricingSnapshot {
+                tiers: self
+                    .state
+                    .tiers
+                    .iter()
+                    .filter(|tier| tier.lane == target_lane)
+                    .map(|tier| TierQuote {
+                        id: tier.id,
+                        lane: tier.lane,
+                        version_created_slot: tier.version_created_slot,
+                        delay: tier.delay,
+                        price_per_byte: tier.price,
+                        base_fee: 0,
+                    })
+                    .collect(),
+            };
+        }
         self.snapshot_for_state(&self.state)
+    }
+
+    fn cloned_tiers_for_block_kind(&self, block_kind: BlockKind) -> Vec<Tier> {
+        match block_kind {
+            BlockKind::EndorserBlock => {
+                if let Some(eb_state) = &self.eb_state {
+                    return eb_state.tiers.clone();
+                }
+            }
+            BlockKind::RankingBlock => {}
+        }
+        if self.config.block_selection_policy.is_lane_partitioned() {
+            let target_lane = tier_lane_for_block_kind(block_kind);
+            return self
+                .state
+                .tiers
+                .iter()
+                .filter(|tier| tier.lane == target_lane)
+                .cloned()
+                .collect();
+        }
+        self.state.tiers.clone()
+    }
+
+    fn tier_utilisations_for_block_kind(&self, block_kind: BlockKind) -> Vec<f64> {
+        match block_kind {
+            BlockKind::EndorserBlock => {
+                if let Some(eb_state) = &self.eb_state {
+                    return eb_state.last_utilisations.clone();
+                }
+            }
+            BlockKind::RankingBlock => {}
+        }
+        if self.config.block_selection_policy.is_lane_partitioned() {
+            let target_lane = tier_lane_for_block_kind(block_kind);
+            return self
+                .state
+                .tiers
+                .iter()
+                .zip(self.state.last_utilisations.iter().copied())
+                .filter_map(|(tier, utilisation)| (tier.lane == target_lane).then_some(utilisation))
+                .collect();
+        }
+        self.state.last_utilisations.clone()
+    }
+
+    fn effective_tier_capacity_for_block_kind(
+        &self,
+        block_kind: BlockKind,
+        tier_id: TierId,
+        block_capacity: u64,
+    ) -> Option<u64> {
+        let (tiers, config, has_separate_eb_pool) = match block_kind {
+            BlockKind::EndorserBlock => {
+                if let (Some(eb_state), Some(eb_config)) = (&self.eb_state, &self.eb_config) {
+                    (&eb_state.tiers, eb_config, true)
+                } else {
+                    (&self.state.tiers, &self.config, false)
+                }
+            }
+            BlockKind::RankingBlock => (&self.state.tiers, &self.config, self.eb_state.is_some()),
+        };
+        let (index, tier) = tiers
+            .iter()
+            .enumerate()
+            .find(|(_, tier)| tier.id == tier_id)?;
+        let shared_scale = if config.total_capacity == 0 {
+            0.0
+        } else {
+            block_capacity as f64 / config.total_capacity as f64
+        };
+        let eb_capacity_sum = tiers
+            .iter()
+            .skip(1)
+            .map(|candidate| candidate.capacity)
+            .sum::<u64>();
+        let effective_capacity = match config.block_selection_policy {
+            TierBlockSelectionPolicy::Shared | TierBlockSelectionPolicy::ContinuousRbEb => {
+                if has_separate_eb_pool {
+                    tier.capacity
+                } else {
+                    (tier.capacity as f64 * shared_scale).round() as u64
+                }
+            }
+            TierBlockSelectionPolicy::NaiveRbEbTwoTier => {
+                if config.block_selection_policy.allows_tier(index, block_kind) {
+                    block_capacity
+                } else {
+                    0
+                }
+            }
+            TierBlockSelectionPolicy::RbTier0Reserved => match block_kind {
+                BlockKind::RankingBlock => config.rb_reserved_capacity(block_capacity),
+                BlockKind::EndorserBlock => {
+                    if eb_capacity_sum == 0 {
+                        0
+                    } else {
+                        ((tier.capacity as f64 / eb_capacity_sum as f64) * block_capacity as f64)
+                            .round() as u64
+                    }
+                }
+            },
+        };
+        Some(effective_capacity)
     }
 
     fn snapshot_for_state(&self, state: &TieredState) -> PricingSnapshot {
@@ -3629,7 +3777,7 @@ mod tests {
             mempool_entry_rb_index: None,
             input_id: 1,
             overcollateralization_factor: 0,
-                urgency_component_index: None,
+            urgency_component_index: None,
         };
 
         assert_eq!(pricing.verify_preassigned_transaction(&tx), Ok(()));
@@ -3681,7 +3829,7 @@ mod tests {
             mempool_entry_rb_index: None,
             input_id: 2,
             overcollateralization_factor: 0,
-                urgency_component_index: None,
+            urgency_component_index: None,
         };
 
         assert_eq!(
@@ -3736,7 +3884,7 @@ mod tests {
             mempool_entry_rb_index: None,
             input_id: 3,
             overcollateralization_factor: 0,
-                urgency_component_index: None,
+            urgency_component_index: None,
         };
 
         assert_eq!(
@@ -3786,7 +3934,7 @@ mod tests {
             mempool_entry_rb_index: None,
             input_id: 1,
             overcollateralization_factor: 0,
-                urgency_component_index: None,
+            urgency_component_index: None,
         });
 
         let included = pricing.select_transactions(
@@ -3840,7 +3988,7 @@ mod tests {
             mempool_entry_rb_index: None,
             input_id: 11,
             overcollateralization_factor: 0,
-                urgency_component_index: None,
+            urgency_component_index: None,
         });
 
         let included = pricing.select_transactions(
@@ -3893,7 +4041,7 @@ mod tests {
             mempool_entry_rb_index: None,
             input_id: 2,
             overcollateralization_factor: 0,
-                urgency_component_index: None,
+            urgency_component_index: None,
         });
 
         let included = pricing.select_transactions(
@@ -3947,7 +4095,7 @@ mod tests {
             mempool_entry_rb_index: None,
             input_id: 12,
             overcollateralization_factor: 0,
-                urgency_component_index: None,
+            urgency_component_index: None,
         });
 
         let included = pricing.select_transactions(
@@ -4022,7 +4170,7 @@ mod tests {
             mempool_entry_rb_index: None,
             input_id: 9,
             overcollateralization_factor: 0,
-                urgency_component_index: None,
+            urgency_component_index: None,
         });
 
         let included =
@@ -4094,7 +4242,7 @@ mod tests {
             mempool_entry_rb_index: None,
             input_id: 10,
             overcollateralization_factor: 0,
-                urgency_component_index: None,
+            urgency_component_index: None,
         });
 
         let included =
@@ -4164,7 +4312,7 @@ mod tests {
             mempool_entry_rb_index: None,
             input_id: id,
             overcollateralization_factor: 0,
-                urgency_component_index: None,
+            urgency_component_index: None,
         })
     }
 
@@ -4578,7 +4726,7 @@ mod tests {
             mempool_entry_rb_index: None,
             input_id: 1,
             overcollateralization_factor: 0,
-                urgency_component_index: None,
+            urgency_component_index: None,
         };
         let snapshot = PricingSnapshot {
             tiers: vec![
@@ -4646,7 +4794,7 @@ mod tests {
             mempool_entry_rb_index: None,
             input_id: 2,
             overcollateralization_factor: 0,
-                urgency_component_index: None,
+            urgency_component_index: None,
         };
         let snapshot = PricingSnapshot {
             tiers: vec![
@@ -4708,7 +4856,7 @@ mod tests {
             mempool_entry_rb_index: None,
             input_id: 3,
             overcollateralization_factor: 0,
-                urgency_component_index: None,
+            urgency_component_index: None,
         };
         let snapshot = PricingSnapshot {
             tiers: vec![
@@ -4784,7 +4932,7 @@ mod tests {
             mempool_entry_rb_index: None,
             input_id: 1,
             overcollateralization_factor: 0,
-                urgency_component_index: None,
+            urgency_component_index: None,
         };
         let rb_snapshot = PricingSnapshot {
             tiers: vec![TierQuote {
@@ -4853,7 +5001,7 @@ mod tests {
             mempool_entry_rb_index: None,
             input_id: 11,
             overcollateralization_factor: 0,
-                urgency_component_index: None,
+            urgency_component_index: None,
         });
         let eb_tx = Arc::new(Transaction {
             id: TransactionId::new(2),
@@ -4878,7 +5026,7 @@ mod tests {
             mempool_entry_rb_index: None,
             input_id: 22,
             overcollateralization_factor: 0,
-                urgency_component_index: None,
+            urgency_component_index: None,
         });
 
         let txs = vec![rb_tx.clone(), eb_tx.clone()];
@@ -4889,6 +5037,84 @@ mod tests {
         let eb_selected = pricing.select_transactions(&txs, 0, 100, BlockKind::EndorserBlock);
         assert_eq!(eb_selected.len(), 1);
         assert_eq!(eb_selected[0].id, eb_tx.id);
+    }
+
+    #[test]
+    fn single_pool_endorser_assignment_uses_primary_fields() {
+        let mut config = test_config();
+        config.block_selection_policy = TierBlockSelectionPolicy::NaiveRbEbTwoTier;
+        config.max_tiers = 2;
+        config.tier_size_fractions = vec![0.0, 0.5];
+        config.new_tier_price = 100;
+
+        let pricing = TieredPricing::new(config, 9);
+        let tx = Arc::new(Transaction {
+            id: TransactionId::new(1),
+            actor_id: ActorId::new(0),
+            shard: 0,
+            bytes: 10,
+            submission_slot: 0,
+            value: 1_000,
+            urgency: UrgencyProfile::Indifferent,
+            posted_fee: Some(1_000),
+            tier_preference: Some(TierId::new(1)),
+            tier_version_created_slot: Some(0),
+            tier_delay_slots: Some(1),
+            tier_price_per_byte_at_assignment: Some(100),
+            eb_tier_preference: None,
+            eb_tier_version_created_slot: None,
+            eb_posted_fee: None,
+            eb_tier_delay_slots: None,
+            eb_tier_price_per_byte_at_assignment: None,
+            assigned_block_kind: Some(BlockKind::EndorserBlock),
+            mempool_entry_slot: None,
+            mempool_entry_rb_index: None,
+            input_id: 1,
+            overcollateralization_factor: 0,
+            urgency_component_index: None,
+        });
+
+        assert_eq!(pricing.verify_preassigned_transaction(&tx), Ok(()));
+
+        let rb_selected =
+            pricing.select_transactions(&[tx.clone()], 0, 100, BlockKind::RankingBlock);
+        assert!(rb_selected.is_empty());
+
+        let eb_selected =
+            pricing.select_transactions(&[tx.clone()], 0, 100, BlockKind::EndorserBlock);
+        assert_eq!(eb_selected.len(), 1);
+        assert_eq!(eb_selected[0].id, tx.id);
+    }
+
+    #[test]
+    fn single_pool_lane_partitioned_reporting_filters_by_block_kind() {
+        let mut config = test_config();
+        config.block_selection_policy = TierBlockSelectionPolicy::NaiveRbEbTwoTier;
+        config.max_tiers = 2;
+        config.tier_size_fractions = vec![0.0, 0.5];
+        config.new_tier_price = 100;
+
+        let mut pricing = TieredPricing::new(config, 9);
+        pricing.state.last_utilisations = vec![0.75, 0.25];
+
+        let rb_tiers = pricing.cloned_tiers_for_block_kind(BlockKind::RankingBlock);
+        assert_eq!(rb_tiers.len(), 1);
+        assert_eq!(rb_tiers[0].id, TierId::new(0));
+        assert_eq!(rb_tiers[0].lane, TierLane::Ranking);
+
+        let eb_tiers = pricing.cloned_tiers_for_block_kind(BlockKind::EndorserBlock);
+        assert_eq!(eb_tiers.len(), 1);
+        assert_eq!(eb_tiers[0].id, TierId::new(1));
+        assert_eq!(eb_tiers[0].lane, TierLane::Endorser);
+
+        assert_eq!(
+            pricing.tier_utilisations_for_block_kind(BlockKind::RankingBlock),
+            vec![0.75]
+        );
+        assert_eq!(
+            pricing.tier_utilisations_for_block_kind(BlockKind::EndorserBlock),
+            vec![0.25]
+        );
     }
 
     #[test]
@@ -4922,7 +5148,7 @@ mod tests {
             mempool_entry_rb_index: None,
             input_id: 1,
             overcollateralization_factor: 0,
-                urgency_component_index: None,
+            urgency_component_index: None,
         };
         assert_eq!(
             pricing.verify_preassigned_transaction(&tx),

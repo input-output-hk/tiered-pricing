@@ -18,7 +18,7 @@ use crate::{
     model::{ActorId, Transaction, TransactionId, UrgencyProfile},
     probability::FloatDistribution,
     tx_actors::{ActorConfig, ActorsFile},
-    tx_pricing::{PricingFile, PricingMechanismConfig},
+    tx_pricing::{PricingFile, PricingMechanismConfig, TierBlockSelectionPolicy},
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -985,6 +985,18 @@ impl SimConfiguration {
         self.tier_delay_unit
     }
 
+    pub fn rb_body_max_size_bytes(&self) -> u64 {
+        self.max_block_size
+    }
+
+    pub fn eb_referenced_txs_max_size_bytes(&self) -> u64 {
+        self.max_eb_size
+    }
+
+    pub fn rb_inline_txs_with_endorsement_enabled(&self) -> bool {
+        self.rb_inline_txs_with_endorsement
+    }
+
     pub(crate) fn tier_selection_path_latencies(&self) -> TierSelectionPathLatencyConfig {
         match self.tier_delay_unit {
             TierDelayUnit::Slots => TierSelectionPathLatencyConfig {
@@ -1009,13 +1021,22 @@ impl SimConfiguration {
         }
     }
 
-    fn expected_slots_per_settlement_block(&self) -> u64 {
+    pub fn expected_slots_per_settlement_block(&self) -> u64 {
         if self.block_generation_probability.is_finite() && self.block_generation_probability > 0.0
         {
             (1.0 / self.block_generation_probability).ceil().max(1.0) as u64
         } else {
             1
         }
+    }
+
+    pub fn uses_shared_single_pool_tiered_pricing(&self) -> bool {
+        matches!(
+            &self.pricing,
+            Some(PricingMechanismConfig::TieredPricing { tiered_config })
+                if tiered_config.block_selection_policy == TierBlockSelectionPolicy::Shared
+                    && tiered_config.eb_total_capacity.is_none()
+        )
     }
 }
 

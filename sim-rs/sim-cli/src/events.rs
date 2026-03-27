@@ -63,6 +63,11 @@ pub struct EventMonitor {
     aggregate: bool,
     seed: u64,
     tier_delay_unit: TierDelayUnit,
+    expected_slots_per_block: u64,
+    shared_single_pool_tiers: bool,
+    rb_body_max_size_bytes: u64,
+    eb_referenced_txs_max_size_bytes: u64,
+    rb_inline_txs_with_endorsement: bool,
     shutdown: CancellationToken,
     actor_names: BTreeMap<ActorId, String>,
     /// Maps (actor_id, component_index) to a display name for urgency-class welfare reporting.
@@ -76,8 +81,14 @@ pub struct EventMonitor {
 pub struct RunSummary {
     pub submissions: u64,
     pub unique_generated: u64,
+    pub unique_generated_bytes: u64,
     pub rejected: u64,
     pub included: u64,
+    pub included_bytes: u64,
+    pub optimal_supply_capacity_bytes: u64,
+    pub optimal_included_bytes: u64,
+    pub included_vs_generated_bytes_ratio: f64,
+    pub included_vs_optimal_bytes_ratio: f64,
     pub inclusion_rate: f64,
     pub unique_inclusion_rate: f64,
     pub tier_delay_unit: TierDelayUnit,
@@ -98,6 +109,20 @@ pub struct RunSummary {
 }
 
 impl EventMonitor {
+    fn optimal_settlement_capacity_bytes_for_rb(&self, has_endorsement: bool) -> u64 {
+        let inline_capacity = if has_endorsement && !self.rb_inline_txs_with_endorsement {
+            0
+        } else {
+            self.rb_body_max_size_bytes
+        };
+        let endorsed_eb_capacity = if has_endorsement {
+            self.eb_referenced_txs_max_size_bytes
+        } else {
+            0
+        };
+        inline_capacity.saturating_add(endorsed_eb_capacity)
+    }
+
     pub fn new(
         config: &SimConfiguration,
         events_source: mpsc::UnboundedReceiver<(Event, Timestamp)>,
@@ -131,16 +156,14 @@ impl EventMonitor {
                     .enumerate()
                     .flat_map(|(actor_idx, actor)| {
                         let actor_id = ActorId::new(actor_idx as u64);
-                        actor
-                            .value_urgency_components
-                            .iter()
-                            .enumerate()
-                            .map(move |(comp_idx, comp)| {
+                        actor.value_urgency_components.iter().enumerate().map(
+                            move |(comp_idx, comp)| {
                                 let name = comp.name.clone().unwrap_or_else(|| {
                                     format!("{}:component_{}", actor.name, comp_idx)
                                 });
                                 ((actor_id, comp_idx as u16), name)
-                            })
+                            },
+                        )
                     })
                     .collect()
             })
@@ -157,6 +180,11 @@ impl EventMonitor {
             aggregate: config.aggregate_events,
             seed: config.seed,
             tier_delay_unit: config.tier_delay_unit(),
+            expected_slots_per_block: config.expected_slots_per_settlement_block(),
+            shared_single_pool_tiers: config.uses_shared_single_pool_tiered_pricing(),
+            rb_body_max_size_bytes: config.rb_body_max_size_bytes(),
+            eb_referenced_txs_max_size_bytes: config.eb_referenced_txs_max_size_bytes(),
+            rb_inline_txs_with_endorsement: config.rb_inline_txs_with_endorsement_enabled(),
             shutdown,
             actor_names,
             urgency_class_names,
@@ -580,8 +608,12 @@ impl EventMonitor {
                             urgency_component_index,
                         ),
                     );
-                    self.pricing_metrics
-                        .record_generated(actor_id, value, urgency_component_index);
+                    self.pricing_metrics.record_generated(
+                        actor_id,
+                        value,
+                        urgency_component_index,
+                        size_bytes,
+                    );
                 }
                 Event::TXSent { .. } => {
                     tx_messages.sent += 1;
@@ -687,6 +719,10 @@ impl EventMonitor {
                     ..
                 } => {
                     rb_generated = rb_generated.saturating_add(1);
+                    let has_endorsement = endorsement.is_some();
+                    self.pricing_metrics.record_optimal_supply_capacity(
+                        self.optimal_settlement_capacity_bytes_for_rb(has_endorsement),
+                    );
                     info!(
                         "Pool {} produced a praos block in slot {slot} with {} tx(s).",
                         producer,
@@ -724,6 +760,8 @@ impl EventMonitor {
                                             *tx_id,
                                             time,
                                             BlockKind::EndorserBlock,
+                                            self.tier_delay_unit,
+                                            self.expected_slots_per_block,
                                         );
                                         cumulative_eb_inclusions =
                                             cumulative_eb_inclusions.saturating_add(1);
@@ -745,6 +783,8 @@ impl EventMonitor {
                                         *tx_id,
                                         time,
                                         BlockKind::EndorserBlock,
+                                        self.tier_delay_unit,
+                                        self.expected_slots_per_block,
                                     );
                                     cumulative_eb_inclusions =
                                         cumulative_eb_inclusions.saturating_add(1);
@@ -787,6 +827,8 @@ impl EventMonitor {
                                 *tx_id,
                                 time,
                                 BlockKind::RankingBlock,
+                                self.tier_delay_unit,
+                                self.expected_slots_per_block,
                             );
                             cumulative_rb_inclusions = cumulative_rb_inclusions.saturating_add(1);
                             if let Some(tx) = txs.get_mut(tx_id) {
@@ -947,24 +989,28 @@ impl EventMonitor {
                         tiers.iter().map(|tier| tier.capacity_bytes).collect();
                     let utilisations: Vec<f64> =
                         tiers.iter().map(|tier| tier.utilisation).collect();
-                    match block_kind {
-                        BlockKind::RankingBlock => {
-                            last_rb_tier_count = count;
-                            last_rb_tier_prices = prices;
-                            last_rb_tier_prices_by_id = prices_by_id;
-                            last_rb_tier_delays = delays;
-                            last_rb_tier_capacities = capacities;
-                            last_rb_tier_utilisations = utilisations;
-                        }
-                        BlockKind::EndorserBlock => {
-                            last_eb_tier_count = count;
-                            last_eb_tier_prices = prices;
-                            last_eb_tier_prices_by_id = prices_by_id;
-                            last_eb_tier_delays = delays;
-                            last_eb_tier_capacities = capacities;
-                            last_eb_tier_utilisations = utilisations;
-                        }
-                    }
+                    apply_tier_prices_update_to_series(
+                        self.shared_single_pool_tiers,
+                        block_kind,
+                        count,
+                        prices,
+                        prices_by_id,
+                        delays,
+                        capacities,
+                        utilisations,
+                        &mut last_rb_tier_count,
+                        &mut last_rb_tier_prices,
+                        &mut last_rb_tier_prices_by_id,
+                        &mut last_rb_tier_delays,
+                        &mut last_rb_tier_capacities,
+                        &mut last_rb_tier_utilisations,
+                        &mut last_eb_tier_count,
+                        &mut last_eb_tier_prices,
+                        &mut last_eb_tier_prices_by_id,
+                        &mut last_eb_tier_delays,
+                        &mut last_eb_tier_capacities,
+                        &mut last_eb_tier_utilisations,
+                    );
                     self.upsert_time_series(TimeSeriesPoint {
                         slot,
                         rb_tier_count: last_rb_tier_count,
@@ -1247,6 +1293,19 @@ impl EventMonitor {
         } else {
             self.pricing_metrics.included as f64 / self.pricing_metrics.unique_generated as f64
         };
+        let included_vs_generated_bytes_ratio = if self.pricing_metrics.unique_generated_bytes == 0
+        {
+            0.0
+        } else {
+            self.pricing_metrics.total_included_bytes as f64
+                / self.pricing_metrics.unique_generated_bytes as f64
+        };
+        let included_vs_optimal_bytes_ratio = if self.pricing_metrics.optimal_included_bytes == 0 {
+            0.0
+        } else {
+            self.pricing_metrics.total_included_bytes as f64
+                / self.pricing_metrics.optimal_included_bytes as f64
+        };
         let retained_value_ratio_generated = if self.pricing_metrics.generated_value_total == 0 {
             0.0
         } else {
@@ -1276,8 +1335,14 @@ impl EventMonitor {
         Ok(RunSummary {
             submissions: self.pricing_metrics.submissions,
             unique_generated: self.pricing_metrics.unique_generated,
+            unique_generated_bytes: self.pricing_metrics.unique_generated_bytes,
             rejected: self.pricing_metrics.rejected,
             included: self.pricing_metrics.included,
+            included_bytes: self.pricing_metrics.total_included_bytes,
+            optimal_supply_capacity_bytes: self.pricing_metrics.optimal_supply_capacity_bytes,
+            optimal_included_bytes: self.pricing_metrics.optimal_included_bytes,
+            included_vs_generated_bytes_ratio,
+            included_vs_optimal_bytes_ratio,
             inclusion_rate,
             unique_inclusion_rate,
             tier_delay_unit: self.tier_delay_unit,
@@ -1475,10 +1540,10 @@ impl Transaction {
     }
 }
 
-#[derive(Clone)]
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct PricingMetrics {
     unique_generated: u64,
+    unique_generated_bytes: u64,
     generated_value_total: u128,
     submissions: u64,
     rejected: u64,
@@ -1523,6 +1588,9 @@ struct PricingMetrics {
     total_fees: u128,
     total_submitted_bytes: u64,
     total_included_bytes: u64,
+    optimal_supply_capacity_bytes: u64,
+    optimal_included_bytes: u64,
+    optimal_pending_generated_bytes: u64,
     settled_initial_value_total: u128,
     retained_value_total: u128,
     net_utility_total: i128,
@@ -1577,8 +1645,12 @@ impl PricingMetrics {
         actor_id: ActorId,
         initial_value: u64,
         urgency_component_index: Option<u16>,
+        bytes: u64,
     ) {
         self.unique_generated = self.unique_generated.saturating_add(1);
+        self.unique_generated_bytes = self.unique_generated_bytes.saturating_add(bytes);
+        self.optimal_pending_generated_bytes =
+            self.optimal_pending_generated_bytes.saturating_add(bytes);
         self.generated_value_total = self
             .generated_value_total
             .saturating_add(initial_value as u128);
@@ -1596,6 +1668,16 @@ impl PricingMetrics {
         }
     }
 
+    fn record_optimal_supply_capacity(&mut self, capacity_bytes: u64) {
+        self.optimal_supply_capacity_bytes = self
+            .optimal_supply_capacity_bytes
+            .saturating_add(capacity_bytes);
+        let served = self.optimal_pending_generated_bytes.min(capacity_bytes);
+        self.optimal_included_bytes = self.optimal_included_bytes.saturating_add(served);
+        self.optimal_pending_generated_bytes =
+            self.optimal_pending_generated_bytes.saturating_sub(served);
+    }
+
     fn record_submission(&mut self, actor_id: ActorId, bytes: u64) {
         self.submissions += 1;
         self.total_submitted_bytes = self.total_submitted_bytes.saturating_add(bytes);
@@ -1608,7 +1690,13 @@ impl PricingMetrics {
         tier: TierId,
         lane_prices_by_id: &BTreeMap<TierId, u64>,
     ) {
-        let Some(tier_index) = tier_id_to_index(tier) else {
+        let Some(tier_index) =
+            (if lane_prices_by_id.len() == 1 && lane_prices_by_id.contains_key(&tier) {
+                Some(0)
+            } else {
+                tier_id_to_index(tier)
+            })
+        else {
             return;
         };
         let (total, to_max_priced, by_tier) = match block_kind {
@@ -1800,13 +1888,14 @@ impl PricingMetrics {
         actor_id: ActorId,
         posted_fee: Option<u64>,
         bytes: u64,
-        latency: u64,
+        latency_slots: u64,
         tier_delay_slots: u64,
         initial_value: u64,
         urgency: &UrgencyProfile,
+        decay_latency: u64,
         urgency_component_index: Option<u16>,
     ) {
-        let value_stats = settlement_value_stats(initial_value, urgency, latency, posted_fee);
+        let value_stats = settlement_value_stats(initial_value, urgency, decay_latency, posted_fee);
         self.included += 1;
         if tier_delay_slots > 1 {
             self.settled_with_delay += 1;
@@ -1829,7 +1918,7 @@ impl PricingMetrics {
             self.settled_value_retention_ratio_samples =
                 self.settled_value_retention_ratio_samples.saturating_add(1);
         }
-        self.latency_samples_slots.push(latency);
+        self.latency_samples_slots.push(latency_slots);
         let entry = self.per_actor.entry(actor_id).or_default();
         entry.included += 1;
         if let Some(fee) = posted_fee {
@@ -1850,7 +1939,7 @@ impl PricingMetrics {
                 .settled_value_retention_ratio_samples
                 .saturating_add(1);
         }
-        entry.latency_samples_slots.push(latency);
+        entry.latency_samples_slots.push(latency_slots);
         if let Some(idx) = urgency_component_index {
             let uc = self.per_urgency_class.entry((actor_id, idx)).or_default();
             uc.included += 1;
@@ -1863,16 +1952,13 @@ impl PricingMetrics {
             uc.retained_value_total = uc
                 .retained_value_total
                 .saturating_add(value_stats.retained_value as u128);
-            uc.net_utility_total = uc
-                .net_utility_total
-                .saturating_add(value_stats.net_utility);
+            uc.net_utility_total = uc.net_utility_total.saturating_add(value_stats.net_utility);
             if let Some(retention_ratio) = value_stats.retention_ratio {
                 uc.settled_value_retention_ratio_sum += retention_ratio;
-                uc.settled_value_retention_ratio_samples = uc
-                    .settled_value_retention_ratio_samples
-                    .saturating_add(1);
+                uc.settled_value_retention_ratio_samples =
+                    uc.settled_value_retention_ratio_samples.saturating_add(1);
             }
-            uc.latency_samples_slots.push(latency);
+            uc.latency_samples_slots.push(latency_slots);
         }
     }
 }
@@ -1906,12 +1992,134 @@ struct TimeSeriesPoint {
     cumulative_eb_tier_assignments_by_tier: Vec<u64>,
 }
 
+#[allow(clippy::too_many_arguments)]
+fn store_latest_tier_view(
+    count: usize,
+    prices: Vec<u64>,
+    prices_by_id: BTreeMap<TierId, u64>,
+    delays: Vec<u64>,
+    capacities: Vec<u64>,
+    utilisations: Vec<f64>,
+    last_count: &mut usize,
+    last_prices: &mut Vec<u64>,
+    last_prices_by_id: &mut BTreeMap<TierId, u64>,
+    last_delays: &mut Vec<u64>,
+    last_capacities: &mut Vec<u64>,
+    last_utilisations: &mut Vec<f64>,
+) {
+    *last_count = count;
+    *last_prices = prices;
+    *last_prices_by_id = prices_by_id;
+    *last_delays = delays;
+    *last_capacities = capacities;
+    *last_utilisations = utilisations;
+}
+
+fn clear_latest_tier_view(
+    last_count: &mut usize,
+    last_prices: &mut Vec<u64>,
+    last_prices_by_id: &mut BTreeMap<TierId, u64>,
+    last_delays: &mut Vec<u64>,
+    last_capacities: &mut Vec<u64>,
+    last_utilisations: &mut Vec<f64>,
+) {
+    *last_count = 0;
+    last_prices.clear();
+    last_prices_by_id.clear();
+    last_delays.clear();
+    last_capacities.clear();
+    last_utilisations.clear();
+}
+
+#[allow(clippy::too_many_arguments)]
+fn apply_tier_prices_update_to_series(
+    shared_single_pool_tiers: bool,
+    block_kind: BlockKind,
+    count: usize,
+    prices: Vec<u64>,
+    prices_by_id: BTreeMap<TierId, u64>,
+    delays: Vec<u64>,
+    capacities: Vec<u64>,
+    utilisations: Vec<f64>,
+    last_rb_tier_count: &mut usize,
+    last_rb_tier_prices: &mut Vec<u64>,
+    last_rb_tier_prices_by_id: &mut BTreeMap<TierId, u64>,
+    last_rb_tier_delays: &mut Vec<u64>,
+    last_rb_tier_capacities: &mut Vec<u64>,
+    last_rb_tier_utilisations: &mut Vec<f64>,
+    last_eb_tier_count: &mut usize,
+    last_eb_tier_prices: &mut Vec<u64>,
+    last_eb_tier_prices_by_id: &mut BTreeMap<TierId, u64>,
+    last_eb_tier_delays: &mut Vec<u64>,
+    last_eb_tier_capacities: &mut Vec<u64>,
+    last_eb_tier_utilisations: &mut Vec<f64>,
+) {
+    if shared_single_pool_tiers {
+        store_latest_tier_view(
+            count,
+            prices,
+            prices_by_id,
+            delays,
+            capacities,
+            utilisations,
+            last_rb_tier_count,
+            last_rb_tier_prices,
+            last_rb_tier_prices_by_id,
+            last_rb_tier_delays,
+            last_rb_tier_capacities,
+            last_rb_tier_utilisations,
+        );
+        clear_latest_tier_view(
+            last_eb_tier_count,
+            last_eb_tier_prices,
+            last_eb_tier_prices_by_id,
+            last_eb_tier_delays,
+            last_eb_tier_capacities,
+            last_eb_tier_utilisations,
+        );
+        return;
+    }
+
+    match block_kind {
+        BlockKind::RankingBlock => store_latest_tier_view(
+            count,
+            prices,
+            prices_by_id,
+            delays,
+            capacities,
+            utilisations,
+            last_rb_tier_count,
+            last_rb_tier_prices,
+            last_rb_tier_prices_by_id,
+            last_rb_tier_delays,
+            last_rb_tier_capacities,
+            last_rb_tier_utilisations,
+        ),
+        BlockKind::EndorserBlock => store_latest_tier_view(
+            count,
+            prices,
+            prices_by_id,
+            delays,
+            capacities,
+            utilisations,
+            last_eb_tier_count,
+            last_eb_tier_prices,
+            last_eb_tier_prices_by_id,
+            last_eb_tier_delays,
+            last_eb_tier_capacities,
+            last_eb_tier_utilisations,
+        ),
+    }
+}
+
 fn record_inclusion(
     metrics: &mut PricingMetrics,
     txs: &mut BTreeMap<TransactionId, Transaction>,
     tx_id: TransactionId,
     time: Timestamp,
     block_kind: BlockKind,
+    tier_delay_unit: TierDelayUnit,
+    expected_slots_per_block: u64,
 ) {
     let Some(tx) = txs.get_mut(&tx_id) else {
         return;
@@ -1929,15 +2137,23 @@ fn record_inclusion(
         ),
     };
     metrics.record_block_inclusion(tier_delay_slots);
-    let latency = included_slot.saturating_sub(tx.submission_slot);
+    let latency_slots = included_slot.saturating_sub(tx.submission_slot);
+    // Convert latency to the same unit used for decay in tier selection.
+    // When tier_delay_unit is Blocks, the decay parameter (retained_per_million)
+    // was calibrated per-block, so welfare must also decay per-block.
+    let decay_latency = match tier_delay_unit {
+        TierDelayUnit::Slots => latency_slots,
+        TierDelayUnit::Blocks => latency_slots.div_ceil(expected_slots_per_block.max(1)),
+    };
     metrics.record_inclusion(
         tx.actor_id,
         posted_fee,
         tx.bytes,
-        latency,
+        latency_slots,
         tier_delay_slots,
         tx.value,
         &tx.urgency,
+        decay_latency,
         tx.urgency_component_index,
     );
 }
@@ -2031,6 +2247,21 @@ fn format_metrics_table(
     } else {
         metrics.total_fees as f64 / metrics.total_included_bytes as f64
     };
+    let included_vs_generated_bytes = if metrics.unique_generated_bytes == 0 {
+        0.0
+    } else {
+        metrics.total_included_bytes as f64 / metrics.unique_generated_bytes as f64
+    };
+    let optimal_inclusion_rate_bytes = if metrics.unique_generated_bytes == 0 {
+        0.0
+    } else {
+        metrics.optimal_included_bytes as f64 / metrics.unique_generated_bytes as f64
+    };
+    let included_vs_optimal_bytes = if metrics.optimal_included_bytes == 0 {
+        0.0
+    } else {
+        metrics.total_included_bytes as f64 / metrics.optimal_included_bytes as f64
+    };
     let fee_per_tx = if metrics.included == 0 {
         0.0
     } else {
@@ -2112,6 +2343,48 @@ fn format_metrics_table(
     .ok();
     writeln!(out, "Submissions                | {}", metrics.submissions).ok();
     writeln!(out, "Included                   | {}", metrics.included).ok();
+    writeln!(
+        out,
+        "Generated bytes            | {}",
+        metrics.unique_generated_bytes
+    )
+    .ok();
+    writeln!(
+        out,
+        "Included bytes             | {}",
+        metrics.total_included_bytes
+    )
+    .ok();
+    writeln!(
+        out,
+        "Optimal supply bytes       | {}",
+        metrics.optimal_supply_capacity_bytes
+    )
+    .ok();
+    writeln!(
+        out,
+        "Optimal included bytes     | {}",
+        metrics.optimal_included_bytes
+    )
+    .ok();
+    writeln!(
+        out,
+        "Included / generated bytes | {:.2}%",
+        included_vs_generated_bytes * 100.0
+    )
+    .ok();
+    writeln!(
+        out,
+        "Optimal / generated bytes  | {:.2}%",
+        optimal_inclusion_rate_bytes * 100.0
+    )
+    .ok();
+    writeln!(
+        out,
+        "Included / optimal bytes   | {:.2}%",
+        included_vs_optimal_bytes * 100.0
+    )
+    .ok();
     writeln!(out, "Rejected                   | {}", metrics.rejected).ok();
     writeln!(
         out,
@@ -3631,12 +3904,13 @@ mod tests {
     use std::collections::BTreeMap;
 
     use super::{
-        PricingMetrics, TimeSeriesPoint, format_metrics_table, format_time_series_html,
-        settlement_value_stats,
+        PricingMetrics, TimeSeriesPoint, apply_tier_prices_update_to_series, format_metrics_table,
+        format_time_series_html, settlement_value_stats,
     };
     use sim_core::{
         config::TierDelayUnit,
-        model::{ActorId, UrgencyProfile},
+        model::{ActorId, TierId, UrgencyProfile},
+        tx_pricing::BlockKind,
     };
 
     #[test]
@@ -3660,8 +3934,8 @@ mod tests {
         };
         let mut metrics = PricingMetrics::default();
 
-        metrics.record_generated(actor, 1_000, None);
-        metrics.record_inclusion(actor, Some(100), 400, 4, 2, 1_000, &urgency, None);
+        metrics.record_generated(actor, 1_000, None, 400);
+        metrics.record_inclusion(actor, Some(100), 400, 4, 2, 1_000, &urgency, 4, None);
 
         assert_eq!(metrics.unique_generated, 1);
         assert_eq!(metrics.included, 1);
@@ -3675,9 +3949,113 @@ mod tests {
     }
 
     #[test]
+    fn optimal_included_bytes_are_time_aware() {
+        let actor = ActorId::new(1);
+        let mut metrics = PricingMetrics::default();
+
+        metrics.record_optimal_supply_capacity(100);
+        metrics.record_generated(actor, 0, None, 60);
+        metrics.record_generated(actor, 0, None, 70);
+        metrics.record_optimal_supply_capacity(100);
+        metrics.record_optimal_supply_capacity(50);
+
+        assert_eq!(metrics.unique_generated_bytes, 130);
+        assert_eq!(metrics.optimal_supply_capacity_bytes, 250);
+        assert_eq!(metrics.optimal_included_bytes, 130);
+    }
+
+    #[test]
+    fn reporting_surfaces_included_vs_generated_bytes() {
+        let mut metrics = PricingMetrics::default();
+        metrics.unique_generated_bytes = 200;
+        metrics.total_included_bytes = 150;
+
+        let text = format_metrics_table(
+            &metrics,
+            &BTreeMap::new(),
+            &BTreeMap::new(),
+            42,
+            TierDelayUnit::Blocks,
+        );
+
+        assert!(text.contains("Included / generated bytes | 75.00%"));
+    }
+
+    #[test]
+    fn single_tier_lane_assignments_use_local_index_zero() {
+        let mut metrics = PricingMetrics::default();
+        let mut lane_prices = BTreeMap::new();
+        lane_prices.insert(TierId::new(1), 42);
+
+        metrics.record_tier_assignment(BlockKind::EndorserBlock, TierId::new(1), &lane_prices);
+
+        assert_eq!(metrics.eb_tier_assignments_total, 1);
+        assert_eq!(metrics.eb_tier_assignments_by_tier, vec![1]);
+        assert_eq!(metrics.eb_tier_assignments_to_max_priced_tier, 1);
+    }
+
+    #[test]
+    fn shared_single_pool_tier_updates_collapse_into_shared_series() {
+        let mut rb_count = 0;
+        let mut rb_prices = Vec::new();
+        let mut rb_prices_by_id = BTreeMap::new();
+        let mut rb_delays = Vec::new();
+        let mut rb_capacities = Vec::new();
+        let mut rb_utilisations = Vec::new();
+        let mut eb_count = 1;
+        let mut eb_prices = vec![999];
+        let mut eb_prices_by_id = BTreeMap::from([(TierId::new(9), 999)]);
+        let mut eb_delays = vec![9];
+        let mut eb_capacities = vec![9];
+        let mut eb_utilisations = vec![0.9];
+
+        apply_tier_prices_update_to_series(
+            true,
+            BlockKind::EndorserBlock,
+            1,
+            vec![76],
+            BTreeMap::from([(TierId::new(0), 76)]),
+            vec![1],
+            vec![90112],
+            vec![0.42],
+            &mut rb_count,
+            &mut rb_prices,
+            &mut rb_prices_by_id,
+            &mut rb_delays,
+            &mut rb_capacities,
+            &mut rb_utilisations,
+            &mut eb_count,
+            &mut eb_prices,
+            &mut eb_prices_by_id,
+            &mut eb_delays,
+            &mut eb_capacities,
+            &mut eb_utilisations,
+        );
+
+        assert_eq!(rb_count, 1);
+        assert_eq!(rb_prices, vec![76]);
+        assert_eq!(rb_prices_by_id.get(&TierId::new(0)), Some(&76));
+        assert_eq!(rb_delays, vec![1]);
+        assert_eq!(rb_capacities, vec![90112]);
+        assert_eq!(rb_utilisations, vec![0.42]);
+        assert_eq!(eb_count, 0);
+        assert!(eb_prices.is_empty());
+        assert!(eb_prices_by_id.is_empty());
+        assert!(eb_delays.is_empty());
+        assert!(eb_capacities.is_empty());
+        assert!(eb_utilisations.is_empty());
+    }
+
+    #[test]
     fn reporting_surfaces_block_delay_unit() {
         let metrics = PricingMetrics::default();
-        let text = format_metrics_table(&metrics, &BTreeMap::new(), &BTreeMap::new(), 42, TierDelayUnit::Blocks);
+        let text = format_metrics_table(
+            &metrics,
+            &BTreeMap::new(),
+            &BTreeMap::new(),
+            42,
+            TierDelayUnit::Blocks,
+        );
         assert!(text.contains("Synthetic delay unit       | blocks"));
 
         let html = format_time_series_html(

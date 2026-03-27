@@ -1,0 +1,63 @@
+# Reduced-load variant of the paper-exact demand model used for faster
+# phase-2 structural comparisons. It preserves the same value/urgency
+# distributions and temporal shape, but trims the offered load so runs remain
+# heavily congested without being as punishing as the original quick profile.
+#
+# 4 regions, each 500 slots:
+#   Regions 1-2 (slots 0-1000): correlated value-urgency, load ramps from
+#     moderately above throughput to ~3x throughput.
+#   Regions 3-4 (slots 1000-2000): uncorrelated value-urgency, load drops from
+#     ~2x throughput to moderately above throughput.
+#
+# Throughput ≈ 11.25 txs/slot (90112 bytes / ~400 byte txs / 20 slots per block).
+#
+# Paper's distributions, scaled by 20000x for Lovelace-scale pricing compatibility:
+#   Correlated:  20% v~N(4M,200K) u~U[3,4], 40% v~N(1M,200K) u~U[2,3], 40% v~N(400K,40K) u~U[1,1.5]
+#   Uncorrelated: v~U(20K,1.8M), u~U[1,2]
+# Urgency distributions are the paper's exact values (these are unitless).
+
+[[actors]]
+name = "correlated"
+arrival_rate = 0.0
+arrival_pattern = { kind = "phased", phases = [
+    { start_slot = 0, end_slot = 500, rate = 14.0 },
+    { start_slot = 500, end_slot = 1000, rate = 34.0 },
+] }
+tx_size = { kind = "normal", params = [400, 100] }
+value_distribution = { kind = "constant", params = [0] }
+urgency = { kind = "indifferent" }
+
+[[actors.value_urgency_components]]
+name = "high_val_high_urg"
+weight = 0.20
+value_distribution = { kind = "normal", params = [4000000.0, 200000.0] }
+urgency_u_distribution = { kind = "uniform", params = [3.0, 4.0] }
+
+[[actors.value_urgency_components]]
+name = "med_val_med_urg"
+weight = 0.40
+value_distribution = { kind = "normal", params = [1000000.0, 200000.0] }
+urgency_u_distribution = { kind = "uniform", params = [2.0, 3.0] }
+
+[[actors.value_urgency_components]]
+name = "low_val_low_urg"
+weight = 0.40
+value_distribution = { kind = "normal", params = [400000.0, 40000.0] }
+urgency_u_distribution = { kind = "uniform", params = [1.0, 1.5] }
+
+[[actors]]
+name = "uncorrelated"
+arrival_rate = 0.0
+arrival_pattern = { kind = "phased", phases = [
+    { start_slot = 1000, end_slot = 1500, rate = 22.0 },
+    { start_slot = 1500, end_slot = 2000, rate = 14.0 },
+] }
+tx_size = { kind = "normal", params = [400, 100] }
+value_distribution = { kind = "constant", params = [0] }
+urgency = { kind = "indifferent" }
+
+[[actors.value_urgency_components]]
+name = "uncorrelated_all"
+weight = 1.0
+value_distribution = { kind = "uniform", params = [20000.0, 1800000.0] }
+urgency_u_distribution = { kind = "uniform", params = [1.0, 2.0] }

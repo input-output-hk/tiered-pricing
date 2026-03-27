@@ -18,8 +18,7 @@ use crate::{
     clock::{Clock, Timestamp},
     config::{
         CpuTimeConfig, EBPropagationCriteria, LeiosVariant, MempoolSamplingStrategy,
-        NodeBehaviours, NodeConfiguration, NodeId, RelayStrategy, SimConfiguration,
-        TierDelayUnit,
+        NodeBehaviours, NodeConfiguration, NodeId, RelayStrategy, SimConfiguration, TierDelayUnit,
         TierSelectionPathLatencyConfig, TransactionConfig,
     },
     events::{EventTracker, TierInfo},
@@ -45,6 +44,7 @@ use crate::{
 enum PricingUpdateKey {
     RankingBlock(BlockId),
     EndorserBlock(EndorserBlockId),
+    EndorserOpportunity(BlockId),
 }
 
 #[derive(Clone)]
@@ -166,12 +166,36 @@ impl GlobalPricingCoordinator {
         state.pricing.is_tiered()
     }
 
-    fn uses_continuous_rb_eb(&self) -> bool {
+    fn uses_lane_partitioned_tiers(&self) -> bool {
         let state = self
             .state
             .lock()
             .expect("global pricing coordinator mutex poisoned");
-        state.pricing.uses_continuous_rb_eb()
+        state.pricing.uses_lane_partitioned_tiers()
+    }
+
+    fn uses_shared_single_pool_tiers(&self) -> bool {
+        let state = self
+            .state
+            .lock()
+            .expect("global pricing coordinator mutex poisoned");
+        state.pricing.block_selection_policy() == Some(TierBlockSelectionPolicy::Shared)
+            && !state.pricing.has_separate_eb_pool()
+    }
+
+    fn effective_tier_capacity_for_block_kind(
+        &self,
+        block_kind: BlockKind,
+        tier_id: TierId,
+        block_capacity: u64,
+    ) -> Option<u64> {
+        let state = self
+            .state
+            .lock()
+            .expect("global pricing coordinator mutex poisoned");
+        state
+            .pricing
+            .effective_tier_capacity_for_block_kind(block_kind, tier_id, block_capacity)
     }
 
     fn verify_preassigned_transaction(
@@ -183,16 +207,6 @@ impl GlobalPricingCoordinator {
             .lock()
             .expect("global pricing coordinator mutex poisoned");
         state.pricing.verify_preassigned_transaction(tx)
-    }
-
-    fn tier_capacity_for_block_kind(&self, block_kind: BlockKind, tier_id: TierId) -> Option<u64> {
-        let state = self
-            .state
-            .lock()
-            .expect("global pricing coordinator mutex poisoned");
-        state
-            .pricing
-            .tier_capacity_for_block_kind(block_kind, tier_id)
     }
 
     fn select_transactions_for_block(
@@ -229,10 +243,7 @@ impl GlobalPricingCoordinator {
             return None;
         }
 
-        let before = state
-            .pricing
-            .tiers_for_block_kind(block_kind)
-            .map(|tiers| tiers.to_vec());
+        let before = state.pricing.cloned_tiers_for_block_kind(block_kind);
         let cadence = state.pricing.update_after_block_with_signals(
             txs,
             tier_update_signal_txs,
@@ -241,10 +252,7 @@ impl GlobalPricingCoordinator {
             block_kind,
             slot,
         );
-        let after = state
-            .pricing
-            .tiers_for_block_kind(block_kind)
-            .map(|tiers| tiers.to_vec());
+        let after = state.pricing.cloned_tiers_for_block_kind(block_kind);
         let utilisations = state.pricing.tier_utilisations_for_block_kind(block_kind);
 
         match (before, after) {
@@ -346,7 +354,11 @@ pub enum CpuTask {
     /// A transaction has been received and validated, and is ready to propagate
     TransactionValidated(NodeId, Arc<Transaction>),
     /// A ranking block has been generated and is ready to propagate
-    RBBlockGenerated(RankingBlock, Option<(EndorserBlock, Vec<Arc<Transaction>>)>),
+    RBBlockGenerated(
+        RankingBlock,
+        Option<(EndorserBlock, Vec<Arc<Transaction>>)>,
+        bool,
+    ),
     /// An RB header has been received and validated, and ready to propagate
     RBHeaderValidated(NodeId, RankingBlockHeader, bool, bool),
     /// A ranking block has been received and validated, and is ready to propagate
@@ -365,7 +377,7 @@ impl SimCpuTask for CpuTask {
     fn name(&self) -> String {
         match self {
             Self::TransactionValidated(_, _) => "ValTX",
-            Self::RBBlockGenerated(_, _) => "GenRB",
+            Self::RBBlockGenerated(_, _, _) => "GenRB",
             Self::RBHeaderValidated(_, _, _, _) => "ValRH",
             Self::RBBlockValidated(_) => "ValRB",
             Self::EBHeaderValidated(_, _) => "ValEH",
@@ -379,7 +391,7 @@ impl SimCpuTask for CpuTask {
     fn extra(&self) -> String {
         match self {
             Self::TransactionValidated(_, _) => "".to_string(),
-            Self::RBBlockGenerated(_, _) => "".to_string(),
+            Self::RBBlockGenerated(_, _, _) => "".to_string(),
             Self::RBHeaderValidated(_, _, _, _) => "".to_string(),
             Self::RBBlockValidated(_) => "".to_string(),
             Self::EBHeaderValidated(_, _) => "".to_string(),
@@ -394,7 +406,7 @@ impl SimCpuTask for CpuTask {
             Self::TransactionValidated(_, tx) => vec![
                 config.tx_validation_constant + config.tx_validation_per_byte * tx.bytes as u32,
             ],
-            Self::RBBlockGenerated(rb, eb) => {
+            Self::RBBlockGenerated(rb, eb, _) => {
                 let mut rb_time = config.rb_generation + config.rb_body_validation_constant;
                 let rb_bytes: u64 = rb.transactions.iter().map(|tx| tx.bytes).sum();
                 rb_time += config.rb_validation_per_byte * (rb_bytes as u32);
@@ -685,7 +697,9 @@ impl NodeImpl for LinearLeiosNode {
     fn handle_cpu_task(&mut self, task: Self::Task) -> EventResult {
         match task {
             CpuTask::TransactionValidated(from, tx) => self.propagate_tx(from, tx),
-            CpuTask::RBBlockGenerated(rb, eb) => self.finish_generating_rb(rb, eb),
+            CpuTask::RBBlockGenerated(rb, eb, eb_opportunity_available) => {
+                self.finish_generating_rb(rb, eb, eb_opportunity_available)
+            }
             CpuTask::RBHeaderValidated(from, header, has_body, has_eb) => {
                 self.finish_validating_rb_header(from, header, has_body, has_eb)
             }
@@ -801,11 +815,9 @@ impl LinearLeiosNode {
                     && let Some((tier, pending_bytes, tier_capacity_bytes)) =
                         self.overflow_state_for_lane(&tx, lane)
                 {
-                    if self
-                        .pricing
-                        .as_ref()
-                        .is_some_and(|pricing| pricing.include_overflow_aggregate_in_pricing_updates())
-                    {
+                    if self.pricing.as_ref().is_some_and(|pricing| {
+                        pricing.include_overflow_aggregate_in_pricing_updates()
+                    }) {
                         self.record_overflow_rejected_bytes(lane, tier, tx.id, tx.bytes);
                     }
                     self.tracker.track_transaction_overflow_rejected(
@@ -902,8 +914,11 @@ impl LinearLeiosNode {
     }
 
     fn activate_tx_in_mempool(&mut self, tx: Arc<Transaction>) -> ActiveMempoolAdmission {
-        let (tx, rejection_reason, overflow_lane) =
-            self.apply_pricing_on_arrival(tx, self.current_slot(), self.current_observed_rb_index());
+        let (tx, rejection_reason, overflow_lane) = self.apply_pricing_on_arrival(
+            tx,
+            self.current_slot(),
+            self.current_observed_rb_index(),
+        );
         if let Some(reason) = rejection_reason {
             return ActiveMempoolAdmission::Rejected {
                 tx,
@@ -929,14 +944,22 @@ impl LinearLeiosNode {
         };
 
         if pricing.is_tiered() && Self::has_any_tiered_assignment_payload(&tx) {
-            if Self::has_any_mempool_entry_anchor(&tx) && !Self::has_complete_mempool_entry_anchor(&tx)
-            {
-                return (tx, Some(TransactionRejectReason::InvalidQuotedAssignment), None);
-            }
-            if self.sim_config.enforce_tier_delay()
+            if Self::has_any_mempool_entry_anchor(&tx)
                 && !Self::has_complete_mempool_entry_anchor(&tx)
             {
-                return (tx, Some(TransactionRejectReason::InvalidQuotedAssignment), None);
+                return (
+                    tx,
+                    Some(TransactionRejectReason::InvalidQuotedAssignment),
+                    None,
+                );
+            }
+            if self.sim_config.enforce_tier_delay() && !Self::has_complete_mempool_entry_anchor(&tx)
+            {
+                return (
+                    tx,
+                    Some(TransactionRejectReason::InvalidQuotedAssignment),
+                    None,
+                );
             }
             match pricing.verify_preassigned_transaction(&tx) {
                 Ok(()) => {
@@ -959,7 +982,11 @@ impl LinearLeiosNode {
             return (tx, None, None);
         }
         if pricing.is_tiered() && Self::has_any_mempool_entry_anchor(&tx) {
-            return (tx, Some(TransactionRejectReason::InvalidQuotedAssignment), None);
+            return (
+                tx,
+                Some(TransactionRejectReason::InvalidQuotedAssignment),
+                None,
+            );
         }
 
         let delay_model = pricing.tier_selection_delay_model();
@@ -978,7 +1005,8 @@ impl LinearLeiosNode {
             rb_result
         };
 
-        if pricing.uses_continuous_rb_eb() && pricing.has_separate_eb_pool() {
+        if pricing.uses_lane_partitioned_tiers() {
+            let has_separate_eb_pool = pricing.has_separate_eb_pool();
             let eb_snapshot = pricing.snapshot_for_block_kind(BlockKind::EndorserBlock);
             let Some(selection) =
                 select_best_lane_tier_for_tx(&updated, &rb_snapshot, &eb_snapshot, delay_model)
@@ -1016,18 +1044,33 @@ impl LinearLeiosNode {
                     );
                 }
                 BlockKind::EndorserBlock => {
-                    updated.tier_preference = None;
-                    updated.tier_version_created_slot = None;
-                    updated.posted_fee = None;
-                    updated.tier_delay_slots = None;
-                    updated.tier_price_per_byte_at_assignment = None;
-                    updated.eb_tier_preference = Some(selection.tier_id);
-                    updated.eb_tier_version_created_slot =
-                        Some(selection.tier_version_created_slot);
-                    updated.eb_posted_fee = Some(selection.posted_fee);
-                    updated.eb_tier_delay_slots = Some(selection.tier_delay_slots);
-                    updated.eb_tier_price_per_byte_at_assignment =
-                        Some(selection.tier_price_per_byte_at_assignment);
+                    if has_separate_eb_pool {
+                        updated.tier_preference = None;
+                        updated.tier_version_created_slot = None;
+                        updated.posted_fee = None;
+                        updated.tier_delay_slots = None;
+                        updated.tier_price_per_byte_at_assignment = None;
+                        updated.eb_tier_preference = Some(selection.tier_id);
+                        updated.eb_tier_version_created_slot =
+                            Some(selection.tier_version_created_slot);
+                        updated.eb_posted_fee = Some(selection.posted_fee);
+                        updated.eb_tier_delay_slots = Some(selection.tier_delay_slots);
+                        updated.eb_tier_price_per_byte_at_assignment =
+                            Some(selection.tier_price_per_byte_at_assignment);
+                    } else {
+                        updated.tier_preference = Some(selection.tier_id);
+                        updated.tier_version_created_slot =
+                            Some(selection.tier_version_created_slot);
+                        updated.posted_fee = Some(selection.posted_fee);
+                        updated.tier_delay_slots = Some(selection.tier_delay_slots);
+                        updated.tier_price_per_byte_at_assignment =
+                            Some(selection.tier_price_per_byte_at_assignment);
+                        updated.eb_tier_preference = None;
+                        updated.eb_tier_version_created_slot = None;
+                        updated.eb_posted_fee = None;
+                        updated.eb_tier_delay_slots = None;
+                        updated.eb_tier_price_per_byte_at_assignment = None;
+                    }
                     Self::set_mempool_entry_anchor(
                         &mut updated,
                         mempool_entry_slot,
@@ -1158,6 +1201,7 @@ impl LinearLeiosNode {
         }
 
         let has_separate_eb_pool = pricing.has_separate_eb_pool();
+        let uses_shared_single_pool = pricing.uses_shared_single_pool_tiers();
 
         if let Some(lane) = tx.assigned_block_kind {
             let tier = match lane {
@@ -1174,10 +1218,16 @@ impl LinearLeiosNode {
                 return None;
             };
             let target_tick = self.tx_target_tick_for_block_kind(tx, lane);
-            let pending = self
-                .mempool
-                .pending_bytes_for_tier_target(lane, tier, target_tick, has_separate_eb_pool);
-            let Some(capacity) = pricing.tier_capacity_for_block_kind(lane, tier) else {
+            let pending = self.mempool.pending_bytes_for_tier_target(
+                lane,
+                tier,
+                target_tick,
+                has_separate_eb_pool,
+            );
+            let block_capacity = self.block_capacity_for_kind(lane);
+            let Some(capacity) =
+                pricing.effective_tier_capacity_for_block_kind(lane, tier, block_capacity)
+            else {
                 return None;
             };
             let overfull = pending.saturating_add(tx.bytes) > capacity;
@@ -1188,14 +1238,22 @@ impl LinearLeiosNode {
         }
 
         let rb_assigned = tx.tier_preference.is_some();
-        let eb_assigned = has_separate_eb_pool && tx.eb_tier_preference.is_some();
+        let eb_assigned = if has_separate_eb_pool {
+            tx.eb_tier_preference.is_some()
+        } else {
+            uses_shared_single_pool && tx.tier_preference.is_some()
+        };
 
         let over_rb_cap = tx
             .tier_preference
             .and_then(|tier| {
                 let target_tick = self.tx_target_tick_for_block_kind(tx, BlockKind::RankingBlock);
                 pricing
-                    .tier_capacity_for_block_kind(BlockKind::RankingBlock, tier)
+                    .effective_tier_capacity_for_block_kind(
+                        BlockKind::RankingBlock,
+                        tier,
+                        self.block_capacity_for_kind(BlockKind::RankingBlock),
+                    )
                     .map(|cap| {
                         let pending = self.mempool.pending_bytes_for_tier_target(
                             BlockKind::RankingBlock,
@@ -1218,12 +1276,22 @@ impl LinearLeiosNode {
             })
             .unwrap_or(false);
 
-        let over_eb_cap = tx
-            .eb_tier_preference
+        let eb_tier = if has_separate_eb_pool {
+            tx.eb_tier_preference
+        } else if uses_shared_single_pool {
+            tx.tier_preference
+        } else {
+            None
+        };
+        let over_eb_cap = eb_tier
             .and_then(|tier| {
                 let target_tick = self.tx_target_tick_for_block_kind(tx, BlockKind::EndorserBlock);
                 pricing
-                    .tier_capacity_for_block_kind(BlockKind::EndorserBlock, tier)
+                    .effective_tier_capacity_for_block_kind(
+                        BlockKind::EndorserBlock,
+                        tier,
+                        self.block_capacity_for_kind(BlockKind::EndorserBlock),
+                    )
                     .map(|cap| {
                         let pending = self.mempool.pending_bytes_for_tier_target(
                             BlockKind::EndorserBlock,
@@ -1277,10 +1345,17 @@ impl LinearLeiosNode {
             }
         };
         let target_tick = self.tx_target_tick_for_block_kind(tx, lane);
-        let pending = self
-            .mempool
-            .pending_bytes_for_tier_target(lane, tier, target_tick, has_separate_eb_pool);
-        let capacity = pricing.tier_capacity_for_block_kind(lane, tier)?;
+        let pending = self.mempool.pending_bytes_for_tier_target(
+            lane,
+            tier,
+            target_tick,
+            has_separate_eb_pool,
+        );
+        let capacity = pricing.effective_tier_capacity_for_block_kind(
+            lane,
+            tier,
+            self.block_capacity_for_kind(lane),
+        )?;
         Some((tier, pending, capacity))
     }
 
@@ -1636,6 +1711,7 @@ impl LinearLeiosNode {
                 );
             }
         }
+        let eb_opportunity_available = !produce_empty_block;
         let (eb_announcement, eb) = if eb_transactions.is_empty() {
             (None, None)
         } else {
@@ -1670,22 +1746,39 @@ impl LinearLeiosNode {
 
         self.tracker.track_praos_block_lottery_won(rb.header.id);
         self.queued
-            .schedule_cpu_task(CpuTask::RBBlockGenerated(rb, eb));
+            .schedule_cpu_task(CpuTask::RBBlockGenerated(rb, eb, eb_opportunity_available));
     }
 
     fn finish_generating_rb(
         &mut self,
         rb: RankingBlock,
         eb: Option<(EndorserBlock, Vec<Arc<Transaction>>)>,
+        eb_opportunity_available: bool,
     ) {
         self.tracker.track_linear_rb_generated(&rb);
-        self.update_pricing_after_block(
-            PricingUpdateKey::RankingBlock(rb.header.id),
-            &rb.transactions,
-            self.sim_config.max_block_size,
-            BlockKind::RankingBlock,
-            rb.header.id.slot,
-        );
+        if self.shared_single_pool_rb_only_pricing_mode() {
+            self.maybe_update_shared_single_pool_pricing_for_rb(&rb);
+        } else {
+            self.update_pricing_after_block(
+                PricingUpdateKey::RankingBlock(rb.header.id),
+                &rb.transactions,
+                self.sim_config.max_block_size,
+                BlockKind::RankingBlock,
+                rb.header.id.slot,
+            );
+        }
+        if !self.shared_single_pool_rb_only_pricing_mode()
+            && eb.is_none()
+            && eb_opportunity_available
+        {
+            self.update_pricing_after_block(
+                PricingUpdateKey::EndorserOpportunity(rb.header.id),
+                &[],
+                self.sim_config.max_eb_size,
+                BlockKind::EndorserBlock,
+                rb.header.id.slot,
+            );
+        }
         self.publish_rb(Arc::new(rb), false);
         if let Some((eb, withheld_txs)) = eb {
             self.tracker.track_linear_eb_generated(&eb);
@@ -1930,22 +2023,24 @@ impl LinearLeiosNode {
             self.leios.incomplete_onchain_ebs.insert(endorsement.eb);
         }
 
-        self.update_pricing_after_block(
-            PricingUpdateKey::RankingBlock(rb.header.id),
-            &rb.transactions,
-            self.sim_config.max_block_size,
-            BlockKind::RankingBlock,
-            rb.header.id.slot,
-        );
+        if self.shared_single_pool_rb_only_pricing_mode() {
+            self.maybe_update_shared_single_pool_pricing_for_rb(&rb);
+        } else {
+            self.update_pricing_after_block(
+                PricingUpdateKey::RankingBlock(rb.header.id),
+                &rb.transactions,
+                self.sim_config.max_block_size,
+                BlockKind::RankingBlock,
+                rb.header.id.slot,
+            );
+        }
         self.publish_rb(rb, true);
     }
 
     fn latest_rb(&self) -> Option<(&Arc<RankingBlock>, Timestamp)> {
         self.praos.blocks.iter().rev().find_map(|(_, rb)| {
             if let RankingBlockView::Received {
-                rb,
-                header_seen,
-                ..
+                rb, header_seen, ..
             } = rb
             {
                 Some((rb, *header_seen))
@@ -1982,13 +2077,15 @@ impl LinearLeiosNode {
                 validated: true,
             },
         );
-        self.update_pricing_after_block(
-            PricingUpdateKey::EndorserBlock(eb_id),
-            &eb.txs,
-            self.sim_config.max_eb_size,
-            BlockKind::EndorserBlock,
-            eb_id.slot,
-        );
+        if !self.shared_single_pool_rb_only_pricing_mode() {
+            self.update_pricing_after_block(
+                PricingUpdateKey::EndorserBlock(eb_id),
+                &eb.txs,
+                self.sim_config.max_eb_size,
+                BlockKind::EndorserBlock,
+                eb_id.slot,
+            );
+        }
 
         if self.should_withhold_ebs() {
             // We're an evil attacker, holding onto this EB until just long enough to collect votes.
@@ -2169,13 +2266,19 @@ impl LinearLeiosNode {
                 self.queued.send_to(*peer, Message::AnnounceEB(eb.id()));
             }
         }
-        self.update_pricing_after_block(
-            PricingUpdateKey::EndorserBlock(eb.id()),
-            &eb.txs,
-            self.sim_config.max_eb_size,
-            BlockKind::EndorserBlock,
-            eb.id().slot,
-        );
+        if self.shared_single_pool_rb_only_pricing_mode() {
+            for rb in self.rbs_endorsing_eb(eb.id()) {
+                self.maybe_update_shared_single_pool_pricing_for_rb(&rb);
+            }
+        } else {
+            self.update_pricing_after_block(
+                PricingUpdateKey::EndorserBlock(eb.id()),
+                &eb.txs,
+                self.sim_config.max_eb_size,
+                BlockKind::EndorserBlock,
+                eb.id().slot,
+            );
+        }
         self.vote_for_endorser_block(&eb, seen);
     }
 
@@ -2274,12 +2377,9 @@ impl LinearLeiosNode {
         if !self.behaviours.withhold_txs {
             return vec![];
         }
-        let withhold_tx_config = self
-            .sim_config
-            .attacks
-            .late_tx
-            .as_ref()
-            .expect("attacks.late_tx config must be present when withhold_txs behaviour is enabled");
+        let withhold_tx_config = self.sim_config.attacks.late_tx.as_ref().expect(
+            "attacks.late_tx config must be present when withhold_txs behaviour is enabled",
+        );
         let slot_ts = Timestamp::from_secs(slot);
         if withhold_tx_config.start_time.is_some_and(|s| slot_ts < s) {
             return vec![];
@@ -2300,11 +2400,8 @@ impl LinearLeiosNode {
             };
             tx.submission_slot = slot;
             self.tracker.track_transaction_generated(&tx, self.id);
-            let (tx, rejection_reason, _) = self.apply_pricing_on_arrival(
-                Arc::new(tx),
-                slot,
-                self.current_observed_rb_index(),
-            );
+            let (tx, rejection_reason, _) =
+                self.apply_pricing_on_arrival(Arc::new(tx), slot, self.current_observed_rb_index());
             if let Some(reason) = rejection_reason {
                 self.tracker
                     .track_transaction_rejected(tx.id, self.id, reason);
@@ -2552,9 +2649,9 @@ impl LinearLeiosNode {
             TierDelayUnit::Slots => tx
                 .mempool_entry_slot
                 .is_some_and(|entry| slot >= entry.saturating_add(delay.max(1))),
-            TierDelayUnit::Blocks => tx.mempool_entry_rb_index.is_some_and(|entry| {
-                candidate_rb_index >= entry.saturating_add(delay.max(1))
-            }),
+            TierDelayUnit::Blocks => tx
+                .mempool_entry_rb_index
+                .is_some_and(|entry| candidate_rb_index >= entry.saturating_add(delay.max(1))),
         }
     }
 
@@ -2571,14 +2668,16 @@ impl LinearLeiosNode {
                     };
                     match self.activate_tx_in_mempool(candidate) {
                         ActiveMempoolAdmission::Active(tx) => {
-                            self.txs.insert(tx.id, TransactionView::Received(tx.clone()));
+                            self.txs
+                                .insert(tx.id, TransactionView::Received(tx.clone()));
                             self.mempool.activate_queued_front(tx.clone());
                             for peer in &self.consumers {
                                 self.queued.send_to(*peer, Message::AnnounceTx(tx.id));
                             }
                         }
                         ActiveMempoolAdmission::Queued(tx) => {
-                            self.txs.insert(tx.id, TransactionView::Received(tx.clone()));
+                            self.txs
+                                .insert(tx.id, TransactionView::Received(tx.clone()));
                             return;
                         }
                         ActiveMempoolAdmission::Conflict(tx) => {
@@ -2591,7 +2690,8 @@ impl LinearLeiosNode {
                             overflow_lane,
                         } => {
                             self.mempool.discard_queued_front();
-                            let scheduled_retry = reason == TransactionRejectReason::TierBacklogFull
+                            let scheduled_retry = reason
+                                == TransactionRejectReason::TierBacklogFull
                                 && self.local_actor_submission_ids.contains(&tx.id)
                                 && overflow_lane
                                     .is_some_and(|lane| self.schedule_overflow_retry(&tx, lane));
@@ -2621,7 +2721,8 @@ impl LinearLeiosNode {
                             if scheduled_retry {
                                 self.txs.remove(&tx.id);
                             } else {
-                                self.txs.insert(tx.id, TransactionView::Received(tx.clone()));
+                                self.txs
+                                    .insert(tx.id, TransactionView::Received(tx.clone()));
                                 self.tracker
                                     .track_transaction_rejected(tx.id, self.id, reason);
                                 self.overflow_retry_attempts.remove(&tx.id);
@@ -2802,6 +2903,69 @@ impl LinearLeiosNode {
             self.ledger_states.insert(block_id, state.clone());
         }
         state
+    }
+
+    fn block_capacity_for_kind(&self, block_kind: BlockKind) -> u64 {
+        match block_kind {
+            BlockKind::RankingBlock => self.sim_config.max_block_size,
+            BlockKind::EndorserBlock => self.sim_config.max_eb_size,
+        }
+    }
+
+    fn shared_single_pool_rb_only_pricing_mode(&self) -> bool {
+        self.pricing
+            .as_ref()
+            .is_some_and(|pricing| pricing.uses_shared_single_pool_tiers())
+            && !self.sim_config.rb_inline_txs_with_endorsement
+    }
+
+    fn shared_single_pool_pricing_signal_for_rb(
+        &self,
+        rb: &RankingBlock,
+    ) -> Option<(Vec<Arc<Transaction>>, u64)> {
+        if !self.shared_single_pool_rb_only_pricing_mode() {
+            return None;
+        }
+        if let Some(endorsement) = &rb.endorsement {
+            let EndorserBlockView::Received { eb, .. } = self.leios.ebs.get(&endorsement.eb)?
+            else {
+                return None;
+            };
+            return Some((eb.txs.clone(), self.sim_config.max_eb_size));
+        }
+        Some((rb.transactions.clone(), self.sim_config.max_block_size))
+    }
+
+    fn maybe_update_shared_single_pool_pricing_for_rb(&mut self, rb: &RankingBlock) {
+        let Some((pricing_txs, block_capacity)) = self.shared_single_pool_pricing_signal_for_rb(rb)
+        else {
+            return;
+        };
+        self.update_pricing_after_block(
+            PricingUpdateKey::RankingBlock(rb.header.id),
+            &pricing_txs,
+            block_capacity,
+            BlockKind::RankingBlock,
+            rb.header.id.slot,
+        );
+    }
+
+    fn rbs_endorsing_eb(&self, eb_id: EndorserBlockId) -> Vec<Arc<RankingBlock>> {
+        self.praos
+            .blocks
+            .values()
+            .filter_map(|view| match view {
+                RankingBlockView::Received { rb, .. }
+                    if rb
+                        .endorsement
+                        .as_ref()
+                        .is_some_and(|endorsement| endorsement.eb == eb_id) =>
+                {
+                    Some(rb.clone())
+                }
+                _ => None,
+            })
+            .collect()
     }
 
     fn update_pricing_after_block(
@@ -3241,24 +3405,27 @@ mod mempool_tests {
     use tokio::sync::mpsc;
 
     use crate::{
-        clock::MockClockCoordinator,
+        clock::{MockClockCoordinator, Timestamp},
         config::{
             DistributionConfig, NodeConfiguration, RawLinkInfo, RawNode, RawParameters,
             RawTopology, SimConfiguration, TierDelayUnit,
         },
         events::EventTracker,
-        model::{ActorId, TierId, Transaction, TransactionId, UrgencyProfile},
+        model::{
+            ActorId, Endorsement, LinearEndorserBlock as EndorserBlock, TierId, Transaction,
+            TransactionId, UrgencyProfile,
+        },
         sim::NodeImpl,
         tx_pricing::{
-            BlockKind, OverflowAggregatePricingMode, OverflowRetryCurveMetric,
-            OverflowRetryPolicy, PricingMechanismConfig, TierAssignmentSemantics,
-            TierBlockSelectionPolicy, TierSelectionDelayModel, TieredConfig,
+            BlockKind, OverflowAggregatePricingMode, OverflowRetryCurveMetric, OverflowRetryPolicy,
+            PricingMechanismConfig, TierAssignmentSemantics, TierBlockSelectionPolicy,
+            TierSelectionDelayModel, TieredConfig,
         },
     };
 
     use super::{
-        GlobalPricingCoordinator, LinearLeiosNode, Mempool, NewArrivalDisposition,
-        QueueFrontActivationDecision,
+        EndorserBlockView, GlobalPricingCoordinator, LinearLeiosNode, Mempool,
+        NewArrivalDisposition, QueueFrontActivationDecision,
     };
 
     fn try_insert(mempool: &mut Mempool, tx: Arc<Transaction>) -> bool {
@@ -3336,7 +3503,12 @@ mod mempool_tests {
         }
     }
 
-    fn test_node_with_tiered_pricing(tier_delay_unit: TierDelayUnit) -> LinearLeiosNode {
+    fn test_node_with_tiered_pricing_config_with_block_sizes(
+        tier_delay_unit: TierDelayUnit,
+        tiered_config: TieredConfig,
+        rb_body_max_size_bytes: u64,
+        eb_referenced_txs_max_size_bytes: u64,
+    ) -> LinearLeiosNode {
         let mut params: RawParameters =
             serde_yaml::from_slice(include_bytes!("../../../parameters/config.default.yaml"))
                 .unwrap();
@@ -3345,6 +3517,8 @@ mod mempool_tests {
         params.tx_max_size_bytes = 10;
         params.enforce_tier_delay = true;
         params.tier_delay_unit = tier_delay_unit;
+        params.rb_body_max_size_bytes = rb_body_max_size_bytes;
+        params.eb_referenced_txs_max_size_bytes = eb_referenced_txs_max_size_bytes;
 
         let topology = RawTopology {
             nodes: BTreeMap::from([(
@@ -3377,9 +3551,7 @@ mod mempool_tests {
         let rng = ChaChaRng::seed_from_u64(sim_config.seed);
         let mut node =
             LinearLeiosNode::new(node_config, sim_config.clone(), tracker, rng, clock.clock());
-        let pricing = PricingMechanismConfig::TieredPricing {
-            tiered_config: test_tiered_config(),
-        };
+        let pricing = PricingMechanismConfig::TieredPricing { tiered_config };
         let coordinator = GlobalPricingCoordinator::new(
             &pricing,
             sim_config.seed,
@@ -3387,6 +3559,22 @@ mod mempool_tests {
         );
         node.set_global_pricing_coordinator(coordinator);
         node
+    }
+
+    fn test_node_with_tiered_pricing_config(
+        tier_delay_unit: TierDelayUnit,
+        tiered_config: TieredConfig,
+    ) -> LinearLeiosNode {
+        test_node_with_tiered_pricing_config_with_block_sizes(
+            tier_delay_unit,
+            tiered_config.clone(),
+            tiered_config.total_capacity,
+            tiered_config.total_capacity,
+        )
+    }
+
+    fn test_node_with_tiered_pricing(tier_delay_unit: TierDelayUnit) -> LinearLeiosNode {
+        test_node_with_tiered_pricing_config(tier_delay_unit, test_tiered_config())
     }
 
     struct TxFactory {
@@ -3637,7 +3825,7 @@ mod mempool_tests {
             mempool_entry_rb_index: None,
             input_id: 9,
             overcollateralization_factor: 0,
-                urgency_component_index: None,
+            urgency_component_index: None,
         };
         let delay_model = TierSelectionDelayModel::LanePathPlusTierDelay {
             rb_path_latency: 1,
@@ -3687,7 +3875,7 @@ mod mempool_tests {
             mempool_entry_rb_index: Some(5),
             input_id: 21,
             overcollateralization_factor: 0,
-                urgency_component_index: None,
+            urgency_component_index: None,
         };
 
         assert!(!node.is_tx_mature_for_block(&tx, 10, 5, BlockKind::RankingBlock));
@@ -3720,7 +3908,7 @@ mod mempool_tests {
             mempool_entry_rb_index: Some(5),
             input_id: 22,
             overcollateralization_factor: 0,
-                urgency_component_index: None,
+            urgency_component_index: None,
         };
 
         assert!(!node.is_tx_mature_for_block(&tx, 10, 5, BlockKind::RankingBlock));
@@ -3733,7 +3921,11 @@ mod mempool_tests {
         let pricing = node.pricing.clone().expect("pricing coordinator");
         let tier = TierId::new(0);
         let capacity = pricing
-            .tier_capacity_for_block_kind(BlockKind::RankingBlock, tier)
+            .effective_tier_capacity_for_block_kind(
+                BlockKind::RankingBlock,
+                tier,
+                node.sim_config.max_block_size,
+            )
             .expect("tier capacity");
 
         let future_tx = Transaction {
@@ -3759,7 +3951,7 @@ mod mempool_tests {
             mempool_entry_rb_index: Some(5),
             input_id: 24,
             overcollateralization_factor: 0,
-                urgency_component_index: None,
+            urgency_component_index: None,
         };
         node.mempool.insert_new_active(Arc::new(future_tx));
 
@@ -3786,7 +3978,7 @@ mod mempool_tests {
             mempool_entry_rb_index: Some(5),
             input_id: 25,
             overcollateralization_factor: 0,
-                urgency_component_index: None,
+            urgency_component_index: None,
         };
 
         assert_eq!(
@@ -3827,7 +4019,7 @@ mod mempool_tests {
             mempool_entry_rb_index: Some(4),
             input_id: 23,
             overcollateralization_factor: 0,
-                urgency_component_index: None,
+            urgency_component_index: None,
         });
 
         let cleared = LinearLeiosNode::clear_tiered_assignment_and_maturity(&tx);
@@ -3844,5 +4036,298 @@ mod mempool_tests {
         assert_eq!(cleared.assigned_block_kind, None);
         assert_eq!(cleared.mempool_entry_slot, None);
         assert_eq!(cleared.mempool_entry_rb_index, None);
+    }
+
+    #[test]
+    fn empty_eb_opportunity_reprices_naive_eb_lane() {
+        let mut config = test_tiered_config();
+        config.max_tiers = 2;
+        config.tier_size_fractions = vec![0.0, 0.5];
+        config.min_delay_ratio = 1.0;
+        config.new_tier_delay_ratio = 1.0;
+        config.new_tier_price = 90;
+        config.block_selection_policy = TierBlockSelectionPolicy::NaiveRbEbTwoTier;
+
+        let mut node = test_node_with_tiered_pricing_config(TierDelayUnit::Blocks, config);
+        let before = {
+            let pricing = node.pricing.as_ref().expect("pricing coordinator");
+            let state = pricing
+                .state
+                .lock()
+                .expect("global pricing coordinator mutex poisoned");
+            state.pricing.tiers().expect("tiers")[1].price
+        };
+        assert_eq!(before, 90);
+
+        let rb = crate::model::LinearRankingBlock {
+            header: crate::model::LinearRankingBlockHeader {
+                id: crate::model::BlockId {
+                    slot: 1,
+                    producer: node.id,
+                },
+                vrf: 0,
+                parent: None,
+                bytes: node.sim_config.sizes.block_header,
+                eb_announcement: None,
+            },
+            transactions: vec![],
+            endorsement: None,
+        };
+
+        node.finish_generating_rb(rb, None, true);
+
+        let after = {
+            let pricing = node.pricing.as_ref().expect("pricing coordinator");
+            let state = pricing
+                .state
+                .lock()
+                .expect("global pricing coordinator mutex poisoned");
+            state.pricing.tiers().expect("tiers")[1].price
+        };
+        assert_eq!(after, 79);
+    }
+
+    #[test]
+    fn no_eb_opportunity_does_not_reprice_naive_eb_lane() {
+        let mut config = test_tiered_config();
+        config.max_tiers = 2;
+        config.tier_size_fractions = vec![0.0, 0.5];
+        config.min_delay_ratio = 1.0;
+        config.new_tier_delay_ratio = 1.0;
+        config.new_tier_price = 90;
+        config.block_selection_policy = TierBlockSelectionPolicy::NaiveRbEbTwoTier;
+
+        let mut node = test_node_with_tiered_pricing_config(TierDelayUnit::Blocks, config);
+        let rb = crate::model::LinearRankingBlock {
+            header: crate::model::LinearRankingBlockHeader {
+                id: crate::model::BlockId {
+                    slot: 1,
+                    producer: node.id,
+                },
+                vrf: 0,
+                parent: None,
+                bytes: node.sim_config.sizes.block_header,
+                eb_announcement: None,
+            },
+            transactions: vec![],
+            endorsement: None,
+        };
+
+        node.finish_generating_rb(rb, None, false);
+
+        let eb_price = {
+            let pricing = node.pricing.as_ref().expect("pricing coordinator");
+            let state = pricing
+                .state
+                .lock()
+                .expect("global pricing coordinator mutex poisoned");
+            state.pricing.tiers().expect("tiers")[1].price
+        };
+        assert_eq!(eb_price, 90);
+    }
+
+    #[test]
+    fn shared_single_pool_overflow_accepts_when_eb_has_headroom() {
+        let mut config = test_tiered_config();
+        config.max_tiers = 1;
+        config.tier_size_fractions = vec![0.0];
+        let mut node = test_node_with_tiered_pricing_config_with_block_sizes(
+            TierDelayUnit::Blocks,
+            config,
+            100,
+            1000,
+        );
+        let pricing = node.pricing.clone().expect("pricing coordinator");
+        let tier = TierId::new(0);
+
+        let pending_tx = Transaction {
+            id: TransactionId::new(30),
+            actor_id: ActorId::new(0),
+            shard: 0,
+            bytes: 100,
+            submission_slot: 10,
+            value: 100,
+            urgency: UrgencyProfile::Indifferent,
+            posted_fee: Some(1_000),
+            tier_preference: Some(tier),
+            tier_version_created_slot: Some(10),
+            tier_delay_slots: Some(1),
+            tier_price_per_byte_at_assignment: Some(10),
+            eb_tier_preference: None,
+            eb_tier_version_created_slot: None,
+            eb_posted_fee: None,
+            eb_tier_delay_slots: None,
+            eb_tier_price_per_byte_at_assignment: None,
+            assigned_block_kind: Some(BlockKind::RankingBlock),
+            mempool_entry_slot: Some(10),
+            mempool_entry_rb_index: Some(5),
+            input_id: 30,
+            overcollateralization_factor: 0,
+            urgency_component_index: None,
+        };
+        node.mempool.insert_new_active(Arc::new(pending_tx));
+
+        let candidate_tx = Transaction {
+            id: TransactionId::new(31),
+            actor_id: ActorId::new(0),
+            shard: 0,
+            bytes: 1,
+            submission_slot: 10,
+            value: 100,
+            urgency: UrgencyProfile::Indifferent,
+            posted_fee: Some(10),
+            tier_preference: Some(tier),
+            tier_version_created_slot: Some(10),
+            tier_delay_slots: Some(1),
+            tier_price_per_byte_at_assignment: Some(10),
+            eb_tier_preference: None,
+            eb_tier_version_created_slot: None,
+            eb_posted_fee: None,
+            eb_tier_delay_slots: None,
+            eb_tier_price_per_byte_at_assignment: None,
+            assigned_block_kind: None,
+            mempool_entry_slot: Some(10),
+            mempool_entry_rb_index: Some(5),
+            input_id: 31,
+            overcollateralization_factor: 0,
+            urgency_component_index: None,
+        };
+
+        assert_eq!(
+            pricing.effective_tier_capacity_for_block_kind(BlockKind::RankingBlock, tier, 100),
+            Some(100)
+        );
+        assert_eq!(
+            pricing.effective_tier_capacity_for_block_kind(BlockKind::EndorserBlock, tier, 1000),
+            Some(1000)
+        );
+        assert_eq!(node.overfull_tier_lane(&pricing, &candidate_tx), None);
+    }
+
+    #[test]
+    fn shared_single_pool_endorsed_eb_volume_reprices_only_on_rb_cadence() {
+        let mut node = test_node_with_tiered_pricing(TierDelayUnit::Blocks);
+        let mut txs = TxFactory::new();
+        let eb_tx = txs.anchored_rb_tx(node.sim_config.max_eb_size, TierId::new(0), 1, 0, 0);
+        let eb = EndorserBlock {
+            slot: 1,
+            producer: node.id,
+            bytes: node
+                .sim_config
+                .sizes
+                .linear_eb(std::slice::from_ref(&eb_tx)),
+            txs: vec![eb_tx.clone()],
+        };
+        let eb_id = eb.id();
+
+        node.finish_generating_eb(eb, vec![]);
+
+        let price_after_eb = {
+            let pricing = node.pricing.as_ref().expect("pricing coordinator");
+            let state = pricing
+                .state
+                .lock()
+                .expect("global pricing coordinator mutex poisoned");
+            state.pricing.tiers().expect("tiers")[0].price
+        };
+        assert_eq!(price_after_eb, 1_000);
+
+        let rb = Arc::new(crate::model::LinearRankingBlock {
+            header: crate::model::LinearRankingBlockHeader {
+                id: crate::model::BlockId {
+                    slot: 2,
+                    producer: node.id,
+                },
+                vrf: 0,
+                parent: None,
+                bytes: node.sim_config.sizes.block_header,
+                eb_announcement: None,
+            },
+            transactions: vec![],
+            endorsement: Some(Endorsement {
+                eb: eb_id,
+                size_bytes: 0,
+                votes: BTreeMap::new(),
+            }),
+        });
+
+        node.finish_validating_rb(rb);
+
+        let price_after_rb = {
+            let pricing = node.pricing.as_ref().expect("pricing coordinator");
+            let state = pricing
+                .state
+                .lock()
+                .expect("global pricing coordinator mutex poisoned");
+            state.pricing.tiers().expect("tiers")[0].price
+        };
+        assert_eq!(price_after_rb, 1_125);
+    }
+
+    #[test]
+    fn shared_single_pool_defers_endorsed_rb_pricing_until_eb_is_known() {
+        let mut node = test_node_with_tiered_pricing(TierDelayUnit::Blocks);
+        let mut txs = TxFactory::new();
+        let eb_tx = txs.anchored_rb_tx(node.sim_config.max_eb_size, TierId::new(0), 1, 0, 0);
+        let eb = Arc::new(EndorserBlock {
+            slot: 1,
+            producer: node.id,
+            bytes: node
+                .sim_config
+                .sizes
+                .linear_eb(std::slice::from_ref(&eb_tx)),
+            txs: vec![eb_tx.clone()],
+        });
+        let rb = Arc::new(crate::model::LinearRankingBlock {
+            header: crate::model::LinearRankingBlockHeader {
+                id: crate::model::BlockId {
+                    slot: 2,
+                    producer: node.id,
+                },
+                vrf: 0,
+                parent: None,
+                bytes: node.sim_config.sizes.block_header,
+                eb_announcement: None,
+            },
+            transactions: vec![],
+            endorsement: Some(Endorsement {
+                eb: eb.id(),
+                size_bytes: 0,
+                votes: BTreeMap::new(),
+            }),
+        });
+
+        node.finish_validating_rb(rb);
+
+        let price_before_eb = {
+            let pricing = node.pricing.as_ref().expect("pricing coordinator");
+            let state = pricing
+                .state
+                .lock()
+                .expect("global pricing coordinator mutex poisoned");
+            state.pricing.tiers().expect("tiers")[0].price
+        };
+        assert_eq!(price_before_eb, 1_000);
+
+        node.leios.ebs.insert(
+            eb.id(),
+            EndorserBlockView::Received {
+                eb: eb.clone(),
+                seen: Timestamp::from_secs(0),
+                all_txs_seen: true,
+                validated: false,
+            },
+        );
+        node.finish_validating_eb(eb, Timestamp::from_secs(0));
+
+        let price_after_eb = {
+            let pricing = node.pricing.as_ref().expect("pricing coordinator");
+            let state = pricing
+                .state
+                .lock()
+                .expect("global pricing coordinator mutex poisoned");
+            state.pricing.tiers().expect("tiers")[0].price
+        };
+        assert_eq!(price_after_eb, 1_125);
     }
 }

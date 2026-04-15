@@ -34,7 +34,7 @@ collected fee is lower. The mechanism we propose in this CIP facilitates this.
 
 This CIP specifies that the amount of change is calculated as the difference between 
 the minimum fee and the transaction fee. This is a placeholder calculation, 
-since there is no concrete formula available for either possible future fee pricing mechanism. 
+since there is no concrete formula available for possible future fee pricing mechanisms. 
 The goal here is solely to establish the on-chain channel through which change can be
 returned, so that the transaction body format does not need to be revisited once the
 fee calculation is agreed upon.
@@ -92,7 +92,7 @@ rwds' = rwds ∪⁺ ❴ feeChangeAddr , feeChange ❵ᵐ
 
 Note that both calculations `collectedFee` and `feeChange` would be replaced 
 by whichever rules for calculating fee change will be required by future
-fee calculation changes, e.g. dynamic or tiered pricing. 
+fee calculation changes.
 
 #### `TxInfo`
 
@@ -133,15 +133,9 @@ locally.
 
 By making `feeChange` optional, this CIP imposes zero overhead on transactions that
 do not wish to participate in the compensation mechanism. It also means the change
-can be deployed before the tiered-pricing mechanism is finalised, without any
+can be deployed before the change calculation formula is finalized, without any
 observable effect on current transactions. Finally, it allows backwards compatibility 
 with transactions from previous eras.
-
-### Deferred calculation
-
-The exact formula for `feeChange` is intentionally left unspecified. It is
-tightly coupled to the tiered-pricing update rules (specifically how overstay is
-measured and how much value is lost per extra block of delay). 
 
 ### Alternatives considered
 
@@ -155,18 +149,17 @@ measured and how much value is lost per extra block of delay).
 
 ### Acceptance criteria
 
-- [ ] The tiered-pricing CIP (or equivalent) is published and specifies a concrete
-      overstay detection rule
-- [ ] The formula for `feeChange` is agreed upon and added to the Specification
-      section of this CIP
+- [ ]  Formal specification of the ledger changes is available.
+- [ ]   Hard fork enabling Nested Transactions is successfully executed across Cardano testnets.
+- [ ]   Hard fork enabling Nested Transactions is successfully executed on Cardano mainnet.
 
 ### Implementation plan
 
-1. Update the formal ledger specification (`TxBody`, UTXO rule) — depends on
-   finalisation of the tiered-pricing mechanism.
-2. Update node ledger implementation once the formal spec is stable.
-3. Update CDDL schema and serialisation libraries.
-4. Update wallet SDKs and tooling.
+1. Update the formal ledger specification (`TxBody`, UTXO rule)
+2. Update node ledger implementation/CDDL once the formal spec is stable.
+3. Update wallet SDKs and tooling.
+4. Test net deployment 
+5. Main net deployment 
 
 ## References
 

@@ -44,7 +44,7 @@ The cost is borne across the ecosystem. Users and protocols lose value to avoida
 
    **Example:** A stale price remains on-chain because the update competes with non-urgent traffic.
 
-   **Who loses today:** Protocols consuming the stale feed, users trading against incorrect prices, and systems relying on timely risk parameters.
+   **Who loses today:** Protocols consuming the stale feed, users trading against incorrect prices, and systems relying on time-dependent parameters.
 
 3. **Collateral top-ups and position protection**
 
@@ -71,7 +71,7 @@ From stakeholder interviews during Buidler Fest #3, hosted by Carlos Lopez De La
 
 2. **Permissionless access.** Priority must be available to anyone willing to fulfil the necessary prerequisites, not negotiated through relationships or in private arrangements.
 
-3. **Predictability over raw speed.** The signal predictably improves access to timely inclusion, rather than only modestly improving odds.
+3. **Predictability over raw speed.** The signal predictably improves access to timely inclusion, rather than only modestly improving odds. This includes an improvement in variance of time to inclusion for high-urgency transactions.
 
 ## Constraints
 
@@ -83,9 +83,9 @@ Candidate solutions must also satisfy:
 
 ## Non-Goals
 
-Guaranteed inclusion (and value preservation) of every urgent transaction
+Guaranteed inclusion of every urgent transaction
 
-Guaranteed preservation of value
+Guaranteed retention of value for urgent transactions
 
 Any specific pricing mechanism
 
@@ -107,8 +107,6 @@ How can whatever protocol-level commitments are decided upon be enforced or ince
 How should changing fees be effectively transmitted?
 
 How does priority interact with the Leios block structure?
-
-Should the mechanism be opt-in or mandatory?
 
 Can we achieve our goals without starving low-urgency users of block space (especially in the context of Leios)?
 

@@ -15,7 +15,7 @@ License: CC-BY-4.0
 
 During periods of congestion, high-urgency transactions lose value because they experience delay they cannot avoid. The capability for transactions to signal protocol-recognised urgency to better serve transactions most sensitive to delay could improve overall retained transaction value during congestion.
 
-Candidate solutions should be evaluated by whether they let high-urgency transactions signal priority, and by how they affect ordinary and low-urgency users during sustained congestion.
+Candidate solutions should be evaluated by how they handle prioritising high-urgency transactions, and by how they affect ordinary and low-urgency users during sustained congestion.
 
 
 ## Problem

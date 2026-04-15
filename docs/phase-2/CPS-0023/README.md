@@ -22,7 +22,7 @@ Candidate solutions should be evaluated by how they handle prioritising high-urg
 
 Cardano does not currently provide a protocol-enforced way for a user or application to signal transaction priority.
 
-Many transactions are time-sensitive: their value to the submitter depends on timely inclusion. A liquidation that lands several slots late may fail to recover the full loan value. An oracle update delayed behind unrelated traffic leaves a stale price on-chain. A collateral top-up submitted before a margin call but confirmed after it is worthless. In each case, delay destroys value that would have been captured had the transaction been included promptly.
+Many transactions are time-sensitive: their value to the submitter depends on timely inclusion. A liquidation that lands several slots late may fail to recover the full loan value. An oracle update delayed behind unrelated traffic leaves a stale price on-chain. A loan collateral top-up submitted before a margin call but confirmed after it is worthless. In each case, delay destroys value that would have been captured had the transaction been included promptly.
 
 During congestion, these transactions compete for block space on equal terms with traffic that has no particular time sensitivity. The protocol treats all transactions identically (with respect to protocol-enforced urgency or priority ordering): there is no way for a transaction to express that it is urgent, and no mechanism for block producers to commit to honouring such a signal. Urgent and non-urgent transactions queue together, and inclusion order is determined by factors opaque to the submitter.
 
@@ -93,11 +93,17 @@ Any specific pricing mechanism
 
 From stakeholder interviews at Buidler Fest #3:
 
-* Fee pre-escalation: Tried. Produced ~15–20% (estimated by stakeholders during interview) improvement in moderate congestion. Fails under systemic congestion because SPOs are not committed to sort by fee. Bidding is also calibrated blind; there is no standardized mempool signal to know where you stand.
+* Fee pre-escalation: Transactions can overpay fees, but with no protocol-enforced prioritisation for overpaying transactions
 
-* Multi-relay submission: Deployed as standard infrastructure. Improves latency-to-mempool, not confirmation ordering. Once in the queue, the transaction competes equally with everything else.
+Tried. Produced ~15–20% (estimated by stakeholders during interview) improvement in moderate congestion. Fails under systemic congestion because SPOs are not committed to sort by fee. Bidding is also calibrated blind; there is no standardized mempool signal to know where you stand.
 
-* Private SPO arrangements: Explored and rejected. Even agreements with major SPOs yield only ~30% (estimated by stakeholders during interview) next-block probability; insufficient for liquidations. More importantly, this produces a worse outcome than a formal mechanism: an opaque, permissioned, off-chain priority market accessible only to well-capitalized incumbents.
+* Multi-relay submission: Where the node is connected to multiple SPO relays to increase the likelihood that the transaction reaches the next block producer quickly
+
+Deployed as standard infrastructure. Improves latency-to-mempool, not confirmation ordering. Once in the queue, the transaction competes equally with everything else.
+
+* Private SPO arrangements: 
+
+Explored and rejected. Even agreements with major SPOs yield only ~30% (estimated by stakeholders during interview) next-block probability; insufficient for liquidations. More importantly, this produces a worse outcome than a formal mechanism: an opaque, permissioned, off-chain priority market accessible only to well-capitalized incumbents.
 
 
 ## Open Questions

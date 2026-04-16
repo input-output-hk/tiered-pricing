@@ -149,9 +149,8 @@ with transactions from previous eras.
 
 ### Acceptance criteria
 
-- [ ]  Formal specification of the ledger changes is available.
-- [ ]   Hard fork enabling Nested Transactions is successfully executed across Cardano testnets.
-- [ ]   Hard fork enabling Nested Transactions is successfully executed on Cardano mainnet.
+- [ ]  This CIP has been communicated to, reviewed by, and agreed upon by a representative group of community members
+- [ ]  All major concerns have been addressed
 
 ### Implementation plan
 

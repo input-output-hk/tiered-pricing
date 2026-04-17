@@ -82,6 +82,7 @@ impl<N: NodeImpl> NodeDriver<N> {
         loop {
             let next_event_at = self.events.peek().map(|e| e.0).expect("no events");
             let (result, finish_task) = select! {
+                biased;
                 maybe_msg = self.msg_source.recv() => {
                     let Some((from, msg)) = maybe_msg else {
                         // sim has stopped running

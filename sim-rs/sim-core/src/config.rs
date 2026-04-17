@@ -18,7 +18,10 @@ use crate::{
     model::{ActorId, Transaction, TransactionId, UrgencyProfile},
     probability::FloatDistribution,
     tx_actors::{ActorConfig, ActorsFile},
-    tx_pricing::{PricingFile, PricingMechanismConfig, TierBlockSelectionPolicy},
+    tx_pricing::{
+        PricingFile, PricingMechanismConfig, TierBlockSelectionPolicy,
+        validate_eip1559_priority_lane_config,
+    },
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -92,6 +95,7 @@ pub struct TierSelectionPathLatencyConfig {
 pub enum PricingKind {
     Baseline,
     Eip1559,
+    Eip1559PriorityLane,
     Tiered,
 }
 
@@ -1068,31 +1072,59 @@ fn load_pricing_config(params: &RawParameters) -> Result<Option<PricingMechanism
             );
         }
     }
-    if let PricingMechanismConfig::TieredPricing { tiered_config } = &mut pricing {
-        let legacy_separate_pool = tiered_config.eb_total_capacity.is_some();
-        let needs_separate_pool = tiered_config.separate_eb_pool
-            || legacy_separate_pool
-            || tiered_config.block_selection_policy
-                == crate::tx_pricing::TierBlockSelectionPolicy::ContinuousRbEb;
-
-        if legacy_separate_pool
-            && tiered_config.eb_total_capacity != Some(params.eb_referenced_txs_max_size_bytes)
-        {
-            info!(
-                "pricing.eb_total_capacity is deprecated; using eb-referenced-txs-max-size-bytes ({}) instead",
-                params.eb_referenced_txs_max_size_bytes
-            );
+    match &mut pricing {
+        PricingMechanismConfig::Eip1559 { smoothing, .. } => {
+            smoothing
+                .validate()
+                .map_err(|err| anyhow!("invalid eip1559 config: {}", err))?;
         }
+        PricingMechanismConfig::Eip1559PriorityLane {
+            max_change_denominator,
+            target_utilisation,
+            priority_fee_multiplier,
+            priority_capacity_fraction,
+            priority_delay,
+            normal_delay,
+            ..
+        } => {
+            validate_eip1559_priority_lane_config(
+                *max_change_denominator,
+                *target_utilisation,
+                *priority_fee_multiplier,
+                *priority_capacity_fraction,
+                *priority_delay,
+                *normal_delay,
+            )
+            .map_err(|err| anyhow!("invalid eip1559_priority_lane config: {}", err))?;
+        }
+        PricingMechanismConfig::TieredPricing { tiered_config } => {
+            let legacy_separate_pool = tiered_config.eb_total_capacity.is_some();
+            let needs_separate_pool = tiered_config.separate_eb_pool
+                || legacy_separate_pool
+                || tiered_config
+                    .block_selection_policy
+                    .uses_continuous_lane_pricing();
 
-        tiered_config.eb_total_capacity = if needs_separate_pool {
-            Some(params.eb_referenced_txs_max_size_bytes)
-        } else {
-            None
-        };
+            if legacy_separate_pool
+                && tiered_config.eb_total_capacity != Some(params.eb_referenced_txs_max_size_bytes)
+            {
+                info!(
+                    "pricing.eb_total_capacity is deprecated; using eb-referenced-txs-max-size-bytes ({}) instead",
+                    params.eb_referenced_txs_max_size_bytes
+                );
+            }
 
-        tiered_config
-            .validate()
-            .map_err(|err| anyhow!("invalid tiered config: {}", err))?;
+            tiered_config.eb_total_capacity = if needs_separate_pool {
+                Some(params.eb_referenced_txs_max_size_bytes)
+            } else {
+                None
+            };
+
+            tiered_config
+                .validate()
+                .map_err(|err| anyhow!("invalid tiered config: {}", err))?;
+        }
+        PricingMechanismConfig::Baseline { .. } => {}
     }
     Ok(Some(pricing))
 }
@@ -1110,6 +1142,9 @@ fn pricing_kind_matches(kind: PricingKind, config: &PricingMechanismConfig) -> b
     match (kind, config) {
         (PricingKind::Baseline, PricingMechanismConfig::Baseline { .. }) => true,
         (PricingKind::Eip1559, PricingMechanismConfig::Eip1559 { .. }) => true,
+        (PricingKind::Eip1559PriorityLane, PricingMechanismConfig::Eip1559PriorityLane { .. }) => {
+            true
+        }
         (PricingKind::Tiered, PricingMechanismConfig::TieredPricing { .. }) => true,
         _ => false,
     }

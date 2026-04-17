@@ -1,0 +1,7 @@
+# Thin overlay — protocol params inherited from protocol-base.yaml
+# ContinuousRbEbFallback: lane-partitioned submission + EB fallback at block time.
+# Overflow signal for pricing, no overflow-driven tier spawning. Delay=0.
+pricing:
+  config-path: "parameters/phase-2-sweep/pricing/fallback_overflow_signal_delay0.toml"
+actors:
+  config-path: "parameters/phase-2-sweep/demand/paper_like_moderate.toml"

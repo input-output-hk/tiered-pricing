@@ -1,0 +1,13 @@
+# EIP-1559-like single dynamic base fee with EMA smoothing across RB/EB
+# pricing events. The EMA smooths included bytes and block capacity separately,
+# then reprices from smoothed_bytes / smoothed_capacity.
+
+[pricing_mechanism]
+kind = "eip1559"
+initial_base_fee = 90
+max_change_denominator = 8
+target_utilisation = 0.5
+
+[pricing_mechanism.smoothing]
+enabled = true
+alpha = 0.2

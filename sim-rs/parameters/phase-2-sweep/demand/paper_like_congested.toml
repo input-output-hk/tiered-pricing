@@ -1,0 +1,92 @@
+# Paper-like mixed traffic at high congestion (~200% of total Leios capacity).
+#
+# Total supply: ~297KB/slot (RB: 4.5KB/slot, EB: 292KB/slot).
+# Target demand: ~594KB/slot = ~540 tx/slot at 1.1KB weighted mean.
+#
+# This creates a regime where:
+#   - Total demand significantly exceeds total capacity
+#   - Both RB and EB lanes are congested
+#   - Tiers MUST activate to manage demand — urgency separation is essential
+#   - Low-urgency txs should self-select into cheaper, slower tiers
+#
+# Phased structure: ramp-up → sustained overload → recovery.
+#   Slots 0-400:     Ramp-up (~300 tx/slot, ~110% utilisation)
+#   Slots 400-1200:  Sustained overload (~600 tx/slot, ~220% utilisation)
+#   Slots 1200-2000: Recovery (~200 tx/slot, ~75% utilisation)
+#
+# Tx sizes and values calibrated to post-Vasil Cardano.
+
+# ============================================================================
+# High-value, high-urgency (Plutus-heavy) — 15%
+# ============================================================================
+[[actors]]
+name = "high_val_high_urg"
+arrival_rate = 0.0
+arrival_pattern = { kind = "phased", phases = [
+    { start_slot = 0, end_slot = 400, rate = 45.0 },
+    { start_slot = 400, end_slot = 1200, rate = 90.0 },
+    { start_slot = 1200, end_slot = 2000, rate = 30.0 },
+] }
+tx_size = { kind = "normal", params = [4000, 2500] }
+value_distribution = { kind = "constant", params = [0] }
+urgency = { kind = "indifferent" }
+
+[[actors.value_urgency_components]]
+name = "high_val_high_urg"
+weight = 1.0
+value_distribution = { kind = "normal", params = [30000000.0, 15000000.0] }
+urgency_u_distribution = { kind = "uniform", params = [1.03, 1.06] }
+
+# ============================================================================
+# Medium-value (script txs) — 55%
+# ============================================================================
+[[actors]]
+name = "med_val"
+arrival_rate = 0.0
+arrival_pattern = { kind = "phased", phases = [
+    { start_slot = 0, end_slot = 400, rate = 165.0 },
+    { start_slot = 400, end_slot = 1200, rate = 330.0 },
+    { start_slot = 1200, end_slot = 2000, rate = 110.0 },
+] }
+tx_size = { kind = "normal", params = [800, 400] }
+value_distribution = { kind = "constant", params = [0] }
+urgency = { kind = "indifferent" }
+
+[[actors.value_urgency_components]]
+name = "med_high_val_med_urg"
+weight = 0.45
+value_distribution = { kind = "normal", params = [8000000.0, 3000000.0] }
+urgency_u_distribution = { kind = "uniform", params = [1.02, 1.05] }
+
+[[actors.value_urgency_components]]
+name = "med_val_med_urg"
+weight = 0.55
+value_distribution = { kind = "normal", params = [3000000.0, 1500000.0] }
+urgency_u_distribution = { kind = "uniform", params = [1.015, 1.04] }
+
+# ============================================================================
+# Low-value (simple transfers) — 30%
+# ============================================================================
+[[actors]]
+name = "low_val"
+arrival_rate = 0.0
+arrival_pattern = { kind = "phased", phases = [
+    { start_slot = 0, end_slot = 400, rate = 90.0 },
+    { start_slot = 400, end_slot = 1200, rate = 180.0 },
+    { start_slot = 1200, end_slot = 2000, rate = 60.0 },
+] }
+tx_size = { kind = "normal", params = [350, 100] }
+value_distribution = { kind = "constant", params = [0] }
+urgency = { kind = "indifferent" }
+
+[[actors.value_urgency_components]]
+name = "low_med_val_low_urg"
+weight = 0.67
+value_distribution = { kind = "normal", params = [1500000.0, 600000.0] }
+urgency_u_distribution = { kind = "uniform", params = [1.01, 1.03] }
+
+[[actors.value_urgency_components]]
+name = "low_val_low_urg"
+weight = 0.33
+value_distribution = { kind = "normal", params = [600000.0, 250000.0] }
+urgency_u_distribution = { kind = "uniform", params = [1.005, 1.02] }

@@ -1,0 +1,25 @@
+# Shared linear-Leios protocol parameters for all phase-2 experiments.
+# Layered on top of config.default.yaml via: linear.yaml → protocol-base.yaml → experiment.yaml
+#
+# Experiments should NOT repeat these fields. They should only specify:
+#   - pricing.config-path
+#   - actors.config-path
+#   - Any per-experiment overrides (e.g. enforce-tier-delay, eb-generation-probability)
+
+tx-generator: actors
+enforce-tier-delay: true
+seed: 42
+
+# Linear-Leios stage configuration
+linear-vote-stage-length-slots: 4
+linear-diffuse-stage-length-slots: 7
+vote-threshold: 180
+leios-header-diffusion-time-ms: 2000.0
+
+# Block structure: RBs carry EITHER an EB certificate OR inline txs, not both.
+rb-inline-txs-with-endorsement-enabled: false
+eb-referenced-txs-max-size-bytes: 12582912
+
+# Path latency for tier selection utility calculation
+rb-path-latency-slots: 20
+eb-path-latency-slots: 56

@@ -1,0 +1,6 @@
+# Thin overlay — protocol params inherited from protocol-base.yaml
+# Overflow-pricing-signal with delay=0 (no capped tier pressure)
+pricing:
+  config-path: "parameters/phase-2-sweep/pricing/overflow_signal_delay0.toml"
+actors:
+  config-path: "parameters/phase-2-sweep/demand/paper_like_moderate.toml"

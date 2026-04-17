@@ -25,6 +25,7 @@ pub enum TierBlockSelectionPolicy {
     NaiveRbEbTwoTier,
     RbTier0Reserved,
     ContinuousRbEb,
+    ContinuousRbEbFallback,
 }
 
 impl TierBlockSelectionPolicy {
@@ -39,7 +40,8 @@ impl TierBlockSelectionPolicy {
                 BlockKind::RankingBlock => tier_index == 0,
                 BlockKind::EndorserBlock => tier_index > 0,
             },
-            TierBlockSelectionPolicy::ContinuousRbEb => true,
+            TierBlockSelectionPolicy::ContinuousRbEb
+            | TierBlockSelectionPolicy::ContinuousRbEbFallback => true,
         }
     }
 
@@ -49,6 +51,17 @@ impl TierBlockSelectionPolicy {
             TierBlockSelectionPolicy::NaiveRbEbTwoTier
                 | TierBlockSelectionPolicy::RbTier0Reserved
                 | TierBlockSelectionPolicy::ContinuousRbEb
+        )
+    }
+
+    /// Whether this policy uses per-lane pricing with separate tier states per block kind.
+    /// True for both ContinuousRbEb (submitter picks lane) and ContinuousRbEbFallback
+    /// (node decides lane, but pricing tracks each lane independently).
+    pub fn uses_continuous_lane_pricing(self) -> bool {
+        matches!(
+            self,
+            TierBlockSelectionPolicy::ContinuousRbEb
+                | TierBlockSelectionPolicy::ContinuousRbEbFallback
         )
     }
 }
@@ -260,9 +273,96 @@ pub enum PricingMechanismConfig {
         initial_base_fee: u64,
         max_change_denominator: u64,
         target_utilisation: f64,
+        #[serde(default)]
+        smoothing: Eip1559SmoothingConfig,
+    },
+    #[serde(alias = "eip1559_priority_lane")]
+    Eip1559PriorityLane {
+        initial_base_fee: u64,
+        max_change_denominator: u64,
+        target_utilisation: f64,
+        priority_fee_multiplier: f64,
+        #[serde(default = "default_priority_lane_capacity_fraction")]
+        priority_capacity_fraction: f64,
+        #[serde(default = "default_priority_lane_priority_delay")]
+        priority_delay: u64,
+        #[serde(default = "default_priority_lane_normal_delay")]
+        normal_delay: u64,
     },
     #[serde(alias = "tiered")]
     TieredPricing { tiered_config: TieredConfig },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Eip1559SmoothingConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_eip1559_smoothing_alpha")]
+    pub alpha: f64,
+}
+
+impl Default for Eip1559SmoothingConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            alpha: default_eip1559_smoothing_alpha(),
+        }
+    }
+}
+
+impl Eip1559SmoothingConfig {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.enabled && (!self.alpha.is_finite() || self.alpha <= 0.0 || self.alpha > 1.0) {
+            return Err("eip1559 smoothing alpha must be finite and in (0, 1]".to_string());
+        }
+        Ok(())
+    }
+}
+
+fn default_eip1559_smoothing_alpha() -> f64 {
+    0.2
+}
+
+fn default_priority_lane_capacity_fraction() -> f64 {
+    1.0
+}
+
+fn default_priority_lane_priority_delay() -> u64 {
+    1
+}
+
+fn default_priority_lane_normal_delay() -> u64 {
+    2
+}
+
+pub fn validate_eip1559_priority_lane_config(
+    max_change_denominator: u64,
+    target_utilisation: f64,
+    priority_fee_multiplier: f64,
+    priority_capacity_fraction: f64,
+    priority_delay: u64,
+    normal_delay: u64,
+) -> Result<(), String> {
+    if max_change_denominator == 0 {
+        return Err("max_change_denominator must be >= 1".to_string());
+    }
+    if !target_utilisation.is_finite() || target_utilisation <= 0.0 {
+        return Err("target_utilisation must be finite and > 0".to_string());
+    }
+    if !priority_fee_multiplier.is_finite() || priority_fee_multiplier < 1.0 {
+        return Err("priority_fee_multiplier must be finite and >= 1".to_string());
+    }
+    if !priority_capacity_fraction.is_finite()
+        || priority_capacity_fraction <= 0.0
+        || priority_capacity_fraction > 1.0
+    {
+        return Err("priority_capacity_fraction must be finite and in (0, 1]".to_string());
+    }
+    if priority_delay >= normal_delay {
+        return Err("priority_delay must be lower than normal_delay".to_string());
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -317,12 +417,37 @@ pub struct TieredConfig {
     pub new_tier_price: u64,
     /// Delay ratio applied when creating a new tier: new_delay = ratio * previous_tier_delay.
     pub new_tier_delay_ratio: f64,
+    /// Initial delay for the first tier (tier 0 / fastest tier).
+    /// Default: 1. For slot-based delays, set to ~20 to match block-based behavior.
+    #[serde(default = "default_initial_tier_delay")]
+    pub initial_tier_delay: u64,
+    /// How tier delays are spaced when new tiers are added.
+    /// "incremental" (default): each new tier = new_tier_delay_ratio * previous tier delay.
+    /// "geometric_fixed_max": tiers geometrically spaced between 0 and max_tier_delay.
+    #[serde(default)]
+    pub tier_delay_spacing: TierDelaySpacing,
+    /// Maximum delay for the slowest tier. Only used with geometric_fixed_max spacing.
+    #[serde(default = "default_max_tier_delay")]
+    pub max_tier_delay: u64,
     /// How tiers map to block types (RB/EB). Shared = paper-like single pool.
     #[serde(default)]
     pub block_selection_policy: TierBlockSelectionPolicy,
     /// Fraction of RB capacity reserved for tier 0 (only used with RbTier0Reserved policy).
     #[serde(default = "default_rb_tier0_reservation_fraction")]
     pub rb_tier0_reservation_fraction: f64,
+    /// Optional lower target utilisation for the RB lane only.
+    #[serde(default)]
+    pub rb_target_utilisation: Option<f64>,
+    /// Optional repricing denominator override for the RB lane only.
+    #[serde(default)]
+    pub rb_base_fee_change_denominator: Option<u64>,
+    /// Optional stronger overflow repricing slope for the RB lane only.
+    #[serde(default)]
+    pub rb_overflow_linear_price_per_fill: Option<u64>,
+    /// Soft reservation for RB tier 0 under continuous RB/EB pricing.
+    /// Unused reserved bytes are allowed to spill back to slower RB tiers.
+    #[serde(default = "default_rb_soft_reservation_fraction")]
+    pub rb_soft_reservation_fraction: f64,
     /// Enable a separate EB tier pool.
     /// EB pool capacity is derived from top-level `eb-referenced-txs-max-size-bytes`.
     #[serde(default)]
@@ -397,6 +522,36 @@ pub struct TieredConfig {
     /// Policy controlling resubmission behavior after tier-backlog overflow rejections.
     #[serde(default = "default_overflow_retry_policy")]
     pub overflow_retry_policy: OverflowRetryPolicy,
+    /// Extra delay scale applied during RB-vs-EB lane selection based on observed lane backlog.
+    /// 0 disables the penalty.
+    #[serde(default = "default_lane_selection_backlog_delay_scale")]
+    pub lane_selection_backlog_delay_scale: f64,
+    /// Minimum fee per transaction, independent of size.
+    /// Mirrors Cardano's minimum fee floor (~150k lovelace).
+    /// Tier fee = max(price_per_byte * bytes + base_fee, min_fee).
+    #[serde(default)]
+    pub min_fee: u64,
+    /// Blending factor for gradual tier capacity rebalancing in [0,1].
+    /// When a tier is added or removed, each tier moves this fraction of the way
+    /// toward its target capacity. 0 = no rebalancing, 1 = snap to target instantly.
+    /// Default: 0.3 (converges over ~5-7 rebalancing events).
+    #[serde(default = "default_tier_rebalance_alpha")]
+    pub tier_rebalance_alpha: f64,
+    /// Enable exponential moving average throughput for fill rate calculation.
+    /// Only meaningful for shared single-pool (separate_eb_pool=false).
+    /// Smooths the RB/EB fill rate oscillation by tracking throughput over time.
+    #[serde(default)]
+    pub throughput_ema_enabled: bool,
+    /// Smoothing factor for throughput EMA in [0,1].
+    /// Smaller = smoother (slower response). Default: 0.1.
+    #[serde(default = "default_throughput_ema_alpha")]
+    pub throughput_ema_alpha: f64,
+    /// When true, block filling uses strict tier priority instead of per-tier capacity allocation.
+    /// Tier 0 fills first (up to full block capacity), then tier 1 gets the remainder, etc.
+    /// Delays are advisory only (used for self-selection but not enforced at inclusion time).
+    /// Fill rates are computed against total block capacity, not per-tier capacity.
+    #[serde(default)]
+    pub priority_ordering: bool,
 }
 
 impl TieredConfig {
@@ -508,7 +663,22 @@ impl TieredConfig {
                 );
             }
         }
-        if self.block_selection_policy == TierBlockSelectionPolicy::ContinuousRbEb
+        if let Some(target) = self.rb_target_utilisation {
+            if !target.is_finite() || !(0.0..=1.0).contains(&target) || target == 0.0 {
+                return Err("rb_target_utilisation must be finite and in (0, 1]".to_string());
+            }
+        }
+        if let Some(denominator) = self.rb_base_fee_change_denominator {
+            if denominator == 0 {
+                return Err("rb_base_fee_change_denominator must be >= 1".to_string());
+            }
+        }
+        if !self.rb_soft_reservation_fraction.is_finite()
+            || !(0.0..=1.0).contains(&self.rb_soft_reservation_fraction)
+        {
+            return Err("rb_soft_reservation_fraction must be finite and in [0, 1]".to_string());
+        }
+        if self.block_selection_policy.uses_continuous_lane_pricing()
             && self.eb_total_capacity.is_none()
             && !self.separate_eb_pool
         {
@@ -550,6 +720,11 @@ impl TieredConfig {
                 "dynamic_tier_sizing_min_fraction must be finite and in [0, 1]".to_string(),
             );
         }
+        if !self.lane_selection_backlog_delay_scale.is_finite()
+            || self.lane_selection_backlog_delay_scale < 0.0
+        {
+            return Err("lane_selection_backlog_delay_scale must be finite and >= 0".to_string());
+        }
         self.overflow_retry_policy.validate()?;
         Ok(())
     }
@@ -583,6 +758,27 @@ impl TieredConfig {
             .unwrap_or(self.new_tier_delay_ratio)
     }
 
+    /// Compute the delay for a tier at `tier_index` (0-based, where 0 is fastest)
+    /// under geometric_fixed_max spacing. Tier 0 = initial_tier_delay,
+    /// remaining tiers geometrically spaced up to max_tier_delay.
+    fn geometric_delay_for_tier(&self, tier_index: usize, total_tiers: usize) -> u64 {
+        if tier_index == 0 {
+            return self.initial_tier_delay;
+        }
+        if total_tiers <= 1 {
+            return self.initial_tier_delay;
+        }
+        // Tiers 1..total_tiers-1 are geometrically spaced from min to max_tier_delay.
+        // min is 1 (smallest nonzero delay). max is max_tier_delay.
+        let n = (total_tiers - 1) as f64; // number of nonzero-delay tiers
+        let i = tier_index as f64; // 1-based position in the nonzero range
+        let max_d = self.max_tier_delay as f64;
+        // Geometric: delay[i] = max_d ^ (i / (n))
+        // This gives tier 1 = max_d^(1/n), tier n = max_d^1 = max_d
+        let delay = max_d.powf(i / n);
+        (delay.round() as u64).max(1)
+    }
+
     fn effective_tier_update_cadence_slots(&self) -> u64 {
         self.tier_update_period_slots
             .or(self.tier_update_frequency)
@@ -592,6 +788,38 @@ impl TieredConfig {
     fn rb_reserved_capacity(&self, block_capacity: u64) -> u64 {
         let reserved = (block_capacity as f64 * self.rb_tier0_reservation_fraction).round() as u64;
         reserved.min(block_capacity)
+    }
+
+    fn rb_soft_reserved_capacity(&self, block_capacity: u64) -> u64 {
+        let reserved = (block_capacity as f64 * self.rb_soft_reservation_fraction).round() as u64;
+        reserved.min(block_capacity)
+    }
+
+    fn target_utilisation_for_lane(&self, lane: TierLane) -> f64 {
+        match lane {
+            TierLane::Ranking => self
+                .rb_target_utilisation
+                .unwrap_or(self.target_utilisation),
+            TierLane::Endorser => self.target_utilisation,
+        }
+    }
+
+    fn base_fee_change_denominator_for_lane(&self, lane: TierLane) -> u64 {
+        match lane {
+            TierLane::Ranking => self
+                .rb_base_fee_change_denominator
+                .unwrap_or(self.base_fee_change_denominator),
+            TierLane::Endorser => self.base_fee_change_denominator,
+        }
+    }
+
+    fn overflow_linear_price_per_fill_for_lane(&self, lane: TierLane) -> u64 {
+        match lane {
+            TierLane::Ranking => self
+                .rb_overflow_linear_price_per_fill
+                .unwrap_or(self.overflow_linear_price_per_fill),
+            TierLane::Endorser => self.overflow_linear_price_per_fill,
+        }
     }
 
     /// Whether this config uses separate tier pools per block kind.
@@ -611,6 +839,10 @@ fn default_rb_tier0_reservation_fraction() -> f64 {
     1.0
 }
 
+fn default_rb_soft_reservation_fraction() -> f64 {
+    0.0
+}
+
 fn default_reject_on_pending_tier_overflow() -> bool {
     true
 }
@@ -621,6 +853,30 @@ fn default_overflow_retry_policy() -> OverflowRetryPolicy {
 
 fn default_add_tier_fill_rate_threshold() -> f64 {
     1.0
+}
+
+fn default_tier_rebalance_alpha() -> f64 {
+    0.3
+}
+
+fn default_initial_tier_delay() -> u64 {
+    1
+}
+
+fn default_max_tier_delay() -> u64 {
+    200
+}
+
+#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum TierDelaySpacing {
+    #[default]
+    Incremental,
+    GeometricFixedMax,
+}
+
+fn default_throughput_ema_alpha() -> f64 {
+    0.1
 }
 
 fn default_remove_tier_fill_rate_threshold() -> f64 {
@@ -641,6 +897,10 @@ fn default_dynamic_tier_sizing_alpha() -> f64 {
 
 fn default_dynamic_tier_sizing_min_fraction() -> f64 {
     0.02
+}
+
+fn default_lane_selection_backlog_delay_scale() -> f64 {
+    0.0
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -722,6 +982,12 @@ pub enum TierSelectionDelayModel {
     },
 }
 
+#[derive(Debug, Copy, Clone, Default, PartialEq, Eq)]
+pub struct LaneDelayAdjustments {
+    pub ranking_extra_delay: u64,
+    pub endorser_extra_delay: u64,
+}
+
 impl TierSelectionDelayModel {
     fn utility_delay_units(self, tier: &TierQuote) -> u64 {
         self.utility_delay_units_for_lane(
@@ -729,9 +995,23 @@ impl TierSelectionDelayModel {
                 TierLane::Ranking => BlockKind::RankingBlock,
                 TierLane::Endorser => BlockKind::EndorserBlock,
             },
-            tier.delay.max(1),
+            tier.delay,
             Some(tier.id),
         )
+    }
+
+    pub(crate) fn utility_delay_units_for_lane_with_adjustments(
+        self,
+        lane: BlockKind,
+        tier_delay_slots: u64,
+        tier_id: Option<TierId>,
+        delay_adjustments: LaneDelayAdjustments,
+    ) -> u64 {
+        self.utility_delay_units_for_lane(lane, tier_delay_slots, tier_id)
+            .saturating_add(match lane {
+                BlockKind::RankingBlock => delay_adjustments.ranking_extra_delay,
+                BlockKind::EndorserBlock => delay_adjustments.endorser_extra_delay,
+            })
     }
 
     pub(crate) fn utility_delay_units_for_lane(
@@ -741,7 +1021,7 @@ impl TierSelectionDelayModel {
         tier_id: Option<TierId>,
     ) -> u64 {
         match self {
-            TierSelectionDelayModel::TierDelay => tier_delay_slots.max(1),
+            TierSelectionDelayModel::TierDelay => tier_delay_slots,
             TierSelectionDelayModel::NaiveRbEbTwoTierPath {
                 rb_path_latency,
                 eb_path_latency,
@@ -762,7 +1042,7 @@ impl TierSelectionDelayModel {
                     BlockKind::RankingBlock => rb_path_latency.max(1),
                     BlockKind::EndorserBlock => eb_path_latency.max(1),
                 };
-                lane_path.saturating_add(tier_delay_slots.max(1).saturating_sub(1))
+                lane_path.saturating_add(tier_delay_slots.saturating_sub(1))
             }
         }
     }
@@ -784,7 +1064,7 @@ pub fn select_tier_for_tx(
         }
 
         // Choose max utility, then lower delay, then lower fee, then stable tier id.
-        let settlement_delay_slots = tier.delay.max(1);
+        let settlement_delay_slots = tier.delay;
         let candidate = (
             utility,
             utility_delay_units,
@@ -848,6 +1128,22 @@ pub fn select_best_lane_tier_for_tx(
     eb_pricing: &PricingSnapshot,
     delay_model: TierSelectionDelayModel,
 ) -> Option<LaneTierSelection> {
+    select_best_lane_tier_for_tx_with_adjustments(
+        tx,
+        rb_pricing,
+        eb_pricing,
+        delay_model,
+        LaneDelayAdjustments::default(),
+    )
+}
+
+pub fn select_best_lane_tier_for_tx_with_adjustments(
+    tx: &Transaction,
+    rb_pricing: &PricingSnapshot,
+    eb_pricing: &PricingSnapshot,
+    delay_model: TierSelectionDelayModel,
+    delay_adjustments: LaneDelayAdjustments,
+) -> Option<LaneTierSelection> {
     let rb = select_tier_for_tx(tx, rb_pricing, delay_model);
     let eb = select_tier_for_tx(tx, eb_pricing, delay_model);
 
@@ -858,9 +1154,14 @@ pub fn select_best_lane_tier_for_tx(
         required_fee: u64,
         tier_delay_slots: u64,
         delay_model: TierSelectionDelayModel,
+        delay_adjustments: LaneDelayAdjustments,
     ) -> (i128, u64) {
-        let utility_delay =
-            delay_model.utility_delay_units_for_lane(lane, tier_delay_slots, tier_id);
+        let utility_delay = delay_model.utility_delay_units_for_lane_with_adjustments(
+            lane,
+            tier_delay_slots,
+            tier_id,
+            delay_adjustments,
+        );
         let value_at_delay = tx.urgency.value_at_delay(tx.value, utility_delay);
         (value_at_delay as i128 - required_fee as i128, utility_delay)
     }
@@ -882,6 +1183,7 @@ pub fn select_best_lane_tier_for_tx(
             posted_fee,
             tier_delay_slots,
             delay_model,
+            delay_adjustments,
         );
         if utility >= 0 {
             let selection = LaneTierSelection {
@@ -917,6 +1219,7 @@ pub fn select_best_lane_tier_for_tx(
             posted_fee,
             tier_delay_slots,
             delay_model,
+            delay_adjustments,
         );
         if utility >= 0 {
             let selection = LaneTierSelection {
@@ -971,7 +1274,7 @@ impl SingleTierFeeHistory {
     fn from_tiers(tiers: &[Tier], slot: u64) -> Self {
         let mut history = Self::default();
         for tier in tiers {
-            history.replace_tier_with_epoch(tier.id, tier.price, tier.delay.max(1), slot);
+            history.replace_tier_with_epoch(tier.id, tier.price, tier.delay, slot);
         }
         history
     }
@@ -988,7 +1291,7 @@ impl SingleTierFeeHistory {
             vec![FeeEpoch {
                 start_slot: slot,
                 price_per_byte,
-                delay_slots: delay_slots.max(1),
+                delay_slots: delay_slots,
                 valid_through_slot: None,
             }],
         );
@@ -1001,7 +1304,7 @@ impl SingleTierFeeHistory {
         delay_slots: u64,
         slot: u64,
     ) {
-        let delay_slots = delay_slots.max(1);
+        let delay_slots = delay_slots;
         let epochs = self.by_tier.entry(tier_id).or_insert_with(|| {
             vec![FeeEpoch {
                 start_slot: slot,
@@ -1100,6 +1403,7 @@ struct LegacyInclusionAssignment {
 struct TierAssignmentRecord {
     lane: TierLane,
     price_per_byte: u64,
+    base_fee: u64,
     delay_slots: u64,
     created_slot: u64,
     retired_slot: Option<u64>,
@@ -1112,17 +1416,22 @@ struct TierAssignmentHistory {
 }
 
 impl TierAssignmentHistory {
-    fn from_tiers(tiers: &[Tier], tier_update_frequency: u64, lane: TierLane) -> Self {
+    fn from_tiers(
+        tiers: &[Tier],
+        tier_update_frequency: u64,
+        lane: TierLane,
+        min_fee: u64,
+    ) -> Self {
         let mut history = Self {
             by_key: BTreeMap::new(),
             history_window_slots: tier_update_frequency
                 .saturating_mul(ASSIGNMENT_HISTORY_WINDOW_MULTIPLIER),
         };
-        history.sync_with_tiers(tiers, 0, lane);
+        history.sync_with_tiers(tiers, 0, lane, min_fee);
         history
     }
 
-    fn sync_with_tiers(&mut self, tiers: &[Tier], slot: u64, lane: TierLane) {
+    fn sync_with_tiers(&mut self, tiers: &[Tier], slot: u64, lane: TierLane, min_fee: u64) {
         let mut active_keys = BTreeMap::new();
         for tier in tiers {
             let key = (tier.id, tier.version_created_slot);
@@ -1132,13 +1441,15 @@ impl TierAssignmentHistory {
                 .and_modify(|record| {
                     record.lane = lane;
                     record.price_per_byte = tier.price;
-                    record.delay_slots = tier.delay.max(1);
+                    record.base_fee = min_fee;
+                    record.delay_slots = tier.delay;
                     record.retired_slot = None;
                 })
                 .or_insert(TierAssignmentRecord {
                     lane,
                     price_per_byte: tier.price,
-                    delay_slots: tier.delay.max(1),
+                    base_fee: min_fee,
+                    delay_slots: tier.delay,
                     created_slot: tier.version_created_slot,
                     retired_slot: None,
                 });
@@ -1161,10 +1472,6 @@ impl TierAssignmentHistory {
         assignment: QuotedAssignment,
         tx_bytes: u64,
     ) -> std::result::Result<(), TransactionRejectReason> {
-        if assignment.delay_slots == 0 {
-            return Err(TransactionRejectReason::InvalidQuotedAssignment);
-        }
-
         let Some(record) = self
             .by_key
             .get(&(assignment.tier_id, assignment.version_created_slot))
@@ -1172,10 +1479,14 @@ impl TierAssignmentHistory {
             return Err(TransactionRejectReason::QuotedHistoryUnavailable);
         };
 
-        let expected_fee = record.price_per_byte.saturating_mul(tx_bytes);
-        let quoted_expected_fee = assignment
-            .price_per_byte_at_assignment
-            .saturating_mul(tx_bytes);
+        let expected_fee = record
+            .base_fee
+            .saturating_add(record.price_per_byte.saturating_mul(tx_bytes));
+        let quoted_expected_fee = record.base_fee.saturating_add(
+            assignment
+                .price_per_byte_at_assignment
+                .saturating_mul(tx_bytes),
+        );
         if record.created_slot != assignment.version_created_slot
             || record.delay_slots != assignment.delay_slots
             || record.price_per_byte != assignment.price_per_byte_at_assignment
@@ -1200,6 +1511,7 @@ impl TierAssignmentHistory {
 pub enum PricingMechanism {
     Baseline(BaselinePricing),
     Eip1559(Eip1559Pricing),
+    Eip1559PriorityLane(Eip1559PriorityLanePricing),
     Tiered(TieredPricing),
 }
 
@@ -1214,10 +1526,29 @@ impl PricingMechanism {
                 initial_base_fee,
                 max_change_denominator,
                 target_utilisation,
+                smoothing,
             } => PricingMechanism::Eip1559(Eip1559Pricing::new(
                 *initial_base_fee,
                 *max_change_denominator,
                 *target_utilisation,
+                smoothing.clone(),
+            )),
+            PricingMechanismConfig::Eip1559PriorityLane {
+                initial_base_fee,
+                max_change_denominator,
+                target_utilisation,
+                priority_fee_multiplier,
+                priority_capacity_fraction,
+                priority_delay,
+                normal_delay,
+            } => PricingMechanism::Eip1559PriorityLane(Eip1559PriorityLanePricing::new(
+                *initial_base_fee,
+                *max_change_denominator,
+                *target_utilisation,
+                *priority_fee_multiplier,
+                *priority_capacity_fraction,
+                *priority_delay,
+                *normal_delay,
             )),
             PricingMechanismConfig::TieredPricing { tiered_config } => {
                 PricingMechanism::Tiered(TieredPricing::new(tiered_config.clone(), seed))
@@ -1229,6 +1560,7 @@ impl PricingMechanism {
         match self {
             PricingMechanism::Baseline(pricing) => pricing.snapshot(),
             PricingMechanism::Eip1559(pricing) => pricing.snapshot(),
+            PricingMechanism::Eip1559PriorityLane(pricing) => pricing.snapshot(),
             PricingMechanism::Tiered(pricing) => pricing.snapshot(),
         }
     }
@@ -1244,6 +1576,13 @@ impl PricingMechanism {
         match self {
             PricingMechanism::Tiered(pricing) => pricing.has_separate_eb_pool(),
             _ => false,
+        }
+    }
+
+    pub fn lane_selection_backlog_delay_scale(&self) -> f64 {
+        match self {
+            PricingMechanism::Tiered(pricing) => pricing.lane_selection_backlog_delay_scale(),
+            _ => 0.0,
         }
     }
 
@@ -1279,6 +1618,7 @@ impl PricingMechanism {
         matches!(
             self.block_selection_policy(),
             Some(TierBlockSelectionPolicy::ContinuousRbEb)
+                | Some(TierBlockSelectionPolicy::ContinuousRbEbFallback)
         )
     }
 
@@ -1314,6 +1654,13 @@ impl PricingMechanism {
 
     pub fn is_tiered(&self) -> bool {
         matches!(self, PricingMechanism::Tiered(_))
+    }
+
+    pub fn is_priority_ordering(&self) -> bool {
+        match self {
+            PricingMechanism::Tiered(pricing) => pricing.is_priority_ordering(),
+            _ => false,
+        }
     }
 
     pub fn verify_preassigned_transaction(
@@ -1372,6 +1719,10 @@ impl PricingMechanism {
                 pricing.update_after_block(txs, block_capacity, slot);
                 TierCadenceUpdate::default()
             }
+            PricingMechanism::Eip1559PriorityLane(pricing) => {
+                pricing.update_after_block(txs, block_capacity, slot);
+                TierCadenceUpdate::default()
+            }
             PricingMechanism::Tiered(pricing) => pricing.update_after_block_with_signals(
                 txs,
                 tier_update_signal_txs,
@@ -1397,6 +1748,9 @@ impl PricingMechanism {
             PricingMechanism::Eip1559(pricing) => {
                 pricing.select_transactions(txs, slot, block_capacity)
             }
+            PricingMechanism::Eip1559PriorityLane(pricing) => {
+                pricing.select_transactions(txs, slot, block_capacity)
+            }
             PricingMechanism::Tiered(pricing) => {
                 pricing.select_transactions(txs, slot, block_capacity, block_kind)
             }
@@ -1412,6 +1766,9 @@ impl PricingMechanism {
 
     pub fn cloned_tiers_for_block_kind(&self, block_kind: BlockKind) -> Option<Vec<Tier>> {
         match self {
+            PricingMechanism::Eip1559PriorityLane(pricing) => {
+                Some(pricing.cloned_tiers_for_block_kind())
+            }
             PricingMechanism::Tiered(pricing) => {
                 Some(pricing.cloned_tiers_for_block_kind(block_kind))
             }
@@ -1421,6 +1778,7 @@ impl PricingMechanism {
 
     pub fn tiers_for_block_kind(&self, block_kind: BlockKind) -> Option<&[Tier]> {
         match self {
+            PricingMechanism::Eip1559PriorityLane(pricing) => Some(pricing.tiers_for_block_kind()),
             PricingMechanism::Tiered(pricing) => match block_kind {
                 BlockKind::EndorserBlock => pricing
                     .eb_state
@@ -1446,6 +1804,7 @@ impl PricingMechanism {
 
     pub fn tier_utilisations(&self) -> Vec<f64> {
         match self {
+            PricingMechanism::Eip1559PriorityLane(pricing) => pricing.last_utilisations.clone(),
             PricingMechanism::Tiered(pricing) => pricing.state.last_utilisations.clone(),
             _ => Vec::new(),
         }
@@ -1453,6 +1812,7 @@ impl PricingMechanism {
 
     pub fn tier_utilisations_for_block_kind(&self, block_kind: BlockKind) -> Vec<f64> {
         match self {
+            PricingMechanism::Eip1559PriorityLane(pricing) => pricing.last_utilisations.clone(),
             PricingMechanism::Tiered(pricing) => {
                 pricing.tier_utilisations_for_block_kind(block_kind)
             }
@@ -1496,6 +1856,9 @@ pub struct Eip1559Pricing {
     base_fee_per_byte: u64,
     max_change_denominator: u64,
     target_utilisation: f64,
+    smoothing: Eip1559SmoothingConfig,
+    ema_included_bytes: Option<f64>,
+    ema_capacity_bytes: Option<f64>,
     fee_history: SingleTierFeeHistory,
 }
 
@@ -1504,6 +1867,7 @@ impl Eip1559Pricing {
         initial_base_fee: u64,
         max_change_denominator: u64,
         target_utilisation: f64,
+        smoothing: Eip1559SmoothingConfig,
     ) -> Self {
         let initial_tier = Tier {
             id: TierId::new(0),
@@ -1519,6 +1883,9 @@ impl Eip1559Pricing {
             base_fee_per_byte: initial_base_fee.max(1),
             max_change_denominator,
             target_utilisation,
+            smoothing,
+            ema_included_bytes: None,
+            ema_capacity_bytes: None,
             fee_history: SingleTierFeeHistory::from_tiers(&[initial_tier], 0),
         }
     }
@@ -1541,7 +1908,7 @@ impl Eip1559Pricing {
             return;
         }
         let total_bytes = txs.iter().map(|tx| tx.bytes).sum::<u64>();
-        let fill_rate = total_bytes as f64 / block_capacity as f64;
+        let fill_rate = self.effective_fill_rate(total_bytes, block_capacity);
         self.base_fee_per_byte = update_eip1559_price(
             self.base_fee_per_byte,
             fill_rate,
@@ -1566,6 +1933,265 @@ impl Eip1559Pricing {
             Some(&self.fee_history),
         )
     }
+
+    fn effective_fill_rate(&mut self, total_bytes: u64, block_capacity: u64) -> f64 {
+        if !self.smoothing.enabled {
+            return total_bytes as f64 / block_capacity as f64;
+        }
+
+        let alpha = self.smoothing.alpha;
+        let current_bytes = total_bytes as f64;
+        let current_capacity = block_capacity as f64;
+        let smoothed_bytes = match self.ema_included_bytes {
+            Some(previous) => alpha * current_bytes + (1.0 - alpha) * previous,
+            None => current_bytes,
+        };
+        let smoothed_capacity = match self.ema_capacity_bytes {
+            Some(previous) => alpha * current_capacity + (1.0 - alpha) * previous,
+            None => current_capacity,
+        };
+
+        self.ema_included_bytes = Some(smoothed_bytes);
+        self.ema_capacity_bytes = Some(smoothed_capacity);
+
+        if smoothed_capacity <= 0.0 {
+            0.0
+        } else {
+            smoothed_bytes / smoothed_capacity
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Eip1559PriorityLanePricing {
+    base_fee_per_byte: u64,
+    max_change_denominator: u64,
+    target_utilisation: f64,
+    priority_fee_multiplier: f64,
+    priority_capacity_fraction: f64,
+    priority_delay: u64,
+    normal_delay: u64,
+    fee_history: SingleTierFeeHistory,
+    last_tiers: Vec<Tier>,
+    last_utilisations: Vec<f64>,
+}
+
+impl Eip1559PriorityLanePricing {
+    pub fn new(
+        initial_base_fee: u64,
+        max_change_denominator: u64,
+        target_utilisation: f64,
+        priority_fee_multiplier: f64,
+        priority_capacity_fraction: f64,
+        priority_delay: u64,
+        normal_delay: u64,
+    ) -> Self {
+        let base_fee_per_byte = initial_base_fee.max(1);
+        let mut pricing = Self {
+            base_fee_per_byte,
+            max_change_denominator,
+            target_utilisation,
+            priority_fee_multiplier,
+            priority_capacity_fraction,
+            priority_delay,
+            normal_delay,
+            fee_history: SingleTierFeeHistory::default(),
+            last_tiers: Vec::new(),
+            last_utilisations: vec![0.0, 0.0],
+        };
+        pricing.last_tiers = pricing.synthetic_tiers(0);
+        pricing.fee_history = SingleTierFeeHistory::from_tiers(&pricing.last_tiers, 0);
+        pricing
+    }
+
+    pub fn snapshot(&self) -> PricingSnapshot {
+        PricingSnapshot {
+            tiers: vec![
+                TierQuote {
+                    id: Self::priority_tier_id(),
+                    lane: TierLane::Ranking,
+                    version_created_slot: 0,
+                    delay: self.priority_delay,
+                    price_per_byte: self.priority_price_per_byte(),
+                    base_fee: 0,
+                },
+                TierQuote {
+                    id: Self::normal_tier_id(),
+                    lane: TierLane::Ranking,
+                    version_created_slot: 0,
+                    delay: self.normal_delay,
+                    price_per_byte: self.base_fee_per_byte,
+                    base_fee: 0,
+                },
+            ],
+        }
+    }
+
+    pub fn update_after_block(&mut self, txs: &[Arc<Transaction>], block_capacity: u64, slot: u64) {
+        if block_capacity == 0 {
+            return;
+        }
+
+        let priority_bytes = txs
+            .iter()
+            .filter(|tx| tx.tier_preference == Some(Self::priority_tier_id()))
+            .map(|tx| tx.bytes)
+            .sum::<u64>();
+        let normal_bytes = txs
+            .iter()
+            .filter(|tx| tx.tier_preference == Some(Self::normal_tier_id()))
+            .map(|tx| tx.bytes)
+            .sum::<u64>();
+        let total_bytes = txs.iter().map(|tx| tx.bytes).sum::<u64>();
+        let fill_rate = total_bytes as f64 / block_capacity as f64;
+
+        self.base_fee_per_byte = update_eip1559_price(
+            self.base_fee_per_byte,
+            fill_rate,
+            self.target_utilisation,
+            self.max_change_denominator,
+        );
+
+        let priority_capacity = self.priority_capacity(block_capacity);
+        self.last_utilisations = vec![
+            utilisation(priority_bytes, priority_capacity),
+            utilisation(normal_bytes, block_capacity),
+        ];
+        self.last_tiers = self.synthetic_tiers(block_capacity);
+        for tier in &self.last_tiers {
+            self.fee_history
+                .record_tier_state(tier.id, tier.price, tier.delay, slot);
+        }
+    }
+
+    pub fn select_transactions(
+        &self,
+        txs: &[Arc<Transaction>],
+        slot: u64,
+        block_capacity: u64,
+    ) -> Vec<Arc<Transaction>> {
+        let snapshot = self.snapshot();
+        let Some(priority_quote) = snapshot
+            .tiers
+            .iter()
+            .find(|tier| tier.id == Self::priority_tier_id())
+        else {
+            return Vec::new();
+        };
+        let Some(normal_quote) = snapshot
+            .tiers
+            .iter()
+            .find(|tier| tier.id == Self::normal_tier_id())
+        else {
+            return Vec::new();
+        };
+
+        let mut priority_candidates =
+            self.candidates_for_tier(txs, priority_quote, slot, self.priority_delay);
+        let mut normal_candidates =
+            self.candidates_for_tier(txs, normal_quote, slot, self.normal_delay);
+        priority_candidates.sort_by(|a, b| compare_submission_order(a, b));
+        normal_candidates.sort_by(|a, b| compare_submission_order(a, b));
+
+        let mut included = Vec::new();
+        let mut remaining_block = block_capacity;
+        let mut remaining_priority = self.priority_capacity(block_capacity);
+        for tx in priority_candidates {
+            if tx.bytes <= remaining_priority && tx.bytes <= remaining_block {
+                remaining_priority = remaining_priority.saturating_sub(tx.bytes);
+                remaining_block = remaining_block.saturating_sub(tx.bytes);
+                included.push(tx);
+            }
+        }
+        for tx in normal_candidates {
+            if tx.bytes <= remaining_block {
+                remaining_block = remaining_block.saturating_sub(tx.bytes);
+                included.push(tx);
+            }
+        }
+        included
+    }
+
+    pub fn cloned_tiers_for_block_kind(&self) -> Vec<Tier> {
+        self.last_tiers.clone()
+    }
+
+    pub fn tiers_for_block_kind(&self) -> &[Tier] {
+        &self.last_tiers
+    }
+
+    fn candidates_for_tier(
+        &self,
+        txs: &[Arc<Transaction>],
+        tier: &TierQuote,
+        slot: u64,
+        quote_grace_slots: u64,
+    ) -> Vec<Arc<Transaction>> {
+        txs.iter()
+            .filter(|tx| tx.tier_preference == Some(tier.id))
+            .filter(|tx| match tx.posted_fee {
+                Some(posted_fee) => self.fee_history.fee_satisfies(
+                    tier.id,
+                    tier.price_per_byte,
+                    tx.submission_slot,
+                    slot,
+                    tx.bytes,
+                    posted_fee,
+                    quote_grace_slots,
+                ),
+                None => false,
+            })
+            .cloned()
+            .collect()
+    }
+
+    fn synthetic_tiers(&self, block_capacity: u64) -> Vec<Tier> {
+        vec![
+            Tier {
+                id: Self::priority_tier_id(),
+                lane: TierLane::Ranking,
+                capacity: self.priority_capacity(block_capacity),
+                version_created_slot: 0,
+                delay: self.priority_delay,
+                price: self.priority_price_per_byte(),
+                used_capacity: 0,
+                tx_count: 0,
+            },
+            Tier {
+                id: Self::normal_tier_id(),
+                lane: TierLane::Ranking,
+                capacity: block_capacity,
+                version_created_slot: 0,
+                delay: self.normal_delay,
+                price: self.base_fee_per_byte,
+                used_capacity: 0,
+                tx_count: 0,
+            },
+        ]
+    }
+
+    fn priority_capacity(&self, block_capacity: u64) -> u64 {
+        ((block_capacity as f64) * self.priority_capacity_fraction)
+            .round()
+            .clamp(0.0, block_capacity as f64) as u64
+    }
+
+    fn priority_price_per_byte(&self) -> u64 {
+        let price = (self.base_fee_per_byte as f64 * self.priority_fee_multiplier).ceil();
+        if !price.is_finite() || price >= u64::MAX as f64 {
+            u64::MAX
+        } else {
+            (price as u64).max(1)
+        }
+    }
+
+    fn priority_tier_id() -> TierId {
+        TierId::new(0)
+    }
+
+    fn normal_tier_id() -> TierId {
+        TierId::new(1)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -1589,6 +2215,7 @@ impl TieredPricing {
             &state.tiers,
             config.effective_tier_update_cadence_slots(),
             TierLane::Ranking,
+            config.min_fee,
         );
 
         let (eb_config, eb_state, eb_rng, eb_assignment_history) =
@@ -1600,6 +2227,7 @@ impl TieredPricing {
                     &eb_st.tiers,
                     eb_cfg.effective_tier_update_cadence_slots(),
                     TierLane::Endorser,
+                    eb_cfg.min_fee,
                 );
                 (Some(eb_cfg), Some(eb_st), Some(eb_r), Some(eb_ah))
             } else {
@@ -1642,6 +2270,14 @@ impl TieredPricing {
         self.config.include_overflow_aggregate_in_tier_updates
     }
 
+    pub fn is_priority_ordering(&self) -> bool {
+        self.config.priority_ordering
+    }
+
+    pub fn lane_selection_backlog_delay_scale(&self) -> f64 {
+        self.config.lane_selection_backlog_delay_scale
+    }
+
     pub fn snapshot(&self) -> PricingSnapshot {
         self.snapshot_for_state(&self.state)
     }
@@ -1671,7 +2307,7 @@ impl TieredPricing {
                         version_created_slot: tier.version_created_slot,
                         delay: tier.delay,
                         price_per_byte: tier.price,
-                        base_fee: 0,
+                        base_fee: self.config.min_fee,
                     })
                     .collect(),
             };
@@ -1748,13 +2384,25 @@ impl TieredPricing {
         } else {
             block_capacity as f64 / config.total_capacity as f64
         };
+        if config.priority_ordering {
+            // Priority ordering: each tier can use the full block capacity,
+            // so overflow checks should use total capacity, not per-tier fractions.
+            let capacity = if has_separate_eb_pool {
+                config.total_capacity
+            } else {
+                (config.total_capacity as f64 * shared_scale).round() as u64
+            };
+            return Some(capacity);
+        }
         let eb_capacity_sum = tiers
             .iter()
             .skip(1)
             .map(|candidate| candidate.capacity)
             .sum::<u64>();
         let effective_capacity = match config.block_selection_policy {
-            TierBlockSelectionPolicy::Shared | TierBlockSelectionPolicy::ContinuousRbEb => {
+            TierBlockSelectionPolicy::Shared
+            | TierBlockSelectionPolicy::ContinuousRbEb
+            | TierBlockSelectionPolicy::ContinuousRbEbFallback => {
                 if has_separate_eb_pool {
                     tier.capacity
                 } else {
@@ -1780,6 +2428,16 @@ impl TieredPricing {
                 }
             },
         };
+        if matches!(
+            config.block_selection_policy,
+            TierBlockSelectionPolicy::ContinuousRbEb
+                | TierBlockSelectionPolicy::ContinuousRbEbFallback
+        ) && block_kind == BlockKind::RankingBlock
+            && tier.lane == TierLane::Ranking
+            && tier.id == TierId::new(0)
+        {
+            return Some(effective_capacity.max(config.rb_soft_reserved_capacity(block_capacity)));
+        }
         Some(effective_capacity)
     }
 
@@ -1794,7 +2452,7 @@ impl TieredPricing {
                     version_created_slot: tier.version_created_slot,
                     delay: tier.delay,
                     price_per_byte: tier.price,
-                    base_fee: 0,
+                    base_fee: self.config.min_fee,
                 })
                 .collect(),
         }
@@ -1881,10 +2539,6 @@ impl TieredPricing {
             return Err(TransactionRejectReason::InvalidQuotedAssignment);
         };
 
-        if delay_slots == 0 {
-            return Err(TransactionRejectReason::InvalidQuotedAssignment);
-        }
-
         Ok(Some(QuotedAssignment {
             tier_id,
             version_created_slot,
@@ -1901,7 +2555,7 @@ impl TieredPricing {
     ) -> Option<InclusionAssignment> {
         if use_eb_preference && has_separate_eb_pool {
             let tier_id = tx.eb_tier_preference?;
-            let delay_slots = tx.eb_tier_delay_slots.unwrap_or(1).max(1);
+            let delay_slots = tx.eb_tier_delay_slots.unwrap_or(1);
             let price_per_byte_at_assignment = tx
                 .eb_tier_price_per_byte_at_assignment
                 .or_else(|| Self::derive_price_per_byte(tx.eb_posted_fee, tx.bytes))
@@ -1914,7 +2568,7 @@ impl TieredPricing {
         }
 
         let tier_id = tx.tier_preference?;
-        let delay_slots = tx.tier_delay_slots.unwrap_or(1).max(1);
+        let delay_slots = tx.tier_delay_slots.unwrap_or(1);
         let price_per_byte_at_assignment = tx
             .tier_price_per_byte_at_assignment
             .or_else(|| Self::derive_price_per_byte(tx.posted_fee, tx.bytes))
@@ -2036,6 +2690,7 @@ impl TieredPricing {
                 block_capacity,
                 block_kind,
                 true,
+                slot,
             );
             let tier_update_signal_fill_rates =
                 if self.config.include_overflow_aggregate_in_tier_updates {
@@ -2048,6 +2703,7 @@ impl TieredPricing {
                         &mut shadow_state,
                         eb_config,
                         true,
+                        slot,
                     ))
                 } else {
                     None
@@ -2059,6 +2715,7 @@ impl TieredPricing {
                 self.eb_state.as_mut().unwrap(),
                 eb_config,
                 true,
+                slot,
             );
             let fill_rates = Self::combined_pricing_fill_rates(
                 eb_config,
@@ -2089,6 +2746,7 @@ impl TieredPricing {
                 &self.eb_state.as_ref().unwrap().tiers,
                 slot,
                 TierLane::Endorser,
+                self.eb_config.as_ref().unwrap().min_fee,
             );
             cadence
         } else {
@@ -2098,6 +2756,7 @@ impl TieredPricing {
                 block_capacity,
                 block_kind,
                 false,
+                slot,
             );
             let tier_update_signal_fill_rates =
                 if self.config.include_overflow_aggregate_in_tier_updates {
@@ -2110,6 +2769,7 @@ impl TieredPricing {
                         &mut shadow_state,
                         &self.config,
                         false,
+                        slot,
                     ))
                 } else {
                     None
@@ -2121,6 +2781,7 @@ impl TieredPricing {
                 &mut self.state,
                 &self.config,
                 false,
+                slot,
             );
             let fill_rates = Self::combined_pricing_fill_rates(
                 &self.config,
@@ -2143,8 +2804,12 @@ impl TieredPricing {
                 slot,
             );
             Self::enforce_boundary_price_caps(&self.config, &mut self.state, block_kind, slot);
-            self.assignment_history
-                .sync_with_tiers(&self.state.tiers, slot, TierLane::Ranking);
+            self.assignment_history.sync_with_tiers(
+                &self.state.tiers,
+                slot,
+                TierLane::Ranking,
+                self.config.min_fee,
+            );
             cadence
         }
     }
@@ -2156,6 +2821,7 @@ impl TieredPricing {
         block_capacity: u64,
         block_kind: BlockKind,
         use_eb_preference: bool,
+        slot: u64,
     ) -> Option<Vec<f64>> {
         if !config.include_overflow_aggregate_in_pricing_updates {
             return None;
@@ -2179,6 +2845,7 @@ impl TieredPricing {
             &mut shadow_state,
             config,
             use_eb_preference,
+            slot,
         ))
     }
 
@@ -2222,13 +2889,12 @@ impl TieredPricing {
             return;
         };
         let cap = config.overflow_linear_fill_rate_cap;
-        let scale = config.overflow_linear_price_per_fill as f64;
-        if cap <= 0.0 || scale <= 0.0 {
+        if cap <= 0.0 {
             return;
         }
 
         for (index, tier) in state.tiers.iter_mut().enumerate() {
-            if config.block_selection_policy == TierBlockSelectionPolicy::ContinuousRbEb
+            if config.block_selection_policy.uses_continuous_lane_pricing()
                 && tier.lane != tier_lane_for_block_kind(block_kind)
             {
                 continue;
@@ -2243,6 +2909,10 @@ impl TieredPricing {
                 continue;
             }
             let capped_fill_rate = overflow_fill_rate.min(cap);
+            let scale = config.overflow_linear_price_per_fill_for_lane(tier.lane) as f64;
+            if scale <= 0.0 {
+                continue;
+            }
             let linear_increment = (capped_fill_rate * scale).round() as u64;
             if linear_increment == 0 {
                 continue;
@@ -2267,7 +2937,8 @@ impl TieredPricing {
 
         let active_indices: Vec<usize> = match config.block_selection_policy {
             TierBlockSelectionPolicy::Shared => (0..state.tiers.len()).collect(),
-            TierBlockSelectionPolicy::ContinuousRbEb => state
+            TierBlockSelectionPolicy::ContinuousRbEb
+            | TierBlockSelectionPolicy::ContinuousRbEbFallback => state
                 .tiers
                 .iter()
                 .enumerate()
@@ -2398,52 +3069,156 @@ impl TieredPricing {
         }
 
         let mut included = Vec::new();
-        let eb_capacity_sum = state
-            .tiers
-            .iter()
-            .skip(1)
-            .map(|candidate| candidate.capacity)
-            .sum::<u64>();
-        for (index, tier) in state.tiers.iter().enumerate() {
-            if config.block_selection_policy == TierBlockSelectionPolicy::ContinuousRbEb
-                && tier.lane != tier_lane_for_block_kind(block_kind)
-            {
-                continue;
-            }
-            if !config.block_selection_policy.allows_tier(index, block_kind) {
-                continue;
-            }
-            let mut bucket = std::mem::take(&mut buckets[index]);
-            bucket.sort_by(|a, b| compare_submission_order(a, b));
-
-            let effective_capacity = match config.block_selection_policy {
-                TierBlockSelectionPolicy::Shared | TierBlockSelectionPolicy::ContinuousRbEb => {
-                    if self.eb_state.is_some() {
-                        // Separate pools: tier capacity IS the effective capacity per block.
-                        tier.capacity
-                    } else {
-                        (tier.capacity as f64 * shared_scale).round() as u64
+        if config.priority_ordering {
+            // Priority ordering: tier 0 gets first claim on full block capacity,
+            // tier 1 gets remainder, etc. No per-tier capacity limits.
+            let mut remaining_block = block_capacity;
+            for (index, tier) in state.tiers.iter().enumerate() {
+                if config.block_selection_policy.uses_continuous_lane_pricing()
+                    && tier.lane != tier_lane_for_block_kind(block_kind)
+                {
+                    continue;
+                }
+                if !config.block_selection_policy.allows_tier(index, block_kind) {
+                    continue;
+                }
+                let mut bucket = std::mem::take(&mut buckets[index]);
+                bucket.sort_by(|a, b| compare_submission_order(a, b));
+                for tx in bucket {
+                    if tx.bytes <= remaining_block {
+                        remaining_block = remaining_block.saturating_sub(tx.bytes);
+                        included.push(tx);
                     }
                 }
-                TierBlockSelectionPolicy::NaiveRbEbTwoTier => block_capacity,
-                TierBlockSelectionPolicy::RbTier0Reserved => match block_kind {
-                    BlockKind::RankingBlock => config.rb_reserved_capacity(block_capacity),
-                    BlockKind::EndorserBlock => {
-                        if eb_capacity_sum == 0 {
-                            0
+            }
+        } else {
+            let eb_capacity_sum = state
+                .tiers
+                .iter()
+                .skip(1)
+                .map(|candidate| candidate.capacity)
+                .sum::<u64>();
+            let base_effective_capacity = |_index: usize, tier: &Tier| -> u64 {
+                match config.block_selection_policy {
+                    TierBlockSelectionPolicy::Shared
+                    | TierBlockSelectionPolicy::ContinuousRbEb
+                    | TierBlockSelectionPolicy::ContinuousRbEbFallback => {
+                        if self.eb_state.is_some() {
+                            tier.capacity
                         } else {
-                            ((tier.capacity as f64 / eb_capacity_sum as f64)
-                                * block_capacity as f64)
-                                .round() as u64
+                            (tier.capacity as f64 * shared_scale).round() as u64
                         }
                     }
-                },
+                    TierBlockSelectionPolicy::NaiveRbEbTwoTier => block_capacity,
+                    TierBlockSelectionPolicy::RbTier0Reserved => match block_kind {
+                        BlockKind::RankingBlock => config.rb_reserved_capacity(block_capacity),
+                        BlockKind::EndorserBlock => {
+                            if eb_capacity_sum == 0 {
+                                0
+                            } else {
+                                ((tier.capacity as f64 / eb_capacity_sum as f64)
+                                    * block_capacity as f64)
+                                    .round() as u64
+                            }
+                        }
+                    },
+                }
             };
-            let mut remaining = effective_capacity;
-            for tx in bucket {
-                if tx.bytes <= remaining {
-                    remaining = remaining.saturating_sub(tx.bytes);
-                    included.push(tx);
+            let soft_reserve = if matches!(
+                config.block_selection_policy,
+                TierBlockSelectionPolicy::ContinuousRbEb
+                    | TierBlockSelectionPolicy::ContinuousRbEbFallback
+            ) && block_kind == BlockKind::RankingBlock
+            {
+                config.rb_soft_reserved_capacity(block_capacity)
+            } else {
+                0
+            };
+            if soft_reserve > 0 {
+                let mut remaining_block = block_capacity;
+                let mut spill = 0u64;
+                if let Some((tier0_index, tier0)) =
+                    state.tiers.iter().enumerate().find(|(_, tier)| {
+                        tier.lane == TierLane::Ranking && tier.id == TierId::new(0)
+                    })
+                {
+                    if config
+                        .block_selection_policy
+                        .allows_tier(tier0_index, block_kind)
+                    {
+                        let mut bucket = std::mem::take(&mut buckets[tier0_index]);
+                        bucket.sort_by(|a, b| compare_submission_order(a, b));
+                        let mut remaining = base_effective_capacity(tier0_index, tier0)
+                            .max(soft_reserve)
+                            .min(remaining_block);
+                        let mut used = 0u64;
+                        for tx in bucket {
+                            if tx.bytes <= remaining && tx.bytes <= remaining_block {
+                                remaining = remaining.saturating_sub(tx.bytes);
+                                remaining_block = remaining_block.saturating_sub(tx.bytes);
+                                used = used.saturating_add(tx.bytes);
+                                included.push(tx);
+                            }
+                        }
+                        spill = soft_reserve.saturating_sub(used);
+                    }
+                }
+
+                for (index, tier) in state.tiers.iter().enumerate() {
+                    if remaining_block == 0 {
+                        break;
+                    }
+                    if tier.lane == TierLane::Ranking && tier.id == TierId::new(0) {
+                        continue;
+                    }
+                    if config.block_selection_policy.uses_continuous_lane_pricing()
+                        && tier.lane != tier_lane_for_block_kind(block_kind)
+                    {
+                        continue;
+                    }
+                    if !config.block_selection_policy.allows_tier(index, block_kind) {
+                        continue;
+                    }
+                    let mut bucket = std::mem::take(&mut buckets[index]);
+                    bucket.sort_by(|a, b| compare_submission_order(a, b));
+                    let mut remaining = base_effective_capacity(index, tier);
+                    if tier.lane == TierLane::Ranking {
+                        remaining = remaining.saturating_add(spill);
+                    }
+                    remaining = remaining.min(remaining_block);
+                    for tx in bucket {
+                        if tx.bytes <= remaining && tx.bytes <= remaining_block {
+                            remaining = remaining.saturating_sub(tx.bytes);
+                            remaining_block = remaining_block.saturating_sub(tx.bytes);
+                            included.push(tx);
+                        }
+                    }
+                }
+                return included;
+            }
+
+            let mut remaining_block = block_capacity;
+            for (index, tier) in state.tiers.iter().enumerate() {
+                if remaining_block == 0 {
+                    break;
+                }
+                if config.block_selection_policy.uses_continuous_lane_pricing()
+                    && tier.lane != tier_lane_for_block_kind(block_kind)
+                {
+                    continue;
+                }
+                if !config.block_selection_policy.allows_tier(index, block_kind) {
+                    continue;
+                }
+                let mut bucket = std::mem::take(&mut buckets[index]);
+                bucket.sort_by(|a, b| compare_submission_order(a, b));
+                let mut remaining = base_effective_capacity(index, tier).min(remaining_block);
+                for tx in bucket {
+                    if tx.bytes <= remaining && tx.bytes <= remaining_block {
+                        remaining = remaining.saturating_sub(tx.bytes);
+                        remaining_block = remaining_block.saturating_sub(tx.bytes);
+                        included.push(tx);
+                    }
                 }
             }
         }
@@ -2457,6 +3232,7 @@ impl TieredPricing {
         state: &mut TieredState,
         config: &TieredConfig,
         use_eb_preference: bool,
+        slot: u64,
     ) -> Vec<f64> {
         let tier_count = state.tiers.len();
         let mut used_bytes = vec![0u64; tier_count];
@@ -2496,54 +3272,106 @@ impl TieredPricing {
 
         let has_separate_eb = config.eb_total_capacity.is_some();
         let mut fill_rates = Vec::with_capacity(tier_count);
-        for (index, tier) in state.tiers.iter_mut().enumerate() {
-            tier.used_capacity = used_bytes[index];
-            tier.tx_count = tx_counts[index];
+        if config.priority_ordering {
+            // Priority ordering: each tier's fill rate = bytes_in_tier / block_capacity.
+            // This prevents price spirals from tier 0 exceeding its nominal capacity fraction.
+            let denominator = if has_separate_eb {
+                config.total_capacity as f64
+            } else {
+                (config.total_capacity as f64 * shared_scale).max(1.0)
+            };
+            for (index, tier) in state.tiers.iter_mut().enumerate() {
+                tier.used_capacity = used_bytes[index];
+                tier.tx_count = tx_counts[index];
+                fill_rates.push(used_bytes[index] as f64 / denominator);
+            }
+        } else {
+            for (index, tier) in state.tiers.iter_mut().enumerate() {
+                tier.used_capacity = used_bytes[index];
+                tier.tx_count = tx_counts[index];
 
-            let effective_capacity = match config.block_selection_policy {
-                TierBlockSelectionPolicy::Shared => {
-                    if has_separate_eb {
-                        // Separate pools: tier capacity IS the effective capacity.
-                        tier.capacity as f64
-                    } else {
-                        (tier.capacity as f64 * shared_scale).round()
-                    }
-                }
-                TierBlockSelectionPolicy::NaiveRbEbTwoTier => {
-                    if config.block_selection_policy.allows_tier(index, block_kind) {
-                        block_capacity as f64
-                    } else {
-                        0.0
-                    }
-                }
-                TierBlockSelectionPolicy::RbTier0Reserved => match block_kind {
-                    BlockKind::RankingBlock => config.rb_reserved_capacity(block_capacity) as f64,
-                    BlockKind::EndorserBlock => {
-                        if eb_capacity_sum == 0 {
-                            0.0
-                        } else {
-                            tier.capacity as f64 / eb_capacity_sum as f64 * block_capacity as f64
-                        }
-                    }
-                },
-                TierBlockSelectionPolicy::ContinuousRbEb => {
-                    if tier.lane == tier_lane_for_block_kind(block_kind) {
+                let effective_capacity = match config.block_selection_policy {
+                    TierBlockSelectionPolicy::Shared => {
                         if has_separate_eb {
                             tier.capacity as f64
                         } else {
                             (tier.capacity as f64 * shared_scale).round()
                         }
-                    } else {
-                        0.0
                     }
+                    TierBlockSelectionPolicy::NaiveRbEbTwoTier => {
+                        if config.block_selection_policy.allows_tier(index, block_kind) {
+                            block_capacity as f64
+                        } else {
+                            0.0
+                        }
+                    }
+                    TierBlockSelectionPolicy::RbTier0Reserved => match block_kind {
+                        BlockKind::RankingBlock => {
+                            config.rb_reserved_capacity(block_capacity) as f64
+                        }
+                        BlockKind::EndorserBlock => {
+                            if eb_capacity_sum == 0 {
+                                0.0
+                            } else {
+                                tier.capacity as f64 / eb_capacity_sum as f64
+                                    * block_capacity as f64
+                            }
+                        }
+                    },
+                    TierBlockSelectionPolicy::ContinuousRbEb
+                    | TierBlockSelectionPolicy::ContinuousRbEbFallback => {
+                        if tier.lane == tier_lane_for_block_kind(block_kind) {
+                            if has_separate_eb {
+                                tier.capacity as f64
+                            } else {
+                                (tier.capacity as f64 * shared_scale).round()
+                            }
+                        } else {
+                            0.0
+                        }
+                    }
+                };
+                if effective_capacity <= 0.0 {
+                    fill_rates.push(0.0);
+                } else {
+                    fill_rates.push(used_bytes[index] as f64 / effective_capacity);
                 }
-            };
-            if effective_capacity <= 0.0 {
-                fill_rates.push(0.0);
-            } else {
-                fill_rates.push(used_bytes[index] as f64 / effective_capacity);
             }
         }
+
+        // For shared single-pool with EMA enabled: smooth the fill rates using
+        // a moving average of throughput per slot, rather than per-block fill rates.
+        if config.throughput_ema_enabled && !has_separate_eb {
+            let total_included: u64 = used_bytes.iter().sum();
+            let slots_elapsed = slot.saturating_sub(state.ema_last_slot).max(1) as f64;
+            let current_throughput = total_included as f64 / slots_elapsed;
+
+            let alpha = config.throughput_ema_alpha.clamp(0.0, 1.0);
+            state.ema_throughput_per_slot =
+                alpha * current_throughput + (1.0 - alpha) * state.ema_throughput_per_slot;
+            state.ema_last_slot = slot;
+
+            // Target throughput: total_capacity spread over expected block interval.
+            // For shared pool, total_capacity is the RB size, but EBs also contribute.
+            // Use the fill rate as: ema_throughput / (total_capacity / shared_scale).
+            // shared_scale = block_capacity / total_capacity, so:
+            // target = total_capacity * shared_scale = block_capacity
+            // But we want per-slot, and blocks arrive at varying intervals.
+            // Simpler: use total_capacity as the target per block, scale by shared_scale.
+            let target_per_slot = if shared_scale > 0.0 {
+                (config.total_capacity as f64 * shared_scale) / slots_elapsed
+            } else {
+                config.total_capacity as f64
+            };
+
+            if target_per_slot > 0.0 {
+                let smoothed_fill = state.ema_throughput_per_slot / target_per_slot;
+                for rate in fill_rates.iter_mut() {
+                    *rate = smoothed_fill;
+                }
+            }
+        }
+
         state.last_utilisations = fill_rates.clone();
         fill_rates
     }
@@ -2557,16 +3385,21 @@ pub struct TieredState {
     last_tier_update_slot: Option<u64>,
     tiers: Vec<Tier>,
     last_utilisations: Vec<f64>,
+    /// Exponential moving average of throughput (bytes per slot) for shared single-pool.
+    ema_throughput_per_slot: f64,
+    /// Slot of the last EMA update.
+    ema_last_slot: u64,
 }
 
 impl TieredState {
     pub fn new(config: &TieredConfig, default_lane: TierLane) -> Self {
         let initial_price = config.new_tier_price.max(1);
+        let initial_delay = config.initial_tier_delay;
         let tiers = match config.block_selection_policy {
             TierBlockSelectionPolicy::NaiveRbEbTwoTier => {
                 let tier1_capacity = config.tier_capacity(1).min(config.total_capacity);
                 let tier0_capacity = config.total_capacity.saturating_sub(tier1_capacity);
-                let tier0_delay = 1;
+                let tier0_delay = initial_delay;
                 // In naive RB/EB mode, delay is represented by the block path (RB vs EB),
                 // not by synthetic per-tier delay multipliers.
                 let tier1_delay = tier0_delay;
@@ -2607,7 +3440,7 @@ impl TieredState {
                         lane: TierLane::Ranking,
                         capacity: tier0_capacity,
                         version_created_slot: 0,
-                        delay: 1,
+                        delay: initial_delay,
                         price: initial_price,
                         used_capacity: 0,
                         tx_count: 0,
@@ -2617,7 +3450,7 @@ impl TieredState {
                         lane: TierLane::Endorser,
                         capacity: tier1_capacity,
                         version_created_slot: 0,
-                        delay: 1,
+                        delay: initial_delay,
                         price: initial_price,
                         used_capacity: 0,
                         tx_count: 0,
@@ -2630,13 +3463,14 @@ impl TieredState {
                     lane: default_lane,
                     capacity: config.total_capacity,
                     version_created_slot: 0,
-                    delay: 1,
+                    delay: initial_delay,
                     price: initial_price,
                     used_capacity: 0,
                     tx_count: 0,
                 }]
             }
-            TierBlockSelectionPolicy::ContinuousRbEb => {
+            TierBlockSelectionPolicy::ContinuousRbEb
+            | TierBlockSelectionPolicy::ContinuousRbEbFallback => {
                 let first_tier_id = match default_lane {
                     TierLane::Ranking => 0,
                     TierLane::Endorser => 1,
@@ -2646,7 +3480,7 @@ impl TieredState {
                     lane: default_lane,
                     capacity: config.total_capacity,
                     version_created_slot: 0,
-                    delay: 1,
+                    delay: initial_delay,
                     price: initial_price,
                     used_capacity: 0,
                     tx_count: 0,
@@ -2660,6 +3494,8 @@ impl TieredState {
             last_tier_update_slot: None,
             tiers,
             last_utilisations: Vec::new(),
+            ema_throughput_per_slot: 0.0,
+            ema_last_slot: 0,
         }
     }
 
@@ -2678,7 +3514,7 @@ impl TieredState {
             .zip(fill_rates.iter().copied())
             .enumerate()
         {
-            if config.block_selection_policy == TierBlockSelectionPolicy::ContinuousRbEb
+            if config.block_selection_policy.uses_continuous_lane_pricing()
                 && tier.lane != tier_lane_for_block_kind(block_kind)
             {
                 continue;
@@ -2693,8 +3529,8 @@ impl TieredState {
             let updated_price = update_eip1559_price(
                 tier.price,
                 fill_rate,
-                config.target_utilisation,
-                config.base_fee_change_denominator,
+                config.target_utilisation_for_lane(tier.lane),
+                config.base_fee_change_denominator_for_lane(tier.lane),
             );
             if updated_price != tier.price {
                 tier.version_created_slot = slot;
@@ -2708,15 +3544,15 @@ impl TieredState {
         }
 
         let should_update_delays = match config.block_selection_policy {
-            TierBlockSelectionPolicy::Shared | TierBlockSelectionPolicy::ContinuousRbEb => {
-                Self::is_cadence_due(
-                    slot,
-                    self.last_delay_update_slot,
-                    config.delay_update_period_slots,
-                    self.block_count,
-                    config.delay_update_frequency,
-                )
-            }
+            TierBlockSelectionPolicy::Shared
+            | TierBlockSelectionPolicy::ContinuousRbEb
+            | TierBlockSelectionPolicy::ContinuousRbEbFallback => Self::is_cadence_due(
+                slot,
+                self.last_delay_update_slot,
+                config.delay_update_period_slots,
+                self.block_count,
+                config.delay_update_frequency,
+            ),
             TierBlockSelectionPolicy::NaiveRbEbTwoTier => false,
             TierBlockSelectionPolicy::RbTier0Reserved => {
                 block_kind == BlockKind::EndorserBlock
@@ -2731,7 +3567,9 @@ impl TieredState {
         };
         if should_update_delays {
             match config.block_selection_policy {
-                TierBlockSelectionPolicy::Shared | TierBlockSelectionPolicy::ContinuousRbEb => {
+                TierBlockSelectionPolicy::Shared
+                | TierBlockSelectionPolicy::ContinuousRbEb
+                | TierBlockSelectionPolicy::ContinuousRbEbFallback => {
                     update_delays(&mut self.tiers, config, rng);
                 }
                 TierBlockSelectionPolicy::NaiveRbEbTwoTier => {}
@@ -2743,15 +3581,15 @@ impl TieredState {
         }
 
         let should_update_tiers = match config.block_selection_policy {
-            TierBlockSelectionPolicy::Shared | TierBlockSelectionPolicy::ContinuousRbEb => {
-                Self::is_cadence_due(
-                    slot,
-                    self.last_tier_update_slot,
-                    config.tier_update_period_slots,
-                    self.block_count,
-                    config.tier_update_frequency,
-                )
-            }
+            TierBlockSelectionPolicy::Shared
+            | TierBlockSelectionPolicy::ContinuousRbEb
+            | TierBlockSelectionPolicy::ContinuousRbEbFallback => Self::is_cadence_due(
+                slot,
+                self.last_tier_update_slot,
+                config.tier_update_period_slots,
+                self.block_count,
+                config.tier_update_frequency,
+            ),
             TierBlockSelectionPolicy::NaiveRbEbTwoTier => false,
             TierBlockSelectionPolicy::RbTier0Reserved => {
                 block_kind == BlockKind::EndorserBlock
@@ -2769,7 +3607,9 @@ impl TieredState {
                 .as_ref()
                 .and_then(|rates| rates.last().copied());
             match config.block_selection_policy {
-                TierBlockSelectionPolicy::Shared | TierBlockSelectionPolicy::ContinuousRbEb => {
+                TierBlockSelectionPolicy::Shared
+                | TierBlockSelectionPolicy::ContinuousRbEb
+                | TierBlockSelectionPolicy::ContinuousRbEbFallback => {
                     update_tier_sizes(&mut self.tiers, config, slot, last_tier_signal_fill_rate);
                 }
                 TierBlockSelectionPolicy::NaiveRbEbTwoTier => {}
@@ -2787,7 +3627,9 @@ impl TieredState {
                     .as_ref()
                     .unwrap_or(&fill_rates);
                 match config.block_selection_policy {
-                    TierBlockSelectionPolicy::Shared | TierBlockSelectionPolicy::ContinuousRbEb => {
+                    TierBlockSelectionPolicy::Shared
+                    | TierBlockSelectionPolicy::ContinuousRbEb
+                    | TierBlockSelectionPolicy::ContinuousRbEbFallback => {
                         apply_dynamic_sizing(
                             &mut self.tiers,
                             signal_fill_rates,
@@ -2890,6 +3732,14 @@ pub fn update_eip1559_price(
     }
 }
 
+fn utilisation(bytes: u64, capacity: u64) -> f64 {
+    if capacity == 0 {
+        0.0
+    } else {
+        bytes as f64 / capacity as f64
+    }
+}
+
 pub fn update_delays(tiers: &mut [Tier], config: &TieredConfig, rng: &mut ChaChaRng) {
     let count = tiers.len();
     if count <= 1 {
@@ -2914,6 +3764,73 @@ pub fn update_delays(tiers: &mut [Tier], config: &TieredConfig, rng: &mut ChaCha
     }
 }
 
+/// Rebalance tier capacities so that active tiers share non-reserved capacity
+/// proportionally according to `tier_size_fractions`. When there are fewer tiers
+/// than max, earlier tiers get a larger share and gradually shrink as tiers are added.
+///
+/// `reservoir_index` is the tier whose capacity acts as the reservoir (typically 0).
+/// `fixed_indices` are tiers whose capacity must not change (e.g. tier 0 in RbTier0Reserved).
+fn rebalance_tier_capacities(
+    tiers: &mut [Tier],
+    config: &TieredConfig,
+    reservoir_index: usize,
+    fixed_indices: &[usize],
+) {
+    if tiers.len() <= 1 {
+        return;
+    }
+    let active_indices: Vec<usize> = (0..tiers.len())
+        .filter(|i| *i != reservoir_index && !fixed_indices.contains(i))
+        .collect();
+    if active_indices.is_empty() {
+        return;
+    }
+
+    let sum_active_fractions: f64 = active_indices
+        .iter()
+        .map(|&i| {
+            config
+                .tier_size_fractions
+                .get(i)
+                .copied()
+                .unwrap_or(0.0)
+                .max(0.0)
+        })
+        .sum();
+    if sum_active_fractions <= 0.0 {
+        return;
+    }
+
+    let fixed_capacity: u64 = fixed_indices.iter().map(|&i| tiers[i].capacity).sum();
+    let distributable = config.total_capacity.saturating_sub(fixed_capacity);
+
+    let alpha = config.tier_rebalance_alpha.clamp(0.0, 1.0);
+    let mut assigned = 0u64;
+    for (pos, &i) in active_indices.iter().enumerate() {
+        let fraction = config
+            .tier_size_fractions
+            .get(i)
+            .copied()
+            .unwrap_or(0.0)
+            .max(0.0);
+        let target = if pos == active_indices.len() - 1 {
+            distributable.saturating_sub(assigned)
+        } else {
+            ((fraction / sum_active_fractions) * distributable as f64).round() as u64
+        };
+        let old = tiers[i].capacity;
+        let blended = if alpha >= 1.0 {
+            target
+        } else {
+            (old as f64 + alpha * (target as f64 - old as f64)).round() as u64
+        };
+        tiers[i].capacity = blended;
+        assigned = assigned.saturating_add(blended);
+    }
+
+    tiers[reservoir_index].capacity = distributable.saturating_sub(assigned);
+}
+
 pub fn update_tier_sizes(
     tiers: &mut Vec<Tier>,
     config: &TieredConfig,
@@ -2933,8 +3850,8 @@ pub fn update_tier_sizes(
     };
 
     if should_remove {
-        let removed = tiers.pop().expect("last tier exists");
-        tiers[0].capacity = tiers[0].capacity.saturating_add(removed.capacity);
+        tiers.pop().expect("last tier exists");
+        rebalance_tier_capacities(tiers, config, 0, &[]);
         return;
     }
 
@@ -2945,29 +3862,44 @@ pub fn update_tier_sizes(
     };
 
     if should_add {
-        let new_index = count;
-        let mut new_capacity = config.tier_capacity(new_index);
-        if new_capacity > tiers[0].capacity {
-            new_capacity = tiers[0].capacity;
-        }
-        tiers[0].capacity = tiers[0].capacity.saturating_sub(new_capacity);
-
-        let previous_delay = tiers[count - 1].delay;
-        let boundary_index = count - 1;
-        let new_delay_ratio = config.boundary_new_tier_delay_ratio(boundary_index);
-        let new_delay = (new_delay_ratio * previous_delay as f64).ceil() as u64;
+        let new_tier_count = count + 1;
+        let new_delay = match config.tier_delay_spacing {
+            TierDelaySpacing::Incremental => {
+                let previous_delay = tiers[count - 1].delay;
+                let boundary_index = count - 1;
+                let new_delay_ratio = config.boundary_new_tier_delay_ratio(boundary_index);
+                (new_delay_ratio * previous_delay as f64).ceil() as u64
+            }
+            TierDelaySpacing::GeometricFixedMax => {
+                config.geometric_delay_for_tier(count, new_tier_count)
+            }
+        };
         let new_id = next_tier_id(tiers);
+        // Push with placeholder capacity; rebalance will set the real value.
         tiers.push(Tier {
             id: new_id,
             lane: tiers[count - 1].lane,
-            capacity: new_capacity,
+            capacity: 0,
             version_created_slot: slot,
             delay: new_delay.max(1),
             price: config.new_tier_price.max(1),
             used_capacity: 0,
             tx_count: 0,
         });
+
+        // Under geometric_fixed_max, adding a tier changes the delay schedule
+        // for ALL existing tiers. Recompute delays for earlier tiers.
+        if config.tier_delay_spacing == TierDelaySpacing::GeometricFixedMax {
+            for i in 0..tiers.len() {
+                tiers[i].delay = config.geometric_delay_for_tier(i, new_tier_count);
+            }
+        }
     }
+
+    // Gradually rebalance toward target capacities on every tier-update cadence,
+    // not just when tiers are added/removed. This allows gradual convergence
+    // when tier_rebalance_alpha < 1.0.
+    rebalance_tier_capacities(tiers, config, 0, &[]);
 }
 
 fn update_delays_reserved(tiers: &mut [Tier], config: &TieredConfig, rng: &mut ChaChaRng) {
@@ -3015,9 +3947,10 @@ fn update_tier_sizes_reserved(
     };
 
     // Keep at least one EB tier (tier 1).
+    // Tier 0 is the reserved RB lane; tier 1 is the EB reservoir.
     if should_remove {
-        let removed = tiers.pop().expect("last tier exists");
-        tiers[1].capacity = tiers[1].capacity.saturating_add(removed.capacity);
+        tiers.pop().expect("last tier exists");
+        rebalance_tier_capacities(tiers, config, 1, &[0]);
         return;
     }
 
@@ -3028,29 +3961,40 @@ fn update_tier_sizes_reserved(
     };
 
     if should_add {
-        let new_index = count;
-        let mut new_capacity = config.tier_capacity(new_index);
-        if new_capacity > tiers[1].capacity {
-            new_capacity = tiers[1].capacity;
-        }
-        tiers[1].capacity = tiers[1].capacity.saturating_sub(new_capacity);
-
-        let previous_delay = tiers[count - 1].delay;
-        let boundary_index = eb_count.saturating_sub(1);
-        let new_delay_ratio = config.boundary_new_tier_delay_ratio(boundary_index);
-        let new_delay = (new_delay_ratio * previous_delay as f64).ceil() as u64;
+        let new_tier_count = count + 1;
+        let new_delay = match config.tier_delay_spacing {
+            TierDelaySpacing::Incremental => {
+                let previous_delay = tiers[count - 1].delay;
+                let boundary_index = eb_count.saturating_sub(1);
+                let new_delay_ratio = config.boundary_new_tier_delay_ratio(boundary_index);
+                (new_delay_ratio * previous_delay as f64).ceil() as u64
+            }
+            TierDelaySpacing::GeometricFixedMax => {
+                config.geometric_delay_for_tier(count, new_tier_count)
+            }
+        };
         let new_id = next_tier_id(tiers);
         tiers.push(Tier {
             id: new_id,
             lane: tiers[count - 1].lane,
-            capacity: new_capacity,
+            capacity: 0,
             version_created_slot: slot,
             delay: new_delay.max(1),
             price: config.new_tier_price.max(1),
             used_capacity: 0,
             tx_count: 0,
         });
+
+        if config.tier_delay_spacing == TierDelaySpacing::GeometricFixedMax {
+            // Tier 0 is fixed RB reservation — skip it. Recompute EB tiers (1+).
+            for i in 1..tiers.len() {
+                tiers[i].delay = config.geometric_delay_for_tier(i - 1, new_tier_count - 1);
+            }
+        }
     }
+
+    // Gradually rebalance toward target capacities on every tier-update cadence.
+    rebalance_tier_capacities(tiers, config, 1, &[0]);
 }
 
 fn apply_dynamic_sizing(
@@ -3253,10 +4197,12 @@ mod tests {
     };
 
     use super::{
-        BlockKind, OverflowAggregatePricingMode, OverflowRetryPolicy, PricingSnapshot, Tier,
-        TierAssignmentHistory, TierAssignmentSemantics, TierBlockSelectionPolicy, TierId, TierLane,
-        TierQuote, TierSelectionDelayModel, TieredConfig, TieredPricing, TieredState,
-        select_best_lane_tier_for_tx, select_tier_for_tx, update_delays, update_tier_sizes,
+        BlockKind, Eip1559Pricing, Eip1559PriorityLanePricing, Eip1559SmoothingConfig,
+        OverflowAggregatePricingMode, OverflowRetryPolicy, PricingSnapshot, Tier,
+        TierAssignmentHistory, TierAssignmentSemantics, TierBlockSelectionPolicy, TierDelaySpacing,
+        TierId, TierLane, TierQuote, TierSelectionDelayModel, TieredConfig, TieredPricing,
+        TieredState, rebalance_tier_capacities, select_best_lane_tier_for_tx, select_tier_for_tx,
+        update_delays, update_tier_sizes,
     };
 
     fn test_config() -> TieredConfig {
@@ -3281,6 +4227,10 @@ mod tests {
             new_tier_delay_ratio: 2.0,
             block_selection_policy: TierBlockSelectionPolicy::Shared,
             rb_tier0_reservation_fraction: 1.0,
+            rb_target_utilisation: None,
+            rb_base_fee_change_denominator: None,
+            rb_overflow_linear_price_per_fill: None,
+            rb_soft_reservation_fraction: 0.0,
             separate_eb_pool: false,
             eb_total_capacity: None,
             assignment_semantics: TierAssignmentSemantics::NeverStale,
@@ -3297,6 +4247,15 @@ mod tests {
             add_tier_fill_rate_threshold: 1.0,
             remove_tier_fill_rate_threshold: 0.2,
             overflow_retry_policy: OverflowRetryPolicy::default(),
+            lane_selection_backlog_delay_scale: 0.0,
+            min_fee: 0,
+            tier_rebalance_alpha: 1.0,
+            initial_tier_delay: 1,
+            tier_delay_spacing: TierDelaySpacing::Incremental,
+            max_tier_delay: 200,
+            throughput_ema_enabled: false,
+            throughput_ema_alpha: 0.1,
+            priority_ordering: false,
         }
     }
 
@@ -3752,6 +4711,7 @@ mod tests {
             &pricing.state.tiers,
             config.effective_tier_update_cadence_slots(),
             TierLane::Ranking,
+            0,
         );
 
         let tx = Transaction {
@@ -3804,6 +4764,7 @@ mod tests {
             &pricing.state.tiers,
             config.effective_tier_update_cadence_slots(),
             TierLane::Ranking,
+            0,
         );
 
         let tx = Transaction {
@@ -3859,6 +4820,7 @@ mod tests {
             &pricing.state.tiers,
             config.effective_tier_update_cadence_slots(),
             TierLane::Ranking,
+            0,
         );
 
         let tx = Transaction {
@@ -4263,7 +5225,7 @@ mod tests {
             used_capacity: 0,
             tx_count: 0,
         }];
-        let mut history = TierAssignmentHistory::from_tiers(&tiers, 5, TierLane::Ranking);
+        let mut history = TierAssignmentHistory::from_tiers(&tiers, 5, TierLane::Ranking, 0);
         assert_eq!(
             history
                 .by_key
@@ -4272,7 +5234,7 @@ mod tests {
             Some(0)
         );
 
-        history.sync_with_tiers(&[], 10, TierLane::Ranking);
+        history.sync_with_tiers(&[], 10, TierLane::Ranking, 0);
         assert_eq!(
             history
                 .by_key
@@ -4281,10 +5243,10 @@ mod tests {
             Some(10)
         );
 
-        history.sync_with_tiers(&[], 90, TierLane::Ranking);
+        history.sync_with_tiers(&[], 90, TierLane::Ranking, 0);
         assert!(history.by_key.contains_key(&(TierId::new(0), 0)));
 
-        history.sync_with_tiers(&[], 91, TierLane::Ranking);
+        history.sync_with_tiers(&[], 91, TierLane::Ranking, 0);
         assert!(!history.by_key.contains_key(&(TierId::new(0), 0)));
     }
 
@@ -4314,6 +5276,71 @@ mod tests {
             overcollateralization_factor: 0,
             urgency_component_index: None,
         })
+    }
+
+    #[test]
+    fn eip1559_smoothing_damps_large_capacity_empty_update() {
+        let full_rb_txs = vec![test_tx(1, TierId::new(0), 100, 10_000)];
+
+        let mut unsmoothed = Eip1559Pricing::new(100, 8, 0.5, Eip1559SmoothingConfig::default());
+        unsmoothed.update_after_block(&full_rb_txs, 100, 1);
+        let unsmoothed_after_full = unsmoothed.base_fee_per_byte;
+        unsmoothed.update_after_block(&[], 10_000, 2);
+
+        let mut smoothed = Eip1559Pricing::new(
+            100,
+            8,
+            0.5,
+            Eip1559SmoothingConfig {
+                enabled: true,
+                alpha: 0.2,
+            },
+        );
+        smoothed.update_after_block(&full_rb_txs, 100, 1);
+        assert_eq!(smoothed.base_fee_per_byte, unsmoothed_after_full);
+        smoothed.update_after_block(&[], 10_000, 2);
+
+        assert!(smoothed.base_fee_per_byte > unsmoothed.base_fee_per_byte);
+    }
+
+    #[test]
+    fn eip1559_priority_lane_quotes_multiplier_and_delay_advantage() {
+        let pricing = Eip1559PriorityLanePricing::new(90, 8, 0.5, 5.0, 1.0, 1, 2);
+        let snapshot = pricing.snapshot();
+
+        assert_eq!(snapshot.tiers.len(), 2);
+        assert_eq!(snapshot.tiers[0].id, TierId::new(0));
+        assert_eq!(snapshot.tiers[0].price_per_byte, 450);
+        assert_eq!(snapshot.tiers[0].delay, 1);
+        assert_eq!(snapshot.tiers[1].id, TierId::new(1));
+        assert_eq!(snapshot.tiers[1].price_per_byte, 90);
+        assert_eq!(snapshot.tiers[1].delay, 2);
+    }
+
+    #[test]
+    fn eip1559_priority_lane_selects_priority_before_normal() {
+        let pricing = Eip1559PriorityLanePricing::new(10, 8, 0.5, 5.0, 1.0, 1, 2);
+        let priority = test_tx(1, TierId::new(0), 40, 2_000);
+        let normal = test_tx(2, TierId::new(1), 40, 400);
+
+        let included = pricing.select_transactions(&[normal.clone(), priority.clone()], 0, 80);
+
+        assert_eq!(
+            included.iter().map(|tx| tx.id).collect::<Vec<_>>(),
+            vec![priority.id, normal.id]
+        );
+    }
+
+    #[test]
+    fn eip1559_priority_lane_capacity_cap_limits_priority_first_pass() {
+        let pricing = Eip1559PriorityLanePricing::new(10, 8, 0.5, 5.0, 0.25, 1, 2);
+        let priority = test_tx(1, TierId::new(0), 40, 2_000);
+        let normal = test_tx(2, TierId::new(1), 40, 400);
+
+        let included = pricing.select_transactions(&[priority.clone(), normal.clone()], 0, 100);
+
+        assert_eq!(included.len(), 1);
+        assert_eq!(included[0].id, normal.id);
     }
 
     #[test]
@@ -4611,9 +5638,12 @@ mod tests {
 
         pricing.update_after_block(&[], 100, BlockKind::EndorserBlock, 0);
         assert_eq!(pricing.state.tiers.len(), 3);
+        // Tier 0 (RB reserved) is fixed at 30.
         assert_eq!(pricing.state.tiers[0].capacity, 30);
-        assert_eq!(pricing.state.tiers[1].capacity, 75);
-        assert_eq!(pricing.state.tiers[2].capacity, 25);
+        // Tier 1 (EB reservoir) is empty — all EB capacity distributed to active tiers.
+        assert_eq!(pricing.state.tiers[1].capacity, 0);
+        // Tier 2 (sole active EB tier) gets all non-fixed capacity: 100 - 30 = 70.
+        assert_eq!(pricing.state.tiers[2].capacity, 70);
     }
 
     #[test]
@@ -5154,5 +6184,240 @@ mod tests {
             pricing.verify_preassigned_transaction(&tx),
             Err(TransactionRejectReason::InvalidQuotedAssignment)
         );
+    }
+
+    #[test]
+    fn rebalance_single_active_tier_gets_all_capacity() {
+        let config = TieredConfig {
+            total_capacity: 100,
+            max_tiers: 4,
+            tier_size_fractions: vec![0.0, 0.25, 0.25, 0.25],
+            ..test_config()
+        };
+        let mut tiers = vec![
+            Tier {
+                id: TierId::new(0),
+                lane: TierLane::Ranking,
+                capacity: 92,
+                version_created_slot: 0,
+                delay: 1,
+                price: 100,
+                used_capacity: 0,
+                tx_count: 0,
+            },
+            Tier {
+                id: TierId::new(1),
+                lane: TierLane::Ranking,
+                capacity: 8,
+                version_created_slot: 0,
+                delay: 2,
+                price: 100,
+                used_capacity: 0,
+                tx_count: 0,
+            },
+        ];
+        rebalance_tier_capacities(&mut tiers, &config, 0, &[]);
+        assert_eq!(tiers[0].capacity, 0);
+        assert_eq!(tiers[1].capacity, 100);
+    }
+
+    #[test]
+    fn rebalance_two_equal_tiers_split_evenly() {
+        let config = TieredConfig {
+            total_capacity: 100,
+            max_tiers: 4,
+            tier_size_fractions: vec![0.0, 0.25, 0.25, 0.25],
+            ..test_config()
+        };
+        let mut tiers = vec![
+            Tier {
+                id: TierId::new(0),
+                lane: TierLane::Ranking,
+                capacity: 84,
+                version_created_slot: 0,
+                delay: 1,
+                price: 100,
+                used_capacity: 0,
+                tx_count: 0,
+            },
+            Tier {
+                id: TierId::new(1),
+                lane: TierLane::Ranking,
+                capacity: 8,
+                version_created_slot: 0,
+                delay: 2,
+                price: 100,
+                used_capacity: 0,
+                tx_count: 0,
+            },
+            Tier {
+                id: TierId::new(2),
+                lane: TierLane::Ranking,
+                capacity: 8,
+                version_created_slot: 0,
+                delay: 4,
+                price: 50,
+                used_capacity: 0,
+                tx_count: 0,
+            },
+        ];
+        rebalance_tier_capacities(&mut tiers, &config, 0, &[]);
+        assert_eq!(tiers[0].capacity, 0);
+        assert_eq!(tiers[1].capacity, 50);
+        assert_eq!(tiers[2].capacity, 50);
+    }
+
+    #[test]
+    fn rebalance_unequal_fractions_proportional() {
+        let config = TieredConfig {
+            total_capacity: 100,
+            max_tiers: 3,
+            tier_size_fractions: vec![0.0, 0.20, 0.10],
+            ..test_config()
+        };
+        let mut tiers = vec![
+            Tier {
+                id: TierId::new(0),
+                lane: TierLane::Ranking,
+                capacity: 70,
+                version_created_slot: 0,
+                delay: 1,
+                price: 100,
+                used_capacity: 0,
+                tx_count: 0,
+            },
+            Tier {
+                id: TierId::new(1),
+                lane: TierLane::Ranking,
+                capacity: 20,
+                version_created_slot: 0,
+                delay: 2,
+                price: 100,
+                used_capacity: 0,
+                tx_count: 0,
+            },
+            Tier {
+                id: TierId::new(2),
+                lane: TierLane::Ranking,
+                capacity: 10,
+                version_created_slot: 0,
+                delay: 4,
+                price: 50,
+                used_capacity: 0,
+                tx_count: 0,
+            },
+        ];
+        rebalance_tier_capacities(&mut tiers, &config, 0, &[]);
+        assert_eq!(tiers[0].capacity, 0);
+        // 0.20 / 0.30 * 100 = 67 (rounded)
+        assert_eq!(tiers[1].capacity, 67);
+        // remainder: 100 - 67 = 33
+        assert_eq!(tiers[2].capacity, 33);
+    }
+
+    #[test]
+    fn rebalance_with_fixed_tier_preserves_it() {
+        let config = TieredConfig {
+            total_capacity: 100,
+            max_tiers: 3,
+            tier_size_fractions: vec![0.0, 0.2, 0.25],
+            ..test_config()
+        };
+        let mut tiers = vec![
+            Tier {
+                id: TierId::new(0),
+                lane: TierLane::Ranking,
+                capacity: 30,
+                version_created_slot: 0,
+                delay: 1,
+                price: 100,
+                used_capacity: 0,
+                tx_count: 0,
+            },
+            Tier {
+                id: TierId::new(1),
+                lane: TierLane::Ranking,
+                capacity: 50,
+                version_created_slot: 0,
+                delay: 1,
+                price: 100,
+                used_capacity: 0,
+                tx_count: 0,
+            },
+            Tier {
+                id: TierId::new(2),
+                lane: TierLane::Ranking,
+                capacity: 20,
+                version_created_slot: 0,
+                delay: 2,
+                price: 50,
+                used_capacity: 0,
+                tx_count: 0,
+            },
+        ];
+        // Tier 0 fixed (RB reserved), tier 1 is reservoir, tier 2 is active.
+        rebalance_tier_capacities(&mut tiers, &config, 1, &[0]);
+        assert_eq!(tiers[0].capacity, 30); // unchanged
+        assert_eq!(tiers[1].capacity, 0); // reservoir emptied
+        assert_eq!(tiers[2].capacity, 70); // gets all non-fixed: 100 - 30
+    }
+
+    #[test]
+    fn rebalance_after_removal_restores_capacity() {
+        let config = TieredConfig {
+            total_capacity: 100,
+            max_tiers: 4,
+            tier_size_fractions: vec![0.0, 0.25, 0.25, 0.25],
+            ..test_config()
+        };
+        // Start with 3 tiers, each at 33.
+        let mut tiers = vec![
+            Tier {
+                id: TierId::new(0),
+                lane: TierLane::Ranking,
+                capacity: 1,
+                version_created_slot: 0,
+                delay: 1,
+                price: 100,
+                used_capacity: 0,
+                tx_count: 0,
+            },
+            Tier {
+                id: TierId::new(1),
+                lane: TierLane::Ranking,
+                capacity: 33,
+                version_created_slot: 0,
+                delay: 2,
+                price: 100,
+                used_capacity: 0,
+                tx_count: 0,
+            },
+            Tier {
+                id: TierId::new(2),
+                lane: TierLane::Ranking,
+                capacity: 33,
+                version_created_slot: 0,
+                delay: 4,
+                price: 50,
+                used_capacity: 0,
+                tx_count: 0,
+            },
+            Tier {
+                id: TierId::new(3),
+                lane: TierLane::Ranking,
+                capacity: 33,
+                version_created_slot: 0,
+                delay: 8,
+                price: 10,
+                used_capacity: 0,
+                tx_count: 0,
+            },
+        ];
+        // Remove last tier.
+        tiers.pop();
+        rebalance_tier_capacities(&mut tiers, &config, 0, &[]);
+        assert_eq!(tiers[0].capacity, 0);
+        assert_eq!(tiers[1].capacity, 50);
+        assert_eq!(tiers[2].capacity, 50);
     }
 }

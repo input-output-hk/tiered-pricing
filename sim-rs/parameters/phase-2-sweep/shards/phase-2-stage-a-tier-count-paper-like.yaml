@@ -1,0 +1,20 @@
+# yaml-language-server: $schema=../../suites/suite.schema.json
+
+defaults:
+  topology: parameters/topology.default.yaml
+  parameters:
+    - parameters/linear.yaml
+    - parameters/phase-2-sweep/protocol-base.yaml
+  slots: 2000
+  trace: false
+
+jobs:
+  - id: tier-count-paper-like
+    label: Stage A Tier Count Paper Like
+    parameters:
+      - parameters/phase-2-sweep/experiments/paper-like-continuous-pivot.yaml
+    compare-parameters:
+      - parameters/phase-2-sweep/experiments/paper-like-continuous-tiers-2.yaml
+      - parameters/phase-2-sweep/experiments/paper-like-continuous-tiers-4.yaml
+      - parameters/phase-2-sweep/experiments/paper-like-continuous-tiers-50.yaml
+    seeds: [42, 43, 44, 45, 46]

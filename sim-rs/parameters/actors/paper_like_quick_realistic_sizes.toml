@@ -1,0 +1,164 @@
+# Realistic Cardano tx size and value distributions.
+#
+# Tx sizes based on post-Vasil (reference scripts) Cardano data:
+#   Simple ADA transfers: ~250-500 bytes (Cexplorer, Cardano Forum)
+#   DEX swaps (ref scripts): ~800-2000 bytes (MuesliSwap post-Vasil: 1.31KB)
+#   Lending/complex DeFi: ~1500-4000 bytes (estimate from script overhead)
+#   Heavy Plutus (multi-script): ~4000-8000 bytes (Plank article: 9.6KB example)
+#
+# Values represent willingness-to-pay for inclusion (economic surplus), not
+# the ADA amount transacted. Calibrated so all components can comfortably
+# cover the Cardano min fee (~170k-375k lovelace depending on tx size).
+#
+# Sources:
+#   Tx sizes: Cexplorer, MuesliSwap Vasil report (u.today), Plank article
+#   Values: Minswap avg swap ~2370 ADA (CoinMarketCap), Cexplorer wallet data,
+#           IntoTheBlock large tx data, TapTools lending protocol analysis
+#   Fee formula: 44 * size + 155,381 lovelace (Cardano docs)
+
+# ============================================================================
+# Actor 1: First half, high-value DeFi (Plutus-heavy)
+# ============================================================================
+# Represents: DeFi arbs, liquidations, large swaps. ~15% of traffic.
+# Tx size ~4000 bytes (heavy Plutus), fee ~331k lovelace.
+# Value: 20-50M lovelace (20-50 ADA surplus at risk from delay).
+
+[[actors]]
+name = "high_val_high_urg_first_half"
+arrival_rate = 0.0
+arrival_pattern = { kind = "phased", phases = [{ start_slot = 0, end_slot = 500, rate = 2.4 }, { start_slot = 500, end_slot = 1000, rate = 5.1 }] }
+tx_size = { kind = "normal", params = [4000, 2500] }
+value_distribution = { kind = "constant", params = [0] }
+urgency = { kind = "indifferent" }
+
+[[actors.value_urgency_components]]
+name = "high_val_high_urg"
+weight = 1.0
+value_distribution = { kind = "normal", params = [30000000.0, 15000000.0] }
+urgency_u_distribution = { kind = "uniform", params = [1.03, 1.06] }
+
+# ============================================================================
+# Actor 2: First half, medium-value (script txs)
+# ============================================================================
+# Represents: routine DEX swaps, lending interactions. ~55% of traffic.
+# Tx size ~800 bytes (mid-complexity scripts), fee ~190k lovelace.
+# Value: 3-10M lovelace (3-10 ADA; typical DEX slippage cost).
+
+[[actors]]
+name = "med_val_first_half"
+arrival_rate = 0.0
+arrival_pattern = { kind = "phased", phases = [{ start_slot = 0, end_slot = 500, rate = 8.8 }, { start_slot = 500, end_slot = 1000, rate = 18.7 }] }
+tx_size = { kind = "normal", params = [800, 400] }
+value_distribution = { kind = "constant", params = [0] }
+urgency = { kind = "indifferent" }
+
+[[actors.value_urgency_components]]
+name = "med_high_val_med_urg"
+weight = 0.45
+value_distribution = { kind = "normal", params = [8000000.0, 3000000.0] }
+urgency_u_distribution = { kind = "uniform", params = [1.02, 1.05] }
+
+[[actors.value_urgency_components]]
+name = "med_val_med_urg"
+weight = 0.55
+value_distribution = { kind = "normal", params = [3000000.0, 1500000.0] }
+urgency_u_distribution = { kind = "uniform", params = [1.015, 1.04] }
+
+# ============================================================================
+# Actor 3: First half, low-value (simple transfers)
+# ============================================================================
+# Represents: ADA transfers, staking, governance. ~30% of traffic.
+# Tx size ~350 bytes (simple), fee ~171k lovelace.
+# Value: 500k-2M lovelace (0.5-2 ADA; modest value from timely inclusion).
+
+[[actors]]
+name = "low_val_first_half"
+arrival_rate = 0.0
+arrival_pattern = { kind = "phased", phases = [{ start_slot = 0, end_slot = 500, rate = 4.8 }, { start_slot = 500, end_slot = 1000, rate = 10.2 }] }
+tx_size = { kind = "normal", params = [350, 100] }
+value_distribution = { kind = "constant", params = [0] }
+urgency = { kind = "indifferent" }
+
+[[actors.value_urgency_components]]
+name = "low_med_val_low_urg"
+weight = 0.67
+value_distribution = { kind = "normal", params = [1500000.0, 600000.0] }
+urgency_u_distribution = { kind = "uniform", params = [1.01, 1.03] }
+
+[[actors.value_urgency_components]]
+name = "low_val_low_urg"
+weight = 0.33
+value_distribution = { kind = "normal", params = [600000.0, 250000.0] }
+urgency_u_distribution = { kind = "uniform", params = [1.005, 1.02] }
+
+# ============================================================================
+# Actor 4: Second half, low-value varied urgency (simple transfers)
+# ============================================================================
+
+[[actors]]
+name = "low_val_second_half"
+arrival_rate = 0.0
+arrival_pattern = { kind = "phased", phases = [{ start_slot = 1000, end_slot = 1500, rate = 9.6 }, { start_slot = 1500, end_slot = 2000, rate = 6.4 }] }
+tx_size = { kind = "normal", params = [350, 100] }
+value_distribution = { kind = "constant", params = [0] }
+urgency = { kind = "indifferent" }
+
+[[actors.value_urgency_components]]
+name = "low_val_low_urg"
+weight = 0.50
+value_distribution = { kind = "normal", params = [800000.0, 300000.0] }
+urgency_u_distribution = { kind = "uniform", params = [1.005, 1.015] }
+
+[[actors.value_urgency_components]]
+name = "low_val_high_urg"
+weight = 0.50
+value_distribution = { kind = "normal", params = [800000.0, 300000.0] }
+urgency_u_distribution = { kind = "uniform", params = [1.02, 1.04] }
+
+# ============================================================================
+# Actor 5: Second half, medium-value varied urgency (mid-complexity scripts)
+# ============================================================================
+
+[[actors]]
+name = "med_val_second_half"
+arrival_rate = 0.0
+arrival_pattern = { kind = "phased", phases = [{ start_slot = 1000, end_slot = 1500, rate = 9.6 }, { start_slot = 1500, end_slot = 2000, rate = 6.4 }] }
+tx_size = { kind = "normal", params = [1200, 600] }
+value_distribution = { kind = "constant", params = [0] }
+urgency = { kind = "indifferent" }
+
+[[actors.value_urgency_components]]
+name = "med_val_low_urg"
+weight = 0.50
+value_distribution = { kind = "normal", params = [3000000.0, 1200000.0] }
+urgency_u_distribution = { kind = "uniform", params = [1.005, 1.02] }
+
+[[actors.value_urgency_components]]
+name = "med_val_high_urg"
+weight = 0.50
+value_distribution = { kind = "normal", params = [3000000.0, 1200000.0] }
+urgency_u_distribution = { kind = "uniform", params = [1.02, 1.05] }
+
+# ============================================================================
+# Actor 6: Second half, high-value varied urgency (heavy Plutus)
+# ============================================================================
+
+[[actors]]
+name = "high_val_second_half"
+arrival_rate = 0.0
+arrival_pattern = { kind = "phased", phases = [{ start_slot = 1000, end_slot = 1500, rate = 4.8 }, { start_slot = 1500, end_slot = 2000, rate = 3.2 }] }
+tx_size = { kind = "normal", params = [5000, 3000] }
+value_distribution = { kind = "constant", params = [0] }
+urgency = { kind = "indifferent" }
+
+[[actors.value_urgency_components]]
+name = "high_val_med_urg"
+weight = 0.50
+value_distribution = { kind = "normal", params = [20000000.0, 8000000.0] }
+urgency_u_distribution = { kind = "uniform", params = [1.01, 1.03] }
+
+[[actors.value_urgency_components]]
+name = "high_val_high_urg"
+weight = 0.50
+value_distribution = { kind = "normal", params = [20000000.0, 8000000.0] }
+urgency_u_distribution = { kind = "uniform", params = [1.03, 1.06] }

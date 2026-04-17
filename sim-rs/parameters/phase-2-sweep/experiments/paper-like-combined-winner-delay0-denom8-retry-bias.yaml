@@ -1,0 +1,5 @@
+# Delay0 + denom8 control with actor-specific overflow retry overrides.
+pricing:
+  config-path: "parameters/phase-2-sweep/pricing/continuous_rb_eb_combined_winner_delay0_denom8.toml"
+actors:
+  config-path: "parameters/phase-2-sweep/demand/paper_like_moderate_retry_bias.toml"

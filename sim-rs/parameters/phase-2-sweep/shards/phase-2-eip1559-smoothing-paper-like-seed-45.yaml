@@ -1,0 +1,18 @@
+# yaml-language-server: $schema=../../suites/suite.schema.json
+
+defaults:
+  topology: parameters/topology.default.yaml
+  parameters:
+    - parameters/linear.yaml
+    - parameters/phase-2-sweep/protocol-base.yaml
+  slots: 2000
+  trace: false
+
+jobs:
+  - id: eip1559-smoothing-paper-like-seed-45
+    label: EIP-1559 Smoothing (paper-like, seed 45)
+    parameters:
+      - parameters/phase-2-sweep/experiments/paper-like-eip1559.yaml
+    compare-parameters:
+      - parameters/phase-2-sweep/experiments/paper-like-eip1559-smoothed-alpha20.yaml
+    seeds: [45]

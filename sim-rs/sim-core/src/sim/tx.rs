@@ -124,6 +124,10 @@ impl TransactionProducer {
             anyhow::bail!("no nodes available for transaction generation");
         }
 
+        // Sort by NodeId for deterministic WeightedLookup construction,
+        // since self.nodes is a HashMap with nondeterministic iteration order.
+        node_weights.sort_by_key(|(id, _)| *id);
+
         Ok(WeightedLookup::new(node_weights))
     }
 

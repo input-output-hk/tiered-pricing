@@ -1,0 +1,42 @@
+# yaml-language-server: $schema=../../suites/suite.schema.json
+
+defaults:
+  topology: parameters/topology.default.yaml
+  parameters:
+    - parameters/linear.yaml
+    - parameters/phase-2-sweep/protocol-base.yaml
+  slots: 2000
+  trace: false
+
+jobs:
+  - id: eip1559-robustness-paper-like-moderate-seed-43
+    label: EIP-1559 Robustness (paper-like moderate, seed 43)
+    parameters:
+      - parameters/phase-2-sweep/experiments/paper-like-moderate-demand.yaml
+      - parameters/phase-2-sweep/experiments/eip1559-denom8-target50.yaml
+    compare-parameters:
+      - parameters/phase-2-sweep/experiments/eip1559-denom4-target40.yaml
+      - parameters/phase-2-sweep/experiments/eip1559-denom4-target50.yaml
+      - parameters/phase-2-sweep/experiments/eip1559-denom4-target60.yaml
+      - parameters/phase-2-sweep/experiments/eip1559-denom8-target40.yaml
+      - parameters/phase-2-sweep/experiments/eip1559-denom8-target60.yaml
+      - parameters/phase-2-sweep/experiments/eip1559-denom16-target40.yaml
+      - parameters/phase-2-sweep/experiments/eip1559-denom16-target50.yaml
+      - parameters/phase-2-sweep/experiments/eip1559-denom16-target60.yaml
+    seeds: [43]
+
+  - id: eip1559-robustness-paper-like-congested-seed-43
+    label: EIP-1559 Robustness (paper-like congested, seed 43)
+    parameters:
+      - parameters/phase-2-sweep/experiments/paper-like-congested-demand.yaml
+      - parameters/phase-2-sweep/experiments/eip1559-denom8-target50.yaml
+    compare-parameters:
+      - parameters/phase-2-sweep/experiments/eip1559-denom4-target40.yaml
+      - parameters/phase-2-sweep/experiments/eip1559-denom4-target50.yaml
+      - parameters/phase-2-sweep/experiments/eip1559-denom4-target60.yaml
+      - parameters/phase-2-sweep/experiments/eip1559-denom8-target40.yaml
+      - parameters/phase-2-sweep/experiments/eip1559-denom8-target60.yaml
+      - parameters/phase-2-sweep/experiments/eip1559-denom16-target40.yaml
+      - parameters/phase-2-sweep/experiments/eip1559-denom16-target50.yaml
+      - parameters/phase-2-sweep/experiments/eip1559-denom16-target60.yaml
+    seeds: [43]

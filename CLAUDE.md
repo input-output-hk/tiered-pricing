@@ -31,6 +31,8 @@ sim-rs/
 ├── sim-cli/                # CLI runner and metrics
 │   └── src/
 │       ├── main.rs             # CLI entry point, compare mode, parameter layering
+│       ├── runner.rs           # Shared run execution API used by both CLIs
+│       ├── suite.rs            # Config-driven experiment suite runner + manifest logic
 │       └── events.rs           # Event monitoring, metrics collection, welfare tables (~3000 lines)
 │                               #   - Per-actor and per-urgency-class welfare metrics
 │                               #   - Retained value ratio, net utility, latency tracking
@@ -47,6 +49,9 @@ sim-rs/
 │   │   ├── baseline_quick.toml             # Fixed Cardano-style fees
 │   │   ├── continuous_rb_eb_reject_overflow_aggregate_capped_tier_pressure_quick.toml
 │   │   └── ...                             # Many mechanism variants
+│   ├── suites/                 # Multi-job experiment suite configs (YAML)
+│   │   ├── overnight-multi.yaml           # Example comparative suite
+│   │   └── suite.schema.json              # YAML editor schema for suite configs
 │   └── experiments/            # Experiment configs (YAML overlays on config.default.yaml)
 │       ├── leios-sundaeswap-baseline.yaml
 │       ├── leios-sundaeswap-aggregate-capped-tier-pressure.yaml
@@ -115,12 +120,26 @@ scripts/run_sim_timestamped.sh \
   --experiment parameters/experiments/leios-sundaeswap-aggregate-capped-tier-pressure.yaml \
   --compare-experiment parameters/experiments/leios-sundaeswap-baseline.yaml \
   --label sundaeswap-tiered-vs-baseline
+
+# Run a multi-job experiment suite from config
+cargo run -q -p sim-cli --bin experiment-suite -- \
+  run parameters/suites/overnight-multi.yaml
+
+# Resume an interrupted or failed suite
+cargo run -q -p sim-cli --bin experiment-suite -- \
+  resume output/experiment-suites/<timestamp>-<label>
 ```
 
 Output goes to `output/eb-compare/<timestamp>-<label>/`. Key outputs:
 - `metrics_comparison.txt` — welfare tables (per-actor, per-urgency-class)
 - `time_series.csv` — slot-by-slot tier prices, fill rates, tx counts
 - `diagnostics.log` — pricing mechanism state transitions
+
+Suite runs go to `output/experiment-suites/<timestamp>-<label>/`. Key suite outputs:
+- `suite.yaml` — copied source suite config
+- `manifest.json` — durable suite/job/attempt state used for resume
+- `jobs/<job-id>/attempt-###/` — single-run artifacts
+- `jobs/<job-id>/seed-<n>/attempt-###/` — seeded sweep artifacts
 
 ## Running Tests
 
@@ -186,6 +205,26 @@ An experiment needs three things:
 
 Experiment YAML files layer on top of `config.default.yaml` via `-p` flags. Fields in the experiment override defaults.
 
+## Creating Experiment Suites
+
+A suite YAML groups multiple runs into one resumable campaign. It supports:
+- `defaults`: shared topology / parameter / tracing / slot settings
+- `jobs`: ordered run definitions with `parameters`, optional `compare-parameters`, and optional `seeds`
+
+Each `jobs[].parameters` list becomes the common `-p` set for that job. If `compare-parameters` is present, sim-cli runs a baseline case plus one case per compare overlay. If `seeds` is present, the suite expands the job into one resumable unit per seed, with the seed applied as a generated trailing override.
+
 ## Parameter Layering
 
-The CLI applies parameters in order: `config.default.yaml` → `linear.yaml` → experiment YAML. Later files override earlier ones. The `pricing.config-path` and `actors.config-path` fields point to TOML files loaded separately.
+The CLI applies parameters in order: `config.default.yaml` → `linear.yaml` → `protocol-base.yaml` → experiment YAML. Later files override earlier ones. The `pricing.config-path` and `actors.config-path` fields point to TOML files loaded separately.
+
+Phase-2 experiments use thin overlays that specify only `pricing.config-path`, `actors.config-path`, and any per-experiment overrides. Shared protocol parameters live in `parameters/phase-2-sweep/protocol-base.yaml`.
+
+## Pending / Experimental Design Choices
+
+Decisions made during development that may need revisiting:
+
+- **Tier rebalancing on over-capacity (2026-04-01)**: When a new tier spawns and existing tiers are resized, tiers may temporarily exceed their new (smaller) capacity. We allow this — the overflow rejection machinery handles admission for new txs naturally, and the tier drains on the next block. Alternative approaches (rebalance only at block boundaries, or never shrink below pending bytes) were considered but deferred as unnecessary complexity. If price oscillation is observed around tier-spawn events, revisit this choice.
+
+- **Tier 0 delay should be zero (2026-04-07)**: The paper specifies tier 0 as immediate inclusion (zero artificial delay). All experiments to date have used `initial_tier_delay = 1` (block or slot), imposing a minimum 1-block (~20 slot) delay even on the fastest tier. This affects absolute latency numbers but not relative mechanism comparisons (all variants share the same tier-0 delay). A follow-up experiment with `initial_tier_delay = 0` for tier 0 specifically is needed to validate the paper's intended behavior.
+
+- **EB effective capacity (2026-04-01)**: The EB pool's `total_capacity` is set to `eb-referenced-txs-max-size-bytes` (12MB per CIP-0164). However, effective EB throughput is much lower because ~50% of EBs fail certification due to RB timing (structural property of linear Leios). The pricing mechanism sees low EB fill rates and keeps EB prices artificially low. A potential improvement: set `eb_total_capacity` to reflect effective certified throughput (~4-6MB) rather than raw EB size. Not yet implemented.

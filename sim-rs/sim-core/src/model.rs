@@ -151,7 +151,10 @@ impl UrgencyProfile {
             ((initial_value as u128).saturating_mul(retained) / 1_000_000u128) as u64
         }
 
-        let delay = delay_slots.max(1);
+        if delay_slots == 0 {
+            return initial_value; // Zero delay = full value retained.
+        }
+        let delay = delay_slots;
         match self {
             UrgencyProfile::Indifferent => initial_value,
             UrgencyProfile::TimeBoxed { max_slots } => {
@@ -163,7 +166,7 @@ impl UrgencyProfile {
             }
             // Urgent traffic keeps legacy behavior: it only values the minimal-delay lane.
             UrgencyProfile::Urgent => {
-                if delay == 1 {
+                if delay <= 1 {
                     initial_value
                 } else {
                     0

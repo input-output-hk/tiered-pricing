@@ -1,0 +1,6 @@
+# Thin overlay — protocol params inherited from protocol-base.yaml
+# Combined winner with tier-0 delay = 0 (immediate inclusion, per the paper).
+pricing:
+  config-path: "parameters/phase-2-sweep/pricing/continuous_rb_eb_combined_winner_delay0.toml"
+actors:
+  config-path: "parameters/phase-2-sweep/demand/paper_like_moderate.toml"

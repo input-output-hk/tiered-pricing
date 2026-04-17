@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::{BTreeMap, VecDeque},
     hash::Hash,
     time::Duration,
 };
@@ -55,7 +55,7 @@ impl<T> MiniProtocolQueue<T> {
 pub struct Connection<TProtocol, TMessage> {
     bandwidth_bps: Option<u64>,
     latency: Duration,
-    bandwidth_queues: HashMap<TProtocol, MiniProtocolQueue<(u64, TMessage)>>,
+    bandwidth_queues: BTreeMap<TProtocol, MiniProtocolQueue<(u64, TMessage)>>,
     latency_queue: VecDeque<(TMessage, Timestamp)>,
     last_event: Timestamp,
     next_id: u64,
@@ -63,13 +63,13 @@ pub struct Connection<TProtocol, TMessage> {
 
 impl<TProtocol, TMessage> Connection<TProtocol, TMessage>
 where
-    TProtocol: Clone + Eq + Hash,
+    TProtocol: Clone + Eq + Hash + Ord,
 {
     pub fn new(latency: Duration, bandwidth_bps: Option<u64>) -> Self {
         Self {
             bandwidth_bps,
             latency,
-            bandwidth_queues: HashMap::new(),
+            bandwidth_queues: BTreeMap::new(),
             latency_queue: VecDeque::new(),
             last_event: Timestamp::zero(),
             next_id: 0,
@@ -189,7 +189,7 @@ where
         self.last_event = now;
     }
 
-    fn split_bytes_amongst_queues(&self, bytes: u64) -> HashMap<TProtocol, u64> {
+    fn split_bytes_amongst_queues(&self, bytes: u64) -> BTreeMap<TProtocol, u64> {
         let mut queue_bytes: Vec<(&TProtocol, u64)> = self
             .bandwidth_queues
             .iter()
@@ -233,7 +233,7 @@ mod tests {
 
     use super::Connection;
 
-    #[derive(Clone, PartialEq, Eq, Hash)]
+    #[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
     enum MiniProtocol {
         One,
         Two,

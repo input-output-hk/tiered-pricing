@@ -1,0 +1,6 @@
+# Thin overlay — protocol params inherited from protocol-base.yaml
+# Delay0 with conservative repricing (denominator 8) to dampen price oscillation.
+pricing:
+  config-path: "parameters/phase-2-sweep/pricing/continuous_rb_eb_combined_winner_delay0_denom8.toml"
+actors:
+  config-path: "parameters/phase-2-sweep/demand/paper_like_moderate.toml"

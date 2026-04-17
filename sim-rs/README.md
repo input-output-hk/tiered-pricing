@@ -58,3 +58,38 @@ scripts/run_sim_timestamped.sh \
 ```
 
 Each run writes to a unique directory under `output/eb-compare/<timestamp>-<label>/`.
+
+## Config-driven experiment suites
+
+For multi-experiment campaigns, use the `experiment-suite` binary with a YAML suite config:
+
+```sh
+cargo run -q -p sim-cli --bin experiment-suite -- \
+  run parameters/suites/overnight-multi.yaml
+```
+
+To resume an interrupted or failed suite run:
+
+```sh
+cargo run -q -p sim-cli --bin experiment-suite -- \
+  resume output/experiment-suites/<timestamp>-<label>
+```
+
+Suite configs live under `parameters/suites/` and support:
+- suite-level defaults for topology, parameter files, slots, tracing, and output root
+- an ordered list of jobs, each with its own `parameters` and optional `compare-parameters`
+- light seed sweeps via `seeds: [...]`, where each seed becomes its own resumable job attempt
+
+Each suite run writes a copied `suite.yaml`, a durable `manifest.json`, and per-job attempt directories under `output/experiment-suites/<timestamp>-<label>/`.
+
+For the phase-2 Stage A sweep, there is also a wrapper that launches one suite shard per top-level job in parallel:
+
+```sh
+scripts/run_phase2_stage_a_parallel.sh run --label phase2-stage-a
+```
+
+To resume every shard in a previously launched batch:
+
+```sh
+scripts/run_phase2_stage_a_parallel.sh resume output/experiment-batches/<timestamp>-phase2-stage-a
+```

@@ -202,7 +202,7 @@ eb-max-age-for-relay-slots: 40
 
 # The maximum size of transactions (in bytes) which an EB can reference.
 # Only relevant when running with the "full-without-ibs" variant.
-eb-referenced-txs-max-size-bytes: 16384000
+eb-referenced-txs-max-size-bytes: 12582912
 
 # For Linear Leios
 eb-body-avg-size-bytes: 2500000

@@ -1,0 +1,57 @@
+[pricing_mechanism]
+kind = "tiered_pricing"
+
+[pricing_mechanism.tiered_config]
+initial_tier_delay = 0
+min_fee = 155000
+assignment_semantics = "never_stale"
+reject_on_pending_tier_overflow = true
+include_overflow_aggregate_in_pricing_updates = true
+overflow_aggregate_pricing_mode = "linear_additive"
+overflow_linear_price_per_fill = 100
+overflow_linear_fill_rate_cap = 1.0
+include_overflow_aggregate_in_tier_updates = false
+
+total_capacity = 90112
+separate_eb_pool = true
+max_tiers = 12
+tier_size_fractions = [0.0, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08]
+base_fee_change_denominator = 8
+target_utilisation = 0.5
+delay_update_period_slots = 80
+delay_increase_threshold = 0.9
+delay_increase_thresholds = [0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9]
+delay_decrease_prob = 0.25
+min_delay_ratio = 2.0
+min_delay_ratios = [2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0]
+tier_update_period_slots = 160
+add_tier_threshold = 100
+remove_tier_threshold = 70
+new_tier_price = 90
+new_tier_delay_ratio = 2.0
+block_selection_policy = "continuous_rb_eb_fallback"
+
+[pricing_mechanism.tiered_config.overflow_retry_policy]
+enabled = true
+source = "local_actor_submissions"
+curve_metric = "retained_value_ratio"
+backoff_mode = "exponential"
+max_delay_slots = 64
+
+[[pricing_mechanism.tiered_config.overflow_retry_policy.bands]]
+min_retained_ratio = 0.0
+max_retained_ratio = 0.4
+max_attempts = 0
+base_delay_slots = 0
+
+[[pricing_mechanism.tiered_config.overflow_retry_policy.bands]]
+min_retained_ratio = 0.4
+max_retained_ratio = 0.8
+max_attempts = 2
+base_delay_slots = 2
+
+[[pricing_mechanism.tiered_config.overflow_retry_policy.bands]]
+min_retained_ratio = 0.8
+max_retained_ratio = 1.0
+max_attempts = 6
+base_delay_slots = 2

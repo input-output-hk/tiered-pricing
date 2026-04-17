@@ -34,9 +34,9 @@ use crate::{
         lottery::{LotteryConfig, LotteryKind, MockLotteryResults, vrf_probabilities},
     },
     tx_pricing::{
-        BlockKind, OverflowRetryCurveMetric, OverflowRetryPolicy, OverflowRetrySource,
-        PricingMechanism, Tier, TierBlockSelectionPolicy, TierCadenceUpdate,
-        TierSelectionDelayModel, select_best_lane_tier_for_tx, select_tier_for_tx,
+        BlockKind, LaneDelayAdjustments, OverflowRetryCurveMetric, OverflowRetryPolicy,
+        OverflowRetrySource, PricingMechanism, Tier, TierBlockSelectionPolicy, TierCadenceUpdate,
+        TierSelectionDelayModel, select_best_lane_tier_for_tx_with_adjustments, select_tier_for_tx,
     },
 };
 
@@ -85,8 +85,9 @@ impl GlobalPricingCoordinator {
             crate::tx_pricing::PricingMechanismConfig::TieredPricing { tiered_config }
                 if tiered_config.block_selection_policy
                     == TierBlockSelectionPolicy::RbTier0Reserved
-                    || tiered_config.block_selection_policy
-                        == TierBlockSelectionPolicy::ContinuousRbEb =>
+                    || tiered_config
+                        .block_selection_policy
+                        .uses_continuous_lane_pricing() =>
             {
                 TierSelectionDelayModel::LanePathPlusTierDelay {
                     rb_path_latency: tier_selection_path_latency.rb_delay_units,
@@ -122,6 +123,14 @@ impl GlobalPricingCoordinator {
             .lock()
             .expect("global pricing coordinator mutex poisoned");
         state.pricing.has_separate_eb_pool()
+    }
+
+    fn lane_selection_backlog_delay_scale(&self) -> f64 {
+        let state = self
+            .state
+            .lock()
+            .expect("global pricing coordinator mutex poisoned");
+        state.pricing.lane_selection_backlog_delay_scale()
     }
 
     fn reject_on_pending_tier_overflow(&self) -> bool {
@@ -164,6 +173,14 @@ impl GlobalPricingCoordinator {
             .lock()
             .expect("global pricing coordinator mutex poisoned");
         state.pricing.is_tiered()
+    }
+
+    fn is_priority_ordering(&self) -> bool {
+        let state = self
+            .state
+            .lock()
+            .expect("global pricing coordinator mutex poisoned");
+        state.pricing.is_priority_ordering()
     }
 
     fn uses_lane_partitioned_tiers(&self) -> bool {
@@ -1004,13 +1021,19 @@ impl LinearLeiosNode {
             // When not using separate pools, EB uses the same tier as RB.
             rb_result
         };
+        let delay_adjustments =
+            self.lane_selection_delay_adjustments(&updated, &pricing, delay_model);
 
         if pricing.uses_lane_partitioned_tiers() {
             let has_separate_eb_pool = pricing.has_separate_eb_pool();
             let eb_snapshot = pricing.snapshot_for_block_kind(BlockKind::EndorserBlock);
-            let Some(selection) =
-                select_best_lane_tier_for_tx(&updated, &rb_snapshot, &eb_snapshot, delay_model)
-            else {
+            let Some(selection) = select_best_lane_tier_for_tx_with_adjustments(
+                &updated,
+                &rb_snapshot,
+                &eb_snapshot,
+                delay_model,
+                delay_adjustments,
+            ) else {
                 return (tx, Some(TransactionRejectReason::TooExpensive), None);
             };
 
@@ -1163,6 +1186,22 @@ impl LinearLeiosNode {
                     eb_posted_fee,
                     eb_tier_delay_slots,
                 );
+            }
+        }
+
+        // For shared policies with separate EB pool (node-allocated), commit the tx
+        // to the best lane for overflow/pending tracking purposes. The block builder
+        // can still include it from either pool (it has both tier preferences set).
+        if pricing.has_separate_eb_pool() && !pricing.uses_lane_partitioned_tiers() {
+            let eb_snapshot = pricing.snapshot_for_block_kind(BlockKind::EndorserBlock);
+            if let Some(selection) = select_best_lane_tier_for_tx_with_adjustments(
+                &updated,
+                &rb_snapshot,
+                &eb_snapshot,
+                delay_model,
+                delay_adjustments,
+            ) {
+                updated.assigned_block_kind = Some(selection.block_kind);
             }
         }
 
@@ -1465,6 +1504,65 @@ impl LinearLeiosNode {
         }
     }
 
+    fn lane_selection_delay_adjustments(
+        &self,
+        tx: &Transaction,
+        pricing: &GlobalPricingCoordinator,
+        delay_model: TierSelectionDelayModel,
+    ) -> LaneDelayAdjustments {
+        let scale = pricing.lane_selection_backlog_delay_scale();
+        if scale <= 0.0 {
+            return LaneDelayAdjustments::default();
+        }
+
+        let has_separate_eb_pool = pricing.has_separate_eb_pool();
+        let ranking_extra_delay = self.lane_backlog_delay_penalty(
+            tx,
+            BlockKind::RankingBlock,
+            has_separate_eb_pool,
+            delay_model,
+            scale,
+        );
+        let endorser_extra_delay = self.lane_backlog_delay_penalty(
+            tx,
+            BlockKind::EndorserBlock,
+            has_separate_eb_pool,
+            delay_model,
+            scale,
+        );
+
+        LaneDelayAdjustments {
+            ranking_extra_delay,
+            endorser_extra_delay,
+        }
+    }
+
+    fn lane_backlog_delay_penalty(
+        &self,
+        tx: &Transaction,
+        lane: BlockKind,
+        has_separate_eb_pool: bool,
+        delay_model: TierSelectionDelayModel,
+        scale: f64,
+    ) -> u64 {
+        let target_tick = self.tx_target_tick_for_block_kind(tx, lane);
+        let pending_bytes = self.mempool.pending_bytes_for_lane_up_to_target(
+            lane,
+            target_tick,
+            has_separate_eb_pool,
+        );
+        if pending_bytes == 0 {
+            return 0;
+        }
+
+        let capacity = self.block_capacity_for_kind(lane).max(1);
+        let queue_turns = pending_bytes as f64 / capacity as f64;
+        let base_delay = delay_model
+            .utility_delay_units_for_lane(lane, 1, None)
+            .max(1) as f64;
+        (queue_turns * base_delay * scale).round() as u64
+    }
+
     fn should_reject_on_overflow(
         rb_assigned: bool,
         rb_overfull: bool,
@@ -1480,22 +1578,24 @@ impl LinearLeiosNode {
     }
 
     fn select_retry_lane_when_both_overfull(&self, tx: &Transaction) -> BlockKind {
-        let delay_model = self
-            .pricing
-            .as_ref()
-            .map(|pricing| pricing.tier_selection_delay_model())
-            .unwrap_or(TierSelectionDelayModel::TierDelay);
+        let Some(pricing) = self.pricing.as_ref() else {
+            return BlockKind::RankingBlock;
+        };
+        let delay_model = pricing.tier_selection_delay_model();
+        let delay_adjustments = self.lane_selection_delay_adjustments(tx, pricing, delay_model);
         let rb_retained_ratio = Self::retained_value_ratio_for_lane(
             tx,
             BlockKind::RankingBlock,
             OverflowRetryCurveMetric::RetainedValueRatio,
             delay_model,
+            delay_adjustments,
         );
         let eb_retained_ratio = Self::retained_value_ratio_for_lane(
             tx,
             BlockKind::EndorserBlock,
             OverflowRetryCurveMetric::RetainedValueRatio,
             delay_model,
+            delay_adjustments,
         );
         if eb_retained_ratio > rb_retained_ratio {
             BlockKind::EndorserBlock
@@ -1533,12 +1633,15 @@ impl LinearLeiosNode {
         if !policy.enabled || policy.source != OverflowRetrySource::LocalActorSubmissions {
             return false;
         }
+        let delay_model = pricing.tier_selection_delay_model();
+        let delay_adjustments = self.lane_selection_delay_adjustments(tx, &pricing, delay_model);
 
         let retained_value_ratio = Self::retained_value_ratio_for_lane(
             tx,
             lane,
             policy.curve_metric,
-            pricing.tier_selection_delay_model(),
+            delay_model,
+            delay_adjustments,
         );
         let Some(band) = policy.band_for_retained_ratio(retained_value_ratio) else {
             return false;
@@ -1581,6 +1684,7 @@ impl LinearLeiosNode {
         lane: BlockKind,
         metric: OverflowRetryCurveMetric,
         delay_model: TierSelectionDelayModel,
+        delay_adjustments: LaneDelayAdjustments,
     ) -> f64 {
         match metric {
             OverflowRetryCurveMetric::RetainedValueRatio => {
@@ -1593,10 +1697,11 @@ impl LinearLeiosNode {
                         tx.eb_tier_preference.or(tx.tier_preference),
                     ),
                 };
-                let utility_delay = delay_model.utility_delay_units_for_lane(
+                let utility_delay = delay_model.utility_delay_units_for_lane_with_adjustments(
                     lane,
                     tier_delay_slots.max(1),
                     tier_id,
+                    delay_adjustments,
                 );
                 if tx.value == 0 {
                     return 1.0;
@@ -2612,11 +2717,11 @@ impl LinearLeiosNode {
         match self.sim_config.tier_delay_unit() {
             TierDelayUnit::Slots => tx
                 .mempool_entry_slot
-                .map(|entry| entry.saturating_add(delay.max(1)))
+                .map(|entry| entry.saturating_add(delay))
                 .unwrap_or(0),
             TierDelayUnit::Blocks => tx
                 .mempool_entry_rb_index
-                .map(|entry| entry.saturating_add(delay.max(1)))
+                .map(|entry| entry.saturating_add(delay))
                 .unwrap_or(0),
         }
     }
@@ -2637,6 +2742,9 @@ impl LinearLeiosNode {
         if !pricing.is_tiered() {
             return true;
         }
+        if pricing.is_priority_ordering() {
+            return true;
+        }
 
         let Some(delay) = self.tx_delay_for_block_kind(tx, block_kind) else {
             return true;
@@ -2648,10 +2756,10 @@ impl LinearLeiosNode {
         match self.sim_config.tier_delay_unit() {
             TierDelayUnit::Slots => tx
                 .mempool_entry_slot
-                .is_some_and(|entry| slot >= entry.saturating_add(delay.max(1))),
+                .is_some_and(|entry| slot >= entry.saturating_add(delay)),
             TierDelayUnit::Blocks => tx
                 .mempool_entry_rb_index
-                .is_some_and(|entry| candidate_rb_index >= entry.saturating_add(delay.max(1))),
+                .is_some_and(|entry| candidate_rb_index >= entry.saturating_add(delay)),
         }
     }
 
@@ -3287,6 +3395,20 @@ impl Mempool {
             .unwrap_or(0)
     }
 
+    fn pending_bytes_for_lane_up_to_target(
+        &self,
+        block_kind: BlockKind,
+        target_tick: u64,
+        has_separate_eb_pool: bool,
+    ) -> u64 {
+        self.pending_bytes_map(block_kind, has_separate_eb_pool)
+            .iter()
+            .filter_map(|((_, entry_target), bytes)| {
+                (*entry_target <= target_tick).then_some(*bytes)
+            })
+            .sum()
+    }
+
     fn add_pending_tier_bytes(&mut self, tx: &Transaction) {
         add_pending_tier_bytes_to_maps(
             &mut self.rb_pending_bytes_by_tier_target,
@@ -3305,25 +3427,43 @@ fn add_pending_tier_bytes_to_maps(
     enforce_tier_delay: bool,
     tier_delay_unit: TierDelayUnit,
 ) {
-    if let Some(tier) = tx.tier_preference {
-        let target_tick = tx_target_tick_for_pending_assignment(
-            tx,
-            BlockKind::RankingBlock,
-            enforce_tier_delay,
-            tier_delay_unit,
-        );
-        let entry = rb_by_tier_target.entry((tier, target_tick)).or_default();
-        *entry = entry.saturating_add(tx.bytes);
+    // When assigned_block_kind is set, only count pending bytes in the committed lane.
+    // This prevents double-counting for txs that have both tier_preference and
+    // eb_tier_preference set (shared/node-allocated with separate EB pool).
+    let count_rb = match tx.assigned_block_kind {
+        Some(BlockKind::RankingBlock) => true,
+        Some(BlockKind::EndorserBlock) => false,
+        None => true, // No commitment: count in RB if preference exists
+    };
+    let count_eb = match tx.assigned_block_kind {
+        Some(BlockKind::RankingBlock) => false,
+        Some(BlockKind::EndorserBlock) => true,
+        None => true, // No commitment: count in EB if preference exists
+    };
+
+    if count_rb {
+        if let Some(tier) = tx.tier_preference {
+            let target_tick = tx_target_tick_for_pending_assignment(
+                tx,
+                BlockKind::RankingBlock,
+                enforce_tier_delay,
+                tier_delay_unit,
+            );
+            let entry = rb_by_tier_target.entry((tier, target_tick)).or_default();
+            *entry = entry.saturating_add(tx.bytes);
+        }
     }
-    if let Some(tier) = tx.eb_tier_preference {
-        let target_tick = tx_target_tick_for_pending_assignment(
-            tx,
-            BlockKind::EndorserBlock,
-            enforce_tier_delay,
-            tier_delay_unit,
-        );
-        let entry = eb_by_tier_target.entry((tier, target_tick)).or_default();
-        *entry = entry.saturating_add(tx.bytes);
+    if count_eb {
+        if let Some(tier) = tx.eb_tier_preference {
+            let target_tick = tx_target_tick_for_pending_assignment(
+                tx,
+                BlockKind::EndorserBlock,
+                enforce_tier_delay,
+                tier_delay_unit,
+            );
+            let entry = eb_by_tier_target.entry((tier, target_tick)).or_default();
+            *entry = entry.saturating_add(tx.bytes);
+        }
     }
 }
 
@@ -3334,23 +3474,38 @@ fn remove_pending_tier_bytes_from_maps(
     enforce_tier_delay: bool,
     tier_delay_unit: TierDelayUnit,
 ) {
-    if let Some(tier) = tx.tier_preference {
-        let target_tick = tx_target_tick_for_pending_assignment(
-            tx,
-            BlockKind::RankingBlock,
-            enforce_tier_delay,
-            tier_delay_unit,
-        );
-        subtract_pending_tier_bytes(rb_by_tier_target, tier, target_tick, tx.bytes);
+    let count_rb = match tx.assigned_block_kind {
+        Some(BlockKind::RankingBlock) => true,
+        Some(BlockKind::EndorserBlock) => false,
+        None => true,
+    };
+    let count_eb = match tx.assigned_block_kind {
+        Some(BlockKind::RankingBlock) => false,
+        Some(BlockKind::EndorserBlock) => true,
+        None => true,
+    };
+
+    if count_rb {
+        if let Some(tier) = tx.tier_preference {
+            let target_tick = tx_target_tick_for_pending_assignment(
+                tx,
+                BlockKind::RankingBlock,
+                enforce_tier_delay,
+                tier_delay_unit,
+            );
+            subtract_pending_tier_bytes(rb_by_tier_target, tier, target_tick, tx.bytes);
+        }
     }
-    if let Some(tier) = tx.eb_tier_preference {
-        let target_tick = tx_target_tick_for_pending_assignment(
-            tx,
-            BlockKind::EndorserBlock,
-            enforce_tier_delay,
-            tier_delay_unit,
-        );
-        subtract_pending_tier_bytes(eb_by_tier_target, tier, target_tick, tx.bytes);
+    if count_eb {
+        if let Some(tier) = tx.eb_tier_preference {
+            let target_tick = tx_target_tick_for_pending_assignment(
+                tx,
+                BlockKind::EndorserBlock,
+                enforce_tier_delay,
+                tier_delay_unit,
+            );
+            subtract_pending_tier_bytes(eb_by_tier_target, tier, target_tick, tx.bytes);
+        }
     }
 }
 
@@ -3373,11 +3528,11 @@ fn tx_target_tick_for_pending_assignment(
     match tier_delay_unit {
         TierDelayUnit::Slots => tx
             .mempool_entry_slot
-            .map(|entry| entry.saturating_add(delay.max(1)))
+            .map(|entry| entry.saturating_add(delay))
             .unwrap_or(0),
         TierDelayUnit::Blocks => tx
             .mempool_entry_rb_index
-            .map(|entry| entry.saturating_add(delay.max(1)))
+            .map(|entry| entry.saturating_add(delay))
             .unwrap_or(0),
     }
 }
@@ -3417,8 +3572,9 @@ mod mempool_tests {
         },
         sim::NodeImpl,
         tx_pricing::{
-            BlockKind, OverflowAggregatePricingMode, OverflowRetryCurveMetric, OverflowRetryPolicy,
-            PricingMechanismConfig, TierAssignmentSemantics, TierBlockSelectionPolicy,
+            BlockKind, LaneDelayAdjustments, OverflowAggregatePricingMode,
+            OverflowRetryCurveMetric, OverflowRetryPolicy, PricingMechanismConfig,
+            TierAssignmentSemantics, TierBlockSelectionPolicy, TierDelaySpacing,
             TierSelectionDelayModel, TieredConfig,
         },
     };
@@ -3484,6 +3640,10 @@ mod mempool_tests {
             new_tier_delay_ratio: 2.0,
             block_selection_policy: TierBlockSelectionPolicy::Shared,
             rb_tier0_reservation_fraction: 1.0,
+            rb_target_utilisation: None,
+            rb_base_fee_change_denominator: None,
+            rb_overflow_linear_price_per_fill: None,
+            rb_soft_reservation_fraction: 0.0,
             separate_eb_pool: false,
             eb_total_capacity: None,
             assignment_semantics: TierAssignmentSemantics::NeverStale,
@@ -3500,6 +3660,15 @@ mod mempool_tests {
             add_tier_fill_rate_threshold: 1.0,
             remove_tier_fill_rate_threshold: 0.2,
             overflow_retry_policy: OverflowRetryPolicy::default(),
+            lane_selection_backlog_delay_scale: 0.0,
+            min_fee: 0,
+            tier_rebalance_alpha: 1.0,
+            initial_tier_delay: 1,
+            tier_delay_spacing: TierDelaySpacing::Incremental,
+            max_tier_delay: 200,
+            throughput_ema_enabled: false,
+            throughput_ema_alpha: 0.1,
+            priority_ordering: false,
         }
     }
 
@@ -3837,12 +4006,14 @@ mod mempool_tests {
             BlockKind::RankingBlock,
             OverflowRetryCurveMetric::RetainedValueRatio,
             delay_model,
+            LaneDelayAdjustments::default(),
         );
         let eb_ratio = super::LinearLeiosNode::retained_value_ratio_for_lane(
             &tx,
             BlockKind::EndorserBlock,
             OverflowRetryCurveMetric::RetainedValueRatio,
             delay_model,
+            LaneDelayAdjustments::default(),
         );
 
         assert_eq!(rb_ratio, 1.0);

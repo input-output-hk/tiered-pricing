@@ -280,7 +280,7 @@ trait SimMessage: Clone + std::fmt::Debug {
     fn bytes_size(&self) -> u64;
 }
 
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum MiniProtocol {
     Tx,
     Block,

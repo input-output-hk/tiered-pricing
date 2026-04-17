@@ -1,5 +1,5 @@
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     sync::{
         Arc, Mutex,
         atomic::{AtomicU64, AtomicUsize, Ordering},
@@ -99,7 +99,7 @@ impl ClockCoordinator {
             }
         }
 
-        let mut queue: BTreeMap<Timestamp, Vec<usize>> = BTreeMap::new();
+        let mut queue: BTreeMap<Timestamp, BTreeSet<usize>> = BTreeMap::new();
         let mut running = waiters.len();
         self.running.store(running, Ordering::Release);
         while let Some(event) = self.rx.recv().await {
@@ -123,7 +123,7 @@ impl ClockCoordinator {
                         *state = ActorState::Waiting;
                     }
                     if let Some(timestamp) = until {
-                        queue.entry(timestamp).or_default().push(actor);
+                        queue.entry(timestamp).or_default().insert(actor);
                     }
                     let queue_len = queue.values().map(|entries| entries.len()).sum::<usize>();
                     self.wait_queue_len.store(queue_len, Ordering::Release);

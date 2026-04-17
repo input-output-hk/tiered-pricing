@@ -1,0 +1,14 @@
+# EIP-1559-like dynamic base fee with a strict priority lane.
+#
+# Priority transactions quote a 5x base-fee price and are selected before
+# normal-lane transactions. The priority lane may consume the full block.
+
+[pricing_mechanism]
+kind = "eip1559_priority_lane"
+initial_base_fee = 90
+max_change_denominator = 8
+target_utilisation = 0.5
+priority_fee_multiplier = 5.0
+priority_capacity_fraction = 1.0
+priority_delay = 1
+normal_delay = 2

@@ -1,0 +1,4 @@
+# Pricing-only overlay; demand is supplied by the suite job.
+pricing:
+  config-path: "parameters/phase-2-sweep/pricing/eip1559_denom16_target40_quick.toml"
+enforce-tier-delay: false

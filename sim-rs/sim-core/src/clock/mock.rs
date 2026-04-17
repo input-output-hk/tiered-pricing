@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::BTreeMap,
     sync::{
         Arc, Mutex,
         atomic::{AtomicU64, AtomicUsize},
@@ -29,7 +29,7 @@ pub struct MockClockCoordinator {
     last_woken_actor: Arc<AtomicU64>,
     last_advance_to: Arc<AtomicU64>,
     wait_queue_len: Arc<AtomicUsize>,
-    waiters: HashMap<usize, Waiter>,
+    waiters: BTreeMap<usize, Waiter>,
 }
 
 impl Default for MockClockCoordinator {
@@ -68,7 +68,7 @@ impl MockClockCoordinator {
             last_woken_actor,
             last_advance_to,
             wait_queue_len,
-            waiters: HashMap::new(),
+            waiters: BTreeMap::new(),
         }
     }
 

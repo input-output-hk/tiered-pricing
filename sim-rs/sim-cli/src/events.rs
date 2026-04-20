@@ -2231,21 +2231,27 @@ fn format_metrics_table(
     seed: u64,
     tier_delay_unit: TierDelayUnit,
 ) -> String {
-    let latency = compute_latency_stats(&metrics.latency_samples_slots);
-    let inclusion_rate = if metrics.submissions == 0 {
-        0.0
-    } else {
-        metrics.included as f64 / metrics.submissions as f64
-    };
+    let mut out = String::new();
+    use std::fmt::Write as _;
+    writeln!(out, "Seed: {}", seed).ok();
+    writeln!(out).ok();
+    writeln!(out, "Metric                      | Value").ok();
+    writeln!(out, "---------------------------|--------------------").ok();
+    format_core_metrics_section(&mut out, metrics);
+    format_stability_and_overflow_section(&mut out, metrics);
+    format_latency_fees_welfare_section(&mut out, metrics, tier_delay_unit);
+    format_tier_assignments_section(&mut out, metrics);
+    format_actor_tables_section(&mut out, metrics, actor_names);
+    format_urgency_class_section(&mut out, metrics, urgency_class_names);
+    out
+}
+
+fn format_core_metrics_section(out: &mut String, metrics: &PricingMetrics) {
+    use std::fmt::Write as _;
     let unique_inclusion_rate = if metrics.unique_generated == 0 {
         0.0
     } else {
         metrics.included as f64 / metrics.unique_generated as f64
-    };
-    let fee_per_byte = if metrics.total_included_bytes == 0 {
-        0.0
-    } else {
-        metrics.total_fees as f64 / metrics.total_included_bytes as f64
     };
     let included_vs_generated_bytes = if metrics.unique_generated_bytes == 0 {
         0.0
@@ -2262,73 +2268,6 @@ fn format_metrics_table(
     } else {
         metrics.total_included_bytes as f64 / metrics.optimal_included_bytes as f64
     };
-    let fee_per_tx = if metrics.included == 0 {
-        0.0
-    } else {
-        metrics.total_fees as f64 / metrics.included as f64
-    };
-    let retained_value_ratio_generated = if metrics.generated_value_total == 0 {
-        0.0
-    } else {
-        metrics.retained_value_total as f64 / metrics.generated_value_total as f64
-    };
-    let retained_value_ratio_settled = if metrics.settled_initial_value_total == 0 {
-        0.0
-    } else {
-        metrics.retained_value_total as f64 / metrics.settled_initial_value_total as f64
-    };
-    let settled_value_retention_mean = if metrics.settled_value_retention_ratio_samples == 0 {
-        0.0
-    } else {
-        metrics.settled_value_retention_ratio_sum
-            / metrics.settled_value_retention_ratio_samples as f64
-    };
-    let net_utility_per_generated_tx = if metrics.unique_generated == 0 {
-        0.0
-    } else {
-        metrics.net_utility_total as f64 / metrics.unique_generated as f64
-    };
-    let net_utility_per_included_tx = if metrics.included == 0 {
-        0.0
-    } else {
-        metrics.net_utility_total as f64 / metrics.included as f64
-    };
-    let overflow_pending_ratio_mean = if metrics.overflow_pending_ratio_samples == 0 {
-        0.0
-    } else {
-        metrics.overflow_pending_ratio_sum / metrics.overflow_pending_ratio_samples as f64
-    };
-    let delay_update_mean_interval_rb = if metrics.delay_update_slot_interval_samples_rb == 0 {
-        0.0
-    } else {
-        metrics.delay_update_slot_interval_sum_rb as f64
-            / metrics.delay_update_slot_interval_samples_rb as f64
-    };
-    let delay_update_mean_interval_eb = if metrics.delay_update_slot_interval_samples_eb == 0 {
-        0.0
-    } else {
-        metrics.delay_update_slot_interval_sum_eb as f64
-            / metrics.delay_update_slot_interval_samples_eb as f64
-    };
-    let tier_update_mean_interval_rb = if metrics.tier_update_slot_interval_samples_rb == 0 {
-        0.0
-    } else {
-        metrics.tier_update_slot_interval_sum_rb as f64
-            / metrics.tier_update_slot_interval_samples_rb as f64
-    };
-    let tier_update_mean_interval_eb = if metrics.tier_update_slot_interval_samples_eb == 0 {
-        0.0
-    } else {
-        metrics.tier_update_slot_interval_sum_eb as f64
-            / metrics.tier_update_slot_interval_samples_eb as f64
-    };
-
-    let mut out = String::new();
-    use std::fmt::Write as _;
-    writeln!(out, "Seed: {}", seed).ok();
-    writeln!(out).ok();
-    writeln!(out, "Metric                      | Value").ok();
-    writeln!(out, "---------------------------|--------------------").ok();
     writeln!(
         out,
         "Unique txs generated       | {}",
@@ -2385,6 +2324,39 @@ fn format_metrics_table(
         included_vs_optimal_bytes * 100.0
     )
     .ok();
+}
+
+fn format_stability_and_overflow_section(out: &mut String, metrics: &PricingMetrics) {
+    use std::fmt::Write as _;
+    let overflow_pending_ratio_mean = if metrics.overflow_pending_ratio_samples == 0 {
+        0.0
+    } else {
+        metrics.overflow_pending_ratio_sum / metrics.overflow_pending_ratio_samples as f64
+    };
+    let delay_update_mean_interval_rb = if metrics.delay_update_slot_interval_samples_rb == 0 {
+        0.0
+    } else {
+        metrics.delay_update_slot_interval_sum_rb as f64
+            / metrics.delay_update_slot_interval_samples_rb as f64
+    };
+    let delay_update_mean_interval_eb = if metrics.delay_update_slot_interval_samples_eb == 0 {
+        0.0
+    } else {
+        metrics.delay_update_slot_interval_sum_eb as f64
+            / metrics.delay_update_slot_interval_samples_eb as f64
+    };
+    let tier_update_mean_interval_rb = if metrics.tier_update_slot_interval_samples_rb == 0 {
+        0.0
+    } else {
+        metrics.tier_update_slot_interval_sum_rb as f64
+            / metrics.tier_update_slot_interval_samples_rb as f64
+    };
+    let tier_update_mean_interval_eb = if metrics.tier_update_slot_interval_samples_eb == 0 {
+        0.0
+    } else {
+        metrics.tier_update_slot_interval_sum_eb as f64
+            / metrics.tier_update_slot_interval_samples_eb as f64
+    };
     writeln!(out, "Rejected                   | {}", metrics.rejected).ok();
     writeln!(
         out,
@@ -2546,6 +2518,56 @@ fn format_metrics_table(
         }
     )
     .ok();
+}
+
+fn format_latency_fees_welfare_section(
+    out: &mut String,
+    metrics: &PricingMetrics,
+    tier_delay_unit: TierDelayUnit,
+) {
+    use std::fmt::Write as _;
+    let latency = compute_latency_stats(&metrics.latency_samples_slots);
+    let inclusion_rate = if metrics.submissions == 0 {
+        0.0
+    } else {
+        metrics.included as f64 / metrics.submissions as f64
+    };
+    let fee_per_byte = if metrics.total_included_bytes == 0 {
+        0.0
+    } else {
+        metrics.total_fees as f64 / metrics.total_included_bytes as f64
+    };
+    let fee_per_tx = if metrics.included == 0 {
+        0.0
+    } else {
+        metrics.total_fees as f64 / metrics.included as f64
+    };
+    let retained_value_ratio_generated = if metrics.generated_value_total == 0 {
+        0.0
+    } else {
+        metrics.retained_value_total as f64 / metrics.generated_value_total as f64
+    };
+    let retained_value_ratio_settled = if metrics.settled_initial_value_total == 0 {
+        0.0
+    } else {
+        metrics.retained_value_total as f64 / metrics.settled_initial_value_total as f64
+    };
+    let settled_value_retention_mean = if metrics.settled_value_retention_ratio_samples == 0 {
+        0.0
+    } else {
+        metrics.settled_value_retention_ratio_sum
+            / metrics.settled_value_retention_ratio_samples as f64
+    };
+    let net_utility_per_generated_tx = if metrics.unique_generated == 0 {
+        0.0
+    } else {
+        metrics.net_utility_total as f64 / metrics.unique_generated as f64
+    };
+    let net_utility_per_included_tx = if metrics.included == 0 {
+        0.0
+    } else {
+        metrics.net_utility_total as f64 / metrics.included as f64
+    };
     writeln!(
         out,
         "Inclusion rate             | {:.2}%",
@@ -2619,6 +2641,10 @@ fn format_metrics_table(
         net_utility_per_included_tx
     )
     .ok();
+}
+
+fn format_tier_assignments_section(out: &mut String, metrics: &PricingMetrics) {
+    use std::fmt::Write as _;
     writeln!(
         out,
         "RB tier assignments total  | {}",
@@ -2673,155 +2699,169 @@ fn format_metrics_table(
         join_indexed_counts(&metrics.eb_tier_assignments_by_tier)
     )
     .ok();
+}
 
-    if !metrics.per_actor.is_empty() {
-        writeln!(out).ok();
-        writeln!(
-            out,
-            "Actor                      | Submissions | Included | Rejected | Retries | Incl. rate | Latency mean (slots) | Fees paid"
-        )
-        .ok();
-        writeln!(
-            out,
-            "---------------------------|-------------|----------|----------|---------|-----------|----------------------|----------"
-        )
-        .ok();
-        for (actor_id, stats) in &metrics.per_actor {
-            let name = actor_names
-                .get(actor_id)
-                .cloned()
-                .unwrap_or_else(|| format!("actor_{}", actor_id));
-            let latency = compute_latency_stats(&stats.latency_samples_slots);
-            let incl_rate = if stats.submissions == 0 {
-                0.0
-            } else {
-                stats.included as f64 / stats.submissions as f64
-            };
-            writeln!(
-                out,
-                "{:<27}| {:>11} | {:>8} | {:>8} | {:>7} | {:>9.2}% | {:>20.2} | {:>8}",
-                name,
-                stats.submissions,
-                stats.included,
-                stats.rejected,
-                stats.retries_scheduled,
-                incl_rate * 100.0,
-                latency.mean,
-                stats.fees_paid
-            )
-            .ok();
-        }
-
-        writeln!(out).ok();
-        writeln!(
-            out,
-            "Actor welfare              | Generated | Included | Unique incl. rate | Retained/gen | Retained mean | Net utility total | Net util/gen tx"
-        )
-        .ok();
-        writeln!(
-            out,
-            "---------------------------|-----------|----------|-------------------|--------------|---------------|-------------------|----------------"
-        )
-        .ok();
-        for (actor_id, stats) in &metrics.per_actor {
-            let name = actor_names
-                .get(actor_id)
-                .cloned()
-                .unwrap_or_else(|| format!("actor_{}", actor_id));
-            let unique_incl_rate = if stats.unique_generated == 0 {
-                0.0
-            } else {
-                stats.included as f64 / stats.unique_generated as f64
-            };
-            let retained_over_generated = if stats.generated_value_total == 0 {
-                0.0
-            } else {
-                stats.retained_value_total as f64 / stats.generated_value_total as f64
-            };
-            let retained_mean = if stats.settled_value_retention_ratio_samples == 0 {
-                0.0
-            } else {
-                stats.settled_value_retention_ratio_sum
-                    / stats.settled_value_retention_ratio_samples as f64
-            };
-            let net_per_generated = if stats.unique_generated == 0 {
-                0.0
-            } else {
-                stats.net_utility_total as f64 / stats.unique_generated as f64
-            };
-            writeln!(
-                out,
-                "{:<27}| {:>9} | {:>8} | {:>17.2}% | {:>11.2}% | {:>12.2}% | {:>17} | {:>14.2}",
-                name,
-                stats.unique_generated,
-                stats.included,
-                unique_incl_rate * 100.0,
-                retained_over_generated * 100.0,
-                retained_mean * 100.0,
-                stats.net_utility_total,
-                net_per_generated
-            )
-            .ok();
-        }
-
-        // Per urgency-class welfare breakdown
-        if !metrics.per_urgency_class.is_empty() {
-            writeln!(out).ok();
-            writeln!(
-                out,
-                "Urgency class welfare       | Generated | Included | Unique incl. rate | Retained/gen | Retained mean | Net utility total | Net util/gen tx | Latency mean"
-            )
-            .ok();
-            writeln!(
-                out,
-                "----------------------------|-----------|----------|-------------------|--------------|---------------|-------------------|-----------------|--------------"
-            )
-            .ok();
-            for ((actor_id, comp_idx), stats) in &metrics.per_urgency_class {
-                let name = urgency_class_names
-                    .get(&(*actor_id, *comp_idx))
-                    .cloned()
-                    .unwrap_or_else(|| format!("actor_{}:comp_{}", actor_id, comp_idx));
-                let unique_incl_rate = if stats.unique_generated == 0 {
-                    0.0
-                } else {
-                    stats.included as f64 / stats.unique_generated as f64
-                };
-                let retained_over_generated = if stats.generated_value_total == 0 {
-                    0.0
-                } else {
-                    stats.retained_value_total as f64 / stats.generated_value_total as f64
-                };
-                let retained_mean = if stats.settled_value_retention_ratio_samples == 0 {
-                    0.0
-                } else {
-                    stats.settled_value_retention_ratio_sum
-                        / stats.settled_value_retention_ratio_samples as f64
-                };
-                let net_per_generated = if stats.unique_generated == 0 {
-                    0.0
-                } else {
-                    stats.net_utility_total as f64 / stats.unique_generated as f64
-                };
-                let latency = compute_latency_stats(&stats.latency_samples_slots);
-                writeln!(
-                    out,
-                    "{:<28}| {:>9} | {:>8} | {:>17.2}% | {:>11.2}% | {:>12.2}% | {:>17} | {:>15.2} | {:>12.2}",
-                    name,
-                    stats.unique_generated,
-                    stats.included,
-                    unique_incl_rate * 100.0,
-                    retained_over_generated * 100.0,
-                    retained_mean * 100.0,
-                    stats.net_utility_total,
-                    net_per_generated,
-                    latency.mean,
-                )
-                .ok();
-            }
-        }
+fn format_actor_tables_section(
+    out: &mut String,
+    metrics: &PricingMetrics,
+    actor_names: &BTreeMap<ActorId, String>,
+) {
+    use std::fmt::Write as _;
+    if metrics.per_actor.is_empty() {
+        return;
     }
-    out
+    writeln!(out).ok();
+    writeln!(
+        out,
+        "Actor                      | Submissions | Included | Rejected | Retries | Incl. rate | Latency mean (slots) | Fees paid"
+    )
+    .ok();
+    writeln!(
+        out,
+        "---------------------------|-------------|----------|----------|---------|-----------|----------------------|----------"
+    )
+    .ok();
+    for (actor_id, stats) in &metrics.per_actor {
+        let name = actor_names
+            .get(actor_id)
+            .cloned()
+            .unwrap_or_else(|| format!("actor_{}", actor_id));
+        let latency = compute_latency_stats(&stats.latency_samples_slots);
+        let incl_rate = if stats.submissions == 0 {
+            0.0
+        } else {
+            stats.included as f64 / stats.submissions as f64
+        };
+        writeln!(
+            out,
+            "{:<27}| {:>11} | {:>8} | {:>8} | {:>7} | {:>9.2}% | {:>20.2} | {:>8}",
+            name,
+            stats.submissions,
+            stats.included,
+            stats.rejected,
+            stats.retries_scheduled,
+            incl_rate * 100.0,
+            latency.mean,
+            stats.fees_paid
+        )
+        .ok();
+    }
+
+    writeln!(out).ok();
+    writeln!(
+        out,
+        "Actor welfare              | Generated | Included | Unique incl. rate | Retained/gen | Retained mean | Net utility total | Net util/gen tx"
+    )
+    .ok();
+    writeln!(
+        out,
+        "---------------------------|-----------|----------|-------------------|--------------|---------------|-------------------|----------------"
+    )
+    .ok();
+    for (actor_id, stats) in &metrics.per_actor {
+        let name = actor_names
+            .get(actor_id)
+            .cloned()
+            .unwrap_or_else(|| format!("actor_{}", actor_id));
+        let unique_incl_rate = if stats.unique_generated == 0 {
+            0.0
+        } else {
+            stats.included as f64 / stats.unique_generated as f64
+        };
+        let retained_over_generated = if stats.generated_value_total == 0 {
+            0.0
+        } else {
+            stats.retained_value_total as f64 / stats.generated_value_total as f64
+        };
+        let retained_mean = if stats.settled_value_retention_ratio_samples == 0 {
+            0.0
+        } else {
+            stats.settled_value_retention_ratio_sum
+                / stats.settled_value_retention_ratio_samples as f64
+        };
+        let net_per_generated = if stats.unique_generated == 0 {
+            0.0
+        } else {
+            stats.net_utility_total as f64 / stats.unique_generated as f64
+        };
+        writeln!(
+            out,
+            "{:<27}| {:>9} | {:>8} | {:>17.2}% | {:>11.2}% | {:>12.2}% | {:>17} | {:>14.2}",
+            name,
+            stats.unique_generated,
+            stats.included,
+            unique_incl_rate * 100.0,
+            retained_over_generated * 100.0,
+            retained_mean * 100.0,
+            stats.net_utility_total,
+            net_per_generated
+        )
+        .ok();
+    }
+}
+
+fn format_urgency_class_section(
+    out: &mut String,
+    metrics: &PricingMetrics,
+    urgency_class_names: &BTreeMap<(ActorId, u16), String>,
+) {
+    use std::fmt::Write as _;
+    if metrics.per_actor.is_empty() || metrics.per_urgency_class.is_empty() {
+        return;
+    }
+    writeln!(out).ok();
+    writeln!(
+        out,
+        "Urgency class welfare       | Generated | Included | Unique incl. rate | Retained/gen | Retained mean | Net utility total | Net util/gen tx | Latency mean"
+    )
+    .ok();
+    writeln!(
+        out,
+        "----------------------------|-----------|----------|-------------------|--------------|---------------|-------------------|-----------------|--------------"
+    )
+    .ok();
+    for ((actor_id, comp_idx), stats) in &metrics.per_urgency_class {
+        let name = urgency_class_names
+            .get(&(*actor_id, *comp_idx))
+            .cloned()
+            .unwrap_or_else(|| format!("actor_{}:comp_{}", actor_id, comp_idx));
+        let unique_incl_rate = if stats.unique_generated == 0 {
+            0.0
+        } else {
+            stats.included as f64 / stats.unique_generated as f64
+        };
+        let retained_over_generated = if stats.generated_value_total == 0 {
+            0.0
+        } else {
+            stats.retained_value_total as f64 / stats.generated_value_total as f64
+        };
+        let retained_mean = if stats.settled_value_retention_ratio_samples == 0 {
+            0.0
+        } else {
+            stats.settled_value_retention_ratio_sum
+                / stats.settled_value_retention_ratio_samples as f64
+        };
+        let net_per_generated = if stats.unique_generated == 0 {
+            0.0
+        } else {
+            stats.net_utility_total as f64 / stats.unique_generated as f64
+        };
+        let latency = compute_latency_stats(&stats.latency_samples_slots);
+        writeln!(
+            out,
+            "{:<28}| {:>9} | {:>8} | {:>17.2}% | {:>11.2}% | {:>12.2}% | {:>17} | {:>15.2} | {:>12.2}",
+            name,
+            stats.unique_generated,
+            stats.included,
+            unique_incl_rate * 100.0,
+            retained_over_generated * 100.0,
+            retained_mean * 100.0,
+            stats.net_utility_total,
+            net_per_generated,
+            latency.mean,
+        )
+        .ok();
+    }
 }
 
 fn format_time_series_csv(points: &[TimeSeriesPoint]) -> String {

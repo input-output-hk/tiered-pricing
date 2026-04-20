@@ -14,7 +14,9 @@ sim-rs/
 │   └── src/
 │       ├── model.rs            # Domain types: Transaction, Block, Endorsement, TierId, etc.
 │       ├── config.rs           # YAML parameter parsing, SimConfiguration
-│       ├── tx_pricing.rs       # Tiered pricing mechanism (4900+ lines)
+│       ├── tx_pricing/         # Pricing mechanisms
+│       │   ├── mod.rs          # Shared types + BaselinePricing + Eip1559Pricing + Eip1559PriorityLanePricing
+│       │   └── tiered.rs       # Tiered pricing quarantined here (Phase 2 down-selected away):
 │       │                       #   - EIP-1559-style per-tier price updates
 │       │                       #   - Dynamic tier creation/removal
 │       │                       #   - Delay enforcement, overflow retry

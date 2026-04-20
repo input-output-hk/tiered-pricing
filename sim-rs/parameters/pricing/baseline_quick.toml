@@ -1,4 +1,0 @@
-[pricing_mechanism]
-kind = "baseline"
-fee_per_byte = 44
-base_fee = 155381

@@ -23,13 +23,13 @@ Options:
 
 Examples:
   scripts/run_sim_timestamped.sh \
-    --experiment parameters/experiments/leios-tiered-eb-on.yaml \
-    --label never-stale
+    --experiment parameters/phase-2-sweep/experiments/paper-like-eip1559.yaml \
+    --label eip1559-smoke
 
   scripts/run_sim_timestamped.sh \
-    --experiment parameters/experiments/leios-tiered-eb-on.yaml \
-    --compare-experiment parameters/experiments/leios-tiered-eb-on-legacy-revalidate.yaml \
-    --label compare-never-vs-legacy
+    --experiment parameters/phase-2-sweep/experiments/paper-like-eip1559.yaml \
+    --compare-experiment parameters/phase-2-sweep/experiments/paper-like-combined-winner-delay0-denom8.yaml \
+    --label eip1559-vs-tiered
 USAGE
 }
 

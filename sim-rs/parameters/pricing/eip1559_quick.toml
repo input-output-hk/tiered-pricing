@@ -1,5 +1,0 @@
-[pricing_mechanism]
-kind = "eip1559"
-initial_base_fee = 90
-max_change_denominator = 8
-target_utilisation = 0.5

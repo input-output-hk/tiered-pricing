@@ -921,8 +921,8 @@ jobs:
         let baseline_experiment = write_experiment(
             &temp_dir,
             "baseline.yaml",
-            &sim_root.join("parameters/pricing/baseline_quick.toml"),
-            &sim_root.join("parameters/actors/paper_like_quick.toml"),
+            &sim_root.join("parameters/phase-2-sweep/pricing/baseline_quick.toml"),
+            &sim_root.join("parameters/phase-2-sweep/demand/paper_like_moderate.toml"),
         );
         let suite_path = write_suite(
             &temp_dir,
@@ -971,20 +971,20 @@ jobs:
         let baseline_experiment = write_experiment(
             &temp_dir,
             "baseline.yaml",
-            &sim_root.join("parameters/pricing/baseline_quick.toml"),
-            &sim_root.join("parameters/actors/paper_like_quick.toml"),
+            &sim_root.join("parameters/phase-2-sweep/pricing/baseline_quick.toml"),
+            &sim_root.join("parameters/phase-2-sweep/demand/paper_like_moderate.toml"),
         );
         let compare_one = write_experiment(
             &temp_dir,
             "compare-one.yaml",
-            &sim_root.join("parameters/pricing/tiered_quick.toml"),
-            &sim_root.join("parameters/actors/paper_like_quick.toml"),
+            &sim_root.join("parameters/phase-2-sweep/pricing/tiered_quick.toml"),
+            &sim_root.join("parameters/phase-2-sweep/demand/paper_like_moderate.toml"),
         );
         let compare_two = write_experiment(
             &temp_dir,
             "compare-two.yaml",
-            &sim_root.join("parameters/pricing/eip1559_quick.toml"),
-            &sim_root.join("parameters/actors/paper_like_quick.toml"),
+            &sim_root.join("parameters/phase-2-sweep/pricing/eip1559_quick.toml"),
+            &sim_root.join("parameters/phase-2-sweep/demand/paper_like_moderate.toml"),
         );
         let suite_path = write_suite(
             &temp_dir,

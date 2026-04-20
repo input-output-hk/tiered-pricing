@@ -43,21 +43,15 @@ sim-rs/
 │   ├── config.default.yaml     # Base simulation parameters (slot timing, block sizes, etc.)
 │   ├── config.schema.json      # JSON schema for config validation
 │   ├── topology.default.yaml   # Network topology
-│   ├── actors/                 # Actor profile configs (TOML)
-│   │   ├── paper_like_quick.toml           # Standard 5-component value-urgency mix
-│   │   ├── paper_like_quick_low_value_skew.toml  # Skewed toward low-value txs
-│   │   └── sundaeswap_congestion.toml      # DEX launch congestion scenario
-│   ├── pricing/                # Pricing mechanism configs (TOML)
-│   │   ├── baseline_quick.toml             # Fixed Cardano-style fees
-│   │   ├── continuous_rb_eb_reject_overflow_aggregate_capped_tier_pressure_quick.toml
-│   │   └── ...                             # Many mechanism variants
-│   ├── suites/                 # Multi-job experiment suite configs (YAML)
-│   │   ├── overnight-multi.yaml           # Example comparative suite
+│   ├── suites/                 # Multi-job experiment suite schema (YAML)
 │   │   └── suite.schema.json              # YAML editor schema for suite configs
-│   └── experiments/            # Experiment configs (YAML overlays on config.default.yaml)
-│       ├── leios-sundaeswap-baseline.yaml
-│       ├── leios-sundaeswap-aggregate-capped-tier-pressure.yaml
-│       └── ...
+│   └── phase-2-sweep/          # Active Phase 2 config tree
+│       ├── protocol-base.yaml              # Shared protocol defaults layered on linear.yaml
+│       ├── demand/                         # Actor profile TOMLs (paper-like moderate/congested, etc.)
+│       ├── pricing/                        # Pricing mechanism TOMLs (baseline, EIP-1559, tiered)
+│       ├── experiments/                    # Thin YAML overlays tying pricing + demand
+│       ├── suites/                         # Multi-case, multi-seed suite definitions
+│       └── shards/                         # One-seed-per-file suite shards for parallel batches
 ├── scripts/
 │   ├── run_sim_timestamped.sh  # Run experiments with timestamped output dirs
 │   └── plot_tiers.py           # Visualization of tier dynamics
@@ -114,18 +108,18 @@ cargo build --release
 
 # Run a single experiment
 scripts/run_sim_timestamped.sh \
-  --experiment parameters/experiments/leios-sundaeswap-aggregate-capped-tier-pressure.yaml \
+  --experiment parameters/phase-2-sweep/experiments/paper-like-eip1559.yaml \
   --label my-run
 
 # Compare two mechanisms (A/B test)
 scripts/run_sim_timestamped.sh \
-  --experiment parameters/experiments/leios-sundaeswap-aggregate-capped-tier-pressure.yaml \
-  --compare-experiment parameters/experiments/leios-sundaeswap-baseline.yaml \
-  --label sundaeswap-tiered-vs-baseline
+  --experiment parameters/phase-2-sweep/experiments/paper-like-eip1559.yaml \
+  --compare-experiment parameters/phase-2-sweep/experiments/paper-like-combined-winner-delay0-denom8.yaml \
+  --label eip1559-vs-tiered
 
 # Run a multi-job experiment suite from config
 cargo run -q -p sim-cli --bin experiment-suite -- \
-  run parameters/suites/overnight-multi.yaml
+  run parameters/phase-2-sweep/suites/phase-2-eip1559-robustness-paper-like.yaml
 
 # Resume an interrupted or failed suite
 cargo run -q -p sim-cli --bin experiment-suite -- \
@@ -201,9 +195,9 @@ If you encounter a design decision not covered here: choose the simpler option, 
 
 An experiment needs three things:
 
-1. **Actor profile** (`parameters/actors/*.toml`): Defines actor groups with arrival rates, tx sizes, value-urgency components.
-2. **Pricing config** (`parameters/pricing/*.toml`): Configures the fee mechanism (baseline, tiered, etc.).
-3. **Experiment overlay** (`parameters/experiments/*.yaml`): References the above, sets `enforce-tier-delay`, `seed`, and protocol parameters.
+1. **Actor profile** (`parameters/phase-2-sweep/demand/*.toml`): Defines actor groups with arrival rates, tx sizes, value-urgency components.
+2. **Pricing config** (`parameters/phase-2-sweep/pricing/*.toml`): Configures the fee mechanism (baseline, EIP-1559, tiered, etc.).
+3. **Experiment overlay** (`parameters/phase-2-sweep/experiments/*.yaml`): References the above, sets `enforce-tier-delay`, `seed`, and protocol parameters.
 
 Experiment YAML files layer on top of `config.default.yaml` via `-p` flags. Fields in the experiment override defaults.
 

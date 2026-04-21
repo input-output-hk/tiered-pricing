@@ -1412,44 +1412,83 @@ impl EventMonitor {
             existing.eb_tier_delays = point.eb_tier_delays;
             existing.eb_tier_capacities = point.eb_tier_capacities;
             existing.eb_tier_utilisations = point.eb_tier_utilisations;
-            existing.cumulative_inclusions = existing
-                .cumulative_inclusions
-                .max(point.cumulative_inclusions);
-            existing.cumulative_rb_inclusions = existing
-                .cumulative_rb_inclusions
-                .max(point.cumulative_rb_inclusions);
-            existing.cumulative_eb_inclusions = existing
-                .cumulative_eb_inclusions
-                .max(point.cumulative_eb_inclusions);
-            existing.cumulative_block_inclusions_total = existing
-                .cumulative_block_inclusions_total
-                .max(point.cumulative_block_inclusions_total);
-            existing.cumulative_block_inclusions_with_delay = existing
-                .cumulative_block_inclusions_with_delay
-                .max(point.cumulative_block_inclusions_with_delay);
-            existing.cumulative_submitted_bytes = existing
-                .cumulative_submitted_bytes
-                .max(point.cumulative_submitted_bytes);
-            existing.cumulative_included_bytes = existing
-                .cumulative_included_bytes
-                .max(point.cumulative_included_bytes);
-            existing.cumulative_fees = existing.cumulative_fees.max(point.cumulative_fees);
-            existing.cumulative_rb_tier_assignments_total = existing
-                .cumulative_rb_tier_assignments_total
-                .max(point.cumulative_rb_tier_assignments_total);
-            existing.cumulative_rb_tier_assignments_max_priced = existing
-                .cumulative_rb_tier_assignments_max_priced
-                .max(point.cumulative_rb_tier_assignments_max_priced);
+            let slot = point.slot;
+            merge_cumulative_u64(
+                slot,
+                "cumulative_inclusions",
+                &mut existing.cumulative_inclusions,
+                point.cumulative_inclusions,
+            );
+            merge_cumulative_u64(
+                slot,
+                "cumulative_rb_inclusions",
+                &mut existing.cumulative_rb_inclusions,
+                point.cumulative_rb_inclusions,
+            );
+            merge_cumulative_u64(
+                slot,
+                "cumulative_eb_inclusions",
+                &mut existing.cumulative_eb_inclusions,
+                point.cumulative_eb_inclusions,
+            );
+            merge_cumulative_u64(
+                slot,
+                "cumulative_block_inclusions_total",
+                &mut existing.cumulative_block_inclusions_total,
+                point.cumulative_block_inclusions_total,
+            );
+            merge_cumulative_u64(
+                slot,
+                "cumulative_block_inclusions_with_delay",
+                &mut existing.cumulative_block_inclusions_with_delay,
+                point.cumulative_block_inclusions_with_delay,
+            );
+            merge_cumulative_u64(
+                slot,
+                "cumulative_submitted_bytes",
+                &mut existing.cumulative_submitted_bytes,
+                point.cumulative_submitted_bytes,
+            );
+            merge_cumulative_u64(
+                slot,
+                "cumulative_included_bytes",
+                &mut existing.cumulative_included_bytes,
+                point.cumulative_included_bytes,
+            );
+            merge_cumulative_u128(
+                slot,
+                "cumulative_fees",
+                &mut existing.cumulative_fees,
+                point.cumulative_fees,
+            );
+            merge_cumulative_u64(
+                slot,
+                "cumulative_rb_tier_assignments_total",
+                &mut existing.cumulative_rb_tier_assignments_total,
+                point.cumulative_rb_tier_assignments_total,
+            );
+            merge_cumulative_u64(
+                slot,
+                "cumulative_rb_tier_assignments_max_priced",
+                &mut existing.cumulative_rb_tier_assignments_max_priced,
+                point.cumulative_rb_tier_assignments_max_priced,
+            );
             merge_cumulative_counts(
                 &mut existing.cumulative_rb_tier_assignments_by_tier,
                 &point.cumulative_rb_tier_assignments_by_tier,
             );
-            existing.cumulative_eb_tier_assignments_total = existing
-                .cumulative_eb_tier_assignments_total
-                .max(point.cumulative_eb_tier_assignments_total);
-            existing.cumulative_eb_tier_assignments_max_priced = existing
-                .cumulative_eb_tier_assignments_max_priced
-                .max(point.cumulative_eb_tier_assignments_max_priced);
+            merge_cumulative_u64(
+                slot,
+                "cumulative_eb_tier_assignments_total",
+                &mut existing.cumulative_eb_tier_assignments_total,
+                point.cumulative_eb_tier_assignments_total,
+            );
+            merge_cumulative_u64(
+                slot,
+                "cumulative_eb_tier_assignments_max_priced",
+                &mut existing.cumulative_eb_tier_assignments_max_priced,
+                point.cumulative_eb_tier_assignments_max_priced,
+            );
             merge_cumulative_counts(
                 &mut existing.cumulative_eb_tier_assignments_by_tier,
                 &point.cumulative_eb_tier_assignments_by_tier,
@@ -1553,6 +1592,17 @@ struct PricingMetrics {
     rejected_quoted_history_unavailable: u64,
     rejected_after_assignment_non_overflow: u64,
     rejected_after_assignment_overflow: u64,
+    /// Inclusion events where `included_slot < submission_slot`. Should be 0 in a
+    /// well-formed run; a non-zero count indicates clock skew in the event stream,
+    /// an out-of-order replay, or a bug. `saturating_sub` masks the underlying
+    /// issue by reporting zero latency, so we surface the count here.
+    latency_inversions: u64,
+    /// Inclusion events for transactions that never received a tier assignment or
+    /// posted a fee. In a well-formed tiered run this should be 0; a non-zero
+    /// count indicates a tx bypassed the pricing mechanism (bug, attacker path,
+    /// or legacy path). `record_inclusion` falls back to `tier_delay_slots=1`
+    /// and `posted_fee=None` for these, which silently flatters welfare tables.
+    inclusions_without_tier_assignment: u64,
     retries_scheduled_total: u64,
     retries_scheduled_rb: u64,
     retries_scheduled_eb: u64,
@@ -2129,6 +2179,22 @@ fn record_inclusion(
     }
     tx.included_in_block = Some(time);
     let included_slot = (time - Timestamp::zero()).as_secs();
+    debug_assert!(
+        included_slot >= tx.submission_slot,
+        "inclusion time before submission time for tx {tx_id:?}: \
+         included_slot={included_slot}, submission_slot={}",
+        tx.submission_slot,
+    );
+    if included_slot < tx.submission_slot {
+        metrics.latency_inversions = metrics.latency_inversions.saturating_add(1);
+    }
+    if tx.tier.is_none() && tx.posted_fee.is_none() {
+        // Tx was included without a tier assignment or posted fee. In tiered runs
+        // this is a bug (something bypassed pricing); in baseline runs with a
+        // zero-fee config it's expected. Either way, surface the count.
+        metrics.inclusions_without_tier_assignment =
+            metrics.inclusions_without_tier_assignment.saturating_add(1);
+    }
     let (posted_fee, tier_delay_slots) = match block_kind {
         BlockKind::RankingBlock => (tx.posted_fee, tx.tier_delay_slots.unwrap_or(1)),
         BlockKind::EndorserBlock => (
@@ -2516,6 +2582,18 @@ fn format_stability_and_overflow_section(out: &mut String, metrics: &PricingMetr
         } else {
             "FAIL"
         }
+    )
+    .ok();
+    writeln!(
+        out,
+        "Latency inversions         | {}",
+        metrics.latency_inversions
+    )
+    .ok();
+    writeln!(
+        out,
+        "Included w/o tier assign   | {}",
+        metrics.inclusions_without_tier_assignment
     )
     .ok();
 }
@@ -3747,8 +3825,42 @@ fn merge_cumulative_counts(existing: &mut Vec<u64>, incoming: &[u64]) {
         existing.resize(incoming.len(), 0);
     }
     for (index, value) in incoming.iter().enumerate() {
+        debug_assert!(
+            *value >= existing[index],
+            "cumulative per-tier count at index {index} decreased: \
+             existing={}, incoming={}",
+            existing[index],
+            *value,
+        );
         existing[index] = existing[index].max(*value);
     }
+}
+
+/// Helper used by `upsert_time_series` to merge monotonically-increasing
+/// cumulative fields with a `.max()` while fail-louding in debug builds when
+/// the incoming value decreases (indicates an upstream bookkeeping bug).
+#[track_caller]
+fn merge_cumulative_u64(slot: u64, label: &'static str, existing: &mut u64, incoming: u64) {
+    debug_assert!(
+        incoming >= *existing,
+        "cumulative field `{label}` at slot {slot} decreased: existing={}, incoming={}",
+        *existing,
+        incoming,
+    );
+    *existing = (*existing).max(incoming);
+}
+
+/// u128 variant of `merge_cumulative_u64` for fields that track byte or fee
+/// totals which can exceed `u64::MAX` across a long run.
+#[track_caller]
+fn merge_cumulative_u128(slot: u64, label: &'static str, existing: &mut u128, incoming: u128) {
+    debug_assert!(
+        incoming >= *existing,
+        "cumulative field `{label}` at slot {slot} decreased: existing={}, incoming={}",
+        *existing,
+        incoming,
+    );
+    *existing = (*existing).max(incoming);
 }
 
 fn format_actor_names(ids: &[u64], registry: &BTreeMap<u64, String>) -> String {

@@ -150,6 +150,63 @@ impl PricingFile {
     }
 }
 
+impl PricingMechanismConfig {
+    /// Normalize and validate a freshly-deserialized pricing config against
+    /// the broader simulation parameters. This is the shared entry point used
+    /// by both `config::load_pricing_config` (production path) and determinism
+    /// tests, so tests exercise the exact same normalization as runtime.
+    ///
+    /// For Tiered configs this:
+    /// - Sets `eb_total_capacity` to `eb_referenced_txs_max_size_bytes` when
+    ///   the policy requires a separate EB pool (explicit
+    ///   `separate_eb_pool = true`, legacy `eb_total_capacity = Some(_)`, or a
+    ///   policy that implies `uses_continuous_lane_pricing`). Otherwise clears
+    ///   it to `None`.
+    /// - Runs `TieredConfig::validate`.
+    ///
+    /// For Eip1559 / Eip1559PriorityLane it runs the corresponding validators.
+    /// Baseline has no normalization.
+    pub fn normalize_and_validate(
+        &mut self,
+        eb_referenced_txs_max_size_bytes: u64,
+    ) -> std::result::Result<(), String> {
+        match self {
+            PricingMechanismConfig::Eip1559 { smoothing, .. } => smoothing.validate(),
+            PricingMechanismConfig::Eip1559PriorityLane {
+                max_change_denominator,
+                target_utilisation,
+                priority_fee_multiplier,
+                priority_capacity_fraction,
+                priority_delay,
+                normal_delay,
+                ..
+            } => validate_eip1559_priority_lane_config(
+                *max_change_denominator,
+                *target_utilisation,
+                *priority_fee_multiplier,
+                *priority_capacity_fraction,
+                *priority_delay,
+                *normal_delay,
+            ),
+            PricingMechanismConfig::TieredPricing { tiered_config } => {
+                let legacy_separate_pool = tiered_config.eb_total_capacity.is_some();
+                let needs_separate_pool = tiered_config.separate_eb_pool
+                    || legacy_separate_pool
+                    || tiered_config
+                        .block_selection_policy
+                        .uses_continuous_lane_pricing();
+                tiered_config.eb_total_capacity = if needs_separate_pool {
+                    Some(eb_referenced_txs_max_size_bytes)
+                } else {
+                    None
+                };
+                tiered_config.validate()
+            }
+            PricingMechanismConfig::Baseline { .. } => Ok(()),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct TierQuote {
     pub id: TierId,

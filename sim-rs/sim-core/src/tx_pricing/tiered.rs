@@ -269,6 +269,15 @@ pub struct TieredConfig {
     /// Default μ_j threshold: if p_{j+1} > threshold * p_j, increase d_{j+1}.
     pub delay_increase_threshold: f64,
     /// Per-boundary overrides for delay_increase_threshold (μ_j per boundary).
+    ///
+    /// Boundary indexing is **local to the current block_selection_policy's
+    /// active tier sequence**, not a global tier 0↔1 boundary:
+    /// - `Shared` / `ContinuousRbEb*`: boundary 0 = tier 0 vs tier 1.
+    /// - `RbTier0Reserved`: boundary 0 = tier 1 (first EB) vs tier 2 (second EB).
+    ///   The RB↔first-EB boundary is NEVER consulted.
+    /// - `NaiveRbEbTwoTier`: no boundaries are traversed; this array is unused.
+    ///
+    /// Provide at least `max_tiers - 1` entries when non-empty.
     #[serde(default)]
     pub delay_increase_thresholds: Vec<f64>,
     /// Probability of decreasing a tier's delay when constraints allow (pDecrease).
@@ -276,6 +285,16 @@ pub struct TieredConfig {
     /// Default λ_j: minimum ratio between consecutive tier delays (d_{j+1} >= λ_j * d_j).
     pub min_delay_ratio: f64,
     /// Per-boundary overrides for min_delay_ratio (λ_j per boundary).
+    ///
+    /// Boundary indexing follows the same policy-local convention as
+    /// `delay_increase_thresholds`: index 0 = first boundary in the active
+    /// tier sequence for the current `block_selection_policy`, not a global
+    /// tier 0↔1 boundary. This array ALSO drives the delay of a brand-new tier
+    /// at spawn time (see `boundary_min_delay_ratio_for_new_tier`) — a
+    /// deliberate coupling preserved for backward compatibility; a follow-up
+    /// may decouple via a new `new_tier_delay_ratios: Vec<f64>` field.
+    ///
+    /// Provide at least `max_tiers - 1` entries when non-empty.
     #[serde(default)]
     pub min_delay_ratios: Vec<f64>,
     /// How often (in blocks) tier count is re-evaluated for add/remove (tFreq in the paper).
@@ -436,14 +455,69 @@ impl TieredConfig {
         if self.max_tiers == 0 {
             return Err("max_tiers must be at least 1".to_string());
         }
+        if self.total_capacity == 0 {
+            return Err("total_capacity must be > 0".to_string());
+        }
+        if self.base_fee_change_denominator == 0 {
+            return Err("base_fee_change_denominator must be >= 1".to_string());
+        }
+        if !self.target_utilisation.is_finite()
+            || !(0.0..=1.0).contains(&self.target_utilisation)
+            || self.target_utilisation == 0.0
+        {
+            return Err("target_utilisation must be finite and in (0, 1]".to_string());
+        }
+        if !self.delay_increase_threshold.is_finite() || self.delay_increase_threshold <= 0.0 {
+            return Err("delay_increase_threshold must be finite and > 0".to_string());
+        }
+        if !self.new_tier_delay_ratio.is_finite() || self.new_tier_delay_ratio < 1.0 {
+            return Err("new_tier_delay_ratio must be finite and >= 1.0".to_string());
+        }
+        if self.new_tier_price == 0 {
+            return Err("new_tier_price must be > 0".to_string());
+        }
+        if self.add_tier_threshold <= self.remove_tier_threshold {
+            return Err(
+                "add_tier_threshold must be > remove_tier_threshold (price thresholds)"
+                    .to_string(),
+            );
+        }
+        if matches!(self.tier_delay_spacing, TierDelaySpacing::GeometricFixedMax)
+            && self.initial_tier_delay > self.max_tier_delay
+        {
+            return Err(
+                "initial_tier_delay must be <= max_tier_delay when tier_delay_spacing = \
+                 geometric_fixed_max"
+                    .to_string(),
+            );
+        }
+        if !self.tier_rebalance_alpha.is_finite()
+            || !(0.0..=1.0).contains(&self.tier_rebalance_alpha)
+        {
+            return Err("tier_rebalance_alpha must be finite and in [0, 1]".to_string());
+        }
+        if !self.throughput_ema_alpha.is_finite()
+            || !(0.0..=1.0).contains(&self.throughput_ema_alpha)
+        {
+            return Err("throughput_ema_alpha must be finite and in [0, 1]".to_string());
+        }
+        if self.priority_ordering && self.block_selection_policy.is_lane_partitioned() {
+            return Err(
+                "priority_ordering cannot be combined with lane-partitioned block selection \
+                 policies (naive_rb_eb_two_tier, rb_tier0_reserved, continuous_rb_eb)"
+                    .to_string(),
+            );
+        }
         let boundary_count = self.max_tiers.saturating_sub(1);
         if self.tier_size_fractions.len() < self.max_tiers {
             return Err("tier_size_fractions must have at least max_tiers entries".to_string());
         }
         let mut total = 0.0;
         for fraction in self.tier_size_fractions.iter().take(self.max_tiers) {
-            if *fraction < 0.0 {
-                return Err("tier_size_fractions entries must be non-negative".to_string());
+            if !fraction.is_finite() || *fraction < 0.0 {
+                return Err(
+                    "tier_size_fractions entries must be finite and non-negative".to_string(),
+                );
             }
             total += fraction;
         }
@@ -492,8 +566,8 @@ impl TieredConfig {
             }
             _ => {}
         }
-        if self.min_delay_ratio < 1.0 {
-            return Err("min_delay_ratio must be >= 1.0".to_string());
+        if !self.min_delay_ratio.is_finite() || self.min_delay_ratio < 1.0 {
+            return Err("min_delay_ratio must be finite and >= 1.0".to_string());
         }
         if !self.min_delay_ratios.is_empty() && self.min_delay_ratios.len() < boundary_count {
             return Err(
@@ -502,8 +576,8 @@ impl TieredConfig {
             );
         }
         for ratio in self.min_delay_ratios.iter().take(boundary_count) {
-            if *ratio < 1.0 {
-                return Err("min_delay_ratios entries must be >= 1.0".to_string());
+            if !ratio.is_finite() || *ratio < 1.0 {
+                return Err("min_delay_ratios entries must be finite and >= 1.0".to_string());
             }
         }
         if !self.delay_increase_thresholds.is_empty()
@@ -519,8 +593,11 @@ impl TieredConfig {
                 return Err("delay_increase_thresholds entries must be finite and > 0".to_string());
             }
         }
-        if self.delay_decrease_prob < 0.0 || self.delay_decrease_prob > 1.0 {
-            return Err("delay_decrease_prob must be between 0 and 1".to_string());
+        if !self.delay_decrease_prob.is_finite()
+            || self.delay_decrease_prob < 0.0
+            || self.delay_decrease_prob > 1.0
+        {
+            return Err("delay_decrease_prob must be finite and in [0, 1]".to_string());
         }
         if self.block_selection_policy == TierBlockSelectionPolicy::NaiveRbEbTwoTier {
             if self.max_tiers < 2 {
@@ -628,7 +705,18 @@ impl TieredConfig {
             .unwrap_or(self.min_delay_ratio)
     }
 
-    fn boundary_new_tier_delay_ratio(&self, boundary_index: usize) -> f64 {
+    /// Delay ratio used when a brand-new tier is spawned at `boundary_index`.
+    ///
+    /// Historically this has read from `min_delay_ratios` (falling back to the
+    /// scalar `new_tier_delay_ratio`), so per-boundary overrides for the
+    /// min-delay cap ALSO drive the spawn-time delay of a new tier. The name
+    /// reflects that coupling: this is the `min_delay_ratios`-derived ratio
+    /// consulted at new-tier-creation time, not an independent knob. The
+    /// existing behavior is locked in by
+    /// `update_tier_sizes_uses_boundary_min_ratio_for_new_tier_delay`; a
+    /// follow-up may decouple this by introducing `new_tier_delay_ratios:
+    /// Vec<f64>` as a separate per-boundary override.
+    fn boundary_min_delay_ratio_for_new_tier(&self, boundary_index: usize) -> f64 {
         self.min_delay_ratios
             .get(boundary_index)
             .copied()
@@ -2805,7 +2893,7 @@ pub fn update_tier_sizes(
             TierDelaySpacing::Incremental => {
                 let previous_delay = tiers[count - 1].delay;
                 let boundary_index = count - 1;
-                let new_delay_ratio = config.boundary_new_tier_delay_ratio(boundary_index);
+                let new_delay_ratio = config.boundary_min_delay_ratio_for_new_tier(boundary_index);
                 (new_delay_ratio * previous_delay as f64).ceil() as u64
             }
             TierDelaySpacing::GeometricFixedMax => {
@@ -2904,7 +2992,7 @@ fn update_tier_sizes_reserved(
             TierDelaySpacing::Incremental => {
                 let previous_delay = tiers[count - 1].delay;
                 let boundary_index = eb_count.saturating_sub(1);
-                let new_delay_ratio = config.boundary_new_tier_delay_ratio(boundary_index);
+                let new_delay_ratio = config.boundary_min_delay_ratio_for_new_tier(boundary_index);
                 (new_delay_ratio * previous_delay as f64).ceil() as u64
             }
             TierDelaySpacing::GeometricFixedMax => {
@@ -3218,6 +3306,203 @@ mod tests {
                 "delay cadence duplicated: set only one of delay_update_frequency or delay_update_period_slots"
                     .to_string()
             )
+        );
+    }
+
+    #[test]
+    fn tiered_config_rejects_zero_total_capacity() {
+        let mut config = test_config();
+        config.total_capacity = 0;
+        assert_eq!(config.validate(), Err("total_capacity must be > 0".to_string()));
+    }
+
+    #[test]
+    fn tiered_config_rejects_zero_base_fee_change_denominator() {
+        let mut config = test_config();
+        config.base_fee_change_denominator = 0;
+        assert_eq!(
+            config.validate(),
+            Err("base_fee_change_denominator must be >= 1".to_string()),
+        );
+    }
+
+    #[test]
+    fn tiered_config_rejects_out_of_range_target_utilisation() {
+        let mut config = test_config();
+        config.target_utilisation = 0.0;
+        assert_eq!(
+            config.validate(),
+            Err("target_utilisation must be finite and in (0, 1]".to_string()),
+        );
+        config.target_utilisation = 1.5;
+        assert_eq!(
+            config.validate(),
+            Err("target_utilisation must be finite and in (0, 1]".to_string()),
+        );
+        config.target_utilisation = f64::NAN;
+        assert_eq!(
+            config.validate(),
+            Err("target_utilisation must be finite and in (0, 1]".to_string()),
+        );
+    }
+
+    #[test]
+    fn tiered_config_rejects_non_finite_delay_increase_threshold() {
+        let mut config = test_config();
+        config.delay_increase_threshold = 0.0;
+        assert_eq!(
+            config.validate(),
+            Err("delay_increase_threshold must be finite and > 0".to_string()),
+        );
+        config.delay_increase_threshold = f64::INFINITY;
+        assert_eq!(
+            config.validate(),
+            Err("delay_increase_threshold must be finite and > 0".to_string()),
+        );
+    }
+
+    #[test]
+    fn tiered_config_rejects_sub_one_new_tier_delay_ratio() {
+        let mut config = test_config();
+        config.new_tier_delay_ratio = 0.5;
+        assert_eq!(
+            config.validate(),
+            Err("new_tier_delay_ratio must be finite and >= 1.0".to_string()),
+        );
+    }
+
+    #[test]
+    fn tiered_config_rejects_zero_new_tier_price() {
+        let mut config = test_config();
+        config.new_tier_price = 0;
+        assert_eq!(
+            config.validate(),
+            Err("new_tier_price must be > 0".to_string()),
+        );
+    }
+
+    #[test]
+    fn tiered_config_rejects_non_monotonic_price_thresholds() {
+        let mut config = test_config();
+        // remove >= add is a churn trap (tier spawns and gets removed instantly).
+        config.add_tier_threshold = 100;
+        config.remove_tier_threshold = 100;
+        assert_eq!(
+            config.validate(),
+            Err(
+                "add_tier_threshold must be > remove_tier_threshold (price thresholds)".to_string()
+            ),
+        );
+    }
+
+    #[test]
+    fn tiered_config_rejects_initial_delay_above_max_for_geometric_spacing() {
+        let mut config = test_config();
+        config.tier_delay_spacing = TierDelaySpacing::GeometricFixedMax;
+        config.max_tier_delay = 5;
+        config.initial_tier_delay = 10;
+        assert_eq!(
+            config.validate(),
+            Err(
+                "initial_tier_delay must be <= max_tier_delay when tier_delay_spacing = \
+                 geometric_fixed_max"
+                    .to_string()
+            ),
+        );
+        // Under default Incremental spacing the same pair is legal.
+        config.tier_delay_spacing = TierDelaySpacing::Incremental;
+        assert_eq!(config.validate(), Ok(()));
+    }
+
+    #[test]
+    fn tiered_config_rejects_out_of_range_tier_rebalance_alpha() {
+        let mut config = test_config();
+        config.tier_rebalance_alpha = 1.5;
+        assert_eq!(
+            config.validate(),
+            Err("tier_rebalance_alpha must be finite and in [0, 1]".to_string()),
+        );
+        config.tier_rebalance_alpha = -0.1;
+        assert_eq!(
+            config.validate(),
+            Err("tier_rebalance_alpha must be finite and in [0, 1]".to_string()),
+        );
+    }
+
+    #[test]
+    fn tiered_config_rejects_out_of_range_throughput_ema_alpha() {
+        let mut config = test_config();
+        config.throughput_ema_alpha = 2.0;
+        assert_eq!(
+            config.validate(),
+            Err("throughput_ema_alpha must be finite and in [0, 1]".to_string()),
+        );
+    }
+
+    #[test]
+    fn tiered_config_rejects_nan_in_float_fields() {
+        // tier_size_fractions: NaN entry.
+        let mut config = test_config();
+        config.tier_size_fractions = vec![0.0, f64::NAN, 0.2, 0.2];
+        assert_eq!(
+            config.validate(),
+            Err(
+                "tier_size_fractions entries must be finite and non-negative".to_string()
+            ),
+        );
+
+        // min_delay_ratio scalar: NaN.
+        let mut config = test_config();
+        config.min_delay_ratio = f64::NAN;
+        assert_eq!(
+            config.validate(),
+            Err("min_delay_ratio must be finite and >= 1.0".to_string()),
+        );
+
+        // min_delay_ratios per-boundary: NaN entry.
+        let mut config = test_config();
+        config.min_delay_ratios = vec![2.0, f64::NAN, 2.0];
+        assert_eq!(
+            config.validate(),
+            Err("min_delay_ratios entries must be finite and >= 1.0".to_string()),
+        );
+
+        // delay_decrease_prob: NaN.
+        let mut config = test_config();
+        config.delay_decrease_prob = f64::NAN;
+        assert_eq!(
+            config.validate(),
+            Err("delay_decrease_prob must be finite and in [0, 1]".to_string()),
+        );
+    }
+
+    #[test]
+    fn tiered_config_rejects_priority_ordering_with_lane_partitioned_policy() {
+        let mut config = test_config();
+        config.priority_ordering = true;
+        // Shared is fine with priority_ordering.
+        config.block_selection_policy = TierBlockSelectionPolicy::Shared;
+        assert_eq!(config.validate(), Ok(()));
+
+        // NaiveRbEbTwoTier is lane-partitioned → reject.
+        config.block_selection_policy = TierBlockSelectionPolicy::NaiveRbEbTwoTier;
+        assert!(
+            matches!(config.validate(), Err(e) if e.contains("priority_ordering")),
+            "expected priority_ordering rejection for NaiveRbEbTwoTier",
+        );
+        // RbTier0Reserved also partitioned → reject.
+        config.block_selection_policy = TierBlockSelectionPolicy::RbTier0Reserved;
+        config.rb_tier0_reservation_fraction = 0.3;
+        assert!(
+            matches!(config.validate(), Err(e) if e.contains("priority_ordering")),
+            "expected priority_ordering rejection for RbTier0Reserved",
+        );
+        // ContinuousRbEb also partitioned → reject.
+        config.block_selection_policy = TierBlockSelectionPolicy::ContinuousRbEb;
+        config.separate_eb_pool = true;
+        assert!(
+            matches!(config.validate(), Err(e) if e.contains("priority_ordering")),
+            "expected priority_ordering rejection for ContinuousRbEb",
         );
     }
 

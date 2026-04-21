@@ -470,7 +470,7 @@ impl<T> WeightedLookup<T> {
 mod tests {
     use rand_chacha::{ChaChaRng, rand_core::SeedableRng};
 
-    use super::{sample_value_and_urgency, urgency_profile_from_u};
+    use super::{WeightedLookup, sample_arrivals, sample_value_and_urgency, urgency_profile_from_u};
     use crate::{
         model::{ActorId, UrgencyProfile},
         tx_actors::{Actor, ArrivalPattern, Distribution, DistributionKind, ValueUrgencyComponent},
@@ -534,6 +534,217 @@ mod tests {
             UrgencyProfile::ExponentialDecay {
                 retained_per_million: 500_000
             }
+        );
+    }
+
+    fn poisson_arrivals_actor() -> Actor {
+        let mut actor = dummy_actor();
+        actor.arrival_rate = 2.0;
+        actor.tx_size = constant_distribution(400.0);
+        actor.value_urgency_components = vec![ValueUrgencyComponent {
+            name: None,
+            weight: 1.0,
+            value_distribution: constant_distribution(1_000_000.0),
+            urgency_u_distribution: constant_distribution(1.5),
+        }];
+        actor
+    }
+
+    /// Regression net for Phase 0: a seeded `ChaChaRng` must produce the same
+    /// actor-derived sampling stream across back-to-back runs. If any code path
+    /// inside `sample_arrivals` or `sample_value_and_urgency` starts consulting
+    /// process-global state (HashMap iteration order, thread-local randomness),
+    /// this test catches it.
+    #[test]
+    fn actor_sampling_primitives_are_deterministic_across_runs() {
+        let actor = poisson_arrivals_actor();
+        let mut rng_a = ChaChaRng::seed_from_u64(42);
+        let mut rng_b = ChaChaRng::seed_from_u64(42);
+
+        for slot in 0..100u64 {
+            let count_a = sample_arrivals(&actor, slot, &mut rng_a);
+            let count_b = sample_arrivals(&actor, slot, &mut rng_b);
+            assert_eq!(
+                count_a, count_b,
+                "arrivals diverge at slot {slot}: A={count_a} B={count_b}",
+            );
+            for i in 0..count_a {
+                let (v_a, u_a, idx_a) = sample_value_and_urgency(&actor, &mut rng_a);
+                let (v_b, u_b, idx_b) = sample_value_and_urgency(&actor, &mut rng_b);
+                assert_eq!(v_a, v_b, "value diverges at slot {slot} tx {i}");
+                assert_eq!(u_a, u_b, "urgency diverges at slot {slot} tx {i}");
+                assert_eq!(idx_a, idx_b, "component index diverges at slot {slot} tx {i}");
+            }
+        }
+    }
+
+    /// Guards against accidentally dropping seed into a constant or removing
+    /// RNG threading entirely — two different seeds must produce at least one
+    /// distinct arrival count in the first 100 slots for a Poisson actor at
+    /// rate=2.0.
+    #[test]
+    fn actor_sampling_diverges_for_different_seeds() {
+        let actor = poisson_arrivals_actor();
+        let mut rng_42 = ChaChaRng::seed_from_u64(42);
+        let mut rng_43 = ChaChaRng::seed_from_u64(43);
+
+        let stream_42: Vec<u64> = (0..100u64)
+            .map(|slot| sample_arrivals(&actor, slot, &mut rng_42))
+            .collect();
+        let stream_43: Vec<u64> = (0..100u64)
+            .map(|slot| sample_arrivals(&actor, slot, &mut rng_43))
+            .collect();
+
+        assert_ne!(
+            stream_42, stream_43,
+            "distinct seeds produced identical arrival streams — RNG is not being \
+             threaded through sample_arrivals",
+        );
+    }
+
+    /// Active CI safety net for `WeightedLookup::sample`. Uses 5% tolerance
+    /// bands that both the current (buggy) implementation AND the Phase-6
+    /// corrected implementation satisfy. This catches major regressions —
+    /// "always returns element 0", "skips non-adjacent elements", "panics on
+    /// valid non-empty input" — without being tied to the specific boundary
+    /// bug. The tight-proportion reproducer below (`#[ignore]`'d) remains the
+    /// exact-behavior tripwire for Phase 6.
+    #[test]
+    fn weighted_lookup_sample_produces_all_elements_with_rough_proportions() {
+        let lookup = WeightedLookup::new([("A", 50u64), ("B", 30), ("C", 20)]);
+        let mut rng = ChaChaRng::seed_from_u64(0xC0DE);
+        let n = 100_000u64;
+        let (mut count_a, mut count_b, mut count_c) = (0u64, 0u64, 0u64);
+        for _ in 0..n {
+            match *lookup.sample(&mut rng).expect("non-empty lookup must sample") {
+                "A" => count_a += 1,
+                "B" => count_b += 1,
+                "C" => count_c += 1,
+                other => panic!("unexpected element: {other}"),
+            }
+        }
+        // All three elements must be sampled at least once — catches a
+        // catastrophic bug that skips an element entirely.
+        assert!(count_a > 0 && count_b > 0 && count_c > 0);
+
+        let r_a = count_a as f64 / n as f64;
+        let r_b = count_b as f64 / n as f64;
+        let r_c = count_c as f64 / n as f64;
+
+        // Heavy element beats middle beats light. This catches a
+        // weight-inversion regression.
+        assert!(count_a > count_b && count_b > count_c);
+
+        // 5% tolerance covers both the current buggy boundary behavior (A wins
+        // ~51% instead of exactly 50%) and the Phase-6 corrected impl
+        // (A wins exactly 50%). Tightening below 5% would make this test
+        // order-of-operations dependent.
+        let tolerance = 0.05;
+        assert!(
+            (r_a - 0.50).abs() < tolerance,
+            "A ratio {r_a} far from 0.5 (±{tolerance})",
+        );
+        assert!(
+            (r_b - 0.30).abs() < tolerance,
+            "B ratio {r_b} far from 0.3 (±{tolerance})",
+        );
+        assert!(
+            (r_c - 0.20).abs() < tolerance,
+            "C ratio {r_c} far from 0.2 (±{tolerance})",
+        );
+    }
+
+    /// Unambiguous sanity checks that both current and Phase-6 impls satisfy.
+    /// Uses non-degenerate weights (not all equal, no single-unit weights) so
+    /// the boundary bug's effect is a small perturbation, not an element
+    /// dropout. Catches panics on single-element lookup + "every element with
+    /// substantial weight eventually appears".
+    ///
+    /// NOTE: With weights like [1,1,1] the buggy impl drops the last element
+    /// entirely (choice=2 returns index 1, choice=1 returns index 0, so index 2
+    /// is never sampled). Phase 6 fixes this; the `#[ignore]`'d reproducer
+    /// below exercises this exact proportion breakdown.
+    #[test]
+    fn weighted_lookup_sample_handles_single_element_and_well_separated_weights() {
+        // Single-element lookup: always returns the one element.
+        let lookup = WeightedLookup::new([("only", 42u64)]);
+        let mut rng = ChaChaRng::seed_from_u64(1);
+        for _ in 0..50 {
+            assert_eq!(*lookup.sample(&mut rng).expect("sample"), "only");
+        }
+
+        // Weights large enough that the boundary-bug's dropout effect covers
+        // at most ~2 sample slots per ~10k draws — every element still appears.
+        let lookup = WeightedLookup::new([("x", 1000u64), ("y", 500), ("z", 300)]);
+        let mut rng = ChaChaRng::seed_from_u64(2);
+        let mut seen_x = false;
+        let mut seen_y = false;
+        let mut seen_z = false;
+        for _ in 0..10_000 {
+            match *lookup.sample(&mut rng).expect("sample") {
+                "x" => seen_x = true,
+                "y" => seen_y = true,
+                "z" => seen_z = true,
+                other => panic!("unexpected: {other}"),
+            }
+        }
+        assert!(
+            seen_x && seen_y && seen_z,
+            "all three well-separated-weight elements must appear across 10k draws",
+        );
+    }
+
+    /// Phase 0 regression test (currently `#[ignore]`'d because it reproduces a
+    /// known bug in `WeightedLookup::sample` scheduled to be fixed in Phase 6).
+    ///
+    /// `WeightedLookup` stores cumulative weights; `choice = rng.random_range(0..total_weight)`
+    /// is a uniform integer in `[0, total_weight)`. With weights `[3, 1, 2]` the cumulative
+    /// array is `[3, 4, 6]`, and the invariant is: choice in `[prev_cum, cum)` picks that
+    /// element. Thus:
+    ///   - choice=3 should pick "B" (range [3, 4))
+    ///   - choice=4 should pick "C" (range [4, 6))
+    ///
+    /// The current `binary_search_by_key` + `Ok|Err` branching picks the element *at*
+    /// `choice == cumulative_weight`, which returns the lower-indexed element. That
+    /// shifts probability mass away from short-range elements: "B" is picked only when
+    /// choice=4 (1/6 fires for "C" land, so B gets the 1/6 that should be C's, and C
+    /// gets only the 5 choice → count 1/6 instead of 2/6).
+    ///
+    /// Expected correct distribution over N samples: A ≈ 0.5, B ≈ 0.167, C ≈ 0.333.
+    /// Current buggy distribution: A ≈ 0.667, B ≈ 0.167, C ≈ 0.167.
+    ///
+    /// Phase 6 replaces `binary_search_by_key` with `partition_point(|(_, w)| *w <= choice)`
+    /// and removes this `#[ignore]`.
+    #[test]
+    #[ignore = "reproduces WeightedLookup boundary bug; unignore when Phase 6 fix lands"]
+    fn weighted_lookup_sample_preserves_weight_proportions_at_cumulative_boundaries() {
+        let lookup = WeightedLookup::new([("A", 3u64), ("B", 1), ("C", 2)]);
+        let mut rng = ChaChaRng::seed_from_u64(42);
+        let n = 600_000u64;
+        let (mut count_a, mut count_b, mut count_c) = (0u64, 0u64, 0u64);
+        for _ in 0..n {
+            match *lookup.sample(&mut rng).expect("non-empty lookup") {
+                "A" => count_a += 1,
+                "B" => count_b += 1,
+                "C" => count_c += 1,
+                other => panic!("unexpected element: {other}"),
+            }
+        }
+        let r_a = count_a as f64 / n as f64;
+        let r_b = count_b as f64 / n as f64;
+        let r_c = count_c as f64 / n as f64;
+        let tolerance = 0.005;
+        assert!(
+            (r_a - 0.5).abs() < tolerance,
+            "A ratio {r_a} != 0.5 (±{tolerance})",
+        );
+        assert!(
+            (r_b - 1.0 / 6.0).abs() < tolerance,
+            "B ratio {r_b} != 0.167 (±{tolerance})",
+        );
+        assert!(
+            (r_c - 2.0 / 6.0).abs() < tolerance,
+            "C ratio {r_c} != 0.333 (±{tolerance})",
         );
     }
 }

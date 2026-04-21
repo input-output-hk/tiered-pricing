@@ -18,10 +18,7 @@ use crate::{
     model::{ActorId, Transaction, TransactionId, UrgencyProfile},
     probability::FloatDistribution,
     tx_actors::{ActorConfig, ActorsFile},
-    tx_pricing::{
-        PricingFile, PricingMechanismConfig, TierBlockSelectionPolicy,
-        validate_eip1559_priority_lane_config,
-    },
+    tx_pricing::{PricingFile, PricingMechanismConfig, TierBlockSelectionPolicy},
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -1072,60 +1069,20 @@ fn load_pricing_config(params: &RawParameters) -> Result<Option<PricingMechanism
             );
         }
     }
-    match &mut pricing {
-        PricingMechanismConfig::Eip1559 { smoothing, .. } => {
-            smoothing
-                .validate()
-                .map_err(|err| anyhow!("invalid eip1559 config: {}", err))?;
+    // Log the legacy-deprecation notice before normalization rewrites the field.
+    if let PricingMechanismConfig::TieredPricing { tiered_config } = &pricing {
+        if tiered_config.eb_total_capacity.is_some()
+            && tiered_config.eb_total_capacity != Some(params.eb_referenced_txs_max_size_bytes)
+        {
+            info!(
+                "pricing.eb_total_capacity is deprecated; using eb-referenced-txs-max-size-bytes ({}) instead",
+                params.eb_referenced_txs_max_size_bytes
+            );
         }
-        PricingMechanismConfig::Eip1559PriorityLane {
-            max_change_denominator,
-            target_utilisation,
-            priority_fee_multiplier,
-            priority_capacity_fraction,
-            priority_delay,
-            normal_delay,
-            ..
-        } => {
-            validate_eip1559_priority_lane_config(
-                *max_change_denominator,
-                *target_utilisation,
-                *priority_fee_multiplier,
-                *priority_capacity_fraction,
-                *priority_delay,
-                *normal_delay,
-            )
-            .map_err(|err| anyhow!("invalid eip1559_priority_lane config: {}", err))?;
-        }
-        PricingMechanismConfig::TieredPricing { tiered_config } => {
-            let legacy_separate_pool = tiered_config.eb_total_capacity.is_some();
-            let needs_separate_pool = tiered_config.separate_eb_pool
-                || legacy_separate_pool
-                || tiered_config
-                    .block_selection_policy
-                    .uses_continuous_lane_pricing();
-
-            if legacy_separate_pool
-                && tiered_config.eb_total_capacity != Some(params.eb_referenced_txs_max_size_bytes)
-            {
-                info!(
-                    "pricing.eb_total_capacity is deprecated; using eb-referenced-txs-max-size-bytes ({}) instead",
-                    params.eb_referenced_txs_max_size_bytes
-                );
-            }
-
-            tiered_config.eb_total_capacity = if needs_separate_pool {
-                Some(params.eb_referenced_txs_max_size_bytes)
-            } else {
-                None
-            };
-
-            tiered_config
-                .validate()
-                .map_err(|err| anyhow!("invalid tiered config: {}", err))?;
-        }
-        PricingMechanismConfig::Baseline { .. } => {}
     }
+    pricing
+        .normalize_and_validate(params.eb_referenced_txs_max_size_bytes)
+        .map_err(|err| anyhow!("invalid pricing config: {}", err))?;
     Ok(Some(pricing))
 }
 

@@ -256,6 +256,13 @@ impl GlobalPricingCoordinator {
             .state
             .lock()
             .expect("global pricing coordinator mutex poisoned");
+        // Dedup is load-bearing: both producer-side self-triggering and
+        // validator-side triggering can land here for the same block, so
+        // double-invocation is EXPECTED in normal simulation. A silent `return
+        // None` for already-applied keys preserves correctness. We do NOT add
+        // a debug_assert here (that would break normal runs); if we ever need
+        // to audit double-invocation, add an instance-level counter on
+        // `GlobalPricingCoordinator` rather than panicking.
         if !state.applied_updates.insert(update_key) {
             return None;
         }

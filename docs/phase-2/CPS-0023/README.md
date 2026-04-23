@@ -77,7 +77,7 @@ From stakeholder interviews during Buidler Fest #3, hosted by Carlos Lopez De La
 
 Candidate solutions must also satisfy:
 
-1. **Multi-input awareness.** Complex DeFi transactions spend multiple UTxOs atomically. A contested UTxO mechanism scoped to single-UTxO contention covers only ~30–40% (estimated by stakeholders during interview) of real lending liquidation scenarios.
+1. **Multi-input awareness.** Complex DeFi transactions spend multiple UTxOs atomically. A contested UTxO mechanism scoped to single-UTxO contention covers only a limited subset of real lending liquidation scenarios.
 
 2. **Bot-composable semantics.** The priority signal must be encodable in smart contract logic and readable by automated systems, not just manually configured.
 
@@ -95,7 +95,7 @@ From stakeholder interviews at Buidler Fest #3:
 
 * Fee pre-escalation: Transactions can overpay fees, but with no protocol-enforced prioritisation for overpaying transactions
 
-Tried. Produced ~15–20% (estimated by stakeholders during interview) improvement in moderate congestion. Fails under systemic congestion because SPOs are not committed to sort by fee. Bidding is also calibrated blind; there is no standardized mempool signal to know where you stand.
+Tried. Produced modest improvement in moderate congestion. Fails under systemic congestion because SPOs are not committed to sort by fee. Bidding is also calibrated blind; there is no standardized mempool signal to know where you stand.
 
 * Multi-relay submission: Where the node is connected to multiple SPO relays to increase the likelihood that the transaction reaches the next block producer quickly
 
@@ -103,7 +103,7 @@ Deployed as standard infrastructure. Improves latency-to-mempool, not confirmati
 
 * Private SPO arrangements: 
 
-Explored and rejected. Even agreements with major SPOs yield only ~30% (estimated by stakeholders during interview) next-block probability; insufficient for liquidations. More importantly, this produces a worse outcome than a formal mechanism: an opaque, permissioned, off-chain priority market accessible only to well-capitalized incumbents.
+Explored and rejected. Even agreements with major SPOs yield next-block probability insufficient for liquidations. More importantly, this produces a worse outcome than a formal mechanism: an opaque, permissioned, off-chain priority market accessible only to well-capitalized incumbents.
 
 
 ## Open Questions

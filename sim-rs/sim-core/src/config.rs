@@ -16,6 +16,7 @@ use crate::{
     clock::Timestamp,
     model::{Transaction, TransactionId},
     probability::FloatDistribution,
+    tx_pricing::Eip1559Settings,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -153,6 +154,40 @@ pub struct RawParameters {
     // attacks,
     pub late_eb_attack: Option<RawLateEBAttackConfig>,
     pub late_tx_attack: Option<RawLateTXAttackConfig>,
+
+    // Phase-2 pricing — all optional with spec defaults so existing
+    // configs deserialise unchanged.
+    #[serde(default)]
+    pub min_fee_a: Option<u64>,
+    #[serde(default)]
+    pub min_fee_b: Option<u64>,
+    #[serde(default)]
+    pub mempool_max_total_size_bytes: Option<u64>,
+    #[serde(default)]
+    pub pricing: Option<RawPricingConfig>,
+}
+
+/// Spec defaults from mechanism-design.md §Era floor.
+pub const DEFAULT_MIN_FEE_A: u64 = 44;
+pub const DEFAULT_MIN_FEE_B: u64 = 155_381;
+
+/// Pricing-mechanism config selector. M1 supports the two single-lane
+/// backends; M2+ adds two-lane variants.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum RawPricingConfig {
+    Baseline,
+    Eip1559(RawEip1559Config),
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub struct RawEip1559Config {
+    pub initial_quote_per_byte: u64,
+    pub target_num: u64,
+    pub target_den: u64,
+    pub max_change_denominator: u64,
+    pub window_length: usize,
 }
 
 #[derive(Debug, Copy, Clone, Deserialize, PartialEq, Eq)]
@@ -589,6 +624,14 @@ impl RealTransactionConfig {
             bytes,
             input_id,
             overcollateralization_factor,
+            // Pre-pricing defaults: every tx is admitted (max-fee saturated),
+            // single-lane, no welfare data. The pricing-aware paths
+            // (M3+ actor model) overwrite these.
+            max_fee_lovelace: u64::MAX,
+            posted_lane: crate::tx_pricing::Lane::Standard,
+            value_lovelace: 0,
+            urgency: 1.0,
+            urgency_component_index: 0,
         }
     }
 }
@@ -612,6 +655,11 @@ impl MockTransactionConfig {
             bytes,
             input_id: id,
             overcollateralization_factor: 0,
+            max_fee_lovelace: u64::MAX,
+            posted_lane: crate::tx_pricing::Lane::Standard,
+            value_lovelace: 0,
+            urgency: 1.0,
+            urgency_component_index: 0,
         }
     }
 }
@@ -695,6 +743,24 @@ impl LateTXAttackConfig {
     }
 }
 
+/// Parsed pricing-mechanism config. Each `LinearLeiosNode` constructs a
+/// fresh `PricingBackend` from this enum at startup.
+#[derive(Debug, Clone)]
+pub enum PricingConfig {
+    Baseline,
+    Eip1559(Eip1559Settings),
+}
+
+/// Mempool-gate config. `max_total_size_bytes` defaults to
+/// `2 × eb_referenced_txs_max_size_bytes` per
+/// implementation-plan.md §Finite mempool cap.
+#[derive(Debug, Clone, Copy)]
+pub struct MempoolGateConfig {
+    pub max_total_size_bytes: u64,
+    pub min_fee_a: u64,
+    pub min_fee_b: u64,
+}
+
 #[derive(Debug, Clone)]
 pub struct SimConfiguration {
     pub seed: u64,
@@ -717,7 +783,6 @@ pub struct SimConfiguration {
     pub(crate) relay_strategy: RelayStrategy,
     pub(crate) mempool_strategy: MempoolSamplingStrategy,
     pub(crate) mempool_aggressive_pruning: bool,
-    pub(crate) mempool_size_bytes: u64,
     pub(crate) praos_chain_quality: u64,
     pub(crate) block_generation_probability: f64,
     pub(crate) ib_generation_probability: f64,
@@ -740,6 +805,8 @@ pub struct SimConfiguration {
     pub(crate) sizes: BlockSizeConfig,
     pub(crate) transactions: TransactionConfig,
     pub(crate) attacks: AttackConfig,
+    pub(crate) pricing: PricingConfig,
+    pub(crate) mempool_gate: MempoolGateConfig,
 }
 
 impl SimConfiguration {
@@ -766,6 +833,39 @@ impl SimConfiguration {
         }
         let total_stake = topology.nodes.iter().map(|n| n.stake).sum();
         let attacks = AttackConfig::build(&params, &mut topology);
+        let min_fee_a = params.min_fee_a.unwrap_or(DEFAULT_MIN_FEE_A);
+        let min_fee_b = params.min_fee_b.unwrap_or(DEFAULT_MIN_FEE_B);
+        // Spec default: 2 × eb_referenced_txs_max_size_bytes
+        // (implementation-plan.md §Finite mempool cap, line 124).
+        let mempool_max_total_size_bytes = params
+            .mempool_max_total_size_bytes
+            .or_else(|| {
+                params
+                    .eb_referenced_txs_max_size_bytes
+                    .checked_mul(2)
+                    .into()
+            })
+            .unwrap_or(u64::MAX);
+        let pricing = match params.pricing.clone().unwrap_or(RawPricingConfig::Baseline) {
+            RawPricingConfig::Baseline => PricingConfig::Baseline,
+            RawPricingConfig::Eip1559(raw) => {
+                let settings = Eip1559Settings {
+                    min_fee_a,
+                    initial_quote_per_byte: raw.initial_quote_per_byte,
+                    target_num: raw.target_num,
+                    target_den: raw.target_den,
+                    max_change_denominator: raw.max_change_denominator,
+                    window_length: raw.window_length,
+                };
+                settings.validate()?;
+                PricingConfig::Eip1559(settings)
+            }
+        };
+        let mempool_gate = MempoolGateConfig {
+            max_total_size_bytes: mempool_max_total_size_bytes,
+            min_fee_a,
+            min_fee_b,
+        };
         Ok(Self {
             seed: 0,
             timestamp_resolution: duration_ms(params.timestamp_resolution_ms),
@@ -786,7 +886,6 @@ impl SimConfiguration {
             relay_strategy: params.relay_strategy,
             mempool_strategy: params.leios_mempool_sampling_strategy,
             mempool_aggressive_pruning: params.leios_mempool_aggressive_pruning,
-            mempool_size_bytes: params.leios_mempool_size_bytes.unwrap_or(u64::MAX),
             praos_chain_quality: params.praos_chain_quality,
             block_generation_probability: params.rb_generation_probability,
             ib_generation_probability: params.ib_generation_probability,
@@ -810,7 +909,18 @@ impl SimConfiguration {
             sizes: BlockSizeConfig::new(&params),
             transactions: TransactionConfig::new(&params),
             attacks,
+            pricing,
+            mempool_gate,
         })
+    }
+
+    /// Public accessors used by the linear-leios node implementation.
+    pub fn pricing_config(&self) -> &PricingConfig {
+        &self.pricing
+    }
+
+    pub fn mempool_gate_config(&self) -> MempoolGateConfig {
+        self.mempool_gate
     }
 }
 

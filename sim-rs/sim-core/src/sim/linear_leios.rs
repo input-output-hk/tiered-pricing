@@ -16,7 +16,7 @@ use crate::{
     clock::{Clock, Timestamp},
     config::{
         CpuTimeConfig, EBPropagationCriteria, LeiosVariant, MempoolSamplingStrategy,
-        NodeBehaviours, NodeConfiguration, NodeId, RelayStrategy, SimConfiguration,
+        NodeBehaviours, NodeConfiguration, NodeId, PricingConfig, RelayStrategy, SimConfiguration,
         TransactionConfig,
     },
     events::EventTracker,
@@ -29,6 +29,10 @@ use crate::{
         MiniProtocol, NodeImpl, SimCpuTask, SimMessage,
         linear_leios::attackers::{EBWithholdingEvent, EBWithholdingSender},
         lottery::{LotteryConfig, LotteryKind, MockLotteryResults, vrf_probabilities},
+        mempool_gate::MempoolGate,
+    },
+    tx_pricing::{
+        BaselinePricing, BlockKind, Eip1559Pricing, Lane, PricedBlockSample, PricingBackend,
     },
 };
 
@@ -310,6 +314,12 @@ pub struct LinearLeiosNode {
     consumers: Vec<NodeId>,
     txs: HashMap<TransactionId, TransactionView>,
     mempool: Mempool,
+    /// Phase-2 fee gate: tracks per-lane bytes, fee admission, and
+    /// quote-drift revalidation.
+    gate: MempoolGate,
+    /// Phase-2 pricing backend (single-lane M1: `BaselinePricing` or
+    /// `Eip1559Pricing`).
+    pricing: Box<dyn PricingBackend>,
     ledger_states: BTreeMap<BlockId, Arc<LedgerState>>,
     praos: NodePraosState,
     leios: NodeLeiosState,
@@ -338,7 +348,26 @@ impl NodeImpl for LinearLeiosNode {
             stake: config.stake,
             total_stake: sim_config.total_stake,
         };
-        let mempool_max_size_bytes = sim_config.mempool_size_bytes;
+        let gate = MempoolGate::new(sim_config.mempool_gate_config());
+        // The fee gate is the sole byte-cap authority in the wired
+        // path: it admits before the underlying mempool. Set the
+        // mempool's own cap to the gate's cap so byte-cap rejections
+        // happen at the gate, never at the mempool. If the mempool's
+        // cap were smaller, byte-cap-full mempool inserts would queue
+        // the tx for later promotion, and the gate (which we'd already
+        // rolled back) would never see it on promotion — the tx would
+        // re-enter the active mempool with no fee admission, no
+        // quote-drift revalidation, and no inclusion charging.
+        let mempool_max_size_bytes = gate.config().max_total_size_bytes;
+        let pricing: Box<dyn PricingBackend> = match sim_config.pricing_config() {
+            PricingConfig::Baseline => {
+                Box::new(BaselinePricing::new(sim_config.mempool_gate_config().min_fee_a))
+            }
+            PricingConfig::Eip1559(settings) => Box::new(
+                Eip1559Pricing::new(settings.clone())
+                    .expect("Eip1559Settings validated at config build time"),
+            ),
+        };
 
         Self {
             id: config.id,
@@ -351,6 +380,8 @@ impl NodeImpl for LinearLeiosNode {
             consumers: config.consumers.clone(),
             txs: HashMap::new(),
             mempool: Mempool::new(mempool_max_size_bytes),
+            gate,
+            pricing,
             ledger_states: BTreeMap::new(),
             praos: NodePraosState::default(),
             leios: NodeLeiosState::default(),
@@ -552,6 +583,8 @@ impl LinearLeiosNode {
             if let Some(eb) = self.get_validated_eb(eb_id) {
                 // If we're endorsing this EB, clear its TXs out of the mempool now
                 // so that we don't include them in new blocks.
+                // Charge inclusions BEFORE remove (which would silent-remove from gate).
+                self.charge_inclusions_for_eb_txs(&eb);
                 self.remove_eb_txs_from_mempool(&eb);
             } else {
                 // We haven't finished validating this EB, maybe even haven't received it and its contents.
@@ -639,6 +672,13 @@ impl LinearLeiosNode {
             endorsement,
         };
 
+        // Producer charges its own RB body's transactions for inclusion.
+        // Sample-from-mempool already removed them from the linear-leios
+        // mempool; this clears them from the fee gate and emits one
+        // inclusion event each (with `actual_fee` and `refund` at the
+        // producer's current quote).
+        self.charge_inclusions_for_rb_body(&rb.transactions);
+
         self.tracker.track_praos_block_lottery_won(rb.header.id);
         self.queued
             .schedule_cpu_task(CpuTask::RBBlockGenerated(rb, eb));
@@ -684,6 +724,10 @@ impl LinearLeiosNode {
         if let Some(eb_id) = rb.header.eb_announcement {
             self.leios.ebs_by_rb.insert(rb.header.id, eb_id);
         }
+        // Phase-2 controller hook: feed any priced-block samples this RB
+        // produces (RB body if non-empty; endorsed EB if locally
+        // validated), update pricing, and revalidate the gate.
+        self.apply_priced_block(&rb);
         self.praos
             .blocks
             .insert(rb.header.id, RankingBlockView::Received { rb, header_seen });
@@ -1083,6 +1127,10 @@ impl LinearLeiosNode {
     fn finish_validating_eb(&mut self, eb: Arc<EndorserBlock>, seen: Timestamp) {
         if self.leios.incomplete_onchain_ebs.remove(&eb.id()) {
             self.remove_eb_txs_from_mempool(&eb);
+            // The cert RB landed on-chain earlier; emit the deferred EB
+            // sample now and run the consequent pricing update +
+            // revalidation. Single-lane: one Standard sample.
+            self.apply_eb_priced_block(&eb);
         }
         let Some(EndorserBlockView::Received { validated, .. }) = self.leios.ebs.get_mut(&eb.id())
         else {
@@ -1400,7 +1448,22 @@ impl LinearLeiosNode {
             return false;
         }
 
-        self.mempool.try_insert(tx.clone())
+        // Phase-2 fee admission. Reject if posted_fee at the lane's
+        // current quote exceeds the tx's max-fee budget, or if the
+        // mempool byte cap would be exceeded.
+        let quote = self.pricing.current_quote(tx.posted_lane);
+        if self.gate.try_admit(tx, quote).is_err() {
+            return false;
+        }
+
+        // UTxO/conflict + byte-cap mempool. If this rejects (e.g.
+        // input-id conflict in mempool), revert the gate to keep state
+        // consistent.
+        if !self.mempool.try_insert(tx.clone()) {
+            self.gate.remove_silent(tx.id);
+            return false;
+        }
+        true
     }
 
     fn sample_from_mempool(
@@ -1458,7 +1521,212 @@ impl LinearLeiosNode {
         self.remove_txs_from_mempool(&eb.txs);
     }
 
+    /// Charge inclusions for transactions in this RB body. Fee and
+    /// refund are computed from the `Transaction` itself, not from
+    /// gate residency: a tx may be in a producer's RB/EB without being
+    /// resident in that producer's fee gate (e.g. in
+    /// `LeiosVariant::Linear`, EB-borne txs aren't separately
+    /// propagated as Tx messages, so an endorsing producer who didn't
+    /// admit them won't have them in its gate). The gate's
+    /// `on_inclusion` is still called for cleanup but is not the gate
+    /// for event emission.
+    fn charge_inclusions_for_rb_body(&mut self, txs: &[Arc<Transaction>]) {
+        if txs.is_empty() {
+            return;
+        }
+        let slot = (self.clock.now() - Timestamp::zero()).as_secs();
+        let served_lane = Lane::Standard;
+        let quote = self.pricing.current_quote(served_lane);
+        let min_fee_b = self.gate.config().min_fee_b;
+        for tx in txs {
+            // Same rounding regime as admission/revalidation
+            // (implementation-plan.md lines 92-95): minFeeB +
+            // quote_per_byte × bytes.
+            let actual_fee = quote
+                .checked_mul(tx.bytes)
+                .and_then(|q| q.checked_add(min_fee_b))
+                .unwrap_or(u64::MAX);
+            // Spec max-fee invariant (mechanism-design.md §EIP-1559
+            // maximum-fee semantics, line 43): a tx whose posted_fee
+            // exceeds its max_fee at the served-lane quote is invalid
+            // for inclusion. For gate-resident txs, revalidation at
+            // each prior `publish_rb` would have already evicted it.
+            // For non-gate-resident txs (e.g. EB-borne txs at an
+            // endorsing producer that didn't admit them locally), no
+            // such revalidation runs — and quote may have drifted past
+            // the tx's max_fee between EB creation and cert RB.
+            //
+            // **Event-accounting patch only.** Emitting
+            // `TXEvictedQuoteDrift` here suppresses the misleading
+            // `refund = 0` `TXIncluded`, but the tx is still
+            // physically in `eb.txs`: its bytes feed the EB's pricing
+            // sample in `apply_priced_block`, its `input_id` lands in
+            // `spent_inputs` via `resolve_ledger_state`, and its
+            // conflicts cascade through `remove_conflicting_txs`. The
+            // proper fix is EB-validation-at-endorsement-time in
+            // `try_generate_rb` — see handoff §"Known limitations" §4
+            // (blocking for M2 correctness).
+            if actual_fee > tx.max_fee_lovelace {
+                self.tracker.track_tx_evicted_quote_drift(
+                    tx.id,
+                    self.id,
+                    slot,
+                    tx.bytes,
+                    tx.posted_lane,
+                    quote,
+                    tx.max_fee_lovelace,
+                );
+                self.gate.remove_silent(tx.id);
+                continue;
+            }
+            let refund = tx.max_fee_lovelace - actual_fee;
+            self.gate.remove_silent(tx.id);
+            self.tracker.track_tx_included(
+                tx.id,
+                self.id,
+                slot,
+                tx.bytes,
+                tx.posted_lane,
+                served_lane,
+                tx.max_fee_lovelace,
+                actual_fee,
+                refund,
+            );
+        }
+    }
+
+    /// Charge inclusions for transactions in an endorsed EB. Same
+    /// semantics as `charge_inclusions_for_rb_body`.
+    fn charge_inclusions_for_eb_txs(&mut self, eb: &EndorserBlock) {
+        self.charge_inclusions_for_rb_body(&eb.txs);
+    }
+
+    /// Build priced-block samples from this RB and (if its EB is
+    /// locally validated) the endorsed EB. Apply them to the pricing
+    /// backend, then revalidate the gate; any quote-drift evictions
+    /// emit `TXEvictedQuoteDrift` events and are also removed from the
+    /// linear-leios mempool.
+    ///
+    /// **Known limitation (M1)**: pricing state mutates here with no
+    /// rollback path. Slot-battle replacement at
+    /// `finish_validating_rb_header` removes the losing block from
+    /// `praos.blocks` but does not undo controller updates, gate
+    /// `on_inclusion` removals, or `TXIncluded` events that the losing
+    /// block already triggered. The mechanism spec treats `c` as
+    /// ledger state, so a fork resolution conceptually requires
+    /// rolling back the controller and re-applying samples for the
+    /// canonical chain. M1's exit criterion is the single-producer
+    /// smoke test where slot battles cannot occur; M2's deterministic
+    /// scenario tests should either avoid slot battles or implement
+    /// snapshot-and-replay rollback before exercising them.
+    fn apply_priced_block(&mut self, rb: &RankingBlock) {
+        let slot = rb.header.id.slot;
+        let mut samples: Vec<PricedBlockSample> = Vec::new();
+        // Tx-bearing RB → one Standard sample (single-lane).
+        // Endorsement-only RB → no RB sample (per implementation-plan.md
+        // line 70).
+        if !rb.transactions.is_empty() {
+            let bytes: u64 = rb.transactions.iter().map(|t| t.bytes).sum();
+            samples.push(PricedBlockSample {
+                block_kind: BlockKind::RankingBlock,
+                controller_lane: Lane::Standard,
+                relevant_bytes: bytes,
+                relevant_capacity: self.sim_config.max_block_size,
+            });
+        }
+        // Endorsed EB applied alongside this RB iff it's locally
+        // validated. Otherwise the EB sample is deferred until
+        // `finish_validating_eb`.
+        if let Some(endorsement) = &rb.endorsement
+            && let Some(eb) = self.get_validated_eb(endorsement.eb)
+        {
+            samples.push(self.eb_sample(&eb));
+        }
+        self.feed_samples_and_revalidate(slot, &samples);
+    }
+
+    fn apply_eb_priced_block(&mut self, eb: &EndorserBlock) {
+        let slot = (self.clock.now() - Timestamp::zero()).as_secs();
+        let sample = self.eb_sample(eb);
+        self.feed_samples_and_revalidate(slot, &[sample]);
+    }
+
+    fn eb_sample(&self, eb: &EndorserBlock) -> PricedBlockSample {
+        let bytes: u64 = eb.txs.iter().map(|t| t.bytes).sum();
+        PricedBlockSample {
+            block_kind: BlockKind::EndorserBlock,
+            controller_lane: Lane::Standard,
+            relevant_bytes: bytes,
+            relevant_capacity: self.sim_config.max_eb_size,
+        }
+    }
+
+    fn feed_samples_and_revalidate(&mut self, slot: u64, samples: &[PricedBlockSample]) {
+        if !samples.is_empty() {
+            self.pricing.update_after_block(samples);
+        }
+        // Walk the gate; evict any txs whose lane quote drifted above
+        // their max-fee budget. Returns the eviction records.
+        let q_standard = self.pricing.current_quote(Lane::Standard);
+        let q_priority = self.pricing.current_quote(Lane::Priority);
+        let evicted = self.gate.revalidate(|lane| match lane {
+            Lane::Standard => q_standard,
+            Lane::Priority => q_priority,
+        });
+        if evicted.is_empty() {
+            return;
+        }
+        // Emit the eviction events and clear the same txs from the
+        // linear-leios mempool. `remove_conflicting_txs` is the right
+        // existing API: each evicted tx maps to its `input_id`.
+        let mut input_ids: HashSet<u64> = HashSet::with_capacity(evicted.len());
+        for record in &evicted {
+            self.tracker.track_tx_evicted_quote_drift(
+                record.tx_id,
+                self.id,
+                slot,
+                record.bytes,
+                record.posted_lane,
+                record.current_quote_per_byte,
+                record.max_fee_lovelace,
+            );
+            // Look up the underlying tx to find its `input_id`. Evicted
+            // txs are still in `self.txs` (TransactionView::Received)
+            // because we never drop them from the propagation cache.
+            if let Some(TransactionView::Received(tx)) = self.txs.get(&record.tx_id) {
+                input_ids.insert(tx.input_id);
+            }
+        }
+        if !input_ids.is_empty() {
+            // Drop these from the conflict-aware mempool. Any newly
+            // queued slack txs get re-announced to peers.
+            //
+            // Note for M2: under the gate-is-sole-byte-cap-authority
+            // invariant (handoff §3), `mempool.queue` is empty in the
+            // wired flow, so `remove_conflicting_txs` returns zero
+            // promotions and this fan-out is dead in practice. Kept
+            // as a defensive matched mirror of `sample_from_mempool`'s
+            // re-announce. If multi-node M2 tests reintroduce queue
+            // semantics, double-check that the per-evicted-tx × peers
+            // fan-out cost stays bounded.
+            for newly_queued_tx in self.mempool.remove_conflicting_txs(&input_ids) {
+                for peer in &self.consumers {
+                    self.queued
+                        .send_to(*peer, Message::AnnounceTx(newly_queued_tx));
+                }
+            }
+        }
+    }
+
     fn remove_txs_from_mempool(&mut self, txs: &[Arc<Transaction>]) {
+        // Keep the fee-gate's resident set in sync with the mempool —
+        // these silent removes do not emit inclusion events. Producers
+        // emit inclusion events at block-generation time
+        // (`charge_inclusions_for_local_production`). Quote-drift
+        // evictions emit eviction events from `apply_priced_block`.
+        for tx in txs {
+            self.gate.remove_silent(tx.id);
+        }
         let inputs = txs.iter().map(|tx| tx.input_id).collect::<HashSet<_>>();
         for newly_queued_tx in self.mempool.remove_conflicting_txs(&inputs) {
             for peer in &self.consumers {
@@ -1705,6 +1973,11 @@ mod mempool_tests {
                 bytes,
                 input_id: id,
                 overcollateralization_factor: 0,
+                max_fee_lovelace: u64::MAX,
+                posted_lane: crate::tx_pricing::Lane::Standard,
+                value_lovelace: 0,
+                urgency: 1.0,
+                urgency_component_index: 0,
             })
         }
         fn txs<const N: usize>(&mut self, bytes: [u64; N]) -> [Arc<Transaction>; N] {

@@ -16,7 +16,7 @@ use crate::{
     clock::Timestamp,
     model::{Transaction, TransactionId},
     probability::FloatDistribution,
-    tx_pricing::Eip1559Settings,
+    tx_pricing::{Eip1559Settings, LaneSelectionOrder, Multiplier, TwoLaneSettings, TwoLaneVariant},
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -172,12 +172,13 @@ pub const DEFAULT_MIN_FEE_A: u64 = 44;
 pub const DEFAULT_MIN_FEE_B: u64 = 155_381;
 
 /// Pricing-mechanism config selector. M1 supports the two single-lane
-/// backends; M2+ adds two-lane variants.
+/// backends; M2 adds the four two-lane variants.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum RawPricingConfig {
     Baseline,
     Eip1559(RawEip1559Config),
+    TwoLane(RawTwoLaneConfig),
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -188,6 +189,46 @@ pub struct RawEip1559Config {
     pub target_den: u64,
     pub max_change_denominator: u64,
     pub window_length: usize,
+}
+
+/// Variant selector serialised in `RawTwoLaneConfig`. Mirrors
+/// `tx_pricing::TwoLaneVariant`; kept separate so the deserialisation
+/// surface lives next to the rest of `RawParameters`.
+#[derive(Debug, Copy, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum RawTwoLaneVariant {
+    RbReservedPriorityOnly,
+    RbReservedBothDynamic,
+    UnreservedPriorityOnly,
+    UnreservedBothDynamic,
+}
+
+impl From<RawTwoLaneVariant> for TwoLaneVariant {
+    fn from(v: RawTwoLaneVariant) -> Self {
+        match v {
+            RawTwoLaneVariant::RbReservedPriorityOnly => TwoLaneVariant::RbReservedPriorityOnly,
+            RawTwoLaneVariant::RbReservedBothDynamic => TwoLaneVariant::RbReservedBothDynamic,
+            RawTwoLaneVariant::UnreservedPriorityOnly => TwoLaneVariant::UnreservedPriorityOnly,
+            RawTwoLaneVariant::UnreservedBothDynamic => TwoLaneVariant::UnreservedBothDynamic,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub struct RawTwoLaneConfig {
+    pub variant: RawTwoLaneVariant,
+    pub priority: RawEip1559Config,
+    pub standard: RawEip1559Config,
+    /// Multiplier-floor invariant `c_priority ≥ floor × c_standard`.
+    /// Numerator and denominator are integers; denominator must be
+    /// non-zero and the ratio must be ≥ 1 (the floor is at least
+    /// "priority is no cheaper than standard").
+    pub multiplier_floor_num: u64,
+    pub multiplier_floor_den: u64,
+    /// `priority-first` (canonical, mechanism-design.md
+    /// §"FIFO fallback") or `fifo` for the FIFO fallback.
+    pub lane_selection_order: LaneSelectionOrder,
 }
 
 #[derive(Debug, Copy, Clone, Deserialize, PartialEq, Eq)]
@@ -749,6 +790,7 @@ impl LateTXAttackConfig {
 pub enum PricingConfig {
     Baseline,
     Eip1559(Eip1559Settings),
+    TwoLane(TwoLaneSettings),
 }
 
 /// Mempool-gate config. `max_total_size_bytes` defaults to
@@ -859,6 +901,39 @@ impl SimConfiguration {
                 };
                 settings.validate()?;
                 PricingConfig::Eip1559(settings)
+            }
+            RawPricingConfig::TwoLane(raw) => {
+                let priority = Eip1559Settings {
+                    min_fee_a,
+                    initial_quote_per_byte: raw.priority.initial_quote_per_byte,
+                    target_num: raw.priority.target_num,
+                    target_den: raw.priority.target_den,
+                    max_change_denominator: raw.priority.max_change_denominator,
+                    window_length: raw.priority.window_length,
+                };
+                let standard = Eip1559Settings {
+                    min_fee_a,
+                    initial_quote_per_byte: raw.standard.initial_quote_per_byte,
+                    target_num: raw.standard.target_num,
+                    target_den: raw.standard.target_den,
+                    max_change_denominator: raw.standard.max_change_denominator,
+                    window_length: raw.standard.window_length,
+                };
+                let multiplier_floor =
+                    Multiplier::new(raw.multiplier_floor_num, raw.multiplier_floor_den)?;
+                // priority_reservation_bytes per spec line 289 is set
+                // to max_block_size (one RB-worth). The protocol value
+                // is rb_body_max_size_bytes.
+                let settings = TwoLaneSettings {
+                    variant: raw.variant.into(),
+                    priority,
+                    standard,
+                    multiplier_floor,
+                    lane_selection_order: raw.lane_selection_order,
+                    priority_reservation_bytes: params.rb_body_max_size_bytes,
+                };
+                settings.validate()?;
+                PricingConfig::TwoLane(settings)
             }
         };
         let mempool_gate = MempoolGateConfig {

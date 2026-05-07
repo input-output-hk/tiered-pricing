@@ -13,11 +13,13 @@
 //! never enters this module's hot paths.
 
 pub mod single_lane;
+pub mod two_lane;
 pub mod window;
 
 use serde::{Deserialize, Serialize};
 
 pub use single_lane::{BaselinePricing, Eip1559Pricing, Eip1559Settings};
+pub use two_lane::{TwoLanePricing, TwoLaneSettings, TwoLaneVariant};
 pub use window::CapacityWeightedWindow;
 
 /// One of two transaction lanes. Single-lane mechanisms always set
@@ -63,6 +65,28 @@ pub struct PricedBlockSample {
     pub controller_lane: Lane,
     pub relevant_bytes: u64,
     pub relevant_capacity: u64,
+}
+
+/// Lane breakdown of a priced block's transaction bytes.
+///
+/// The simulator collates this from the block's transactions and hands
+/// it to the backend's [`PricingBackend::samples_for_block`] so the
+/// backend can decide which controllers to feed and what numerator/
+/// denominator each sample uses. The cap-on-priority-bytes rule from
+/// implementation-plan.md line 73
+/// (`relevant_bytes = min(priority_paying_bytes, max_block_size)` for
+/// the RB-reserved priority controller's EB sample) is applied **inside
+/// the variant's override**, not here — this struct carries raw bytes.
+#[derive(Debug, Clone, Copy)]
+pub struct BlockLaneBreakdown {
+    /// Bytes of transactions whose `posted_lane = Priority`.
+    pub priority_paying_bytes: u64,
+    /// Bytes of transactions whose `posted_lane = Standard`.
+    pub standard_paying_bytes: u64,
+    /// The block's own capacity (RB body cap or EB tx-referenced cap).
+    /// Two-lane samples use this directly or substitute one RB-worth
+    /// per the spec (mechanism-design.md lines 168-180).
+    pub block_capacity: u64,
 }
 
 /// Rational multiplier `numerator / denominator`. Used for the
@@ -129,6 +153,32 @@ pub trait PricingBackend: Send + Sync {
     /// single-lane.
     fn min_priority_premium_multiplier(&self) -> Option<Multiplier> {
         None
+    }
+
+    /// Decide which `PricedBlockSample`s this priced block emits to
+    /// which controller(s). Default emits one `Standard` sample over
+    /// total bytes — correct for every single-lane backend
+    /// (priority bytes are always 0 in single-lane, so this collapses
+    /// to the M1 emission rule). Two-lane backends override per
+    /// variant (implementation-plan.md lines 65-77).
+    ///
+    /// **Policy, not selection.** The simulator still owns block
+    /// packing; this method only chooses what to feed back into the
+    /// controller(s) once a block is sealed.
+    fn samples_for_block(
+        &self,
+        block_kind: BlockKind,
+        breakdown: &BlockLaneBreakdown,
+    ) -> Vec<PricedBlockSample> {
+        let total_bytes = breakdown
+            .priority_paying_bytes
+            .saturating_add(breakdown.standard_paying_bytes);
+        vec![PricedBlockSample {
+            block_kind,
+            controller_lane: Lane::Standard,
+            relevant_bytes: total_bytes,
+            relevant_capacity: breakdown.block_capacity,
+        }]
     }
 
     /// Snapshot for time-series logging.

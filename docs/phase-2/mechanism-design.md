@@ -34,19 +34,25 @@ Both-dynamic appears as one row with two cells because the partition decision is
 
 These apply to every live mechanism unless the per-mechanism section explicitly overrides.
 
-### EIP-1559 maxFee semantics
+### EIP-1559 maximum-fee semantics
 
-Each transaction posts a `maxFee` — the highest fee the user is willing to pay. The mechanism interprets `maxFee` as a per-byte coefficient bound (single-lane) or as a per-lane bound (two-lane).
+Each transaction's existing `fee` field is interpreted as the maximum total lovelace amount the transaction authorises the ledger to collect. This document refers to that value as `maxFee` when discussing EIP-1559 semantics, but it is not a separate transaction field.
 
-- **Invalidation.** If the current quoted price moves above a transaction's `maxFee` while the transaction sits in mempool, the transaction is invalid for inclusion and is evicted. This is the natural mempool-draining mechanism: users who underestimated quote drift are removed and can resubmit at a higher `maxFee`.
+For validity, the current quoted fee for the transaction's posted lane must fit under that maximum:
+
+$$\text{minFeeB} + \text{currentQuotePerByte}(\text{postedLane}) \cdot \text{bytes} \le \text{maxFee}$$
+
+In single-lane, `postedLane` is the single dynamic lane. In two-lane mechanisms, the transaction's priority/standard intent determines which lane quote is checked.
+
+- **Invalidation.** If the current quoted fee moves above a transaction's `maxFee` while the transaction sits in mempool, the transaction is invalid for inclusion and is evicted. This is the natural mempool-draining mechanism: users who underestimated quote drift are removed and can resubmit with a higher fee-field value.
 - **Inclusion fee.** When a transaction is included, it pays the *current* quote at inclusion, not its `maxFee`.
 - **Difference refund.** The difference `maxFee − actual fee` is refunded to the user via the fee-change return mechanism (Polina's separate CIP). The refund is per-transaction.
 
-This is the standard EIP-1559 pattern: users post a max bound, pay the current price, get refunded the gap. Invalidation under `maxFee` replaces the prior "never-stale" proposal; the perverse mempool-clog argument that motivated never-stale doesn't apply because invalidation itself drains stale entries.
+This is the standard EIP-1559 pattern: users post a maximum authorised payment, pay the current price, get refunded the gap. Invalidation under `maxFee` replaces the prior "never-stale" proposal; the perverse mempool-clog argument that motivated never-stale doesn't apply because invalidation itself drains stale entries.
 
 ### Difference-refund mechanism
 
-The fee-change return mechanism (Polina's CIP, separate deliverable) refunds the difference between `maxFee` and the actual fee at inclusion. For two-lane mechanisms it also handles the lane-mismatch refund: a priority-fee-paying transaction that lands in standard space (because the EB was below capacity, or because the priority partition was already full) is refunded down to the standard fee. Both refund paths use the same mechanism.
+The fee-change return mechanism (Polina's CIP, separate deliverable) refunds the difference between the transaction's maximum authorised fee (`maxFee`, carried in the existing `fee` field) and the actual fee at inclusion. For two-lane mechanisms it also handles the lane-mismatch refund: a priority-fee-paying transaction that lands in standard space (because the EB was below capacity, or because the priority partition was already full) is refunded down to the standard fee. Both refund paths use the same mechanism.
 
 ### Finite mempool cap
 
@@ -128,7 +134,7 @@ The `±1/D` clamp restores symmetry: for whichever target the deployment picks, 
 
 **Calibration parameters:** `target`, `D`, initial `c`. See *Calibration vs invariant*.
 
-**maxFee, invalidation, refund:** all standard per *Common design choices*. There is no lane choice; everyone pays the same coefficient.
+**Maximum fee, invalidation, refund:** all standard per *Common design choices*. There is no lane choice; everyone pays the same coefficient.
 
 **Properties.**
 
@@ -196,7 +202,7 @@ Same fee structure and refund/invalidation rules as the RB-reserved variant, but
 
 **Priority delivery:** producer-side block-build ordering. Compliant producers scan the mempool with `priority_first` semantics — priority-fee transactions are admitted to the working block before standard-fee transactions in the same scan. There is no on-chain check that they did so.
 
-**Refund:** the EB-fullness-conditional rule does not apply. A priority-fee transaction that is included pays the current priority quote, refund per the maxFee rule. There is no notion of "wrong space" — there's no partition to be in or out of.
+**Refund:** the EB-fullness-conditional rule does not apply. A priority-fee transaction that is included pays the current priority quote, with refund per the maximum-fee rule. There is no notion of "wrong space" — there's no partition to be in or out of.
 
 **Priority controller signal: open question.** Without a partition, "priority utilisation" needs a definition. Three candidates the spec presents as options:
 
@@ -225,7 +231,7 @@ Two dynamic controllers — one for the priority lane, one for the standard lane
 
 Both coefficients move dynamically. The cross-lane invariant is enforced after every controller update: priority's per-byte rate is always at least `multiplier_floor` times standard's. With both lanes dynamic, the standard side also responds to load — preserving today's flat-fee experience is sacrificed in exchange for fuller load adaptation.
 
-**maxFee semantics apply to both lanes.** A standard-fee user posts a `standard_maxFee`; a priority-fee user posts a `priority_maxFee`. Each is invalidated independently if its lane's quote rises above its `maxFee`. Each is refunded the difference between its `maxFee` and the lane's current quote at inclusion.
+**Maximum-fee semantics apply to both lanes.** A standard-fee transaction and a priority-fee transaction each carry one maximum authorised fee value in the existing transaction `fee` field. The transaction's posted lane determines which quote is checked while it sits in mempool. It is invalidated if that lane's current quoted fee rises above its `maxFee`, and it is refunded the difference between `maxFee` and the actual fee charged at inclusion.
 
 **Partition is an orthogonal axis.** Both-dynamic can be deployed with the RB-reserved partition (matching the RB-reserved priority-only mechanism's partition rules) or without (matching the un-reserved priority-only mechanism's lack of partition). Both forms are live candidates. The choice between them is independent of whether the standard side is dynamic.
 
@@ -236,7 +242,7 @@ Both coefficients move dynamically. The cross-lane invariant is enforced after e
 **Properties.**
 
 - Full load adaptation on both sides — standard fees move with load too, not just priority.
-- Two user-facing prices and two `maxFee` choices per user. More wallet/explorer surface.
+- Two user-facing prices and lane-aware fee-cap guidance. More wallet/explorer surface.
 - Multiplier-floor invariant guarantees price discrimination across load regimes.
 - The community-preference argument against a dynamic standard lane (no guaranteed fixed-fee path for non-priority users) is the main reason this is not the leading candidate. Kept as a candidate pending further evidence.
 
@@ -246,7 +252,7 @@ Both coefficients move dynamically. The cross-lane invariant is enforced after e
 
 Both lanes static prices, no controllers. The simplest possible two-lane mechanism: priority and standard prices fixed at genesis, with the multiplier-floor invariant maintained statically.
 
-Discarded preliminarily because it cannot adapt to load: under any demand regime that differs from the calibration target, the mechanism either over- or under-prices. Earlier experimental data quantifying this is invalidated by the change to EIP-1559 maxFee semantics (the prior runs assumed never-stale validation). Updated experimental comparison is pending.
+Discarded preliminarily because it cannot adapt to load: under any demand regime that differs from the calibration target, the mechanism either over- or under-prices. Earlier experimental data quantifying this is invalidated by the change to EIP-1559 maximum-fee semantics (the prior runs assumed never-stale validation). Updated experimental comparison is pending.
 
 Kept documented because it remains the simplest baseline against which the dynamic variants must justify their additional surface.
 
@@ -298,9 +304,9 @@ The simulator at `sim-rs/` is the primary phase-2 evidence-generation tool. It i
 
 | Spec design | Simulator approximation |
 |---|---|
-| EIP-1559 `maxFee` semantics: invalidation if quote rises above `maxFee`; difference refund on inclusion | Never-stale fee history (`SingleTierFeeHistory::fee_satisfies`): a tx admitted at any quote remains selectable through later controller moves. No invalidation. No difference refund. Pre-2026-05-06 evidence reflects this older model. |
+| EIP-1559 maximum-fee semantics: invalidation if the current quoted fee rises above the transaction's fee-field value; difference refund on inclusion | Never-stale fee history (`SingleTierFeeHistory::fee_satisfies`): a tx admitted at any quote remains selectable through later controller moves. No invalidation. No difference refund. Pre-2026-05-06 evidence reflects this older model. |
 | EB priority partition activated only when EB is at capacity (binary trigger) | `priority_only_fast_path.eb_fullness_threshold = 0.95`: priority transactions in EBs below 95% fullness are treated as paying standard fee for welfare metrics |
-| Per-tx refund on lane mismatch and `maxFee − quote` difference | Effective-fee relabelling at the metrics layer (`Transaction::effective_fee`); no on-chain refund modelled |
+| Per-tx refund on lane mismatch and fee-field value minus actual-fee difference | Effective-fee relabelling at the metrics layer (`Transaction::effective_fee`); no on-chain refund modelled |
 | RB partition definitionally priority-only | `ranking_block_caps.max_standard_block_fraction = 0.0` in priority-only RB-reserved configs |
 | Priority partition size = one RB-worth | RB-equivalent yardstick in the priority controller's EB-update path: `min(eb_priority_bytes, rb_priority_byte_capacity) / rb_priority_byte_capacity` |
 | Anti-standard cap absent under `priority_first` | Configurable `max_standard_block_fraction < 1.0` in some configs (calibration vestige; under `priority_first` it does not affect priority's access, only standard's max share) |

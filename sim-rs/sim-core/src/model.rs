@@ -1,6 +1,6 @@
 use std::{collections::BTreeMap, fmt::Display, sync::Arc};
 
-use crate::{clock::Timestamp, config::NodeId};
+use crate::{clock::Timestamp, config::NodeId, tx_pricing::Lane};
 use serde::Serialize;
 
 macro_rules! id_wrapper {
@@ -108,14 +108,52 @@ impl LinearRankingBlock {
 
 id_wrapper!(TransactionId, u64);
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct Transaction {
     pub id: TransactionId,
     pub shard: u64,
     pub bytes: u64,
     pub input_id: u64,
     pub overcollateralization_factor: u64,
+    /// Total maximum lovelace this transaction authorises the ledger to
+    /// charge (the spec's `maxFee` from mechanism-design.md line 39).
+    /// Stored as integer lovelace; never f64.
+    pub max_fee_lovelace: u64,
+    /// Lane the user paid into. Single-lane mechanisms always set
+    /// `Lane::Standard`; two-lane mechanisms (M2+) populate both.
+    pub posted_lane: Lane,
+    /// Sample value field used by welfare metrics (M3+). Default 0 for
+    /// pre-actor-model paths.
+    pub value_lovelace: u64,
+    /// Urgency factor (real number > 1 per the paper). Stored as f64
+    /// because at M1 nothing reads it; at M3 the actor model converts it
+    /// into a lane-choice decision via fixed-point/pinned-libm math
+    /// (implementation-plan.md lines 165-167).
+    pub urgency: f64,
+    /// Index of the actor component that produced this tx, for per-class
+    /// welfare metrics (M3+). Default 0 for pre-actor paths.
+    pub urgency_component_index: u32,
 }
+
+// Manual PartialEq/Eq: f64 is not Eq because of NaN, so we compare
+// `urgency` by bit pattern (deterministic and reflexive on every value
+// including NaN). All other fields are integer/enum and compared
+// directly.
+impl PartialEq for Transaction {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+            && self.shard == other.shard
+            && self.bytes == other.bytes
+            && self.input_id == other.input_id
+            && self.overcollateralization_factor == other.overcollateralization_factor
+            && self.max_fee_lovelace == other.max_fee_lovelace
+            && self.posted_lane == other.posted_lane
+            && self.value_lovelace == other.value_lovelace
+            && self.urgency.to_bits() == other.urgency.to_bits()
+            && self.urgency_component_index == other.urgency_component_index
+    }
+}
+impl Eq for Transaction {}
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct InputBlockId<Node = NodeId> {

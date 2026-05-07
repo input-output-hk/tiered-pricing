@@ -11,6 +11,7 @@ use crate::{
         Block, BlockId, CpuTaskId, EndorserBlockId, InputBlockId, LinearRankingBlock, NoVoteReason,
         Transaction, TransactionId, TransactionLostReason, VoteBundle, VoteBundleId,
     },
+    tx_pricing::Lane,
 };
 
 #[derive(Debug, Clone)]
@@ -277,6 +278,34 @@ pub enum Event {
         sender: Node,
         recipient: Node,
     },
+    /// Phase-2 inclusion event. Emitted by the producer of the block that
+    /// commits this transaction to the chain (the RB body's producer for
+    /// RB-resident txs; the cert RB's producer for endorsed-EB txs).
+    /// `actual_fee_lovelace` is computed at the producer's current quote
+    /// for `served_lane`; `refund_lovelace = max_fee_lovelace −
+    /// actual_fee_lovelace`.
+    TXIncluded {
+        id: TransactionId,
+        producer: Node,
+        slot: u64,
+        bytes: u64,
+        posted_lane: Lane,
+        served_lane: Lane,
+        max_fee_lovelace: u64,
+        actual_fee_lovelace: u64,
+        refund_lovelace: u64,
+    },
+    /// Phase-2 quote-drift eviction event. Emitted on the node that evicts
+    /// the tx during post-block revalidation.
+    TXEvictedQuoteDrift {
+        id: TransactionId,
+        node: Node,
+        slot: u64,
+        bytes: u64,
+        posted_lane: Lane,
+        current_quote_per_byte: u64,
+        max_fee_lovelace: u64,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -509,6 +538,55 @@ impl EventTracker {
             id,
             sender: self.to_node(sender),
             recipient: self.to_node(recipient),
+        });
+    }
+
+    /// Phase-2: emitted at the producer when a tx commits to the chain.
+    #[allow(clippy::too_many_arguments)]
+    pub fn track_tx_included(
+        &self,
+        id: TransactionId,
+        producer: NodeId,
+        slot: u64,
+        bytes: u64,
+        posted_lane: Lane,
+        served_lane: Lane,
+        max_fee_lovelace: u64,
+        actual_fee_lovelace: u64,
+        refund_lovelace: u64,
+    ) {
+        self.send(Event::TXIncluded {
+            id,
+            producer: self.to_node(producer),
+            slot,
+            bytes,
+            posted_lane,
+            served_lane,
+            max_fee_lovelace,
+            actual_fee_lovelace,
+            refund_lovelace,
+        });
+    }
+
+    /// Phase-2: emitted on the node that evicts a quote-drift tx.
+    pub fn track_tx_evicted_quote_drift(
+        &self,
+        id: TransactionId,
+        node: NodeId,
+        slot: u64,
+        bytes: u64,
+        posted_lane: Lane,
+        current_quote_per_byte: u64,
+        max_fee_lovelace: u64,
+    ) {
+        self.send(Event::TXEvictedQuoteDrift {
+            id,
+            node: self.to_node(node),
+            slot,
+            bytes,
+            posted_lane,
+            current_quote_per_byte,
+            max_fee_lovelace,
         });
     }
 

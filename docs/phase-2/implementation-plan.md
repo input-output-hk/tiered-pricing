@@ -258,10 +258,11 @@ Goal: prove the new pricing semantics end-to-end on the simplest possible setup.
 
 - Implement `tx_pricing/two_lane.rs`: two controllers, multiplier-floor invariant, `LaneSelectionOrder`, partition × signal-source window-length choice.
 - Implement lane-aware block selection: RB priority-only validity rule for RB-reserved variants, EB binary fullness trigger per the rules above.
+- Add minimal EB endorsement-time pricing validation: before endorsing a candidate EB, reject the endorsement if any EB transaction no longer satisfies `minFeeB + current_quote(posted_lane) × bytes ≤ max_fee_lovelace` at the endorser's current quote. Do **not** mutate or filter the EB body during endorsement; filtering belongs at EB production/selection time, while endorsement validation decides whether the EB is endorseable.
 - **Smoke tests at M2 are deterministic** (actor system and suite runner arrive at M3): hand-rolled scenarios for each variant — RB-reserved priority-only-static-standard, RB-reserved both-dynamic, un-reserved priority-only, un-reserved both-dynamic. Each scenario hand-tunes mempool arrivals to exercise: multiplier-floor enforcement, EB partition activation under saturation, EB partition non-activation under empty mempool, RB validity rejection of standard-fee txs, lane-mismatch refund accounting, `priority_first` vs `fifo` selection order.
 - Sanity check: priority lane retains more value than standard under congestion in both partitioned and un-partitioned setups.
 
-**Exit criterion**: all four two-lane variants green on deterministic smoke tests; multiplier-floor invariant maintained across controller updates; partition activation logic green on both empty-mempool and saturation cases.
+**Exit criterion**: all four two-lane variants green on deterministic smoke tests; multiplier-floor invariant maintained across controller updates; partition activation logic green on both empty-mempool and saturation cases; stale maxFee-invalid EB transactions are not endorsed and therefore do not affect pricing samples, ledger spent-input state, or mempool conflict removal.
 
 ### M3: Actor model + metrics + suite runner + authored phase-2 suites
 
@@ -308,6 +309,7 @@ New unit tests at M2:
 - RB partition rejects standard-fee tx in RB-reserved variants (validity error, not a cap).
 - RB has no lane-validity rule in un-reserved and single-lane mechanisms.
 - EB binary fullness trigger: priority partition not activated when remaining EB bytes accommodate at least one valid unselected mempool tx; partition not activated when mempool is exhausted; partition activated when no remaining tx fits.
+- EB endorsement-time pricing validation: an EB containing a transaction whose current posted-lane quote exceeds `max_fee_lovelace` is not endorsed. Regression assertions: the invalid EB does not emit an EB pricing sample, does not add the invalid tx's input to `spent_inputs`, and does not evict an otherwise-valid in-mempool tx sharing that input through `remove_conflicting_txs`.
 - Lane-mismatch refund formula is general: `refund_lovelace = max_fee_lovelace − actual_fee_lovelace` regardless of `posted_lane` vs `served_lane`. Test cases: (a) `posted_lane = Priority`, `served_lane = Standard`, `max_fee_lovelace` set to the current priority fee → refund equals priority fee − standard fee; (b) same lane mismatch but `max_fee_lovelace` set above the priority fee → refund equals `max_fee_lovelace − actual_standard_fee`. Both cases must produce the formula's exact value, not a hardcoded "priority − standard" shortcut.
 - Multiplier-floor invariant: `c_priority ≥ multiplier_floor × c_standard` after every controller update, including when `c_standard` moves.
 - **RB-reserved standard isolation**: in partitioned both-dynamic, an RB filled with priority-fee txs updates `c_priority` but does **not** change `c_standard` or the standard-controller's window state. Test: assemble a saturated priority-only RB, snapshot `c_standard` and the standard window before/after, assert no movement.

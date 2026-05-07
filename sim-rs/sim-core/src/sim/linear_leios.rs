@@ -32,7 +32,8 @@ use crate::{
         mempool_gate::MempoolGate,
     },
     tx_pricing::{
-        BaselinePricing, BlockKind, Eip1559Pricing, Lane, PricedBlockSample, PricingBackend,
+        BaselinePricing, BlockKind, BlockLaneBreakdown, Eip1559Pricing, Lane, LaneSelectionOrder,
+        LaneValidityRule, PricedBlockSample, PricingBackend, TwoLanePricing,
     },
 };
 
@@ -367,6 +368,10 @@ impl NodeImpl for LinearLeiosNode {
                 Eip1559Pricing::new(settings.clone())
                     .expect("Eip1559Settings validated at config build time"),
             ),
+            PricingConfig::TwoLane(settings) => Box::new(
+                TwoLanePricing::new(settings.clone())
+                    .expect("TwoLaneSettings validated at config build time"),
+            ),
         };
 
         Self {
@@ -558,6 +563,10 @@ impl LinearLeiosNode {
             return;
         };
 
+        let validity_rule = self.pricing.lane_validity_rule(BlockKind::RankingBlock);
+        let selection_order = self.pricing.lane_selection_order();
+        let rb_reserved = matches!(validity_rule, LaneValidityRule::PriorityOnly);
+
         let parent = self.latest_rb_id();
         let endorsement = parent.and_then(|rb_id| {
             let earliest_endorse_time = Timestamp::from_secs(rb_id.slot)
@@ -581,10 +590,28 @@ impl LinearLeiosNode {
             let votes = votes.clone();
 
             if let Some(eb) = self.get_validated_eb(eb_id) {
-                // If we're endorsing this EB, clear its TXs out of the mempool now
-                // so that we don't include them in new blocks.
-                // Charge inclusions BEFORE remove (which would silent-remove from gate).
-                self.charge_inclusions_for_eb_txs(&eb);
+                // M2: EB-validation-at-endorsement-time (handoff §4 /
+                // approved scope). Walk the candidate EB's txs and
+                // refuse to endorse if any has gone stale at the
+                // producer's current per-lane quote — staleness in the
+                // EB would otherwise pollute the priced-block sample,
+                // `spent_inputs`, and downstream conflict cascades.
+                if !self.eb_endorsement_valid(&eb) {
+                    return None;
+                }
+                // EB content is endorseable. Decide per-tx served_lane
+                // and charge inclusions. Sample-from-mempool already
+                // removed eb.txs at EB-creation time; this clears them
+                // from the fee gate and emits one inclusion event
+                // each.
+                let served = self.eb_served_lanes(&eb, rb_reserved);
+                let pairs: Vec<(Arc<Transaction>, Lane)> = eb
+                    .txs
+                    .iter()
+                    .cloned()
+                    .zip(served)
+                    .collect();
+                self.charge_inclusions(&pairs);
                 self.remove_eb_txs_from_mempool(&eb);
             } else {
                 // We haven't finished validating this EB, maybe even haven't received it and its contents.
@@ -611,10 +638,12 @@ impl LinearLeiosNode {
                 self.tracker.track_transaction_generated(&tx, self.id);
                 rb_transactions.push(Arc::new(tx));
             } else {
-                self.sample_from_mempool(
+                self.sample_from_mempool_lane_aware(
                     &mut rb_transactions,
                     self.sim_config.max_block_size,
                     true,
+                    validity_rule,
+                    selection_order,
                 );
             }
         }
@@ -637,7 +666,17 @@ impl LinearLeiosNode {
                     eb_transactions.push(Arc::new(tx));
                 }
             } else {
-                self.sample_from_mempool(&mut eb_transactions, self.sim_config.max_eb_size, false);
+                // EB body packing is lane-aware too. Partition activation
+                // and per-tx served_lane are recomputed at endorsement
+                // time from the EB's bytes (saturation rule), so the
+                // producer's job here is just body content.
+                self.sample_from_mempool_lane_aware(
+                    &mut eb_transactions,
+                    self.sim_config.max_eb_size,
+                    false,
+                    LaneValidityRule::None,
+                    selection_order,
+                );
             }
         }
         let (eb_announcement, eb) = if eb_transactions.is_empty() {
@@ -673,15 +712,105 @@ impl LinearLeiosNode {
         };
 
         // Producer charges its own RB body's transactions for inclusion.
-        // Sample-from-mempool already removed them from the linear-leios
-        // mempool; this clears them from the fee gate and emits one
-        // inclusion event each (with `actual_fee` and `refund` at the
-        // producer's current quote).
-        self.charge_inclusions_for_rb_body(&rb.transactions);
+        // RB body served-lane policy:
+        // - RB-reserved variants (priority-only RB): served_lane = Priority.
+        // - Un-reserved (single-lane and un-reserved two-lane): served_lane = posted_lane.
+        let rb_pairs: Vec<(Arc<Transaction>, Lane)> = rb
+            .transactions
+            .iter()
+            .cloned()
+            .map(|tx| {
+                let served = if rb_reserved {
+                    Lane::Priority
+                } else {
+                    tx.posted_lane
+                };
+                (tx, served)
+            })
+            .collect();
+        self.charge_inclusions(&rb_pairs);
 
         self.tracker.track_praos_block_lottery_won(rb.header.id);
         self.queued
             .schedule_cpu_task(CpuTask::RBBlockGenerated(rb, eb));
+    }
+
+    /// Validate every tx in a candidate EB against this producer's
+    /// current per-lane quote. Returns false if any tx's `posted_fee`
+    /// exceeds its `max_fee_lovelace` — meaning the EB has at least one
+    /// stale tx and must not be endorsed
+    /// (mechanism-design.md line 43; M1 handoff §"Known limitations" §4).
+    ///
+    /// **Refuse-to-endorse remedy** (per user direction at plan time):
+    /// the endorser cannot rewrite the EB body, so the only spec-faithful
+    /// response to a stale-tx EB is to skip the endorsement entirely.
+    fn eb_endorsement_valid(&self, eb: &EndorserBlock) -> bool {
+        let q_standard = self.pricing.current_quote(Lane::Standard);
+        let q_priority = self.pricing.current_quote(Lane::Priority);
+        let min_fee_b = self.gate.config().min_fee_b;
+        for tx in &eb.txs {
+            let q = match tx.posted_lane {
+                Lane::Standard => q_standard,
+                Lane::Priority => q_priority,
+            };
+            let posted_fee = q
+                .checked_mul(tx.bytes)
+                .and_then(|x| x.checked_add(min_fee_b));
+            match posted_fee {
+                Some(fee) if fee <= tx.max_fee_lovelace => continue,
+                _ => return false,
+            }
+        }
+        true
+    }
+
+    /// Recompute per-tx `served_lane` for a candidate EB at endorsement
+    /// time using the saturation rule (mechanism-design.md line 161:
+    /// "EB at capacity"). For the on-chain decision, the producer that
+    /// built the EB and the endorser see the same eb-body bytes; the
+    /// activation decision is the same.
+    ///
+    /// - Un-reserved variants (`rb_reserved = false`): no partition,
+    ///   served_lane = posted_lane.
+    /// - RB-reserved + saturated (body bytes ≥ `max_eb_size`):
+    ///   priority-fee txs whose cumulative bytes ≤ one RB-worth get
+    ///   served_lane = Priority; further priority txs and all standard
+    ///   txs get served_lane = Standard.
+    /// - RB-reserved + below capacity: all priority-fee txs get
+    ///   served_lane = Standard (refunded down to standard).
+    fn eb_served_lanes(&self, eb: &EndorserBlock, rb_reserved: bool) -> Vec<Lane> {
+        let mut out = Vec::with_capacity(eb.txs.len());
+        if !rb_reserved {
+            for tx in &eb.txs {
+                out.push(tx.posted_lane);
+            }
+            return out;
+        }
+        let body_bytes: u64 = eb.txs.iter().map(|t| t.bytes).sum();
+        let activated = body_bytes >= self.sim_config.max_eb_size;
+        if !activated {
+            for _ in &eb.txs {
+                out.push(Lane::Standard);
+            }
+            return out;
+        }
+        let priority_reservation_bytes = self.sim_config.max_block_size;
+        let mut priority_used: u64 = 0;
+        for tx in &eb.txs {
+            let lane = match tx.posted_lane {
+                Lane::Standard => Lane::Standard,
+                Lane::Priority => {
+                    if priority_used.saturating_add(tx.bytes) <= priority_reservation_bytes {
+                        priority_used = priority_used.saturating_add(tx.bytes);
+                        Lane::Priority
+                    } else {
+                        Lane::Standard
+                    }
+                }
+            };
+            out.push(lane);
+        }
+        out
     }
 
     fn finish_generating_rb(
@@ -1466,11 +1595,26 @@ impl LinearLeiosNode {
         true
     }
 
-    fn sample_from_mempool(
+    /// Lane-aware mempool sampling (implementation-plan.md
+    /// §"Lane-aware block selection", lines 91, 105-118; M1 handoff
+    /// §"Architectural gaps M1 left for M2" item 1).
+    ///
+    /// Two filters layered on the M1 base:
+    /// - `validity_rule == PriorityOnly`: skip standard-fee txs (they
+    ///   cannot be in this block's body — RB-reserved RB rule).
+    /// - `selection_order == PriorityFirst`: priority-fee txs are
+    ///   considered before standard-fee txs (canonical block-build
+    ///   order for the live two-lane mechanisms).
+    ///
+    /// The `MempoolSamplingStrategy` (random vs ordered-by-id) acts as
+    /// the within-lane tiebreaker — the lane order takes precedence.
+    fn sample_from_mempool_lane_aware(
         &mut self,
         txs: &mut Vec<Arc<Transaction>>,
         max_size: u64,
         remove: bool,
+        validity_rule: LaneValidityRule,
+        selection_order: LaneSelectionOrder,
     ) {
         let mut size = txs.iter().map(|tx| tx.bytes).sum::<u64>();
         let mut candidates: Vec<_> = self.mempool.ids().collect();
@@ -1483,12 +1627,37 @@ impl LinearLeiosNode {
             candidates.reverse();
         }
 
-        // Fill with as many pending transactions as can fit
+        // Lane-priority ordering is applied AFTER the strategy-based
+        // ordering. We `pop` from the back, so priority txs need to
+        // sort to higher keys (back of vec) under PriorityFirst.
+        // `sort_by_key` is stable, so within-lane order is preserved.
+        if matches!(selection_order, LaneSelectionOrder::PriorityFirst) {
+            let txs_view = &self.txs;
+            candidates.sort_by_key(|id| match txs_view.get(id) {
+                Some(TransactionView::Received(tx)) => match tx.posted_lane {
+                    Lane::Priority => 1u8,
+                    Lane::Standard => 0u8,
+                },
+                _ => 0u8,
+            });
+        }
+
+        // Fill with as many pending transactions as can fit. Validity
+        // rejections `continue` (the next candidate may still fit);
+        // size rejections `break` (matches M1 single-lane behaviour
+        // and is what the EB binary fullness trigger's "valid
+        // unselected mempool tx remains and none fits in residual"
+        // case relies on — see implementation-plan.md lines 109-112).
         let mut removed_ids = vec![];
         while let Some(id) = candidates.pop() {
             let Some(TransactionView::Received(tx)) = self.txs.get(&id) else {
                 panic!("missing a TX in our mempool");
             };
+            if matches!(validity_rule, LaneValidityRule::PriorityOnly)
+                && tx.posted_lane == Lane::Standard
+            {
+                continue;
+            }
             if size + tx.bytes > max_size {
                 break;
             }
@@ -1506,6 +1675,113 @@ impl LinearLeiosNode {
         }
     }
 
+    /// EB selection with the spec's binary fullness trigger
+    /// (implementation-plan.md lines 104-120). Returns the EB body
+    /// txs together with each tx's `served_lane`, plus a flag so the
+    /// caller knows whether the priority partition activated (only
+    /// relevant for RB-reserved variants — un-reserved variants ignore
+    /// the flag and serve `posted_lane` directly).
+    ///
+    /// Activation rules (OR'd):
+    /// 1. **Saturation** — `selected_bytes == eb_capacity`. A full EB
+    ///    is a saturation event regardless of mempool depletion.
+    /// 2. **Capacity-bound rejection** — at least one valid unselected
+    ///    tx remains and none of them fits in residual bytes.
+    ///
+    /// If neither holds (mempool ran dry before the EB filled, or
+    /// some unselected tx still fits), partition is **not** activated.
+    ///
+    /// **Test-only.** The production `try_generate_rb` flow uses
+    /// `sample_from_mempool_lane_aware` for body packing and
+    /// `eb_served_lanes` (saturation rule) at endorsement time. This
+    /// function exercises the full two-trigger spec for the
+    /// partition-activation unit test (M2 verification line 310).
+    /// M3's multi-producer flow may consolidate the dual paths.
+    #[cfg(test)]
+    fn select_eb_with_partition(
+        &mut self,
+        eb_capacity: u64,
+        priority_reservation_bytes: u64,
+        rb_reserved: bool,
+        selection_order: LaneSelectionOrder,
+    ) -> (Vec<(Arc<Transaction>, Lane)>, bool) {
+        // Pack the EB greedily under the configured selection order.
+        let mut packed: Vec<Arc<Transaction>> = Vec::new();
+        self.sample_from_mempool_lane_aware(
+            &mut packed,
+            eb_capacity,
+            false, // don't drain the mempool — selection happens elsewhere
+            LaneValidityRule::None,
+            selection_order,
+        );
+        let selected_bytes: u64 = packed.iter().map(|t| t.bytes).sum();
+        let residual = eb_capacity.saturating_sub(selected_bytes);
+
+        // Determine partition activation. Scope the borrow tightly so
+        // we don't keep `self.txs`/`self.mempool` borrowed past this
+        // block — `assign_served_lanes` calls `self` methods later.
+        let activated = {
+            // Saturation trigger fires regardless of mempool state.
+            if selected_bytes >= eb_capacity {
+                true
+            } else {
+                // Walk the remaining mempool (txs not in `packed`).
+                let packed_ids: HashSet<_> = packed.iter().map(|t| t.id).collect();
+                let mut any_unselected = false;
+                let mut any_fits = false;
+                for id in self.mempool.ids() {
+                    if packed_ids.contains(&id) {
+                        continue;
+                    }
+                    let Some(TransactionView::Received(tx)) = self.txs.get(&id) else {
+                        continue;
+                    };
+                    any_unselected = true;
+                    if tx.bytes <= residual {
+                        any_fits = true;
+                        break;
+                    }
+                }
+                // not-activated: mempool exhausted OR some tx still fits.
+                // activated: at least one tx remains AND none fits.
+                any_unselected && !any_fits
+            }
+        };
+
+        // Assign served_lane.
+        // - Un-reserved: served_lane = posted_lane (no partition).
+        // - RB-reserved + activated: priority-fee txs whose cumulative
+        //   bytes ≤ priority_reservation_bytes get served_lane=Priority;
+        //   further priority txs and all standard txs get served_lane=Standard.
+        // - RB-reserved + NOT activated: all priority txs get
+        //   served_lane=Standard (refunded down to standard quote).
+        let mut out: Vec<(Arc<Transaction>, Lane)> = Vec::with_capacity(packed.len());
+        if !rb_reserved {
+            for tx in packed {
+                let lane = tx.posted_lane;
+                out.push((tx, lane));
+            }
+            return (out, activated);
+        }
+        let mut priority_used: u64 = 0;
+        for tx in packed {
+            let served = match (activated, tx.posted_lane) {
+                (false, _) => Lane::Standard,
+                (true, Lane::Standard) => Lane::Standard,
+                (true, Lane::Priority) => {
+                    if priority_used.saturating_add(tx.bytes) <= priority_reservation_bytes {
+                        priority_used = priority_used.saturating_add(tx.bytes);
+                        Lane::Priority
+                    } else {
+                        Lane::Standard
+                    }
+                }
+            };
+            out.push((tx, served));
+        }
+        (out, activated)
+    }
+
     fn remove_rb_txs_from_mempool(&mut self, rb: &RankingBlock) {
         let mut txs = rb.transactions.clone();
         if let Some(endorsement) = &rb.endorsement
@@ -1521,24 +1797,38 @@ impl LinearLeiosNode {
         self.remove_txs_from_mempool(&eb.txs);
     }
 
-    /// Charge inclusions for transactions in this RB body. Fee and
-    /// refund are computed from the `Transaction` itself, not from
-    /// gate residency: a tx may be in a producer's RB/EB without being
-    /// resident in that producer's fee gate (e.g. in
+    /// Charge inclusions for transactions in a block (RB body or EB).
+    /// Fee and refund are computed from the `Transaction` itself, not
+    /// from gate residency: a tx may be in a producer's RB/EB without
+    /// being resident in that producer's fee gate (e.g. in
     /// `LeiosVariant::Linear`, EB-borne txs aren't separately
     /// propagated as Tx messages, so an endorsing producer who didn't
     /// admit them won't have them in its gate). The gate's
     /// `on_inclusion` is still called for cleanup but is not the gate
     /// for event emission.
-    fn charge_inclusions_for_rb_body(&mut self, txs: &[Arc<Transaction>]) {
-        if txs.is_empty() {
+    ///
+    /// **Per-tx `served_lane`** (M2): the caller decides served-lane
+    /// per tx during selection. For RB-reserved RB bodies the served
+    /// lane is `Priority`; for un-reserved variants it's `posted_lane`;
+    /// for EB bodies the partition trigger decides. The actual fee is
+    /// charged at the served-lane quote per
+    /// implementation-plan.md lines 96-100.
+    fn charge_inclusions(
+        &mut self,
+        txs_with_served_lane: &[(Arc<Transaction>, Lane)],
+    ) {
+        if txs_with_served_lane.is_empty() {
             return;
         }
         let slot = (self.clock.now() - Timestamp::zero()).as_secs();
-        let served_lane = Lane::Standard;
-        let quote = self.pricing.current_quote(served_lane);
+        let q_standard = self.pricing.current_quote(Lane::Standard);
+        let q_priority = self.pricing.current_quote(Lane::Priority);
         let min_fee_b = self.gate.config().min_fee_b;
-        for tx in txs {
+        for (tx, served_lane) in txs_with_served_lane {
+            let quote = match served_lane {
+                Lane::Standard => q_standard,
+                Lane::Priority => q_priority,
+            };
             // Same rounding regime as admission/revalidation
             // (implementation-plan.md lines 92-95): minFeeB +
             // quote_per_byte × bytes.
@@ -1547,25 +1837,12 @@ impl LinearLeiosNode {
                 .and_then(|q| q.checked_add(min_fee_b))
                 .unwrap_or(u64::MAX);
             // Spec max-fee invariant (mechanism-design.md §EIP-1559
-            // maximum-fee semantics, line 43): a tx whose posted_fee
-            // exceeds its max_fee at the served-lane quote is invalid
-            // for inclusion. For gate-resident txs, revalidation at
-            // each prior `publish_rb` would have already evicted it.
-            // For non-gate-resident txs (e.g. EB-borne txs at an
-            // endorsing producer that didn't admit them locally), no
-            // such revalidation runs — and quote may have drifted past
-            // the tx's max_fee between EB creation and cert RB.
-            //
-            // **Event-accounting patch only.** Emitting
-            // `TXEvictedQuoteDrift` here suppresses the misleading
-            // `refund = 0` `TXIncluded`, but the tx is still
-            // physically in `eb.txs`: its bytes feed the EB's pricing
-            // sample in `apply_priced_block`, its `input_id` lands in
-            // `spent_inputs` via `resolve_ledger_state`, and its
-            // conflicts cascade through `remove_conflicting_txs`. The
-            // proper fix is EB-validation-at-endorsement-time in
-            // `try_generate_rb` — see handoff §"Known limitations" §4
-            // (blocking for M2 correctness).
+            // maximum-fee semantics, line 43). M2 closes the loophole
+            // for endorsed EBs by validating the EB at endorsement
+            // time (no stale tx is permitted into a certified EB).
+            // The fall-through here remains as a defensive backstop
+            // for txs that arrived via paths not covered by gate
+            // revalidation or endorsement validation.
             if actual_fee > tx.max_fee_lovelace {
                 self.tracker.track_tx_evicted_quote_drift(
                     tx.id,
@@ -1587,18 +1864,12 @@ impl LinearLeiosNode {
                 slot,
                 tx.bytes,
                 tx.posted_lane,
-                served_lane,
+                *served_lane,
                 tx.max_fee_lovelace,
                 actual_fee,
                 refund,
             );
         }
-    }
-
-    /// Charge inclusions for transactions in an endorsed EB. Same
-    /// semantics as `charge_inclusions_for_rb_body`.
-    fn charge_inclusions_for_eb_txs(&mut self, eb: &EndorserBlock) {
-        self.charge_inclusions_for_rb_body(&eb.txs);
     }
 
     /// Build priced-block samples from this RB and (if its EB is
@@ -1622,17 +1893,15 @@ impl LinearLeiosNode {
     fn apply_priced_block(&mut self, rb: &RankingBlock) {
         let slot = rb.header.id.slot;
         let mut samples: Vec<PricedBlockSample> = Vec::new();
-        // Tx-bearing RB → one Standard sample (single-lane).
-        // Endorsement-only RB → no RB sample (per implementation-plan.md
-        // line 70).
+        // Tx-bearing RB → variant-aware sample(s) via the backend's
+        // `samples_for_block` policy. Endorsement-only RB → no RB
+        // sample (implementation-plan.md line 70).
         if !rb.transactions.is_empty() {
-            let bytes: u64 = rb.transactions.iter().map(|t| t.bytes).sum();
-            samples.push(PricedBlockSample {
-                block_kind: BlockKind::RankingBlock,
-                controller_lane: Lane::Standard,
-                relevant_bytes: bytes,
-                relevant_capacity: self.sim_config.max_block_size,
-            });
+            let breakdown = breakdown_for(&rb.transactions, self.sim_config.max_block_size);
+            samples.extend(
+                self.pricing
+                    .samples_for_block(BlockKind::RankingBlock, &breakdown),
+            );
         }
         // Endorsed EB applied alongside this RB iff it's locally
         // validated. Otherwise the EB sample is deferred until
@@ -1640,25 +1909,21 @@ impl LinearLeiosNode {
         if let Some(endorsement) = &rb.endorsement
             && let Some(eb) = self.get_validated_eb(endorsement.eb)
         {
-            samples.push(self.eb_sample(&eb));
+            samples.extend(self.eb_samples(&eb));
         }
         self.feed_samples_and_revalidate(slot, &samples);
     }
 
     fn apply_eb_priced_block(&mut self, eb: &EndorserBlock) {
         let slot = (self.clock.now() - Timestamp::zero()).as_secs();
-        let sample = self.eb_sample(eb);
-        self.feed_samples_and_revalidate(slot, &[sample]);
+        let samples = self.eb_samples(eb);
+        self.feed_samples_and_revalidate(slot, &samples);
     }
 
-    fn eb_sample(&self, eb: &EndorserBlock) -> PricedBlockSample {
-        let bytes: u64 = eb.txs.iter().map(|t| t.bytes).sum();
-        PricedBlockSample {
-            block_kind: BlockKind::EndorserBlock,
-            controller_lane: Lane::Standard,
-            relevant_bytes: bytes,
-            relevant_capacity: self.sim_config.max_eb_size,
-        }
+    fn eb_samples(&self, eb: &EndorserBlock) -> Vec<PricedBlockSample> {
+        let breakdown = breakdown_for(&eb.txs, self.sim_config.max_eb_size);
+        self.pricing
+            .samples_for_block(BlockKind::EndorserBlock, &breakdown)
     }
 
     fn feed_samples_and_revalidate(&mut self, slot: u64, samples: &[PricedBlockSample]) {
@@ -1721,9 +1986,9 @@ impl LinearLeiosNode {
     fn remove_txs_from_mempool(&mut self, txs: &[Arc<Transaction>]) {
         // Keep the fee-gate's resident set in sync with the mempool —
         // these silent removes do not emit inclusion events. Producers
-        // emit inclusion events at block-generation time
-        // (`charge_inclusions_for_local_production`). Quote-drift
-        // evictions emit eviction events from `apply_priced_block`.
+        // emit inclusion events at block-generation time via
+        // `charge_inclusions`. Quote-drift evictions emit eviction
+        // events from `apply_priced_block`.
         for tx in txs {
             self.gate.remove_silent(tx.id);
         }
@@ -1803,6 +2068,106 @@ impl LinearLeiosNode {
     // Simulates the output of a VRF using this node's stake (if any).
     fn run_vrf(&mut self, kind: LotteryKind, success_rate: f64) -> Option<u64> {
         self.lottery.run(kind, success_rate, &mut self.rng)
+    }
+
+    /// Test-only inspection: a fresh `PricingSnapshot` from the
+    /// node's pricing backend. Used by M2 deterministic scenario
+    /// tests (line 313 standard-isolation assertion etc.).
+    #[cfg(test)]
+    pub(crate) fn pricing_snapshot(&self) -> crate::tx_pricing::PricingSnapshot {
+        self.pricing.snapshot()
+    }
+
+    /// Test-only inspection: whether the node's mempool gate still
+    /// has `tx_id` resident. Used by M2 regression tests to verify
+    /// no cascade fires when an EB endorsement is refused.
+    #[cfg(test)]
+    pub(crate) fn gate_contains_for_test(&self, tx_id: &TransactionId) -> bool {
+        self.gate.contains(tx_id)
+    }
+
+    /// Test-only entry point exercising `select_eb_with_partition`'s
+    /// activation decision in isolation (M2 verification line 310,
+    /// four cases). Returns whether the partition activated.
+    #[cfg(test)]
+    pub(crate) fn test_partition_trigger(
+        &mut self,
+        eb_capacity: u64,
+        priority_reservation_bytes: u64,
+        rb_reserved: bool,
+    ) -> bool {
+        let selection_order = self.pricing.lane_selection_order();
+        let (_selected, activated) = self.select_eb_with_partition(
+            eb_capacity,
+            priority_reservation_bytes,
+            rb_reserved,
+            selection_order,
+        );
+        activated
+    }
+
+    /// Test-only entry point for `eb_endorsement_valid` — builds a
+    /// throwaway EB from the supplied txs and runs the validation
+    /// guard (M2 verification line 313 / handoff §4 refuse-to-endorse).
+    #[cfg(test)]
+    pub(crate) fn test_eb_endorsement_valid(&self, txs: &[Arc<Transaction>]) -> bool {
+        let eb = EndorserBlock {
+            slot: 0,
+            producer: self.id,
+            bytes: self.sim_config.sizes.linear_eb(txs),
+            txs: txs.to_vec(),
+        };
+        self.eb_endorsement_valid(&eb)
+    }
+
+    /// Test-only mirror of `try_generate_rb`'s endorsement-and-apply
+    /// closure: validate, and (if valid) charge inclusions, remove
+    /// from mempool, and feed the EB priced sample. Returns `true`
+    /// iff the EB was endorseable. Used by M2 regression tests that
+    /// pin the *cascade-skip* on refusal — that no charge_inclusions,
+    /// no mempool removal, and no priced sample fire when an EB
+    /// contains a stale tx (M1 handoff §"Known limitations" §4).
+    #[cfg(test)]
+    pub(crate) fn test_endorse_eb_dry_run(
+        &mut self,
+        eb_txs: Vec<Arc<Transaction>>,
+        rb_reserved: bool,
+    ) -> bool {
+        let eb = EndorserBlock {
+            slot: 0,
+            producer: self.id,
+            bytes: self.sim_config.sizes.linear_eb(&eb_txs),
+            txs: eb_txs,
+        };
+        if !self.eb_endorsement_valid(&eb) {
+            return false;
+        }
+        let served = self.eb_served_lanes(&eb, rb_reserved);
+        let pairs: Vec<(Arc<Transaction>, Lane)> =
+            eb.txs.iter().cloned().zip(served).collect();
+        self.charge_inclusions(&pairs);
+        self.remove_eb_txs_from_mempool(&eb);
+        self.apply_eb_priced_block(&eb);
+        true
+    }
+}
+
+/// Build a `BlockLaneBreakdown` from a block's transactions.
+/// Sums per-lane bytes and pairs them with the block's capacity for the
+/// backend's `samples_for_block` policy.
+fn breakdown_for(txs: &[Arc<Transaction>], block_capacity: u64) -> BlockLaneBreakdown {
+    let mut priority = 0u64;
+    let mut standard = 0u64;
+    for tx in txs {
+        match tx.posted_lane {
+            Lane::Priority => priority = priority.saturating_add(tx.bytes),
+            Lane::Standard => standard = standard.saturating_add(tx.bytes),
+        }
+    }
+    BlockLaneBreakdown {
+        priority_paying_bytes: priority,
+        standard_paying_bytes: standard,
+        block_capacity,
     }
 }
 

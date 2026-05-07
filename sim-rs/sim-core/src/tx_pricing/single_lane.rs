@@ -138,6 +138,30 @@ impl Eip1559Pricing {
         &self.window
     }
 
+    /// Run an EIP-1559 step using only samples whose `controller_lane`
+    /// matches `lane`. Used by `TwoLanePricing` to feed two
+    /// independent controllers from the same priced-block sample
+    /// vector (each variant emits at most one sample per controller
+    /// per block; the filter is what routes them).
+    pub fn step_with_lane(&mut self, lane: Lane, samples: &[PricedBlockSample]) {
+        for sample in samples.iter().filter(|s| s.controller_lane == lane) {
+            self.window.push(*sample);
+        }
+        self.step();
+    }
+
+    /// Overwrite `quote_per_byte` to enforce the multiplier-floor
+    /// invariant. The controller's window is **not** touched —
+    /// invariant enforcement is policy layered on top of the
+    /// controller's independent step (mechanism-design.md
+    /// §"RB-reserved priority-only premium" closing paragraph;
+    /// implementation-plan.md line 38).
+    ///
+    /// Used only from `TwoLanePricing::enforce_multiplier_floor`.
+    pub fn set_quote_for_floor(&mut self, quote_per_byte: u64) {
+        self.quote_per_byte = quote_per_byte.max(self.settings.min_fee_a);
+    }
+
     /// Apply the EIP-1559 step. Operates on the integer `quote_per_byte`
     /// directly: the same fractional move would apply to either `c` or
     /// `quote = c · minFeeA`, so we keep the `u64` and round once.

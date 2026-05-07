@@ -1,10 +1,11 @@
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::{BTreeMap, VecDeque},
     hash::Hash,
     time::Duration,
 };
 
 use crate::clock::Timestamp;
+use tracing::warn;
 
 struct MiniProtocolQueue<T> {
     queue: VecDeque<(T, u64)>,
@@ -54,7 +55,7 @@ impl<T> MiniProtocolQueue<T> {
 pub struct Connection<TProtocol, TMessage> {
     bandwidth_bps: Option<u64>,
     latency: Duration,
-    bandwidth_queues: HashMap<TProtocol, MiniProtocolQueue<(u64, TMessage)>>,
+    bandwidth_queues: BTreeMap<TProtocol, MiniProtocolQueue<(u64, TMessage)>>,
     latency_queue: VecDeque<(TMessage, Timestamp)>,
     last_event: Timestamp,
     next_id: u64,
@@ -62,13 +63,13 @@ pub struct Connection<TProtocol, TMessage> {
 
 impl<TProtocol, TMessage> Connection<TProtocol, TMessage>
 where
-    TProtocol: Clone + Eq + Hash,
+    TProtocol: Clone + Eq + Hash + Ord,
 {
     pub fn new(latency: Duration, bandwidth_bps: Option<u64>) -> Self {
         Self {
             bandwidth_bps,
             latency,
-            bandwidth_queues: HashMap::new(),
+            bandwidth_queues: BTreeMap::new(),
             latency_queue: VecDeque::new(),
             last_event: Timestamp::zero(),
             next_id: 0,
@@ -122,17 +123,43 @@ where
             return;
         };
 
+        let mut messages_received = vec![];
+        // Zero-byte messages require no bandwidth. Move them directly into the latency queue
+        // so they cannot stall bandwidth accounting loops.
+        self.bandwidth_queues.retain(|_, queue| {
+            for (message, _) in queue.consume(0) {
+                messages_received.push((message, self.last_event + self.latency));
+            }
+            !queue.is_empty()
+        });
+
         if self.last_event == now {
+            messages_received.sort_by_key(|((id, _), ts)| (*ts, *id));
+            for ((_, message), arrival) in messages_received {
+                self.latency_queue.push_back((message, arrival));
+            }
             return;
         }
 
-        let mut bytes_to_consume =
-            (now - self.last_event).as_micros() as u64 * total_bps / 1_000_000;
+        let elapsed = if now >= self.last_event {
+            now - self.last_event
+        } else {
+            warn!(
+                "connection received non-monotonic timestamp: now={:?}, last_event={:?}",
+                now, self.last_event
+            );
+            Duration::ZERO
+        };
 
-        let mut messages_received = vec![];
+        let mut bytes_to_consume = elapsed.as_micros() as u64 * total_bps / 1_000_000;
+
         while bytes_to_consume > 0 && !self.bandwidth_queues.is_empty() {
             let queues = self.bandwidth_queues.len() as u64;
             let bytes_per_queue = self.split_bytes_amongst_queues(bytes_to_consume);
+            if bytes_per_queue.is_empty() {
+                warn!("no bandwidth allocation candidates despite non-empty queues");
+                break;
+            }
             let total_bytes_consumed = bytes_per_queue.values().copied().sum();
 
             self.bandwidth_queues.retain(|key, queue| {
@@ -162,7 +189,7 @@ where
         self.last_event = now;
     }
 
-    fn split_bytes_amongst_queues(&self, bytes: u64) -> HashMap<TProtocol, u64> {
+    fn split_bytes_amongst_queues(&self, bytes: u64) -> BTreeMap<TProtocol, u64> {
         let mut queue_bytes: Vec<(&TProtocol, u64)> = self
             .bandwidth_queues
             .iter()
@@ -206,7 +233,7 @@ mod tests {
 
     use super::Connection;
 
-    #[derive(Clone, PartialEq, Eq, Hash)]
+    #[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
     enum MiniProtocol {
         One,
         Two,
@@ -262,6 +289,48 @@ mod tests {
         assert_eq!(
             conn.recv_many(arrival_time),
             vec![("message 1", arrival_time)]
+        );
+        assert_eq!(conn.next_arrival_time(), None);
+    }
+
+    #[test]
+    fn should_deliver_zero_byte_messages_with_latency_and_bandwidth() {
+        let latency = Duration::from_millis(10);
+        let bandwidth_bps = Some(1000);
+        let mut conn = Connection::new(latency, bandwidth_bps);
+        assert_eq!(conn.next_arrival_time(), None);
+
+        let start = Timestamp::zero() + Duration::from_secs(1);
+        conn.send("message 0", 0, MiniProtocol::One, start);
+
+        let arrival_time = start + latency;
+        assert_eq!(conn.next_arrival_time(), Some(arrival_time));
+        assert_eq!(
+            conn.recv_many(arrival_time),
+            vec![("message 0", arrival_time)]
+        );
+        assert_eq!(conn.next_arrival_time(), None);
+    }
+
+    #[test]
+    fn should_deliver_zero_byte_message_before_non_zero_bytes() {
+        let latency = Duration::ZERO;
+        let bandwidth_bps = Some(1000);
+        let mut conn = Connection::new(latency, bandwidth_bps);
+        assert_eq!(conn.next_arrival_time(), None);
+
+        let start = Timestamp::zero() + Duration::from_secs(1);
+        conn.send("message 0", 0, MiniProtocol::One, start);
+        conn.send("message 1", 1000, MiniProtocol::One, start);
+
+        assert_eq!(conn.next_arrival_time(), Some(start));
+        assert_eq!(conn.recv_many(start), vec![("message 0", start)]);
+
+        let second_arrival_time = start + Duration::from_secs(1);
+        assert_eq!(conn.next_arrival_time(), Some(second_arrival_time));
+        assert_eq!(
+            conn.recv_many(second_arrival_time),
+            vec![("message 1", second_arrival_time)]
         );
         assert_eq!(conn.next_arrival_time(), None);
     }

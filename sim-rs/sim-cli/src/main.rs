@@ -1,40 +1,9 @@
-use std::{fs, path::PathBuf, process};
+use std::path::PathBuf;
 
 use anyhow::Result;
 use clap::Parser;
-use events::EventMonitor;
-use figment::{
-    Figment,
-    providers::{Format as _, Yaml},
-};
-use sim_core::{
-    clock::ClockCoordinator,
-    config::{NodeId, RawParameters, RawTopology, SimConfiguration, Topology},
-    events::EventTracker,
-    sim::Simulation,
-};
-use tokio::{
-    pin, select,
-    sync::{mpsc, oneshot},
-};
+use sim_cli::runner::{self, RunRequest};
 use tokio_util::sync::CancellationToken;
-use tracing::{level_filters::LevelFilter, warn};
-use tracing_subscriber::{EnvFilter, layer::SubscriberExt as _, util::SubscriberInitExt};
-
-mod events;
-
-const DEFAULT_TOPOLOGY_PATHS: &[&str] = &[
-    // Standalone sim-rs path (run from sim-rs directory)
-    "parameters/topology.default.yaml",
-    // Standalone sim-rs path (run from sim-rs/sim-cli directory)
-    "../parameters/topology.default.yaml",
-    // Docker/production path
-    "/usr/local/share/leios/topology.default.yaml",
-    // Legacy monorepo development paths
-    "../../data/simulation/topo-default-100.yaml",
-    "../data/simulation/topo-default-100.yaml",
-];
-const EMBEDDED_DEFAULT_TOPOLOGY: &str = include_str!("../../parameters/topology.default.yaml");
 
 #[derive(Parser)]
 #[command(version = concat!(env!("CARGO_PKG_VERSION"), "-", env!("VERGEN_GIT_SHA")))]
@@ -44,6 +13,10 @@ struct Args {
     output: Option<PathBuf>,
     #[clap(short, long)]
     parameters: Vec<PathBuf>,
+    #[clap(long = "compare-parameters")]
+    compare_parameters: Vec<PathBuf>,
+    #[clap(long = "comparison-output")]
+    comparison_output: Option<PathBuf>,
     #[clap(short, long)]
     timescale: Option<f64>,
     #[clap(long)]
@@ -54,131 +27,36 @@ struct Args {
     conformance_events: bool,
     #[clap(short, long)]
     aggregate_events: bool,
+    #[clap(long)]
+    no_trace: bool,
 }
 
-fn get_default_topology() -> Result<String> {
-    // Try each possible topology location.
-    for path in DEFAULT_TOPOLOGY_PATHS {
-        if let Ok(content) = fs::read_to_string(path) {
-            return Ok(content);
+impl From<Args> for RunRequest {
+    fn from(args: Args) -> Self {
+        Self {
+            topology: args.topology,
+            output: args.output,
+            parameters: args.parameters,
+            compare_parameters: args.compare_parameters,
+            comparison_output: args.comparison_output,
+            timescale: args.timescale,
+            trace_nodes: args.trace_node,
+            slots: args.slots,
+            conformance_events: args.conformance_events,
+            aggregate_events: args.aggregate_events,
+            no_trace: args.no_trace,
+            trailing_parameters: Vec::new(),
         }
     }
-    // Always fall back to the embedded standalone default topology.
-    Ok(EMBEDDED_DEFAULT_TOPOLOGY.to_string())
 }
 
-fn read_config(args: &Args) -> Result<SimConfiguration> {
-    let topology_str = match &args.topology {
-        Some(path) => fs::read_to_string(path)?,
-        None => get_default_topology()?,
-    };
-    let topology: Topology = {
-        let raw_topology: RawTopology = serde_yaml::from_str(&topology_str)?;
-        raw_topology.into()
-    };
-    topology.validate()?;
-
-    let mut raw_params = Figment::new().merge(Yaml::string(include_str!(
-        "../../parameters/config.default.yaml"
-    )));
-
-    for params_file in &args.parameters {
-        raw_params = raw_params.merge(Yaml::file_exact(params_file));
-    }
-
-    let params: RawParameters = raw_params.extract()?;
-    let mut config = SimConfiguration::build(params, topology)?;
-    if let Some(slots) = args.slots {
-        config.slots = Some(slots);
-    }
-    if args.conformance_events {
-        config.emit_conformance_events = true;
-    }
-    if args.aggregate_events {
-        config.aggregate_events = true;
-    }
-    for id in &args.trace_node {
-        config.trace_nodes.insert(NodeId::new(*id));
-    }
-    Ok(config)
-}
-
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
-    let fmt_layer = tracing_subscriber::fmt::layer().compact().without_time();
-    let filter = EnvFilter::builder()
-        .with_default_directive(LevelFilter::INFO.into())
-        .from_env_lossy();
-    tracing_subscriber::registry()
-        .with(fmt_layer)
-        .with(filter)
-        .init();
+    runner::init_tracing();
 
+    let request = RunRequest::from(Args::parse());
     let token = CancellationToken::new();
-
-    // Handle ctrl+c (SIGINT) at an application level, so we can report on necessary stats before shutting down.
-    let (ctrlc_sink, ctrlc_source) = oneshot::channel();
-    let mut ctrlc_sink = Some(ctrlc_sink);
-    let ctrlc_token = token.clone();
-    ctrlc::set_handler(move || {
-        ctrlc_token.cancel();
-        match ctrlc_sink.take() {
-            Some(sink) => {
-                let _ = sink.send(());
-            }
-            _ => {
-                warn!("force quitting");
-                process::exit(0);
-            }
-        }
-    })?;
-
-    let args = Args::parse();
-    let config = read_config(&args)?;
-
-    let (events_sink, events_source) = mpsc::unbounded_channel();
-    let monitor = tokio::spawn(EventMonitor::new(&config, events_source, args.output).run());
-    pin!(monitor);
-
-    let clock_coordinator = ClockCoordinator::new(config.timestamp_resolution);
-    let clock = clock_coordinator.clock();
-    let tracker = EventTracker::new(events_sink, clock.clone(), &config.nodes);
-    let mut simulation = Simulation::new(config, tracker, clock_coordinator).await?;
-
-    select! {
-        result = simulation.run(token) => { result? }
-        result = &mut monitor => { result?? }
-        _ = ctrlc_source => {}
-    };
-
-    simulation.shutdown()?;
-    monitor.await??;
+    runner::install_ctrlc_handler(token.clone())?;
+    let _outcome = runner::execute_run_request(&request, token).await?;
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use anyhow::Result;
-    use std::fs;
-
-    use crate::{Args, read_config};
-
-    #[test]
-    fn should_parse_topologies() -> Result<()> {
-        let topology_dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../test_data");
-        for topology in fs::read_dir(topology_dir)? {
-            let args = Args {
-                topology: Some(topology?.path()),
-                output: None,
-                parameters: vec![],
-                timescale: None,
-                trace_node: vec![],
-                slots: None,
-                conformance_events: false,
-                aggregate_events: false,
-            };
-            read_config(&args)?;
-        }
-        Ok(())
-    }
 }

@@ -1,0 +1,19 @@
+# yaml-language-server: $schema=../../suites/suite.schema.json
+
+defaults:
+  topology: parameters/topology.default.yaml
+  parameters:
+    - parameters/linear.yaml
+    - parameters/phase-2-sweep/protocol-base.yaml
+  slots: 2000
+  trace: false
+
+jobs:
+  - id: controls-sundaeswap
+    label: Stage A Controls SundaeSwap
+    parameters:
+      - parameters/phase-2-sweep/experiments/sundaeswap-baseline.yaml
+    compare-parameters:
+      - parameters/phase-2-sweep/experiments/sundaeswap-eip1559.yaml
+      - parameters/phase-2-sweep/experiments/sundaeswap-continuous-pivot.yaml
+    seeds: [42, 43, 44, 45, 46]

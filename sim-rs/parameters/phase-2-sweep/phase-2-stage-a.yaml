@@ -1,0 +1,113 @@
+# yaml-language-server: $schema=../suites/suite.schema.json
+
+defaults:
+  topology: parameters/topology.default.yaml
+  parameters:
+    - parameters/linear.yaml
+    - parameters/phase-2-sweep/protocol-base.yaml
+  slots: 2000
+  trace: false
+
+jobs:
+  - id: controls-paper-like
+    label: Stage A Controls Paper Like
+    parameters:
+      - parameters/phase-2-sweep/experiments/paper-like-baseline.yaml
+    compare-parameters:
+      - parameters/phase-2-sweep/experiments/paper-like-eip1559.yaml
+      - parameters/phase-2-sweep/experiments/paper-like-continuous-pivot.yaml
+      - parameters/phase-2-sweep/experiments/paper-like-praos-control.yaml
+    seeds: [42, 43, 44, 45, 46]
+
+  - id: block-path-paper-like
+    label: Stage A Block Path Paper Like
+    # These overlays keep the paper-like pivot fixed and only swap the path
+    # policy, plus the single-pool setting the non-continuous variants require.
+    parameters:
+      - parameters/phase-2-sweep/experiments/paper-like-continuous-pivot.yaml
+    compare-parameters:
+      - parameters/phase-2-sweep/experiments/paper-like-shared.yaml
+      - parameters/phase-2-sweep/experiments/paper-like-naive-rb-eb.yaml
+      - parameters/phase-2-sweep/experiments/paper-like-rb-tier0-reserved-30pct.yaml
+      - parameters/phase-2-sweep/experiments/paper-like-rb-tier0-reserved-full.yaml
+    seeds: [42, 43, 44, 45, 46]
+
+  - id: overflow-paper-like
+    label: Stage A Overflow Paper Like
+    parameters:
+      - parameters/phase-2-sweep/experiments/paper-like-continuous-pivot.yaml
+    compare-parameters:
+      - parameters/phase-2-sweep/experiments/paper-like-continuous-none.yaml
+      - parameters/phase-2-sweep/experiments/paper-like-continuous-reject-only.yaml
+      - parameters/phase-2-sweep/experiments/paper-like-continuous-overflow-pricing-signal.yaml
+      - parameters/phase-2-sweep/experiments/paper-like-continuous-overflow-tier-signal.yaml
+    seeds: [42, 43, 44, 45, 46]
+
+  - id: tier-count-paper-like
+    label: Stage A Tier Count Paper Like
+    parameters:
+      - parameters/phase-2-sweep/experiments/paper-like-continuous-pivot.yaml
+    compare-parameters:
+      - parameters/phase-2-sweep/experiments/paper-like-continuous-tiers-2.yaml
+      - parameters/phase-2-sweep/experiments/paper-like-continuous-tiers-4.yaml
+      - parameters/phase-2-sweep/experiments/paper-like-continuous-tiers-50.yaml
+    seeds: [42, 43, 44, 45, 46]
+
+  - id: traffic-scenario-pivot
+    label: Stage A Traffic Scenario Pivot
+    parameters:
+      - parameters/phase-2-sweep/experiments/paper-like-continuous-pivot.yaml
+    compare-parameters:
+      - parameters/phase-2-sweep/experiments/sundaeswap-continuous-pivot.yaml
+    seeds: [42, 43, 44, 45, 46]
+
+  - id: controls-sundaeswap
+    label: Stage A Controls SundaeSwap
+    parameters:
+      - parameters/phase-2-sweep/experiments/sundaeswap-baseline.yaml
+    compare-parameters:
+      - parameters/phase-2-sweep/experiments/sundaeswap-eip1559.yaml
+      - parameters/phase-2-sweep/experiments/sundaeswap-continuous-pivot.yaml
+    seeds: [42, 43, 44, 45, 46]
+
+  - id: repricing-paper-like
+    label: Stage A Repricing Paper Like
+    parameters:
+      - parameters/phase-2-sweep/experiments/paper-like-continuous-pivot.yaml
+    compare-parameters:
+      - parameters/phase-2-sweep/experiments/paper-like-continuous-reprice-4.yaml
+      - parameters/phase-2-sweep/experiments/paper-like-continuous-reprice-16.yaml
+    seeds: [42, 43, 44, 45, 46]
+
+  - id: repricing-sundaeswap
+    label: Stage A Repricing SundaeSwap
+    parameters:
+      - parameters/phase-2-sweep/experiments/sundaeswap-continuous-pivot.yaml
+    compare-parameters:
+      - parameters/phase-2-sweep/experiments/sundaeswap-continuous-reprice-4.yaml
+      - parameters/phase-2-sweep/experiments/sundaeswap-continuous-reprice-16.yaml
+    seeds: [42, 43, 44, 45, 46]
+
+  - id: shared-single-pool
+    label: Stage A Shared Single Pool (no lane awareness)
+    parameters:
+      - parameters/phase-2-sweep/experiments/paper-like-continuous-pivot.yaml
+    compare-parameters:
+      - parameters/phase-2-sweep/experiments/paper-like-shared.yaml
+    seeds: [42, 43, 44, 45, 46]
+
+  - id: shared-node-allocated
+    label: Stage A Shared Node Allocated (lane-aware pricing, lane-agnostic submission)
+    parameters:
+      - parameters/phase-2-sweep/experiments/paper-like-continuous-pivot.yaml
+    compare-parameters:
+      - parameters/phase-2-sweep/experiments/paper-like-shared-node-allocated.yaml
+    seeds: [42, 43, 44, 45, 46]
+
+  - id: continuous-rb-eb-fallback
+    label: Stage A ContinuousRbEb Fallback (lane-aware pricing, dual-lane submission)
+    parameters:
+      - parameters/phase-2-sweep/experiments/paper-like-continuous-pivot.yaml
+    compare-parameters:
+      - parameters/phase-2-sweep/experiments/paper-like-continuous-rb-eb-fallback.yaml
+    seeds: [42, 43, 44, 45, 46]

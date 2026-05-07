@@ -340,7 +340,15 @@ impl TestDriver {
             result.is_none()
         });
         self.process_events(node, events);
-        result.expect("no CPU tasks matching filter")
+        result.unwrap_or_else(|| {
+            panic!(
+                "no CPU tasks matching filter for node {node}; all queued tasks: {:?}",
+                self.queued
+                    .iter()
+                    .map(|(node_id, queued)| (*node_id, queued.tasks.clone()))
+                    .collect::<Vec<_>>()
+            )
+        })
     }
 
     fn process_events(&mut self, node: NodeId, mut events: EventResult<LinearLeiosNode>) {
@@ -358,7 +366,7 @@ fn is_new_rb_task(
     task: &CpuTask,
 ) -> Option<(Arc<LinearRankingBlock>, Option<Arc<LinearEndorserBlock>>)> {
     match task {
-        CpuTask::RBBlockGenerated(rb, eb) => Some((
+        CpuTask::RBBlockGenerated(rb, eb, _) => Some((
             Arc::new(rb.clone()),
             eb.as_ref().map(|(eb, _)| Arc::new(eb.clone())),
         )),

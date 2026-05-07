@@ -1,0 +1,6 @@
+# Thin overlay — protocol params inherited from protocol-base.yaml
+# Combined winner: ContinuousRbEb + overflow-pricing-signal + reprice-4 + capped tier pressure
+pricing:
+  config-path: "parameters/phase-2-sweep/pricing/continuous_rb_eb_reject_overflow_aggregate_capped_tier_pressure_reprice_4.toml"
+actors:
+  config-path: "parameters/phase-2-sweep/demand/paper_like_moderate.toml"

@@ -1,0 +1,18 @@
+# yaml-language-server: $schema=../../suites/suite.schema.json
+
+defaults:
+  topology: parameters/topology.default.yaml
+  parameters:
+    - parameters/linear.yaml
+    - parameters/phase-2-sweep/protocol-base.yaml
+  slots: 2000
+  trace: false
+
+jobs:
+  - id: shared-priority-ordering
+    label: Shared Priority Ordering (tier 0 fills first, no delay enforcement)
+    parameters:
+      - parameters/phase-2-sweep/experiments/paper-like-continuous-pivot.yaml
+    compare-parameters:
+      - parameters/phase-2-sweep/experiments/paper-like-shared-priority.yaml
+    seeds: [42, 43, 44, 45, 46]

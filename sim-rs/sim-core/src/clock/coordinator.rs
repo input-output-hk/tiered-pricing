@@ -1,8 +1,8 @@
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     sync::{
-        Arc,
-        atomic::{AtomicUsize, Ordering},
+        Arc, Mutex,
+        atomic::{AtomicU64, AtomicUsize, Ordering},
     },
     time::Duration,
 };
@@ -11,7 +11,7 @@ use tokio::sync::{mpsc, oneshot};
 
 use crate::clock::TaskInitiator;
 
-use super::{Clock, Timestamp, timestamp::AtomicTimestamp};
+use super::{ActorState, Clock, Timestamp, timestamp::AtomicTimestamp};
 
 pub struct ClockCoordinator {
     timestamp_resolution: Duration,
@@ -20,6 +20,15 @@ pub struct ClockCoordinator {
     rx: mpsc::UnboundedReceiver<ClockEvent>,
     waiter_count: Arc<AtomicUsize>,
     tasks: Arc<AtomicUsize>,
+    running: Arc<AtomicUsize>,
+    actor_states: Arc<Mutex<Vec<ActorState>>>,
+    last_task_started_by: Arc<AtomicU64>,
+    last_task_finished_by: Arc<AtomicU64>,
+    last_wait_actor: Arc<AtomicU64>,
+    last_wait_until: Arc<AtomicU64>,
+    last_woken_actor: Arc<AtomicU64>,
+    last_advance_to: Arc<AtomicU64>,
+    wait_queue_len: Arc<AtomicUsize>,
 }
 
 impl ClockCoordinator {
@@ -28,6 +37,15 @@ impl ClockCoordinator {
         let (tx, rx) = mpsc::unbounded_channel();
         let waiter_count = Arc::new(AtomicUsize::new(0));
         let tasks = Arc::new(AtomicUsize::new(0));
+        let running = Arc::new(AtomicUsize::new(0));
+        let actor_states = Arc::new(Mutex::new(Vec::new()));
+        let last_task_started_by = Arc::new(AtomicU64::new(super::NO_ACTOR_ID));
+        let last_task_finished_by = Arc::new(AtomicU64::new(super::NO_ACTOR_ID));
+        let last_wait_actor = Arc::new(AtomicU64::new(super::NO_ACTOR_ID));
+        let last_wait_until = Arc::new(AtomicU64::new(super::NO_TIMESTAMP));
+        let last_woken_actor = Arc::new(AtomicU64::new(super::NO_ACTOR_ID));
+        let last_advance_to = Arc::new(AtomicU64::new(super::NO_TIMESTAMP));
+        let wait_queue_len = Arc::new(AtomicUsize::new(0));
         Self {
             timestamp_resolution,
             time,
@@ -35,6 +53,15 @@ impl ClockCoordinator {
             rx,
             waiter_count,
             tasks,
+            running,
+            actor_states,
+            last_task_started_by,
+            last_task_finished_by,
+            last_wait_actor,
+            last_wait_until,
+            last_woken_actor,
+            last_advance_to,
+            wait_queue_len,
         }
     }
 
@@ -44,6 +71,15 @@ impl ClockCoordinator {
             self.time.clone(),
             self.waiter_count.clone(),
             TaskInitiator::new(self.tasks.clone()),
+            self.running.clone(),
+            self.actor_states.clone(),
+            self.last_task_started_by.clone(),
+            self.last_task_finished_by.clone(),
+            self.last_wait_actor.clone(),
+            self.last_wait_until.clone(),
+            self.last_woken_actor.clone(),
+            self.last_advance_to.clone(),
+            self.wait_queue_len.clone(),
             self.tx.clone(),
         )
     }
@@ -53,24 +89,50 @@ impl ClockCoordinator {
         for _ in 0..self.waiter_count.load(Ordering::Acquire) {
             waiters.push(None);
         }
+        {
+            let mut states = self.actor_states.lock().expect("actor states lock");
+            if states.len() < waiters.len() {
+                states.resize(waiters.len(), ActorState::Running);
+            }
+            for state in &mut *states {
+                *state = ActorState::Running;
+            }
+        }
 
-        let mut queue: BTreeMap<Timestamp, Vec<usize>> = BTreeMap::new();
+        let mut queue: BTreeMap<Timestamp, BTreeSet<usize>> = BTreeMap::new();
         let mut running = waiters.len();
+        self.running.store(running, Ordering::Release);
         while let Some(event) = self.rx.recv().await {
             match event {
                 ClockEvent::Wait { actor, until, done } => {
                     assert!(until.is_none_or(|t| t >= self.time.load(Ordering::Acquire)));
+                    self.last_wait_actor.store(actor as u64, Ordering::Release);
+                    let wait_until = until.map(|ts| ts.as_nanos()).unwrap_or(super::NO_TIMESTAMP);
+                    self.last_wait_until.store(wait_until, Ordering::Release);
                     if waiters[actor].replace(Waiter { until, done }).is_some() {
                         panic!("An actor has somehow managed to wait twice");
                     }
                     running = running.checked_sub(1).unwrap();
-                    if let Some(timestamp) = until {
-                        queue.entry(timestamp).or_default().push(actor);
+                    self.running.store(running, Ordering::Release);
+                    if let Some(state) = self
+                        .actor_states
+                        .lock()
+                        .expect("actor states lock")
+                        .get_mut(actor)
+                    {
+                        *state = ActorState::Waiting;
                     }
+                    if let Some(timestamp) = until {
+                        queue.entry(timestamp).or_default().insert(actor);
+                    }
+                    let queue_len = queue.values().map(|entries| entries.len()).sum::<usize>();
+                    self.wait_queue_len.store(queue_len, Ordering::Release);
                     while running == 0 && self.tasks.load(Ordering::Acquire) == 0 {
                         // advance time
                         let (timestamp, waiter_ids) = queue.pop_first().unwrap();
                         self.time.store(timestamp, Ordering::Release);
+                        self.last_advance_to
+                            .store(timestamp.as_nanos(), Ordering::Release);
 
                         for id in waiter_ids {
                             if waiters[id]
@@ -78,16 +140,39 @@ impl ClockCoordinator {
                                 .and_then(|w| w.until)
                                 .is_some_and(|ts| ts == timestamp)
                             {
+                                self.last_woken_actor.store(id as u64, Ordering::Release);
                                 running += 1;
+                                self.running.store(running, Ordering::Release);
+                                if let Some(state) = self
+                                    .actor_states
+                                    .lock()
+                                    .expect("actor states lock")
+                                    .get_mut(id)
+                                {
+                                    *state = ActorState::Running;
+                                }
                                 let waiter = waiters[id].take().unwrap();
                                 let _ = waiter.done.send(());
                             }
                         }
+                        let queue_len = queue.values().map(|entries| entries.len()).sum::<usize>();
+                        self.wait_queue_len.store(queue_len, Ordering::Release);
                     }
                 }
                 ClockEvent::CancelWait { actor } => {
                     if waiters[actor].take().is_some() {
                         running += 1;
+                        self.running.store(running, Ordering::Release);
+                        if let Some(state) = self
+                            .actor_states
+                            .lock()
+                            .expect("actor states lock")
+                            .get_mut(actor)
+                        {
+                            *state = ActorState::Running;
+                        }
+                        let queue_len = queue.values().map(|entries| entries.len()).sum::<usize>();
+                        self.wait_queue_len.store(queue_len, Ordering::Release);
                     }
                 }
                 ClockEvent::FinishTask => {

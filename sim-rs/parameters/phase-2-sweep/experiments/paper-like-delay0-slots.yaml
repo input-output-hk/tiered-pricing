@@ -1,0 +1,7 @@
+# Thin overlay — protocol params inherited from protocol-base.yaml
+# Delay=0 with slot-based delays. Tier gradient: 0, 1, 2, 4 slots.
+pricing:
+  config-path: "parameters/phase-2-sweep/pricing/continuous_rb_eb_delay0_slots.toml"
+actors:
+  config-path: "parameters/phase-2-sweep/demand/paper_like_moderate.toml"
+tier-delay-unit: slots

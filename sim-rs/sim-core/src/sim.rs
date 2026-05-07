@@ -142,7 +142,9 @@ impl Simulation {
             )?,
         };
 
-        let slot_witness = SlotWitness::new(clock.barrier(), tracker, &config);
+        let slot_clock = clock.barrier();
+        tracker.track_actor_registered(slot_clock.id(), "slot-witness".to_string());
+        let slot_witness = SlotWitness::new(slot_clock, tracker, &config);
 
         Ok(Self {
             clock_coordinator,
@@ -178,6 +180,7 @@ impl Simulation {
         let mut node_tx_sinks = HashMap::new();
 
         let mut network = Network::new(clock.clone());
+        tracker.track_actor_registered(network.actor_id(), "network".to_string());
         for link_config in config.links.iter() {
             network.set_edge_policy(
                 link_config.nodes.0,
@@ -222,9 +225,12 @@ impl Simulation {
             nodes.push(driver);
         }
 
+        let tx_clock = clock.barrier();
+        tracker.track_actor_registered(tx_clock.id(), "tx-producer".to_string());
         let tx_producer = TransactionProducer::new(
             ChaChaRng::seed_from_u64(rng.next_u64()),
-            clock.barrier(),
+            tx_clock,
+            tracker.clone(),
             node_tx_sinks,
             config,
         );
@@ -274,7 +280,7 @@ trait SimMessage: Clone + std::fmt::Debug {
     fn bytes_size(&self) -> u64;
 }
 
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum MiniProtocol {
     Tx,
     Block,

@@ -1,0 +1,18 @@
+# yaml-language-server: $schema=../../suites/suite.schema.json
+
+defaults:
+  topology: parameters/topology.default.yaml
+  parameters:
+    - parameters/linear.yaml
+    - parameters/phase-2-sweep/protocol-base.yaml
+  slots: 2000
+  trace: false
+
+jobs:
+  - id: continuous-rb-eb-fallback
+    label: Stage A ContinuousRbEb Fallback (lane-aware pricing, dual-lane submission)
+    parameters:
+      - parameters/phase-2-sweep/experiments/paper-like-continuous-pivot.yaml
+    compare-parameters:
+      - parameters/phase-2-sweep/experiments/paper-like-continuous-rb-eb-fallback.yaml
+    seeds: [42, 43, 44, 45, 46]

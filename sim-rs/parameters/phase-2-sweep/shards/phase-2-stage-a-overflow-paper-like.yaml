@@ -1,0 +1,21 @@
+# yaml-language-server: $schema=../../suites/suite.schema.json
+
+defaults:
+  topology: parameters/topology.default.yaml
+  parameters:
+    - parameters/linear.yaml
+    - parameters/phase-2-sweep/protocol-base.yaml
+  slots: 2000
+  trace: false
+
+jobs:
+  - id: overflow-paper-like
+    label: Stage A Overflow Paper Like
+    parameters:
+      - parameters/phase-2-sweep/experiments/paper-like-continuous-pivot.yaml
+    compare-parameters:
+      - parameters/phase-2-sweep/experiments/paper-like-continuous-none.yaml
+      - parameters/phase-2-sweep/experiments/paper-like-continuous-reject-only.yaml
+      - parameters/phase-2-sweep/experiments/paper-like-continuous-overflow-pricing-signal.yaml
+      - parameters/phase-2-sweep/experiments/paper-like-continuous-overflow-tier-signal.yaml
+    seeds: [42, 43, 44, 45, 46]

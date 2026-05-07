@@ -7,7 +7,7 @@ use tracing::trace;
 use crate::{
     clock::{ClockBarrier, FutureEvent, Timestamp},
     config::{NodeConfiguration, NodeId, SimConfiguration},
-    events::EventTracker,
+    events::{EventTracker, NodeHandlerKind, NodeHandlerPhase},
     model::{CpuTaskId, Transaction},
     network::{Network, NetworkSink, NetworkSource},
     sim::{
@@ -15,6 +15,8 @@ use crate::{
         cpu::{CpuTaskQueue, Subtask},
     },
 };
+
+const POST_HANDLER_YIELD_INTERVAL: usize = 1_024;
 
 struct CpuTaskWrapper<Task: SimCpuTask> {
     task_type: Task,
@@ -53,6 +55,7 @@ impl<N: NodeImpl> NodeDriver<N> {
         tracker: EventTracker,
         clock: ClockBarrier,
     ) -> Self {
+        tracker.track_actor_registered(clock.id(), format!("node:{}", config.name));
         let (msg_sink, msg_source) = network.open(config.id).unwrap();
         let mut events = BinaryHeap::new();
         events.push(FutureEvent(clock.now(), NodeEvent::NewSlot(0)));
@@ -79,26 +82,60 @@ impl<N: NodeImpl> NodeDriver<N> {
         loop {
             let next_event_at = self.events.peek().map(|e| e.0).expect("no events");
             let (result, finish_task) = select! {
+                biased;
                 maybe_msg = self.msg_source.recv() => {
                     let Some((from, msg)) = maybe_msg else {
                         // sim has stopped running
                         return Ok(());
                     };
-                    (self.node.handle_message(from, msg), true)
+                    self.tracker.track_node_handler_diagnostics(
+                        self.id,
+                        NodeHandlerKind::Message,
+                        NodeHandlerPhase::Start,
+                    );
+                    let result = self.node.handle_message(from, msg);
+                    self.tracker.track_node_handler_diagnostics(
+                        self.id,
+                        NodeHandlerKind::Message,
+                        NodeHandlerPhase::Finish,
+                    );
+                    (result, true)
                 }
                 maybe_tx = self.tx_source.recv() => {
                     let Some(tx) = maybe_tx else {
                         // sim has stopped running
                         return Ok(());
                     };
-                    (self.node.handle_new_tx(tx), false)
+                    self.tracker.track_node_handler_diagnostics(
+                        self.id,
+                        NodeHandlerKind::NewTx,
+                        NodeHandlerPhase::Start,
+                    );
+                    let result = self.node.handle_new_tx(tx);
+                    self.tracker.track_node_handler_diagnostics(
+                        self.id,
+                        NodeHandlerKind::NewTx,
+                        NodeHandlerPhase::Finish,
+                    );
+                    (result, false)
                 }
                 maybe_custom_event = OptionFuture::from(custom_event_source.as_mut().map(|s| s.recv())), if has_custom_event_source => {
                     let Some(Some(event)) = maybe_custom_event else {
                         // sim has stopped running
                         return Ok(());
                     };
-                    (self.node.handle_custom_event(event), true)
+                    self.tracker.track_node_handler_diagnostics(
+                        self.id,
+                        NodeHandlerKind::CustomEvent,
+                        NodeHandlerPhase::Start,
+                    );
+                    let result = self.node.handle_custom_event(event);
+                    self.tracker.track_node_handler_diagnostics(
+                        self.id,
+                        NodeHandlerKind::CustomEvent,
+                        NodeHandlerPhase::Finish,
+                    );
+                    (result, true)
                 }
                 () = self.clock.wait_until(next_event_at) => {
                     let event = self.events.pop().unwrap().1;
@@ -108,7 +145,18 @@ impl<N: NodeImpl> NodeDriver<N> {
                                 self.tracker.track_slot(self.id, slot - 1);
                             }
                             self.events.push(FutureEvent(self.clock.now() + Duration::from_secs(1), NodeEvent::NewSlot(slot + 1)));
-                            (self.node.handle_new_slot(slot), false)
+                            self.tracker.track_node_handler_diagnostics(
+                                self.id,
+                                NodeHandlerKind::NewSlot,
+                                NodeHandlerPhase::Start,
+                            );
+                            let result = self.node.handle_new_slot(slot);
+                            self.tracker.track_node_handler_diagnostics(
+                                self.id,
+                                NodeHandlerKind::NewSlot,
+                                NodeHandlerPhase::Finish,
+                            );
+                            (result, false)
                         }
                         NodeEvent::CpuSubtaskCompleted(subtask) => {
                             let Some(result) = self.handle_subtask_completed(subtask) else {
@@ -117,24 +165,55 @@ impl<N: NodeImpl> NodeDriver<N> {
                             (result, false)
                         }
                         NodeEvent::Other(event) => {
-                            (self.node.handle_timed_event(event), false)
+                            self.tracker.track_node_handler_diagnostics(
+                                self.id,
+                                NodeHandlerKind::TimedEvent,
+                                NodeHandlerPhase::Start,
+                            );
+                            let result = self.node.handle_timed_event(event);
+                            self.tracker.track_node_handler_diagnostics(
+                                self.id,
+                                NodeHandlerKind::TimedEvent,
+                                NodeHandlerPhase::Finish,
+                            );
+                            (result, false)
                         }
                     }
                 }
             };
-            for (to, msg) in result.messages {
-                self.send_to(to, msg)?;
-            }
-            for task in result.tasks {
-                self.schedule_cpu_task(task);
-            }
-            for (time, event) in result.timed_events {
-                self.events.push(FutureEvent(time, NodeEvent::Other(event)));
-            }
+            self.process_event_result(result).await?;
             if finish_task {
                 self.clock.finish_task();
             }
         }
+    }
+
+    async fn process_event_result(&mut self, result: EventResult<N>) -> anyhow::Result<()> {
+        let mut processed = 0usize;
+
+        for (to, msg) in result.messages {
+            self.send_to(to, msg)?;
+            processed += 1;
+            if processed % POST_HANDLER_YIELD_INTERVAL == 0 {
+                tokio::task::yield_now().await;
+            }
+        }
+        for task in result.tasks {
+            self.schedule_cpu_task(task);
+            processed += 1;
+            if processed % POST_HANDLER_YIELD_INTERVAL == 0 {
+                tokio::task::yield_now().await;
+            }
+        }
+        for (time, event) in result.timed_events {
+            self.events.push(FutureEvent(time, NodeEvent::Other(event)));
+            processed += 1;
+            if processed % POST_HANDLER_YIELD_INTERVAL == 0 {
+                tokio::task::yield_now().await;
+            }
+        }
+
+        Ok(())
     }
 
     fn send_to(&self, to: NodeId, msg: N::Message) -> anyhow::Result<()> {
@@ -192,7 +271,18 @@ impl<N: NodeImpl> NodeDriver<N> {
             wall_time,
             task.task_type.extra(),
         );
-        Some(self.node.handle_cpu_task(task.task_type))
+        self.tracker.track_node_handler_diagnostics(
+            self.id,
+            NodeHandlerKind::CpuTask,
+            NodeHandlerPhase::Start,
+        );
+        let result = self.node.handle_cpu_task(task.task_type);
+        self.tracker.track_node_handler_diagnostics(
+            self.id,
+            NodeHandlerKind::CpuTask,
+            NodeHandlerPhase::Finish,
+        );
+        Some(result)
     }
 
     fn start_cpu_subtask(&mut self, subtask: Subtask, task_type: String) {

@@ -434,6 +434,10 @@
       "description": "If true, RBs will contain transactions directly as well as through a certificate.\nIf false, RBs will only contain a cert.",
       "type": "boolean"
     },
+    "rb-inline-txs-with-endorsement-enabled": {
+      "description": "When `true`, RBs may include inline transactions even when they also carry an EB endorsement.\nOnly supported by Rust simulation.",
+      "type": "boolean"
+    },
     "rb-body-legacy-praos-payload-avg-size-bytes": {
       "additionalProperties": false,
       "properties": {},
@@ -479,6 +483,10 @@
       "description": "The smallest unit of time to simulate, in fractions of a millisecond.\nOnly supported by Rust simulation.",
       "type": "number"
     },
+    "seed": {
+      "description": "RNG seed for reproducibility. Only supported by Rust simulation.",
+      "type": "number"
+    },
     "treat-blocks-as-full": {
       "description": "When `true`, any delays and message sizes are calculated as if\neach block contained as much data as the expected average, rounded up.\nIn particular, for the sake of the above, we consider that:\n  - Each RB includes a certificate.\n  - Certificates contain votes from `vote-threshold` nodes.\n  - Vote bundles vote for `ceil eb-generation-probability` EBs.\n  - EBs reference `ceil (ib-generation-probability * leios-stage-length-slots)` IBs.\nOnly supported by Haskell simulation.",
       "type": "boolean"
@@ -512,6 +520,52 @@
     "tx-stop-time": {
       "description": "The cutoff time after which transactions should not appear.\nOnly supported by Rust simulation.",
       "type": "number"
+    },
+    "tx-generator": {
+      "description": "Transaction generator selection. Only supported by Rust simulation.",
+      "enum": [
+        "legacy",
+        "actors"
+      ],
+      "type": "string"
+    },
+    "enforce-tier-delay": {
+      "description": "When `true`, transaction settlement latency is delayed by the selected tier delay (paper-style). Only supported by Rust simulation.",
+      "type": "boolean"
+    },
+    "tier-delay-unit": {
+      "description": "Unit used when `enforce-tier-delay` is true. `slots` applies synthetic tier delay in wall-clock slots, `blocks` applies synthetic tier delay in included settlement blocks. Only supported by Rust simulation.",
+      "enum": [
+        "slots",
+        "blocks"
+      ],
+      "type": "string"
+    },
+    "rb-path-latency-slots": {
+      "description": "Expected inclusion latency (in slots) for the RB lane, used for actor utility in lane-partitioned policies (`naive_rb_eb_two_tier`, `rb_tier0_reserved`, `continuous_rb_eb`). When `tier-delay-unit` is `blocks`, this is converted to expected settlement-block counts using the RB generation cadence. Based on CIP-0164 guidance. Only supported by Rust simulation.",
+      "type": "number"
+    },
+    "eb-path-latency-slots": {
+      "description": "Expected inclusion latency (in slots) for the EB lane, used for actor utility in lane-partitioned policies (`naive_rb_eb_two_tier`, `rb_tier0_reserved`, `continuous_rb_eb`). When `tier-delay-unit` is `blocks`, this is converted to expected settlement-block counts using the RB generation cadence. Based on CIP-0164 guidance. Only supported by Rust simulation.",
+      "type": "number"
+    },
+    "pricing": {
+      "description": "Pricing configuration (path to a TOML file). Only supported by Rust simulation.",
+      "properties": {
+        "config-path": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "actors": {
+      "description": "Actors configuration (path to a TOML file). Only supported by Rust simulation.",
+      "properties": {
+        "config-path": {
+          "type": "string"
+        }
+      },
+      "type": "object"
     },
     "tx-validation-cpu-time-ms": {
       "description": "Only supported by Rust simulation.",

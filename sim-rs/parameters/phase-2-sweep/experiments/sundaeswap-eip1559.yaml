@@ -1,0 +1,6 @@
+# Thin overlay — protocol params inherited from protocol-base.yaml
+pricing:
+  config-path: "parameters/phase-2-sweep/pricing/eip1559_quick.toml"
+actors:
+  config-path: "parameters/phase-2-sweep/demand/sundaeswap_moderate.toml"
+enforce-tier-delay: false

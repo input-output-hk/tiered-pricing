@@ -1,0 +1,7 @@
+# Thin overlay — protocol params inherited from protocol-base.yaml
+# Combined winner with slot-based delays (initial_tier_delay=20 slots).
+pricing:
+  config-path: "parameters/phase-2-sweep/pricing/continuous_rb_eb_combined_winner_slot_delays.toml"
+actors:
+  config-path: "parameters/phase-2-sweep/demand/paper_like_moderate.toml"
+tier-delay-unit: slots

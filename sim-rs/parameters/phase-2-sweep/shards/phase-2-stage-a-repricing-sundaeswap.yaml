@@ -1,0 +1,19 @@
+# yaml-language-server: $schema=../../suites/suite.schema.json
+
+defaults:
+  topology: parameters/topology.default.yaml
+  parameters:
+    - parameters/linear.yaml
+    - parameters/phase-2-sweep/protocol-base.yaml
+  slots: 2000
+  trace: false
+
+jobs:
+  - id: repricing-sundaeswap
+    label: Stage A Repricing SundaeSwap
+    parameters:
+      - parameters/phase-2-sweep/experiments/sundaeswap-continuous-pivot.yaml
+    compare-parameters:
+      - parameters/phase-2-sweep/experiments/sundaeswap-continuous-reprice-4.yaml
+      - parameters/phase-2-sweep/experiments/sundaeswap-continuous-reprice-16.yaml
+    seeds: [42, 43, 44, 45, 46]

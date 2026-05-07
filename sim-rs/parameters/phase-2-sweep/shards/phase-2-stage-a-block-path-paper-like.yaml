@@ -1,0 +1,21 @@
+# yaml-language-server: $schema=../../suites/suite.schema.json
+
+defaults:
+  topology: parameters/topology.default.yaml
+  parameters:
+    - parameters/linear.yaml
+    - parameters/phase-2-sweep/protocol-base.yaml
+  slots: 2000
+  trace: false
+
+jobs:
+  - id: block-path-paper-like
+    label: Stage A Block Path Paper Like
+    parameters:
+      - parameters/phase-2-sweep/experiments/paper-like-continuous-pivot.yaml
+    compare-parameters:
+      - parameters/phase-2-sweep/experiments/paper-like-shared.yaml
+      - parameters/phase-2-sweep/experiments/paper-like-naive-rb-eb.yaml
+      - parameters/phase-2-sweep/experiments/paper-like-rb-tier0-reserved-30pct.yaml
+      - parameters/phase-2-sweep/experiments/paper-like-rb-tier0-reserved-full.yaml
+    seeds: [42, 43, 44, 45, 46]

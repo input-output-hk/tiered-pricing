@@ -1,0 +1,20 @@
+# yaml-language-server: $schema=../../suites/suite.schema.json
+
+defaults:
+  topology: parameters/topology.default.yaml
+  parameters:
+    - parameters/linear.yaml
+    - parameters/phase-2-sweep/protocol-base.yaml
+  slots: 2000
+  trace: false
+
+jobs:
+  - id: controls-paper-like
+    label: Stage A Controls Paper Like
+    parameters:
+      - parameters/phase-2-sweep/experiments/paper-like-baseline.yaml
+    compare-parameters:
+      - parameters/phase-2-sweep/experiments/paper-like-eip1559.yaml
+      - parameters/phase-2-sweep/experiments/paper-like-continuous-pivot.yaml
+      - parameters/phase-2-sweep/experiments/paper-like-praos-control.yaml
+    seeds: [42, 43, 44, 45, 46]

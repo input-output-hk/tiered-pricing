@@ -1,0 +1,20 @@
+# yaml-language-server: $schema=../../suites/suite.schema.json
+
+defaults:
+  topology: parameters/topology.default.yaml
+  parameters:
+    - parameters/linear.yaml
+    - parameters/phase-2-sweep/protocol-base.yaml
+  slots: 2000
+  trace: false
+
+jobs:
+  - id: delay0-no-tier-spawn
+    label: Delay0 Overflow Signal No Tier Spawn
+    parameters:
+      - parameters/phase-2-sweep/experiments/paper-like-baseline.yaml
+    compare-parameters:
+      - parameters/phase-2-sweep/experiments/paper-like-eip1559.yaml
+      - parameters/phase-2-sweep/experiments/paper-like-overflow-signal-delay0.yaml
+      - parameters/phase-2-sweep/experiments/paper-like-overflow-signal-delay0-no-tier-spawn.yaml
+    seeds: [42, 43, 44, 45, 46]

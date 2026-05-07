@@ -3,7 +3,7 @@ use std::{collections::BinaryHeap, sync::Arc, time::Duration};
 use futures::{FutureExt, future::BoxFuture};
 use tokio::{select, sync::mpsc};
 
-use super::LinearLeiosNode;
+use super::{GlobalPricingCoordinator, LinearLeiosNode};
 use crate::{
     clock::{ClockBarrier, FutureEvent, TaskInitiator},
     config::NodeId,
@@ -136,18 +136,31 @@ impl EBWithholdingAttacker {
 }
 
 pub fn register_actors(args: ActorInitArgs<LinearLeiosNode>) -> Vec<Box<dyn Actor>> {
+    if let Some(pricing_config) = args.config.pricing.as_ref() {
+        let coordinator = GlobalPricingCoordinator::new(
+            pricing_config,
+            args.config.seed,
+            args.config.tier_selection_path_latencies(),
+        );
+        for node in args.nodes.iter_mut() {
+            node.set_global_pricing_coordinator(coordinator.clone());
+        }
+    }
+
     let Some(late_eb_config) = args.config.attacks.late_eb.as_ref() else {
         return vec![];
     };
 
     let clock = args.clock.barrier();
+    args.tracker
+        .track_actor_registered(clock.id(), "eb-withholder".to_string());
     let (eb_sender, eb_receiver) = mpsc::unbounded_channel();
     let sender = EBWithholdingSender {
         sender: eb_sender,
         tasks: clock.task_initiator(),
     };
     let mut attacker_channels = vec![];
-    for node in args.nodes {
+    for node in args.nodes.iter_mut() {
         if late_eb_config.attackers.contains(&node.id) {
             let channel = node.register_as_eb_withholder(sender.clone());
             attacker_channels.push((node.id, channel));

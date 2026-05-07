@@ -1,0 +1,5 @@
+# Delay0 + denom8 RB scarcity pricing with backlog-aware lane choice.
+pricing:
+  config-path: "parameters/phase-2-sweep/pricing/continuous_rb_eb_combined_winner_delay0_denom8_rb_scarcity_lane_backlog.toml"
+actors:
+  config-path: "parameters/phase-2-sweep/demand/paper_like_moderate.toml"

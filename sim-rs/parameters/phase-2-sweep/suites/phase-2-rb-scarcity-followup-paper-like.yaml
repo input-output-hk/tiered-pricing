@@ -1,0 +1,21 @@
+# yaml-language-server: $schema=../../suites/suite.schema.json
+
+defaults:
+  topology: parameters/topology.default.yaml
+  parameters:
+    - parameters/linear.yaml
+    - parameters/phase-2-sweep/protocol-base.yaml
+  slots: 2000
+  trace: false
+
+jobs:
+  - id: rb-scarcity-followup-paper-like
+    label: RB Scarcity Follow-up (paper-like)
+    parameters:
+      - parameters/phase-2-sweep/experiments/paper-like-combined-winner-delay0-denom8.yaml
+    compare-parameters:
+      - parameters/phase-2-sweep/experiments/paper-like-combined-winner-delay0-denom8-rb-scarcity.yaml
+      - parameters/phase-2-sweep/experiments/paper-like-combined-winner-delay0-denom8-rb-scarcity-denom6.yaml
+      - parameters/phase-2-sweep/experiments/paper-like-combined-winner-delay0-denom8-rb-scarcity-target40.yaml
+      - parameters/phase-2-sweep/experiments/paper-like-combined-winner-delay0-denom8-rb-scarcity-lane-backlog.yaml
+    seeds: [42, 43, 44, 45, 46]

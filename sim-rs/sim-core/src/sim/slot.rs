@@ -29,6 +29,20 @@ impl SlotWitness {
                 return;
             }
             self.tracker.track_global_slot(slot);
+            self.tracker.track_clock_diagnostics(
+                slot,
+                self.clock.tasks_in_flight() as u64,
+                self.clock.actors_running() as u64,
+                self.clock.actors_total() as u64,
+                self.clock.running_actor_ids(),
+                self.clock.last_task_started_by(),
+                self.clock.last_task_finished_by(),
+                self.clock.last_wait_actor(),
+                self.clock.last_wait_until_nanos(),
+                self.clock.last_woken_actor(),
+                self.clock.last_advance_to_nanos(),
+                self.clock.wait_queue_len(),
+            );
             slot += 1;
             next_slot_at += Duration::from_secs(1);
             self.clock.wait_until(next_slot_at).await;

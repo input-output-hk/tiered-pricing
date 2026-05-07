@@ -18,7 +18,7 @@ pub struct Network<TProtocol, TMessage> {
     sink: mpsc::UnboundedSender<Message<TProtocol, TMessage>>,
 }
 
-impl<TProtocol: Clone + Eq + Hash, TMessage: Debug> Network<TProtocol, TMessage> {
+impl<TProtocol: Clone + Eq + Hash + Ord, TMessage: Debug> Network<TProtocol, TMessage> {
     pub fn new(clock: Clock) -> Self {
         let (sink, source) = mpsc::unbounded_channel();
         Self {
@@ -26,6 +26,10 @@ impl<TProtocol: Clone + Eq + Hash, TMessage: Debug> Network<TProtocol, TMessage>
             coordinator: NetworkCoordinator::new(source),
             sink,
         }
+    }
+
+    pub fn actor_id(&self) -> u64 {
+        self.clock.id()
     }
 
     pub fn set_edge_policy(

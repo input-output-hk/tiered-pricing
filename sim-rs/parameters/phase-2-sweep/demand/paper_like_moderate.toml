@@ -1,0 +1,103 @@
+# Paper-like mixed traffic at moderate congestion.
+#
+# Effective Leios throughput is constrained by EB propagation time, not raw
+# EB capacity. Large EBs (~14MB) fail to propagate within the vote window,
+# so practical throughput is much lower than the theoretical 16MB/EB.
+#
+# Observed effective throughput from prior runs: ~15-30KB/slot.
+# Target demand: ~20-50KB/slot to create moderate-to-heavy congestion.
+#
+# Phased structure: moderate load → congestion spike → recovery.
+#   Slots 0-600:    Normal (~20 tx/slot, ~60% of effective capacity)
+#   Slots 600-1200: Spike (~45 tx/slot, ~130% of effective capacity)
+#   Slots 1200-2000: Recovery (~25 tx/slot, ~75% of effective capacity)
+#
+# Tx sizes calibrated to post-Vasil Cardano:
+#   Simple transfers: ~350 bytes (Cexplorer, Cardano Forum)
+#   DEX swaps (ref scripts): ~800 bytes (MuesliSwap post-Vasil: 1.31KB)
+#   Heavy Plutus: ~4000 bytes (Plank article: 9.6KB example)
+#
+# Values represent willingness-to-pay for inclusion (economic surplus).
+# Calibrated so all components clear the Cardano min fee (~170-375k lovelace).
+# Sources: Minswap avg swap data (CoinMarketCap), Cexplorer wallet data.
+
+# ============================================================================
+# High-value, high-urgency (Plutus-heavy: DeFi arbs, liquidations) — 15%
+# ============================================================================
+# Tx size ~4000 bytes, fee ~331k lovelace.
+# Value: 20-50M lovelace (20-50 ADA surplus at risk from delay).
+[[actors]]
+name = "high_val_high_urg"
+arrival_rate = 0.0
+arrival_pattern = { kind = "phased", phases = [
+    { start_slot = 0, end_slot = 600, rate = 3.0 },
+    { start_slot = 600, end_slot = 1200, rate = 6.75 },
+    { start_slot = 1200, end_slot = 2000, rate = 3.75 },
+] }
+tx_size = { kind = "normal", params = [4000, 2500] }
+value_distribution = { kind = "constant", params = [0] }
+urgency = { kind = "indifferent" }
+
+[[actors.value_urgency_components]]
+name = "high_val_high_urg"
+weight = 1.0
+value_distribution = { kind = "normal", params = [30000000.0, 15000000.0] }
+urgency_u_distribution = { kind = "uniform", params = [1.03, 1.06] }
+
+# ============================================================================
+# Medium-value (script txs: DEX swaps, lending) — 55%
+# ============================================================================
+# Tx size ~800 bytes, fee ~190k lovelace.
+# Value: 3-10M lovelace (3-10 ADA; typical DEX slippage cost).
+[[actors]]
+name = "med_val"
+arrival_rate = 0.0
+arrival_pattern = { kind = "phased", phases = [
+    { start_slot = 0, end_slot = 600, rate = 11.0 },
+    { start_slot = 600, end_slot = 1200, rate = 24.75 },
+    { start_slot = 1200, end_slot = 2000, rate = 13.75 },
+] }
+tx_size = { kind = "normal", params = [800, 400] }
+value_distribution = { kind = "constant", params = [0] }
+urgency = { kind = "indifferent" }
+
+[[actors.value_urgency_components]]
+name = "med_high_val_med_urg"
+weight = 0.45
+value_distribution = { kind = "normal", params = [8000000.0, 3000000.0] }
+urgency_u_distribution = { kind = "uniform", params = [1.02, 1.05] }
+
+[[actors.value_urgency_components]]
+name = "med_val_med_urg"
+weight = 0.55
+value_distribution = { kind = "normal", params = [3000000.0, 1500000.0] }
+urgency_u_distribution = { kind = "uniform", params = [1.015, 1.04] }
+
+# ============================================================================
+# Low-value (simple transfers, staking) — 30%
+# ============================================================================
+# Tx size ~350 bytes, fee ~171k lovelace.
+# Value: 500k-2M lovelace (0.5-2 ADA; modest value from timely inclusion).
+[[actors]]
+name = "low_val"
+arrival_rate = 0.0
+arrival_pattern = { kind = "phased", phases = [
+    { start_slot = 0, end_slot = 600, rate = 6.0 },
+    { start_slot = 600, end_slot = 1200, rate = 13.5 },
+    { start_slot = 1200, end_slot = 2000, rate = 7.5 },
+] }
+tx_size = { kind = "normal", params = [350, 100] }
+value_distribution = { kind = "constant", params = [0] }
+urgency = { kind = "indifferent" }
+
+[[actors.value_urgency_components]]
+name = "low_med_val_low_urg"
+weight = 0.67
+value_distribution = { kind = "normal", params = [1500000.0, 600000.0] }
+urgency_u_distribution = { kind = "uniform", params = [1.01, 1.03] }
+
+[[actors.value_urgency_components]]
+name = "low_val_low_urg"
+weight = 0.33
+value_distribution = { kind = "normal", params = [600000.0, 250000.0] }
+urgency_u_distribution = { kind = "uniform", params = [1.005, 1.02] }

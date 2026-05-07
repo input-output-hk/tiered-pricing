@@ -35,3 +35,61 @@ Assuming an output file `simplified.json`:
 ```
 
 This will output a ΔQ expression for use with the `delta_q` web tool corresponding to the probabilistic choice between all diffusion traces contained in the JSON file.
+
+## Timestamped experiment runs
+
+To avoid accidentally overwriting previous outputs, use the helper script:
+
+```sh
+scripts/run_sim_timestamped.sh \
+  --experiment parameters/phase-2-sweep/experiments/paper-like-eip1559.yaml \
+  --label eip1559-smoke \
+  --slots 2000
+```
+
+For a compare run:
+
+```sh
+scripts/run_sim_timestamped.sh \
+  --experiment parameters/phase-2-sweep/experiments/paper-like-eip1559.yaml \
+  --compare-experiment parameters/phase-2-sweep/experiments/paper-like-combined-winner-delay0-denom8.yaml \
+  --label eip1559-vs-tiered \
+  --slots 2000
+```
+
+Each run writes to a unique directory under `output/eb-compare/<timestamp>-<label>/`.
+
+## Config-driven experiment suites
+
+For multi-experiment campaigns, use the `experiment-suite` binary with a YAML suite config:
+
+```sh
+cargo run -q -p sim-cli --bin experiment-suite -- \
+  run parameters/phase-2-sweep/suites/phase-2-eip1559-robustness-paper-like.yaml
+```
+
+To resume an interrupted or failed suite run:
+
+```sh
+cargo run -q -p sim-cli --bin experiment-suite -- \
+  resume output/experiment-suites/<timestamp>-<label>
+```
+
+Suite configs live under `parameters/phase-2-sweep/suites/` (with the shared editor schema at `parameters/suites/suite.schema.json`) and support:
+- suite-level defaults for topology, parameter files, slots, tracing, and output root
+- an ordered list of jobs, each with its own `parameters` and optional `compare-parameters`
+- light seed sweeps via `seeds: [...]`, where each seed becomes its own resumable job attempt
+
+Each suite run writes a copied `suite.yaml`, a durable `manifest.json`, and per-job attempt directories under `output/experiment-suites/<timestamp>-<label>/`.
+
+For the phase-2 Stage A sweep, there is also a wrapper that launches one suite shard per top-level job in parallel:
+
+```sh
+scripts/run_phase2_stage_a_parallel.sh run --label phase2-stage-a
+```
+
+To resume every shard in a previously launched batch:
+
+```sh
+scripts/run_phase2_stage_a_parallel.sh resume output/experiment-batches/<timestamp>-phase2-stage-a
+```

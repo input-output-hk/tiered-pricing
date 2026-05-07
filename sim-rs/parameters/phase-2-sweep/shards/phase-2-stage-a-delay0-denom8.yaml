@@ -1,0 +1,28 @@
+# yaml-language-server: $schema=../../suites/suite.schema.json
+
+defaults:
+  topology: parameters/topology.default.yaml
+  parameters:
+    - parameters/linear.yaml
+    - parameters/phase-2-sweep/protocol-base.yaml
+  slots: 2000
+  trace: false
+
+jobs:
+  - id: delay0-denom8-paper-like
+    label: Delay0 + Denom8 (paper-like)
+    parameters:
+      - parameters/phase-2-sweep/experiments/paper-like-baseline.yaml
+    compare-parameters:
+      - parameters/phase-2-sweep/experiments/paper-like-eip1559.yaml
+      - parameters/phase-2-sweep/experiments/paper-like-combined-winner-delay0-denom8.yaml
+    seeds: [42, 43, 44, 45, 46]
+
+  - id: delay0-denom8-sundaeswap
+    label: Delay0 + Denom8 (sundaeswap)
+    parameters:
+      - parameters/phase-2-sweep/experiments/sundaeswap-baseline.yaml
+    compare-parameters:
+      - parameters/phase-2-sweep/experiments/sundaeswap-eip1559.yaml
+      - parameters/phase-2-sweep/experiments/sundaeswap-combined-winner-delay0-denom8.yaml
+    seeds: [42, 43, 44, 45, 46]

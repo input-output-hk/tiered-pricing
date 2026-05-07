@@ -1,0 +1,28 @@
+# yaml-language-server: $schema=../../suites/suite.schema.json
+
+defaults:
+  topology: parameters/topology.default.yaml
+  parameters:
+    - parameters/linear.yaml
+    - parameters/phase-2-sweep/protocol-base.yaml
+  slots: 2000
+  trace: false
+
+jobs:
+  - id: combined-winner-slot-delays-paper-like
+    label: Stage C Combined Winner Slot Delays (paper-like)
+    parameters:
+      - parameters/phase-2-sweep/experiments/paper-like-baseline.yaml
+    compare-parameters:
+      - parameters/phase-2-sweep/experiments/paper-like-combined-winner.yaml
+      - parameters/phase-2-sweep/experiments/paper-like-combined-winner-slot-delays.yaml
+    seeds: [42, 43, 44, 45, 46]
+
+  - id: combined-winner-slot-delays-sundaeswap
+    label: Stage C Combined Winner Slot Delays (sundaeswap)
+    parameters:
+      - parameters/phase-2-sweep/experiments/sundaeswap-baseline.yaml
+    compare-parameters:
+      - parameters/phase-2-sweep/experiments/sundaeswap-combined-winner.yaml
+      - parameters/phase-2-sweep/experiments/sundaeswap-combined-winner-slot-delays.yaml
+    seeds: [42, 43, 44, 45, 46]

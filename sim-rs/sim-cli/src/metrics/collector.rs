@@ -240,6 +240,7 @@ impl MetricsCollector {
                 urgency_component_index,
                 value_lovelace,
                 urgency,
+                slot,
                 ..
             } => {
                 // Phase-2 `TXGenerated` carries the actor-relevant
@@ -256,18 +257,10 @@ impl MetricsCollector {
                         ..Default::default()
                     });
                 comp.txs_submitted += 1;
-                // `submit_slot` is read from `self.delta.slot`, which
-                // is advanced by the per-slot `Event::PricingTick`.
-                // The simulator's `LinearLeiosNode::handle_new_slot`
-                // pins the ordering: `emit_pricing_tick(slot)` runs
-                // *before* `run_actors_for_slot(slot)`, so by the
-                // time a `TXGenerated` event arrives here, the
-                // collector's `delta.slot` already reflects the
-                // current slot. If the simulator's slot-handler
-                // ordering is ever changed, add a `slot` field to
-                // `Event::TXGenerated` instead of relying on this
-                // implicit invariant.
-                let submit_slot = self.delta.slot;
+                // `submit_slot` is carried on the event itself (M4+),
+                // so it is independent of the simulator's
+                // intra-slot ordering.
+                let submit_slot = *slot;
                 self.tx_meta.insert(
                     *id,
                     TxMeta {
@@ -624,6 +617,7 @@ mod tests {
             urgency,
             posted_lane: Lane::Priority,
             max_fee_lovelace: 1_000_000,
+            slot: 0,
         }
     }
 

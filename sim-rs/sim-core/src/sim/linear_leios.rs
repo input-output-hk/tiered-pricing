@@ -330,6 +330,12 @@ pub struct LinearLeiosNode {
     /// `None` otherwise. Each slot, `run_actors_for_slot` samples
     /// per-component arrivals and submits txs through `generate_tx`.
     actor_state: Option<NodeActorState>,
+    /// Most-recent slot seen by `handle_new_slot`. Read by
+    /// `generate_tx` (the lane-blind `handle_new_tx` driver path) so
+    /// the `TXGenerated` event carries a real submit slot. The actor
+    /// path passes its own `slot` argument directly and does not rely
+    /// on this field.
+    current_slot: u64,
 
     eb_withholding_sender: Option<EBWithholdingSender>,
     eb_withholding_event_source: Option<mpsc::UnboundedReceiver<EBWithholdingEvent>>,
@@ -457,6 +463,7 @@ impl NodeImpl for LinearLeiosNode {
             leios: NodeLeiosState::default(),
             behaviours: config.behaviours.clone(),
             actor_state,
+            current_slot: 0,
             eb_withholding_sender: None,
             eb_withholding_event_source: None,
         }
@@ -467,16 +474,7 @@ impl NodeImpl for LinearLeiosNode {
     }
 
     fn handle_new_slot(&mut self, slot: u64) -> EventResult {
-        // Ordering invariant (relied on by sim-cli's MetricsCollector
-        // to derive `submit_slot` for actor-generated txs):
-        //   1. `emit_pricing_tick(slot)` — advances the metrics
-        //      collector's slot pointer to `slot`.
-        //   2. `run_actors_for_slot(slot)` — emits `TXGenerated`,
-        //      which the collector tags with the just-advanced slot.
-        //   3. `try_generate_rb(slot)` — may emit `TXIncluded`/
-        //      `TXEvictedQuoteDrift`, also at `slot`.
-        // Reordering steps 1 and 2 would tag actor txs with the
-        // *previous* slot's number and skew per-component latency.
+        self.current_slot = slot;
         self.emit_pricing_tick(slot);
         self.run_actors_for_slot(slot);
         self.try_generate_rb(slot);
@@ -586,7 +584,8 @@ impl LinearLeiosNode {
     }
 
     fn generate_tx(&mut self, tx: Arc<Transaction>) {
-        self.tracker.track_transaction_generated(&tx, self.id);
+        self.tracker
+            .track_transaction_generated(&tx, self.id, self.current_slot);
         self.propagate_tx(self.id, tx);
     }
 
@@ -713,7 +712,8 @@ impl LinearLeiosNode {
             if let TransactionConfig::Mock(config) = &self.sim_config.transactions {
                 // Add one transaction, the right size for the extra RB payload
                 let tx = config.mock_tx(config.rb_size);
-                self.tracker.track_transaction_generated(&tx, self.id);
+                self.tracker
+                    .track_transaction_generated(&tx, self.id, slot);
                 rb_transactions.push(Arc::new(tx));
             } else {
                 self.sample_from_mempool_lane_aware(
@@ -745,7 +745,8 @@ impl LinearLeiosNode {
                     config.eb_size - withheld_txs.iter().map(|tx| tx.bytes).sum::<u64>();
                 if extra_size > 0 {
                     let tx = config.mock_tx(extra_size);
-                    self.tracker.track_transaction_generated(&tx, self.id);
+                    self.tracker
+                        .track_transaction_generated(&tx, self.id, slot);
                     eb_transactions.push(Arc::new(tx));
                 }
             } else {
@@ -1462,7 +1463,8 @@ impl LinearLeiosNode {
                 TransactionConfig::Real(cfg) => cfg.new_tx(&mut self.rng, None),
                 TransactionConfig::Mock(cfg) => cfg.mock_tx(cfg.eb_size / txs_to_generate),
             };
-            self.tracker.track_transaction_generated(&tx, self.id);
+            self.tracker
+                .track_transaction_generated(&tx, self.id, slot);
             let tx = Arc::new(tx);
             self.txs
                 .insert(tx.id, TransactionView::Received(tx.clone()));
@@ -2270,7 +2272,8 @@ impl LinearLeiosNode {
                     urgency: inputs.urgency,
                     urgency_component_index: ci.index,
                 };
-                self.tracker.track_transaction_generated(&tx, self.id);
+                self.tracker
+                    .track_transaction_generated(&tx, self.id, slot);
                 let arc = Arc::new(tx);
                 {
                     let state = self.actor_state.as_mut().expect("checked above");

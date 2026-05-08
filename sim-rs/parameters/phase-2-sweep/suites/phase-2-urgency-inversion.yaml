@@ -1,0 +1,24 @@
+suite-name: phase-2-urgency-inversion
+output-dir: output/phase-2/urgency-inversion
+seeds: [1, 2, 3]
+default-slots: 200
+default-topology: parameters/phase-2-sweep/topology-single-producer.yaml
+default-protocol: parameters/phase-2-sweep/protocol-base.yaml
+default-demand: parameters/phase-2-sweep/demand/paper_like_congested.yaml
+jobs:
+  # Baseline: every component carries the default
+  # ScaledOverLaneQuote{4, 1} max-fee policy (4× quote-drift headroom).
+  # Pricing: partitioned both-dynamic with multiplier_floor = 4 so
+  # both high+medium urgency components pick priority (lifts priority
+  # demand into saturation, exercises quote drift). x16 was tried
+  # first but kept priority demand too low to drift the quote — only
+  # high-urgency picked priority and capacity was uncontested.
+  - name: correctly_priced
+    pricing: parameters/phase-2-sweep/pricing/two_lane_both_dynamic_partitioned_x4.yaml
+  # Mis-priced: the high-urgency component (component 0) carries
+  # ScaledOverLaneQuote{1, 1} (zero quote-drift headroom). Other
+  # components keep the {4, 1} default.
+  - name: mispriced_high_urgency
+    pricing: parameters/phase-2-sweep/pricing/two_lane_both_dynamic_partitioned_x4.yaml
+    overrides:
+      demand: parameters/phase-2-sweep/demand/paper_like_mispriced.yaml

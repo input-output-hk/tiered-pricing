@@ -546,3 +546,98 @@ async fn run_job(suite: &Suite, job_idx: usize, seed: u64) -> Result<RunSummary>
     diagnostics::write(&diagnostics_path, &config, &summary, &notes)?;
     Ok(summary)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `verify_suite` must bail when a Completed (job, seed) entry's
+    /// persisted `pricing_event_stream.sha256` is empty or non-hex —
+    /// otherwise an empty stored hash silently matches an empty
+    /// freshly-computed hash and the determinism check passes by
+    /// default. (See `runner.rs` lines 360-374.)
+    #[test]
+    fn verify_suite_bails_on_empty_stored_hash() {
+        let tmp = tempfile::tempdir().unwrap();
+        let suite_dir = tmp.path();
+        let output_dir = suite_dir.join("output");
+        let job_dir = output_dir.join("the_job").join("1");
+        std::fs::create_dir_all(&job_dir).unwrap();
+        // Empty hash file — the bug shape we're guarding against.
+        std::fs::write(job_dir.join("pricing_event_stream.sha256"), "").unwrap();
+        // run_summary.json must exist but the verifier never reads it
+        // before the malformed-hash bail, so a stub is fine.
+        std::fs::write(
+            job_dir.join("run_summary.json"),
+            r#"{"pricing_event_stream_sha256":"","total_txs_included":0,"total_txs_evicted_quote_drift":0,"multiplier_floor_breaches":0,"pricing_ticks":0,"components":[]}"#,
+        )
+        .unwrap();
+        // Minimal suite YAML. Paths inside it never resolve because
+        // run_job is unreachable past the bail.
+        let suite_yaml = format!(
+            "suite-name: t\noutput-dir: {}\nseeds: [1]\ndefault-slots: 1\n\
+             default-topology: nope.yaml\ndefault-protocol: nope.yaml\n\
+             default-demand: nope.yaml\njobs:\n  - name: the_job\n    pricing: nope.yaml\n",
+            output_dir.display()
+        );
+        let suite_path = suite_dir.join("suite.yaml");
+        std::fs::write(&suite_path, suite_yaml).unwrap();
+        // Manifest with the (the_job, seed=1) entry marked Completed so
+        // verify_suite tries to check its hash.
+        let manifest = format!(
+            r#"{{"suite-name":"t","started-at-utc":"2026-01-01T00:00:00Z",
+                "jobs":{{"the_job":{{"1":{{"status":"completed",
+                  "started-at-utc":"2026-01-01T00:00:00Z",
+                  "completed-at-utc":"2026-01-01T00:00:00Z",
+                  "output-path":"{}"}}}}}}}}"#,
+            job_dir.display()
+        );
+        std::fs::write(output_dir.join("manifest.json"), manifest).unwrap();
+
+        let err = verify_suite(&suite_path).unwrap_err();
+        let msg = format!("{err:#}");
+        assert!(
+            msg.contains("malformed"),
+            "expected error message to contain 'malformed', got: {msg}"
+        );
+    }
+
+    /// Sanity: a 64-char-but-non-hex stored value also bails. Catches a
+    /// regression where someone relaxes the check to `len() == 64` only.
+    #[test]
+    fn verify_suite_bails_on_non_hex_stored_hash() {
+        let tmp = tempfile::tempdir().unwrap();
+        let suite_dir = tmp.path();
+        let output_dir = suite_dir.join("output");
+        let job_dir = output_dir.join("the_job").join("1");
+        std::fs::create_dir_all(&job_dir).unwrap();
+        // 64 chars of `z` — wrong length-wise it passes, but not hex.
+        std::fs::write(job_dir.join("pricing_event_stream.sha256"), "z".repeat(64))
+            .unwrap();
+        std::fs::write(
+            job_dir.join("run_summary.json"),
+            r#"{"pricing_event_stream_sha256":"","total_txs_included":0,"total_txs_evicted_quote_drift":0,"multiplier_floor_breaches":0,"pricing_ticks":0,"components":[]}"#,
+        )
+        .unwrap();
+        let suite_yaml = format!(
+            "suite-name: t\noutput-dir: {}\nseeds: [1]\ndefault-slots: 1\n\
+             default-topology: nope.yaml\ndefault-protocol: nope.yaml\n\
+             default-demand: nope.yaml\njobs:\n  - name: the_job\n    pricing: nope.yaml\n",
+            output_dir.display()
+        );
+        let suite_path = suite_dir.join("suite.yaml");
+        std::fs::write(&suite_path, suite_yaml).unwrap();
+        let manifest = format!(
+            r#"{{"suite-name":"t","started-at-utc":"2026-01-01T00:00:00Z",
+                "jobs":{{"the_job":{{"1":{{"status":"completed",
+                  "started-at-utc":"2026-01-01T00:00:00Z",
+                  "completed-at-utc":"2026-01-01T00:00:00Z",
+                  "output-path":"{}"}}}}}}}}"#,
+            job_dir.display()
+        );
+        std::fs::write(output_dir.join("manifest.json"), manifest).unwrap();
+
+        let err = verify_suite(&suite_path).unwrap_err();
+        assert!(format!("{err:#}").contains("malformed"));
+    }
+}

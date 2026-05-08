@@ -1,0 +1,27 @@
+suite-name: phase-2-rb-scarcity
+output-dir: output/phase-2/rb-scarcity
+seeds: [1, 2, 3]
+default-slots: 200
+default-topology: parameters/phase-2-sweep/topology-single-producer.yaml
+default-protocol: parameters/phase-2-sweep/protocol-base.yaml
+default-demand: parameters/phase-2-sweep/demand/paper_like_congested.yaml
+jobs:
+  # Baseline RB capacity (90112 bytes from config.default.yaml).
+  - name: rb_baseline
+    pricing: parameters/phase-2-sweep/pricing/two_lane_priority_only_static_x4.yaml
+  # Half RB capacity (45056). Priority partition halves in lockstep
+  # per spec (priority_reservation_bytes = max_block_size).
+  - name: rb_reduced_half
+    pricing: parameters/phase-2-sweep/pricing/two_lane_priority_only_static_x4.yaml
+    overrides:
+      protocol: parameters/phase-2-sweep/protocol-rb-reduced-half.yaml
+  # Third RB capacity (30000). Priority partition follows.
+  - name: rb_reduced_third
+    pricing: parameters/phase-2-sweep/pricing/two_lane_priority_only_static_x4.yaml
+    overrides:
+      protocol: parameters/phase-2-sweep/protocol-rb-reduced-third.yaml
+  # Quarter RB capacity (22528). Priority partition follows.
+  - name: rb_reduced_quarter
+    pricing: parameters/phase-2-sweep/pricing/two_lane_priority_only_static_x4.yaml
+    overrides:
+      protocol: parameters/phase-2-sweep/protocol-rb-reduced-quarter.yaml

@@ -370,7 +370,10 @@ impl StracciatellaLeiosNode {
     }
 
     fn generate_tx(&mut self, tx: Arc<Transaction>) {
-        self.tracker.track_transaction_generated(&tx, self.id);
+        // Non-linear-Leios protocols don't drive phase-2 actor metrics;
+        // the welfare collapses to retained_value = 0 anyway because
+        // these paths set value_lovelace = 0. Pass slot 0.
+        self.tracker.track_transaction_generated(&tx, self.id, 0);
         self.propagate_tx(self.id, tx);
     }
 
@@ -446,7 +449,8 @@ impl StracciatellaLeiosNode {
             if let TransactionConfig::Mock(config) = &self.sim_config.transactions {
                 // Add one transaction, the right size for the RB payload
                 let tx = config.mock_tx(config.rb_size);
-                self.tracker.track_transaction_generated(&tx, self.id);
+                self.tracker
+                    .track_transaction_generated(&tx, self.id, slot);
                 transactions.push(Arc::new(tx));
             } else {
                 self.sample_from_praos_mempool(&mut transactions);

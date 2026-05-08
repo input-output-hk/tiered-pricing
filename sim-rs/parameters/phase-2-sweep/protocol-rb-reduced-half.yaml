@@ -1,0 +1,27 @@
+# RB-scarcity protocol overlay: half-capacity RB.
+#
+# This file is a *full replacement* for `protocol-base.yaml`, not a
+# stacked overlay — the suite runner picks either `default-protocol`
+# OR `overrides.protocol`, never both. Mirror everything from
+# `protocol-base.yaml` and override `rb-body-max-size-bytes`.
+#
+# Per spec, `priority_reservation_bytes = max_block_size =
+# rb_body_max_size_bytes` (mechanism-design.md line 160), so the EB
+# priority partition halves in lockstep.
+#
+# Total per-slot priority capacity: 2 × 45056 = 90 KB (vs baseline 180 KB).
+
+leios-variant: linear
+timestamp-resolution-ms: 0.05
+
+min-fee-a: 44
+min-fee-b: 155381
+
+mempool-max-total-size-bytes: null
+
+simulate-transactions: true
+rb-generation-probability: 1.0
+vote-threshold: 1
+
+# RB-scarcity knob.
+rb-body-max-size-bytes: 45056

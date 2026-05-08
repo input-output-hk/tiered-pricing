@@ -1,0 +1,70 @@
+# Phase-2 paper-like congested demand with a mis-priced
+# high-urgency component.
+#
+# Same three-component shape as `paper_like_congested.yaml` (high /
+# medium / low urgency at ~6× the moderate arrival rate, sustained),
+# but the high-urgency component (component 0) carries
+# `MaxFeePolicy::ScaledOverLaneQuote { numerator: 1, denominator: 1 }`.
+#
+# Why `{1, 1}` is the mis-pricing knob (not `{0, 1}` etc.):
+# - `{1, 1}` => `max_fee_lovelace = min_fee_b + 1 × current_quote × bytes`,
+#   i.e. the actor's max-fee covers the lane fee *exactly* at submission.
+#   Zero quote-drift headroom: as soon as the priority controller
+#   ticks up, the tx is invalidated by the mempool gate's quote-drift
+#   revalidation and is evicted.
+# - `{4, 1}` (the default used in `paper_like_congested.yaml`) gives 4×
+#   headroom; under congested drift, those txs survive substantially
+#   longer.
+#
+# The urgency-inversion question: with high-urgency users mis-priced
+# against quote drift, do they lose their priority service while
+# correctly-priced lower-urgency users hold onto theirs? The
+# per-component breakdown in `metrics_comparison.txt` answers this
+# directly — compare component 0's eviction count and retained-value
+# ratio across the two suite jobs.
+
+actors:
+  components:
+    # Component 0: high urgency, MIS-PRICED (zero quote-drift headroom).
+    - arrival-rate-per-slot: 12.0
+      size-bytes:
+        distribution: log-normal
+        mu: 6.833
+        sigma: 0.5
+      value-lovelace:
+        distribution: log-normal
+        mu: 17.0
+        sigma: 0.4
+      urgency:
+        distribution: constant
+        value: 5.0
+      max-fee-policy:
+        kind: scaled-over-lane-quote
+        numerator: 1
+        denominator: 1
+    # Component 1: moderate urgency, default {4, 1} headroom.
+    - arrival-rate-per-slot: 48.0
+      size-bytes:
+        distribution: log-normal
+        mu: 6.833
+        sigma: 0.5
+      value-lovelace:
+        distribution: log-normal
+        mu: 15.0
+        sigma: 0.4
+      urgency:
+        distribution: constant
+        value: 2.0
+    # Component 2: low urgency, default {4, 1} headroom.
+    - arrival-rate-per-slot: 90.0
+      size-bytes:
+        distribution: log-normal
+        mu: 6.833
+        sigma: 0.5
+      value-lovelace:
+        distribution: log-normal
+        mu: 13.0
+        sigma: 0.4
+      urgency:
+        distribution: constant
+        value: 1.05

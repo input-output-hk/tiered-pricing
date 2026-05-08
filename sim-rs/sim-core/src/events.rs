@@ -130,6 +130,11 @@ pub enum Event {
         posted_lane: Lane,
         #[serde(default)]
         max_fee_lovelace: u64,
+        // Phase-2 submit-slot (M4+). Carried on the event so the
+        // metrics collector can compute latency without depending
+        // on a slot-tick-before-actor-arrival ordering invariant.
+        #[serde(default)]
+        slot: u64,
     },
     TXSent {
         id: TransactionId,
@@ -549,7 +554,12 @@ impl EventTracker {
         });
     }
 
-    pub fn track_transaction_generated(&self, transaction: &Transaction, publisher: NodeId) {
+    pub fn track_transaction_generated(
+        &self,
+        transaction: &Transaction,
+        publisher: NodeId,
+        submit_slot: u64,
+    ) {
         self.send(Event::TXGenerated {
             id: transaction.id,
             publisher: self.to_node(publisher),
@@ -562,6 +572,7 @@ impl EventTracker {
             urgency: transaction.urgency,
             posted_lane: transaction.posted_lane,
             max_fee_lovelace: transaction.max_fee_lovelace,
+            slot: submit_slot,
         });
     }
 

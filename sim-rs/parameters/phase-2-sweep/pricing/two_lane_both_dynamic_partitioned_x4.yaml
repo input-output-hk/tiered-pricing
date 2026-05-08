@@ -1,0 +1,21 @@
+# Lower multiplier_floor (4) to compare against x16. Looser
+# discrimination; more frequent priority-vs-standard wash-out under
+# moderate demand.
+pricing:
+  kind: two-lane
+  variant: rb-reserved-both-dynamic
+  priority:
+    initial-quote-per-byte: 176
+    target-num: 1
+    target-den: 2
+    max-change-denominator: 8
+    window-length: 1
+  standard:
+    initial-quote-per-byte: 44
+    target-num: 1
+    target-den: 2
+    max-change-denominator: 8
+    window-length: 32
+  multiplier-floor-num: 4
+  multiplier-floor-den: 1
+  lane-selection-order: priority-first

@@ -14,6 +14,16 @@ use crate::{
     tx_pricing::Lane,
 };
 
+// Phase-2 `TXGenerated` carries `posted_lane`; for serde
+// deserialisation of older trace files that don't have the field,
+// default to `Standard`. The `#[allow(dead_code)]` suppresses the
+// false-positive — the function is used by serde via the
+// `#[serde(default = "default_lane_standard")]` attribute.
+#[allow(dead_code)]
+fn default_lane_standard() -> Lane {
+    Lane::Standard
+}
+
 #[derive(Debug, Clone)]
 pub struct Node {
     pub id: NodeId,
@@ -106,6 +116,20 @@ pub enum Event {
         shard: u64,
         input_id: u64,
         overcollateralization_factor: u64,
+        // Phase-2 welfare-metric fields (M3+). Default to 0/0.0 for
+        // legacy non-actor txs.
+        #[serde(default)]
+        urgency_component_index: u32,
+        #[serde(default)]
+        value_lovelace: u64,
+        #[serde(default)]
+        urgency: f64,
+        // Phase-2 lane intent (M3+). Default `Lane::Standard` for
+        // legacy non-actor txs (single-lane assumption).
+        #[serde(default = "default_lane_standard")]
+        posted_lane: Lane,
+        #[serde(default)]
+        max_fee_lovelace: u64,
     },
     TXSent {
         id: TransactionId,
@@ -305,6 +329,23 @@ pub enum Event {
         posted_lane: Lane,
         current_quote_per_byte: u64,
         max_fee_lovelace: u64,
+    },
+    /// Phase-2 per-slot pricing snapshot (M3+). Emitted by every
+    /// node at the start of each slot tick. The metrics layer uses
+    /// the snapshot from a designated node (typically the lowest-id
+    /// producer) to populate the per-slot `time_series.csv` rows
+    /// (`c_priority`, `c_standard`, `mempool_bytes_*`,
+    /// `util_*_window_x_1e9`).
+    PricingTick {
+        node: Node,
+        slot: u64,
+        priority_quote_per_byte: u64,
+        standard_quote_per_byte: u64,
+        priority_window_util_x_1e9: Option<u64>,
+        standard_window_util_x_1e9: Option<u64>,
+        mempool_bytes_total: u64,
+        mempool_bytes_priority: u64,
+        mempool_bytes_standard: u64,
     },
 }
 
@@ -516,6 +557,11 @@ impl EventTracker {
             shard: transaction.shard,
             input_id: transaction.input_id,
             overcollateralization_factor: transaction.overcollateralization_factor,
+            urgency_component_index: transaction.urgency_component_index,
+            value_lovelace: transaction.value_lovelace,
+            urgency: transaction.urgency,
+            posted_lane: transaction.posted_lane,
+            max_fee_lovelace: transaction.max_fee_lovelace,
         });
     }
 
@@ -565,6 +611,34 @@ impl EventTracker {
             max_fee_lovelace,
             actual_fee_lovelace,
             refund_lovelace,
+        });
+    }
+
+    /// Phase-2: per-slot pricing-state snapshot (M3+). One per node
+    /// per slot; the metrics layer picks a representative node.
+    #[allow(clippy::too_many_arguments)]
+    pub fn track_pricing_tick(
+        &self,
+        node: NodeId,
+        slot: u64,
+        priority_quote_per_byte: u64,
+        standard_quote_per_byte: u64,
+        priority_window_util_x_1e9: Option<u64>,
+        standard_window_util_x_1e9: Option<u64>,
+        mempool_bytes_total: u64,
+        mempool_bytes_priority: u64,
+        mempool_bytes_standard: u64,
+    ) {
+        self.send(Event::PricingTick {
+            node: self.to_node(node),
+            slot,
+            priority_quote_per_byte,
+            standard_quote_per_byte,
+            priority_window_util_x_1e9,
+            standard_window_util_x_1e9,
+            mempool_bytes_total,
+            mempool_bytes_priority,
+            mempool_bytes_standard,
         });
     }
 

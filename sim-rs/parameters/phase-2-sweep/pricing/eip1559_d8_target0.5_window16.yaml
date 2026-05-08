@@ -1,0 +1,9 @@
+# Shorter smoothing window (16) at the centred target / standard D.
+# Used by the smoothing suite to compare smoothing levels.
+pricing:
+  kind: eip1559
+  initial-quote-per-byte: 44
+  target-num: 1
+  target-den: 2
+  max-change-denominator: 8
+  window-length: 16

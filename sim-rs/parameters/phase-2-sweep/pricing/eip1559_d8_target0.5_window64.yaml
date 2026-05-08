@@ -1,0 +1,9 @@
+# Longer smoothing window (64). Smoother price moves but slower
+# response to demand shifts.
+pricing:
+  kind: eip1559
+  initial-quote-per-byte: 44
+  target-num: 1
+  target-den: 2
+  max-change-denominator: 8
+  window-length: 64

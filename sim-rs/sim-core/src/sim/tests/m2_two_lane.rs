@@ -972,6 +972,31 @@ fn pricing_event_stream_deterministic_across_runs() {
     );
 }
 
+#[test]
+fn pricing_event_stream_deterministic_across_runs_unreserved() {
+    // M3 expansion of the cross-arch determinism regime to cover an
+    // un-reserved variant. Distinct from the RB-reserved scenario in
+    // two simulation-affecting ways:
+    //   1. The RB body admits standard-fee txs (no RB validity rule).
+    //   2. The un-reserved priority controller's EB sample is
+    //      `priority_paying_bytes / total_block_capacity` (option 1,
+    //      plan line 48) — denominator differs from the RB-reserved
+    //      cap-at-one-RB-worth path.
+    // Submitting a priority-light + standard mix exercises both
+    // differences. Any f64 leakage into the un-reserved sample path
+    // flips this hash.
+    let h1 = run_seeded_pricing_scenario_unreserved();
+    let h2 = run_seeded_pricing_scenario_unreserved();
+    assert_eq!(h1, h2, "pricing event stream must be deterministic");
+    const GOLDEN: &str = "7a976da3778c11887665769a6af32eccc41f6d735b2140ef035fee67d05eb91c";
+    assert_eq!(
+        h1, GOLDEN,
+        "pricing event-stream hash drifted from the pinned golden value. \
+         If the simulation logic legitimately changed, update the constant \
+         in this test and document the change in m3-handoff.md."
+    );
+}
+
 fn run_seeded_pricing_scenario() -> String {
     // Reproducible scenario: RB-reserved both-dynamic with saturated
     // priority demand for a few slots. Hash only TXIncluded and
@@ -986,6 +1011,95 @@ fn run_seeded_pricing_scenario() -> String {
     for _slot in 0..5 {
         for _ in 0..3 {
             let tx = sim.make_tx(bytes, big_max_fee, Lane::Priority);
+            sim.submit_tx(tx);
+        }
+        sim.win_lottery(LotteryKind::GenerateRB, 0);
+        sim.next_slot();
+    }
+    let events = sim.drain_events();
+    let mut hasher = Sha256::new();
+    for ev in &events {
+        match ev {
+            Event::TXIncluded {
+                id,
+                slot,
+                bytes,
+                posted_lane,
+                served_lane,
+                max_fee_lovelace,
+                actual_fee_lovelace,
+                refund_lovelace,
+                ..
+            } => {
+                hasher.update(b"INCL");
+                hasher.update(id.to_string().as_bytes());
+                hasher.update(slot.to_le_bytes());
+                hasher.update(bytes.to_le_bytes());
+                hasher.update([
+                    match posted_lane {
+                        Lane::Standard => 0,
+                        Lane::Priority => 1,
+                    },
+                    match served_lane {
+                        Lane::Standard => 0,
+                        Lane::Priority => 1,
+                    },
+                ]);
+                hasher.update(max_fee_lovelace.to_le_bytes());
+                hasher.update(actual_fee_lovelace.to_le_bytes());
+                hasher.update(refund_lovelace.to_le_bytes());
+            }
+            Event::TXEvictedQuoteDrift {
+                id,
+                slot,
+                bytes,
+                posted_lane,
+                current_quote_per_byte,
+                max_fee_lovelace,
+                ..
+            } => {
+                hasher.update(b"EVCT");
+                hasher.update(id.to_string().as_bytes());
+                hasher.update(slot.to_le_bytes());
+                hasher.update(bytes.to_le_bytes());
+                hasher.update([match posted_lane {
+                    Lane::Standard => 0,
+                    Lane::Priority => 1,
+                }]);
+                hasher.update(current_quote_per_byte.to_le_bytes());
+                hasher.update(max_fee_lovelace.to_le_bytes());
+            }
+            _ => {}
+        }
+    }
+    hex::encode(hasher.finalize())
+}
+
+fn run_seeded_pricing_scenario_unreserved() -> String {
+    // Reproducible scenario: un-reserved both-dynamic with a mix of
+    // priority-light and standard-fee demand. Designed to exercise
+    // (a) the un-reserved RB body admitting standard-fee txs and
+    // (b) the un-reserved priority controller's `priority_bytes /
+    // total_block_capacity` EB sample shape, both of which diverge
+    // from the RB-reserved variant's behaviour. Hash only TXIncluded
+    // and TXEvictedQuoteDrift events.
+    let cfg = RawPricingConfig::TwoLane(two_lane_cfg(
+        RawTwoLaneVariant::UnreservedBothDynamic,
+        LaneSelectionOrder::PriorityFirst,
+    ));
+    let mut sim = TwoLaneDriver::new(cfg);
+    let bytes = 30_000u64;
+    let big_max_fee = MIN_FEE_B + 10_000 * bytes;
+    for _slot in 0..5 {
+        // 2 priority + 5 standard per slot (60k priority short of the
+        // 90k RB cap; the 30k slack admits one standard tx into the RB
+        // under un-reserved). Remaining 4 standard txs go into the EB.
+        for _ in 0..2 {
+            let tx = sim.make_tx(bytes, big_max_fee, Lane::Priority);
+            sim.submit_tx(tx);
+        }
+        for _ in 0..5 {
+            let tx = sim.make_tx(bytes, big_max_fee, Lane::Standard);
             sim.submit_tx(tx);
         }
         sim.win_lottery(LotteryKind::GenerateRB, 0);

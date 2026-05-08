@@ -1,0 +1,9 @@
+# Higher target (0.75) — runs closer to saturation in exchange for
+# higher steady-state throughput.
+pricing:
+  kind: eip1559
+  initial-quote-per-byte: 44
+  target-num: 3
+  target-den: 4
+  max-change-denominator: 8
+  window-length: 32

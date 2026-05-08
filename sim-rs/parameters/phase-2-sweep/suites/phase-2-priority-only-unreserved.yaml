@@ -1,0 +1,14 @@
+suite-name: phase-2-priority-only-unreserved
+output-dir: output/phase-2/priority-only-unreserved
+seeds: [1, 2, 3]
+default-slots: 200
+default-topology: parameters/phase-2-sweep/topology-single-producer.yaml
+default-protocol: parameters/phase-2-sweep/protocol-base.yaml
+default-demand: parameters/phase-2-sweep/demand/paper_like_congested.yaml
+jobs:
+  - name: multiplier_x4
+    pricing: parameters/phase-2-sweep/pricing/two_lane_priority_only_unreserved_x4.yaml
+  - name: multiplier_x8
+    pricing: parameters/phase-2-sweep/pricing/two_lane_priority_only_unreserved_x8.yaml
+  - name: multiplier_x16
+    pricing: parameters/phase-2-sweep/pricing/two_lane_priority_only_unreserved_x16.yaml

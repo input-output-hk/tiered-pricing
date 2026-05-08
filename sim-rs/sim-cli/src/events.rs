@@ -400,6 +400,7 @@ impl EventMonitor {
                 // praos/leios summary.
                 Event::TXIncluded { .. } => {}
                 Event::TXEvictedQuoteDrift { .. } => {}
+                Event::PricingTick { .. } => {}
             }
         }
 

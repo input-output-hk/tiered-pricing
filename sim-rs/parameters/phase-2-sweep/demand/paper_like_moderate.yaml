@@ -1,0 +1,56 @@
+# Phase-2 paper-like moderate demand.
+#
+# Three weighted urgency components matching the spec's
+# value-urgency narrative:
+# - High-urgency (component 0): low arrival, high urgency, high
+#   value. Intended to ride priority lanes when offered.
+# - Medium-urgency (component 1): moderate arrival, moderate urgency.
+# - Low-urgency (component 2): high arrival, near-1.0 urgency.
+#
+# Per-slot total ≈ 25 txs of ~1KB each → ~25KB/slot, well below the
+# 90KB RB body cap. No congestion at this volume.
+#
+# Calibration choice (M3 default): see implementation-plan.md
+# §M5 line 290 — `actor max_fee_policy = ScaledOverLaneQuote{4,1}`,
+# `target_inclusion_blocks_priority = 1`,
+# `target_inclusion_blocks_standard = 4`. These are picked up from
+# the per-component defaults in `RawActorComponent`.
+
+actors:
+  components:
+    - arrival-rate-per-slot: 2.0
+      size-bytes:
+        distribution: log-normal
+        mu: 6.833
+        sigma: 0.5
+      value-lovelace:
+        distribution: log-normal
+        mu: 17.0
+        sigma: 0.4
+      urgency:
+        distribution: constant
+        value: 5.0
+    - arrival-rate-per-slot: 8.0
+      size-bytes:
+        distribution: log-normal
+        mu: 6.833
+        sigma: 0.5
+      value-lovelace:
+        distribution: log-normal
+        mu: 15.0
+        sigma: 0.4
+      urgency:
+        distribution: constant
+        value: 2.0
+    - arrival-rate-per-slot: 15.0
+      size-bytes:
+        distribution: log-normal
+        mu: 6.833
+        sigma: 0.5
+      value-lovelace:
+        distribution: log-normal
+        mu: 13.0
+        sigma: 0.4
+      urgency:
+        distribution: constant
+        value: 1.05

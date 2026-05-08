@@ -1,0 +1,14 @@
+suite-name: phase-2-eip1559-smoothing
+output-dir: output/phase-2/eip1559-smoothing
+seeds: [1, 2, 3]
+default-slots: 200
+default-topology: parameters/phase-2-sweep/topology-single-producer.yaml
+default-protocol: parameters/phase-2-sweep/protocol-base.yaml
+default-demand: parameters/phase-2-sweep/demand/paper_like_congested.yaml
+jobs:
+  - name: window16
+    pricing: parameters/phase-2-sweep/pricing/eip1559_d8_target0.5_window16.yaml
+  - name: window32
+    pricing: parameters/phase-2-sweep/pricing/eip1559_d8_target0.5_window32.yaml
+  - name: window64
+    pricing: parameters/phase-2-sweep/pricing/eip1559_d8_target0.5_window64.yaml

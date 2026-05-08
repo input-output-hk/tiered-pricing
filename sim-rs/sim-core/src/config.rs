@@ -16,6 +16,7 @@ use crate::{
     clock::Timestamp,
     model::{Transaction, TransactionId},
     probability::FloatDistribution,
+    tx_actors::{ActorComponent, ActorProfile, LanePolicy, MaxFeePolicy},
     tx_pricing::{Eip1559Settings, LaneSelectionOrder, Multiplier, TwoLaneSettings, TwoLaneVariant},
 };
 
@@ -165,6 +166,11 @@ pub struct RawParameters {
     pub mempool_max_total_size_bytes: Option<u64>,
     #[serde(default)]
     pub pricing: Option<RawPricingConfig>,
+    // Phase-2 actor model (M3+). When `Some`, each `tx_generation_weight > 0`
+    // node samples per-slot arrivals from this profile in place of the
+    // legacy `tx_generation_distribution` path.
+    #[serde(default)]
+    pub actors: Option<RawActorProfile>,
 }
 
 /// Spec defaults from mechanism-design.md §Era floor.
@@ -229,6 +235,102 @@ pub struct RawTwoLaneConfig {
     /// `priority-first` (canonical, mechanism-design.md
     /// §"FIFO fallback") or `fifo` for the FIFO fallback.
     pub lane_selection_order: LaneSelectionOrder,
+}
+
+// ----------------------------------------------------------------------
+// Phase-2 actor model deserialisation surface (M3+).
+// ----------------------------------------------------------------------
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub struct RawActorProfile {
+    pub components: Vec<RawActorComponent>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub struct RawActorComponent {
+    pub arrival_rate_per_slot: f64,
+    pub size_bytes: DistributionConfig,
+    pub value_lovelace: DistributionConfig,
+    pub urgency: DistributionConfig,
+    #[serde(default = "default_lane_policy")]
+    pub lane_policy: RawLanePolicy,
+    #[serde(default = "default_max_fee_policy")]
+    pub max_fee_policy: RawMaxFeePolicy,
+    #[serde(default = "default_target_inclusion_blocks_priority")]
+    pub target_inclusion_blocks_priority: f64,
+    #[serde(default = "default_target_inclusion_blocks_standard")]
+    pub target_inclusion_blocks_standard: f64,
+}
+
+#[derive(Debug, Copy, Clone, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum RawMaxFeePolicy {
+    ScaledOverLaneQuote { numerator: u64, denominator: u64 },
+}
+
+impl From<RawMaxFeePolicy> for MaxFeePolicy {
+    fn from(v: RawMaxFeePolicy) -> Self {
+        match v {
+            RawMaxFeePolicy::ScaledOverLaneQuote {
+                numerator,
+                denominator,
+            } => MaxFeePolicy::ScaledOverLaneQuote {
+                numerator,
+                denominator,
+            },
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum RawLanePolicy {
+    UtilityMaximising {
+        #[serde(default = "default_submit_when_underwater")]
+        submit_when_underwater: bool,
+    },
+}
+
+impl From<RawLanePolicy> for LanePolicy {
+    fn from(v: RawLanePolicy) -> Self {
+        match v {
+            RawLanePolicy::UtilityMaximising {
+                submit_when_underwater,
+            } => LanePolicy::UtilityMaximising {
+                submit_when_underwater,
+            },
+        }
+    }
+}
+
+fn default_submit_when_underwater() -> bool {
+    true
+}
+
+/// Phase-2 default per implementation-plan.md line 136.
+fn default_max_fee_policy() -> RawMaxFeePolicy {
+    RawMaxFeePolicy::ScaledOverLaneQuote {
+        numerator: 4,
+        denominator: 1,
+    }
+}
+
+fn default_lane_policy() -> RawLanePolicy {
+    RawLanePolicy::UtilityMaximising {
+        submit_when_underwater: true,
+    }
+}
+
+/// Phase-2 default per implementation-plan.md line 163.
+fn default_target_inclusion_blocks_priority() -> f64 {
+    1.0
+}
+
+/// Phase-2 default per implementation-plan.md line 163.
+fn default_target_inclusion_blocks_standard() -> f64 {
+    4.0
 }
 
 #[derive(Debug, Copy, Clone, Deserialize, PartialEq, Eq)]
@@ -849,10 +951,11 @@ pub struct SimConfiguration {
     pub(crate) attacks: AttackConfig,
     pub(crate) pricing: PricingConfig,
     pub(crate) mempool_gate: MempoolGateConfig,
+    pub(crate) actors: Option<Arc<ActorProfile>>,
 }
 
 impl SimConfiguration {
-    pub fn build(params: RawParameters, mut topology: Topology) -> Result<Self> {
+    pub fn build(mut params: RawParameters, mut topology: Topology) -> Result<Self> {
         if !params.ib_shards.is_multiple_of(params.ib_shard_group_count) {
             bail!(
                 "ib-shards ({}) is not divisible by ib-shard-group-count ({})",
@@ -941,6 +1044,32 @@ impl SimConfiguration {
             min_fee_a,
             min_fee_b,
         };
+        let actors = match params.actors.take() {
+            None => None,
+            Some(raw) => {
+                let mut components = Vec::with_capacity(raw.components.len());
+                for (idx, c) in raw.components.into_iter().enumerate() {
+                    components.push(ActorComponent {
+                        index: idx as u32,
+                        arrival_rate_per_slot: c.arrival_rate_per_slot,
+                        size_bytes: c.size_bytes.into(),
+                        value_lovelace: c.value_lovelace.into(),
+                        urgency: c.urgency.into(),
+                        lane_policy: c.lane_policy.into(),
+                        max_fee_policy: c.max_fee_policy.into(),
+                        target_inclusion_blocks_priority: c.target_inclusion_blocks_priority,
+                        target_inclusion_blocks_standard: c.target_inclusion_blocks_standard,
+                    });
+                }
+                let profile = ActorProfile {
+                    components,
+                    block_generation_probability: params.rb_generation_probability,
+                    min_fee_b,
+                };
+                profile.validate()?;
+                Some(Arc::new(profile))
+            }
+        };
         Ok(Self {
             seed: 0,
             timestamp_resolution: duration_ms(params.timestamp_resolution_ms),
@@ -986,12 +1115,27 @@ impl SimConfiguration {
             attacks,
             pricing,
             mempool_gate,
+            actors,
         })
     }
 
     /// Public accessors used by the linear-leios node implementation.
     pub fn pricing_config(&self) -> &PricingConfig {
         &self.pricing
+    }
+
+    /// Phase-2 actor model: `Some(profile)` when the config supplies
+    /// an `actors:` block; `None` for legacy `RealTransactionConfig`
+    /// or `Mock` paths. M3+.
+    pub fn actor_profile(&self) -> Option<&Arc<ActorProfile>> {
+        self.actors.as_ref()
+    }
+
+    /// Block-generation probability `p` from the protocol config.
+    /// Used by phase-2 metrics to convert observed inclusion latency
+    /// from slots to blocks (`latency_blocks = latency_slots × p`).
+    pub fn block_generation_probability(&self) -> f64 {
+        self.block_generation_probability
     }
 
     pub fn mempool_gate_config(&self) -> MempoolGateConfig {

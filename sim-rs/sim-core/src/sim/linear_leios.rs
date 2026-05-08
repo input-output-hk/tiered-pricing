@@ -9,7 +9,7 @@ use std::{
     time::Duration,
 };
 
-use rand::{Rng as _, seq::SliceRandom as _};
+use rand::{Rng as _, RngCore as _, SeedableRng as _, seq::SliceRandom as _};
 use rand_chacha::ChaChaRng;
 
 use crate::{
@@ -325,9 +325,34 @@ pub struct LinearLeiosNode {
     praos: NodePraosState,
     leios: NodeLeiosState,
     behaviours: NodeBehaviours,
+    /// Phase-2 actor state (M3+). Populated when the config supplies
+    /// an `actors:` profile and this node has `tx_generation_weight > 0`;
+    /// `None` otherwise. Each slot, `run_actors_for_slot` samples
+    /// per-component arrivals and submits txs through `generate_tx`.
+    actor_state: Option<NodeActorState>,
 
     eb_withholding_sender: Option<EBWithholdingSender>,
     eb_withholding_event_source: Option<mpsc::UnboundedReceiver<EBWithholdingEvent>>,
+}
+
+/// Per-node actor sampling state. Each component carries its own
+/// `ChaChaRng` (seeded from the node's RNG + component index) so
+/// adding/removing components doesn't disturb other components'
+/// sampling streams.
+struct NodeActorState {
+    profile: Arc<crate::tx_actors::ActorProfile>,
+    component_rngs: Vec<ChaChaRng>,
+    next_tx_id: u64,
+    /// Per-(component, lane) rolling-average inclusion-delay
+    /// estimator. Initialised from the component's
+    /// `target_inclusion_blocks_*` defaults; updated via
+    /// `LinearLeiosNode::observe_actor_inclusion` when the actor's
+    /// txs are charged.
+    latency: Vec<crate::tx_actors::LatencyEstimator>,
+    /// Map `tx_id → (submit_slot, component_index)` for actor-submitted
+    /// txs awaiting inclusion. Used to compute `latency_blocks` when
+    /// the tx lands.
+    pending: HashMap<TransactionId, (u64, u32)>,
 }
 
 type EventResult = super::EventResult<LinearLeiosNode>;
@@ -342,7 +367,7 @@ impl NodeImpl for LinearLeiosNode {
         config: &NodeConfiguration,
         sim_config: Arc<SimConfiguration>,
         tracker: EventTracker,
-        rng: ChaChaRng,
+        mut rng: ChaChaRng,
         clock: Clock,
     ) -> Self {
         let lottery = LotteryConfig::Random {
@@ -374,6 +399,46 @@ impl NodeImpl for LinearLeiosNode {
             ),
         };
 
+        // M3: only nodes with `tx_generation_weight > 0` run actors.
+        // Default weight is 0 if `stake > 0`, 1 otherwise (matches the
+        // legacy `TransactionProducer` weighting). Each component
+        // gets its own ChaChaRng derived from the node RNG, so
+        // adding/removing components doesn't disturb other components'
+        // sample streams.
+        let actor_state = sim_config
+            .actor_profile()
+            .filter(|_| {
+                config
+                    .tx_generation_weight
+                    .unwrap_or(if config.stake > 0 { 0 } else { 1 })
+                    > 0
+            })
+            .map(|profile| {
+                let component_rngs = profile
+                    .components
+                    .iter()
+                    .map(|_| ChaChaRng::seed_from_u64(rng.next_u64()))
+                    .collect();
+                let latency = profile
+                    .components
+                    .iter()
+                    .map(|c| {
+                        crate::tx_actors::LatencyEstimator::new(
+                            32,
+                            c.target_inclusion_blocks_priority,
+                            c.target_inclusion_blocks_standard,
+                        )
+                    })
+                    .collect();
+                NodeActorState {
+                    profile: Arc::clone(profile),
+                    component_rngs,
+                    next_tx_id: 0,
+                    latency,
+                    pending: HashMap::new(),
+                }
+            });
+
         Self {
             id: config.id,
             sim_config,
@@ -391,6 +456,7 @@ impl NodeImpl for LinearLeiosNode {
             praos: NodePraosState::default(),
             leios: NodeLeiosState::default(),
             behaviours: config.behaviours.clone(),
+            actor_state,
             eb_withholding_sender: None,
             eb_withholding_event_source: None,
         }
@@ -401,6 +467,18 @@ impl NodeImpl for LinearLeiosNode {
     }
 
     fn handle_new_slot(&mut self, slot: u64) -> EventResult {
+        // Ordering invariant (relied on by sim-cli's MetricsCollector
+        // to derive `submit_slot` for actor-generated txs):
+        //   1. `emit_pricing_tick(slot)` — advances the metrics
+        //      collector's slot pointer to `slot`.
+        //   2. `run_actors_for_slot(slot)` — emits `TXGenerated`,
+        //      which the collector tags with the just-advanced slot.
+        //   3. `try_generate_rb(slot)` — may emit `TXIncluded`/
+        //      `TXEvictedQuoteDrift`, also at `slot`.
+        // Reordering steps 1 and 2 would tag actor txs with the
+        // *previous* slot's number and skew per-component latency.
+        self.emit_pricing_tick(slot);
+        self.run_actors_for_slot(slot);
         self.try_generate_rb(slot);
 
         std::mem::take(&mut self.queued)
@@ -604,7 +682,7 @@ impl LinearLeiosNode {
                 // removed eb.txs at EB-creation time; this clears them
                 // from the fee gate and emits one inclusion event
                 // each.
-                let served = self.eb_served_lanes(&eb, rb_reserved);
+                let served = self.assign_served_lanes(&eb, rb_reserved);
                 let pairs: Vec<(Arc<Transaction>, Lane)> = eb
                     .txs
                     .iter()
@@ -650,6 +728,11 @@ impl LinearLeiosNode {
 
         let mut eb_transactions = vec![];
         let mut withheld_txs = vec![];
+        // M3: producer's full two-trigger partition decision is
+        // computed at EB-build time and stored on the EB. Mock-mode
+        // and withheld-tx-attack paths do not exercise the partition
+        // (no real priority demand to gate); they default to false.
+        let mut eb_partition_activated = false;
         if !produce_empty_block {
             // If we are performing a "withheld TX" attack, we will include a bunch of brand-new TXs in this EB.
             // They will get disseminated through the network at the same time as the EB.
@@ -666,17 +749,15 @@ impl LinearLeiosNode {
                     eb_transactions.push(Arc::new(tx));
                 }
             } else {
-                // EB body packing is lane-aware too. Partition activation
-                // and per-tx served_lane are recomputed at endorsement
-                // time from the EB's bytes (saturation rule), so the
-                // producer's job here is just body content.
-                self.sample_from_mempool_lane_aware(
-                    &mut eb_transactions,
-                    self.sim_config.max_eb_size,
-                    false,
-                    LaneValidityRule::None,
-                    selection_order,
-                );
+                // M3: pack the EB body and record the producer's
+                // two-trigger partition decision in one step. The
+                // endorser reuses `eb.partition_activated` via
+                // `assign_served_lanes`; producer and endorser agree
+                // by construction.
+                let (packed, activated) = self
+                    .select_eb_with_partition(self.sim_config.max_eb_size, selection_order);
+                eb_transactions.extend(packed);
+                eb_partition_activated = activated;
             }
         }
         let (eb_announcement, eb) = if eb_transactions.is_empty() {
@@ -692,6 +773,7 @@ impl LinearLeiosNode {
                 producer: self.id,
                 bytes: self.sim_config.sizes.linear_eb(&eb_transactions),
                 txs: eb_transactions,
+                partition_activated: eb_partition_activated,
             };
             (Some(eb_id), Some((eb, withheld_txs)))
         };
@@ -764,37 +846,27 @@ impl LinearLeiosNode {
         true
     }
 
-    /// Recompute per-tx `served_lane` for a candidate EB at endorsement
-    /// time using the saturation rule (mechanism-design.md line 161:
-    /// "EB at capacity"). For the on-chain decision, the producer that
-    /// built the EB and the endorser see the same eb-body bytes; the
-    /// activation decision is the same.
+    /// Per-tx `served_lane` for a candidate EB, given the producer's
+    /// stored partition decision (`eb.partition_activated`) and the
+    /// variant's `rb_reserved` flag. Endorser and producer agree by
+    /// construction because the activation bit is carried on the EB.
     ///
-    /// - Un-reserved variants (`rb_reserved = false`): no partition,
-    ///   served_lane = posted_lane.
-    /// - RB-reserved + saturated (body bytes ≥ `max_eb_size`):
-    ///   priority-fee txs whose cumulative bytes ≤ one RB-worth get
-    ///   served_lane = Priority; further priority txs and all standard
-    ///   txs get served_lane = Standard.
-    /// - RB-reserved + below capacity: all priority-fee txs get
-    ///   served_lane = Standard (refunded down to standard).
-    fn eb_served_lanes(&self, eb: &EndorserBlock, rb_reserved: bool) -> Vec<Lane> {
-        let mut out = Vec::with_capacity(eb.txs.len());
+    /// - Un-reserved variants (`rb_reserved = false`): no partition;
+    ///   `served_lane = posted_lane`.
+    /// - RB-reserved + activated: priority-fee txs whose cumulative
+    ///   bytes ≤ `priority_reservation_bytes` get `Priority`; further
+    ///   priority txs and all standard txs get `Standard`.
+    /// - RB-reserved + NOT activated: all priority-fee txs get
+    ///   `Standard` (refunded down to standard fee per spec).
+    fn assign_served_lanes(&self, eb: &EndorserBlock, rb_reserved: bool) -> Vec<Lane> {
         if !rb_reserved {
-            for tx in &eb.txs {
-                out.push(tx.posted_lane);
-            }
-            return out;
+            return eb.txs.iter().map(|t| t.posted_lane).collect();
         }
-        let body_bytes: u64 = eb.txs.iter().map(|t| t.bytes).sum();
-        let activated = body_bytes >= self.sim_config.max_eb_size;
-        if !activated {
-            for _ in &eb.txs {
-                out.push(Lane::Standard);
-            }
-            return out;
+        if !eb.partition_activated {
+            return vec![Lane::Standard; eb.txs.len()];
         }
         let priority_reservation_bytes = self.sim_config.max_block_size;
+        let mut out = Vec::with_capacity(eb.txs.len());
         let mut priority_used: u64 = 0;
         for tx in &eb.txs {
             let lane = match tx.posted_lane {
@@ -1677,13 +1749,11 @@ impl LinearLeiosNode {
 
     /// EB selection with the spec's binary fullness trigger
     /// (implementation-plan.md lines 104-120). Returns the EB body
-    /// txs together with each tx's `served_lane`, plus a flag so the
-    /// caller knows whether the priority partition activated (only
-    /// relevant for RB-reserved variants — un-reserved variants ignore
-    /// the flag and serve `posted_lane` directly).
+    /// Pack an EB body and decide whether to activate the priority
+    /// partition. Returns the packed body and the activation flag.
     ///
     /// Activation rules (OR'd):
-    /// 1. **Saturation** — `selected_bytes == eb_capacity`. A full EB
+    /// 1. **Saturation** — `selected_bytes >= eb_capacity`. A full EB
     ///    is a saturation event regardless of mempool depletion.
     /// 2. **Capacity-bound rejection** — at least one valid unselected
     ///    tx remains and none of them fits in residual bytes.
@@ -1691,20 +1761,17 @@ impl LinearLeiosNode {
     /// If neither holds (mempool ran dry before the EB filled, or
     /// some unselected tx still fits), partition is **not** activated.
     ///
-    /// **Test-only.** The production `try_generate_rb` flow uses
-    /// `sample_from_mempool_lane_aware` for body packing and
-    /// `eb_served_lanes` (saturation rule) at endorsement time. This
-    /// function exercises the full two-trigger spec for the
-    /// partition-activation unit test (M2 verification line 310).
-    /// M3's multi-producer flow may consolidate the dual paths.
-    #[cfg(test)]
+    /// **Production path** (M3): the producer calls this at EB-build
+    /// time and stores the activation bit on the EB. The endorser
+    /// re-uses the stored bit via `assign_served_lanes`. Endorser and
+    /// producer agree on served-lane assignment by construction; see
+    /// `LinearEndorserBlock::partition_activated` and
+    /// `docs/phase-2/m3-handoff.md`.
     fn select_eb_with_partition(
         &mut self,
         eb_capacity: u64,
-        priority_reservation_bytes: u64,
-        rb_reserved: bool,
         selection_order: LaneSelectionOrder,
-    ) -> (Vec<(Arc<Transaction>, Lane)>, bool) {
+    ) -> (Vec<Arc<Transaction>>, bool) {
         // Pack the EB greedily under the configured selection order.
         let mut packed: Vec<Arc<Transaction>> = Vec::new();
         self.sample_from_mempool_lane_aware(
@@ -1717,69 +1784,29 @@ impl LinearLeiosNode {
         let selected_bytes: u64 = packed.iter().map(|t| t.bytes).sum();
         let residual = eb_capacity.saturating_sub(selected_bytes);
 
-        // Determine partition activation. Scope the borrow tightly so
-        // we don't keep `self.txs`/`self.mempool` borrowed past this
-        // block — `assign_served_lanes` calls `self` methods later.
-        let activated = {
-            // Saturation trigger fires regardless of mempool state.
-            if selected_bytes >= eb_capacity {
-                true
-            } else {
-                // Walk the remaining mempool (txs not in `packed`).
-                let packed_ids: HashSet<_> = packed.iter().map(|t| t.id).collect();
-                let mut any_unselected = false;
-                let mut any_fits = false;
-                for id in self.mempool.ids() {
-                    if packed_ids.contains(&id) {
-                        continue;
-                    }
-                    let Some(TransactionView::Received(tx)) = self.txs.get(&id) else {
-                        continue;
-                    };
-                    any_unselected = true;
-                    if tx.bytes <= residual {
-                        any_fits = true;
-                        break;
-                    }
+        // Two-trigger activation rule.
+        let activated = if selected_bytes >= eb_capacity {
+            true
+        } else {
+            let packed_ids: HashSet<_> = packed.iter().map(|t| t.id).collect();
+            let mut any_unselected = false;
+            let mut any_fits = false;
+            for id in self.mempool.ids() {
+                if packed_ids.contains(&id) {
+                    continue;
                 }
-                // not-activated: mempool exhausted OR some tx still fits.
-                // activated: at least one tx remains AND none fits.
-                any_unselected && !any_fits
+                let Some(TransactionView::Received(tx)) = self.txs.get(&id) else {
+                    continue;
+                };
+                any_unselected = true;
+                if tx.bytes <= residual {
+                    any_fits = true;
+                    break;
+                }
             }
+            any_unselected && !any_fits
         };
-
-        // Assign served_lane.
-        // - Un-reserved: served_lane = posted_lane (no partition).
-        // - RB-reserved + activated: priority-fee txs whose cumulative
-        //   bytes ≤ priority_reservation_bytes get served_lane=Priority;
-        //   further priority txs and all standard txs get served_lane=Standard.
-        // - RB-reserved + NOT activated: all priority txs get
-        //   served_lane=Standard (refunded down to standard quote).
-        let mut out: Vec<(Arc<Transaction>, Lane)> = Vec::with_capacity(packed.len());
-        if !rb_reserved {
-            for tx in packed {
-                let lane = tx.posted_lane;
-                out.push((tx, lane));
-            }
-            return (out, activated);
-        }
-        let mut priority_used: u64 = 0;
-        for tx in packed {
-            let served = match (activated, tx.posted_lane) {
-                (false, _) => Lane::Standard,
-                (true, Lane::Standard) => Lane::Standard,
-                (true, Lane::Priority) => {
-                    if priority_used.saturating_add(tx.bytes) <= priority_reservation_bytes {
-                        priority_used = priority_used.saturating_add(tx.bytes);
-                        Lane::Priority
-                    } else {
-                        Lane::Standard
-                    }
-                }
-            };
-            out.push((tx, served));
-        }
-        (out, activated)
+        (packed, activated)
     }
 
     fn remove_rb_txs_from_mempool(&mut self, rb: &RankingBlock) {
@@ -1854,6 +1881,7 @@ impl LinearLeiosNode {
                     tx.max_fee_lovelace,
                 );
                 self.gate.remove_silent(tx.id);
+                self.forget_actor_pending(tx.id);
                 continue;
             }
             let refund = tx.max_fee_lovelace - actual_fee;
@@ -1869,6 +1897,7 @@ impl LinearLeiosNode {
                 actual_fee,
                 refund,
             );
+            self.observe_actor_inclusion(tx.id, *served_lane, slot);
         }
     }
 
@@ -1955,6 +1984,7 @@ impl LinearLeiosNode {
                 record.current_quote_per_byte,
                 record.max_fee_lovelace,
             );
+            self.forget_actor_pending(record.tx_id);
             // Look up the underlying tx to find its `input_id`. Evicted
             // txs are still in `self.txs` (TransactionView::Received)
             // because we never drop them from the propagation cache.
@@ -2086,23 +2116,227 @@ impl LinearLeiosNode {
         self.gate.contains(tx_id)
     }
 
+    /// Emit a per-slot `PricingTick` event so the metrics layer can
+    /// populate `time_series.csv` rows with controller state and
+    /// per-lane mempool bytes. M3+.
+    fn emit_pricing_tick(&self, slot: u64) {
+        let snapshot = self.pricing.snapshot();
+        self.tracker.track_pricing_tick(
+            self.id,
+            slot,
+            snapshot
+                .priority_quote_per_byte
+                .unwrap_or(snapshot.standard_quote_per_byte),
+            snapshot.standard_quote_per_byte,
+            snapshot.priority_window_util_x_1e9,
+            snapshot.standard_window_util_x_1e9,
+            self.gate.total_bytes(),
+            self.gate.bytes_in_lane(Lane::Priority),
+            self.gate.bytes_in_lane(Lane::Standard),
+        );
+    }
+
+    /// M3 actor hook: sample arrivals from each component, build txs,
+    /// and submit them through `generate_tx`. No-op when actor mode
+    /// is not configured for this node.
+    fn run_actors_for_slot(&mut self, slot: u64) {
+        if self.actor_state.is_none() {
+            return;
+        }
+        // Read pricing snapshot + per-lane quotes and latency
+        // estimates while we have only an immutable borrow on
+        // `self.actor_state`. Then move into a mutable section to
+        // sample, build, and submit.
+        let q_priority = self.pricing.current_quote(crate::tx_pricing::Lane::Priority);
+        let q_standard = self.pricing.current_quote(crate::tx_pricing::Lane::Standard);
+        let min_fee_b = self.gate.config().min_fee_b;
+        // Snapshot per-component sampling inputs while holding only
+        // immutable borrows on actor_state (so we can re-borrow
+        // mutably below to step the RNGs).
+        struct ComponentInputs {
+            priority_latency: f64,
+            standard_latency: f64,
+            arrival_rate: f64,
+            size_bytes: crate::probability::FloatDistribution,
+            value_lovelace: crate::probability::FloatDistribution,
+            urgency: crate::probability::FloatDistribution,
+            lane_policy: crate::tx_actors::LanePolicy,
+            max_fee_policy: crate::tx_actors::MaxFeePolicy,
+            index: u32,
+        }
+        let component_inputs: Vec<ComponentInputs> = {
+            let state = self.actor_state.as_ref().expect("checked above");
+            state
+                .profile
+                .components
+                .iter()
+                .enumerate()
+                .map(|(i, c)| ComponentInputs {
+                    priority_latency: state.latency[i].expected(crate::tx_pricing::Lane::Priority),
+                    standard_latency: state.latency[i].expected(crate::tx_pricing::Lane::Standard),
+                    arrival_rate: c.arrival_rate_per_slot,
+                    size_bytes: c.size_bytes,
+                    value_lovelace: c.value_lovelace,
+                    urgency: c.urgency,
+                    lane_policy: c.lane_policy,
+                    max_fee_policy: c.max_fee_policy,
+                    index: c.index,
+                })
+                .collect()
+        };
+        // Sample arrival counts and tx inputs per component, build
+        // txs, and submit. We collect the txs first (RNG sampling +
+        // map insert) and submit afterwards so `generate_tx` can take
+        // a mutable borrow on `self`.
+        let mut to_submit: Vec<Arc<Transaction>> = Vec::new();
+        for (i, ci) in component_inputs.iter().enumerate() {
+            // Build a temporary `ActorComponent` view for the sampling
+            // helpers — keeps the f64 → integer rounding/clamping
+            // logic in one place (`tx_actors::ActorComponent`).
+            let comp = crate::tx_actors::ActorComponent {
+                index: ci.index,
+                arrival_rate_per_slot: ci.arrival_rate,
+                size_bytes: ci.size_bytes,
+                value_lovelace: ci.value_lovelace,
+                urgency: ci.urgency,
+                lane_policy: ci.lane_policy,
+                max_fee_policy: ci.max_fee_policy,
+                target_inclusion_blocks_priority: ci.priority_latency,
+                target_inclusion_blocks_standard: ci.standard_latency,
+            };
+            let count = {
+                let state = self.actor_state.as_mut().expect("checked above");
+                comp.sample_arrival_count(&mut state.component_rngs[i])
+            };
+            for _ in 0..count {
+                let inputs = {
+                    let state = self.actor_state.as_mut().expect("checked above");
+                    comp.sample_tx_inputs(&mut state.component_rngs[i])
+                };
+                let priority_inputs = crate::tx_actors::LaneInputs {
+                    current_quote_per_byte: q_priority,
+                    expected_latency_blocks: ci.priority_latency,
+                };
+                let standard_inputs = crate::tx_actors::LaneInputs {
+                    current_quote_per_byte: q_standard,
+                    expected_latency_blocks: ci.standard_latency,
+                };
+                let Some(posted_lane) = crate::tx_actors::lane_choice::pick(
+                    inputs.value_lovelace,
+                    inputs.urgency,
+                    inputs.bytes,
+                    &priority_inputs,
+                    &standard_inputs,
+                    min_fee_b,
+                    ci.lane_policy,
+                ) else {
+                    // submit_when_underwater = false and both lanes
+                    // negative → skip this arrival.
+                    continue;
+                };
+                let lane_quote = match posted_lane {
+                    crate::tx_pricing::Lane::Priority => q_priority,
+                    crate::tx_pricing::Lane::Standard => q_standard,
+                };
+                let Ok(max_fee_lovelace) =
+                    ci.max_fee_policy
+                        .compute(lane_quote, inputs.bytes, min_fee_b)
+                else {
+                    // Overflow in max_fee computation: skip this
+                    // arrival. The tx_actors test suite already
+                    // covers the overflow surface.
+                    continue;
+                };
+                // Mint a unique tx_id by encoding (node_id, counter)
+                // into the high/low halves of a u64. With u64 we
+                // have 2^16 nodes × 2^48 txs/node — enough for any
+                // M3 sim.
+                let (tx_id, input_id) = {
+                    let state = self.actor_state.as_mut().expect("checked above");
+                    let counter = state.next_tx_id;
+                    state.next_tx_id += 1;
+                    let combined = ((self.id.to_inner() as u64) << 48) | (counter & 0xFFFF_FFFF_FFFF);
+                    (TransactionId::new(combined), combined)
+                };
+                let tx = Transaction {
+                    id: tx_id,
+                    shard: 0,
+                    bytes: inputs.bytes,
+                    input_id,
+                    overcollateralization_factor: 0,
+                    max_fee_lovelace,
+                    posted_lane,
+                    value_lovelace: inputs.value_lovelace,
+                    urgency: inputs.urgency,
+                    urgency_component_index: ci.index,
+                };
+                self.tracker.track_transaction_generated(&tx, self.id);
+                let arc = Arc::new(tx);
+                {
+                    let state = self.actor_state.as_mut().expect("checked above");
+                    state.pending.insert(tx_id, (slot, ci.index));
+                }
+                to_submit.push(arc);
+            }
+        }
+        // Submit each actor-built tx. We bypass `generate_tx`'s
+        // tracker call (which would emit a duplicate `TXGenerated`)
+        // and call `propagate_tx` directly, since we already emitted
+        // `TXGenerated` above.
+        for tx in to_submit {
+            self.propagate_tx(self.id, tx);
+        }
+    }
+
+    /// Update the LatencyEstimator for an actor-submitted tx that
+    /// landed on chain. Called from `charge_inclusions` for every
+    /// successful inclusion. No-op if the tx wasn't actor-generated
+    /// or actor mode is off.
+    fn observe_actor_inclusion(
+        &mut self,
+        tx_id: TransactionId,
+        served_lane: Lane,
+        inclusion_slot: u64,
+    ) {
+        let Some(state) = self.actor_state.as_mut() else {
+            return;
+        };
+        let Some((submit_slot, comp_idx)) = state.pending.remove(&tx_id) else {
+            return;
+        };
+        let lat_slots = inclusion_slot.saturating_sub(submit_slot) as f64;
+        let lat_blocks = lat_slots * state.profile.block_generation_probability;
+        if let Some(est) = state.latency.get_mut(comp_idx as usize) {
+            est.observe(served_lane, lat_blocks);
+        }
+    }
+
+    /// Drop a stale `pending` entry for an actor-submitted tx that
+    /// failed to land (admission failed, quote-drift evicted, etc.).
+    /// Keeps the pending map bounded.
+    fn forget_actor_pending(&mut self, tx_id: TransactionId) {
+        if let Some(state) = self.actor_state.as_mut() {
+            state.pending.remove(&tx_id);
+        }
+    }
+
     /// Test-only entry point exercising `select_eb_with_partition`'s
     /// activation decision in isolation (M2 verification line 310,
     /// four cases). Returns whether the partition activated.
+    /// `priority_reservation_bytes` and `rb_reserved` are kept on the
+    /// signature for test-call-site stability but are unused by the
+    /// trigger itself (they only matter for served-lane assignment,
+    /// which lives in `assign_served_lanes`).
     #[cfg(test)]
     pub(crate) fn test_partition_trigger(
         &mut self,
         eb_capacity: u64,
-        priority_reservation_bytes: u64,
-        rb_reserved: bool,
+        _priority_reservation_bytes: u64,
+        _rb_reserved: bool,
     ) -> bool {
         let selection_order = self.pricing.lane_selection_order();
-        let (_selected, activated) = self.select_eb_with_partition(
-            eb_capacity,
-            priority_reservation_bytes,
-            rb_reserved,
-            selection_order,
-        );
+        let (_selected, activated) =
+            self.select_eb_with_partition(eb_capacity, selection_order);
         activated
     }
 
@@ -2116,6 +2350,7 @@ impl LinearLeiosNode {
             producer: self.id,
             bytes: self.sim_config.sizes.linear_eb(txs),
             txs: txs.to_vec(),
+            partition_activated: false,
         };
         self.eb_endorsement_valid(&eb)
     }
@@ -2138,11 +2373,17 @@ impl LinearLeiosNode {
             producer: self.id,
             bytes: self.sim_config.sizes.linear_eb(&eb_txs),
             txs: eb_txs,
+            // Existing M2 callers exercise refuse-to-endorse; they
+            // don't depend on a particular partition decision. Default
+            // to false (no partition); served-lane reduces to
+            // `posted_lane` for un-reserved variants and to all-Standard
+            // for RB-reserved + not-activated.
+            partition_activated: false,
         };
         if !self.eb_endorsement_valid(&eb) {
             return false;
         }
-        let served = self.eb_served_lanes(&eb, rb_reserved);
+        let served = self.assign_served_lanes(&eb, rb_reserved);
         let pairs: Vec<(Arc<Transaction>, Lane)> =
             eb.txs.iter().cloned().zip(served).collect();
         self.charge_inclusions(&pairs);

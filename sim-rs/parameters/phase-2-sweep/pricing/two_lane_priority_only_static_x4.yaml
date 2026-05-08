@@ -1,0 +1,23 @@
+# RB-reserved priority-only premium with multiplier_floor = 4.
+# Standard pinned at c=1; only priority is dynamic. Window length 1
+# for priority (uniform per-block partition capacity, per
+# implementation-plan.md line 47).
+
+pricing:
+  kind: two-lane
+  variant: rb-reserved-priority-only
+  priority:
+    initial-quote-per-byte: 176     # 4 × min_fee_a; the floor pins this anyway.
+    target-num: 1
+    target-den: 2
+    max-change-denominator: 8
+    window-length: 1
+  standard:
+    initial-quote-per-byte: 44       # ignored when variant is priority-only.
+    target-num: 1
+    target-den: 2
+    max-change-denominator: 8
+    window-length: 32
+  multiplier-floor-num: 4
+  multiplier-floor-den: 1
+  lane-selection-order: priority-first

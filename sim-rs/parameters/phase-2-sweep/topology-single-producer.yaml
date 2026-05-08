@@ -1,0 +1,15 @@
+# Single-producer topology for phase-2 suites.
+#
+# One node that both (a) has stake (so it wins the RB lottery) and
+# (b) carries `tx-generation-weight: 1` (so it runs the actor model
+# at slot ticks). The legacy `TransactionProducer` is silenced when
+# any actor profile is configured (see sim-rs/sim-core/src/sim/tx.rs).
+
+nodes:
+  node-0:
+    stake: 1
+    tx-generation-weight: 1
+    cpu-core-count: 4
+    location:
+      cluster: phase-2
+    producers: {}

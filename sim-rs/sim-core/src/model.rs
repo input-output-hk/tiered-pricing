@@ -271,6 +271,17 @@ pub struct LinearEndorserBlock {
     pub producer: NodeId,
     pub bytes: u64,
     pub txs: Vec<Arc<Transaction>>,
+    /// Whether the producer activated the priority partition on this
+    /// EB. M3 carries the producer's full two-trigger decision
+    /// (saturation OR capacity-bound rejection per the spec) as a
+    /// claim on the EB so the endorser's served-lane assignment
+    /// matches by construction. The capacity-bound trigger is not
+    /// re-derivable from the EB body alone (it needs the producer's
+    /// mempool view), so the bit cannot be a derived property — it is
+    /// an honest-producer claim. Future attacker models in M4/M5 may
+    /// test producer dishonesty by setting this inconsistently with
+    /// the EB's contents; see `docs/phase-2/m3-handoff.md`.
+    pub partition_activated: bool,
 }
 impl LinearEndorserBlock {
     pub fn id(&self) -> EndorserBlockId {

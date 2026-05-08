@@ -1,0 +1,49 @@
+# Phase-2 sweep protocol baseline.
+#
+# Layered on top of `parameters/config.default.yaml` + `parameters/linear.yaml`
+# by the experiment-suite runner (the suite YAML's
+# `default_protocol` points here). Sets phase-2 spec defaults for
+# the values the mechanism design pins:
+# - `min_fee_a` / `min_fee_b` from mechanism-design.md §"Era floor".
+# - `mempool_max_total_size_bytes` from implementation-plan.md
+#   §"Finite mempool cap" (line 124): "twice the EB transaction-
+#   referenced max", i.e. `2 × eb_referenced_txs_max_size_bytes`.
+#   The simulator interprets the spec's "max block body size" as the
+#   EB tx-referenced max in linear-Leios.
+#
+# Defaults the spec leaves *open* (calibration choices, see M5
+# methodology table) are NOT set here — they are calibrated by the
+# pricing TOMLs and demand profiles. Examples of *open* values:
+# window-length, controller D / target / initial coefficient,
+# multiplier_floor, actor max_fee_policy.
+
+leios-variant: linear
+timestamp-resolution-ms: 0.05
+
+# Phase-2 mechanism-design.md §"Era floor".
+min-fee-a: 44
+min-fee-b: 155381
+
+# Spec invariant from implementation-plan.md §"Finite mempool cap"
+# (line 124). Concretely: 2 × 1024 × 1024 = 2_097_152, but actually
+# 2 × eb_referenced_txs_max_size_bytes — the runner derives this
+# automatically when `mempool_max_total_size_bytes` is null. Pin the
+# computed default here so the diagnostics log surfaces it.
+mempool-max-total-size-bytes: null
+
+# Phase-2 demand is driven by the actor model (see `actors:` section
+# of the demand profile). Setting `simulate-transactions: true`
+# keeps `TransactionConfig::Real` so the simulator goes through the
+# Real (not Mock) packing path; the legacy `TransactionProducer`
+# task is silenced when an `actors:` profile is configured (see
+# sim-rs/sim-core/src/sim/tx.rs).
+simulate-transactions: true
+
+# Phase-2 single-producer suites: every slot wins the RB lottery so
+# the time-series has a tx-bearing block per slot. With one
+# producer holding all stake and `rb-generation-probability: 1.0`,
+# the VRF lottery resolves to 1.0 every slot.
+rb-generation-probability: 1.0
+# Single-node ⇒ vote threshold of 1 lets the EB get certified.
+vote-threshold: 1
+

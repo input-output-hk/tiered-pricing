@@ -1,0 +1,8 @@
+# D=4 (more aggressive ±25% per-step) at the centred target.
+pricing:
+  kind: eip1559
+  initial-quote-per-byte: 44
+  target-num: 1
+  target-den: 2
+  max-change-denominator: 4
+  window-length: 32

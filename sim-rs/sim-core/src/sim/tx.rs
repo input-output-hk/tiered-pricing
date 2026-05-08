@@ -47,14 +47,22 @@ impl TransactionProducer {
                 (node.id, state)
             })
             .collect();
+        // M3: when an actor profile is configured, demand is driven
+        // per-node from `LinearLeiosNode::run_actors_for_slot`; the
+        // legacy `TransactionProducer` is silenced (`config = None`).
+        let config = if config.actor_profile().is_some() {
+            None
+        } else {
+            match &config.transactions {
+                TransactionConfig::Real(config) => Some(config.clone()),
+                _ => None,
+            }
+        };
         Self {
             rng,
             clock,
             nodes,
-            config: match &config.transactions {
-                TransactionConfig::Real(config) => Some(config.clone()),
-                _ => None,
-            },
+            config,
         }
     }
 

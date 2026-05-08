@@ -162,10 +162,14 @@ pub struct RunSummary {
 ///
 /// **Design notes.**
 /// - Time series uses one *representative* node's `PricingTick`
-///   stream — the lowest-id node by name. Multi-node sims produce
-///   one tick per node per slot; in single-producer suite tests all
-///   nodes converge to identical pricing state given the same priced
-///   blocks.
+///   stream. The runner pre-selects it via
+///   [`set_representative_node`] (lexicographically smallest node
+///   name from the topology) so the choice is deterministic and
+///   independent of tokio task scheduling. If no node is pre-set,
+///   the first observed tick wins (lazy fallback for standalone
+///   tests). Multi-node sims produce one tick per node per slot; in
+///   single-producer suite tests all nodes converge to identical
+///   pricing state given the same priced blocks.
 /// - Welfare formulas live in `sim_core::tx_actors::welfare`. The
 ///   aggregator preserves the **sign** of net_utility through every
 ///   step — regret events (negative net_utility) are part of the
@@ -230,6 +234,16 @@ impl MetricsCollector {
 
     pub fn set_block_generation_probability(&mut self, p: f64) {
         self.block_generation_probability = p;
+    }
+
+    /// Pin the representative node for the time-series. The runner
+    /// calls this before processing events so the choice is
+    /// deterministic across runs (independent of which tokio task
+    /// schedules its first `PricingTick` first). Conventionally
+    /// passed the lexicographically smallest node name from the
+    /// topology.
+    pub fn set_representative_node(&mut self, name: impl Into<String>) {
+        self.representative_node = Some(name.into());
     }
 
     /// Feed one event into the collector.
@@ -765,18 +779,76 @@ mod tests {
         assert_ne!(h1, h2);
     }
 
-    /// `is_representative` picks the first-arrived node and ignores
-    /// all others.
+    /// Lazy fallback: with no pre-set representative, the first
+    /// observed node wins and other nodes' ticks are ignored.
     #[test]
-    fn representative_node_is_first_arrived() {
+    fn representative_node_lazy_fallback_picks_first_arrived() {
         let mut c = MetricsCollector::new(0.05);
-        // n0 ticks first → it's the representative.
         c.ingest(&pricing_tick("n0", 0, 100, 50));
-        // n1's tick at slot 0 should be ignored.
+        // n1's tick at the same slot should be ignored.
         c.ingest(&pricing_tick("n1", 0, 999, 999));
         let (_, summary) = c.finalise();
-        // Only n0's tick was counted.
         assert_eq!(summary.pricing_ticks, 1);
+    }
+
+    /// Pre-set representative pins the choice even when another node
+    /// ticks first, and the pin survives slot advances (a regression
+    /// where pinning held only at slot 0 would still pass without
+    /// the multi-slot assertion).
+    #[test]
+    fn representative_node_pinning_overrides_first_arrival() {
+        let mut c = MetricsCollector::new(0.05);
+        c.set_representative_node("n0");
+        // Slot 0: n1 ticks first but is NOT the pinned representative.
+        c.ingest(&pricing_tick("n1", 0, 999, 999));
+        c.ingest(&pricing_tick("n0", 0, 100, 50));
+        // Slot 1: n1 again ticks first; n0's tick is the one that
+        // must populate the row.
+        c.ingest(&pricing_tick("n1", 1, 888, 888));
+        c.ingest(&pricing_tick("n0", 1, 110, 55));
+        let (rows, summary) = c.finalise();
+        // Two ticks counted (one per slot), both from n0.
+        assert_eq!(summary.pricing_ticks, 2);
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].c_priority_quote_per_byte, 100);
+        assert_eq!(rows[0].c_standard_quote_per_byte, 50);
+        assert_eq!(rows[1].c_priority_quote_per_byte, 110);
+        assert_eq!(rows[1].c_standard_quote_per_byte, 55);
+    }
+
+    /// Out-of-order events (slot decreasing) do not roll the
+    /// time-series back; the in-progress row keeps its slot. The
+    /// event's accounting folds into the current row (documented
+    /// behaviour of `advance_to_slot`); past rows must not be touched.
+    #[test]
+    fn out_of_order_events_do_not_roll_slot_backwards() {
+        let mut c = MetricsCollector::new(0.05);
+        // Slot 1 has its own activity that must survive untouched.
+        c.ingest(&pricing_tick("n0", 1, 90, 45));
+        c.ingest(&tx_generated(99, 0, 1_000_000, 1.0, 1024));
+        c.ingest(&tx_included(99, 1, 1024, Lane::Priority, 100, 0));
+        // Advance to slot 5.
+        c.ingest(&pricing_tick("n0", 5, 100, 50));
+        // A late inclusion event for slot 1 arrives after we've
+        // advanced to 5. Its accounting folds into slot 5's row, not
+        // slot 1's. The slot-1 row's counts must not change.
+        c.ingest(&tx_generated(1, 0, 1_000_000, 1.0, 1024));
+        c.ingest(&tx_included(1, 1, 1024, Lane::Priority, 200, 800));
+        let (rows, _) = c.finalise();
+        assert_eq!(rows.len(), 2);
+        // Slot-1 row has its original single inclusion only.
+        assert_eq!(rows[0].slot, 1);
+        assert_eq!(rows[0].included_count_priority, 1);
+        assert_eq!(rows[0].fees_paid_lovelace, 100);
+        // Slot-5 row absorbed the out-of-order inclusion.
+        assert_eq!(rows[1].slot, 5, "row slot must not regress on out-of-order events");
+        assert_eq!(rows[1].included_count_priority, 1);
+        assert_eq!(rows[1].fees_paid_lovelace, 200);
+        // Cross-bucket integrity: zero standard activity in either slot.
+        assert_eq!(rows[0].included_count_standard, 0);
+        assert_eq!(rows[1].included_count_standard, 0);
+        assert_eq!(rows[0].included_bytes_standard, 0);
+        assert_eq!(rows[1].included_bytes_standard, 0);
     }
 
     /// Multiplier-floor breach is detected (priority < floor × standard).

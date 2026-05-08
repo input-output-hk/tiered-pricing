@@ -416,7 +416,7 @@ fn merge_layer(figment: Figment, path: &Path) -> Result<Figment> {
     Ok(merged)
 }
 
-async fn run_job(suite: &Suite, job_idx: usize, seed: u64) -> Result<RunSummary> {
+pub async fn run_job(suite: &Suite, job_idx: usize, seed: u64) -> Result<RunSummary> {
     let job = &suite.jobs[job_idx];
     let topology_path = job
         .overrides
@@ -480,6 +480,13 @@ async fn run_job(suite: &Suite, job_idx: usize, seed: u64) -> Result<RunSummary>
             s.multiplier_floor.numerator,
             s.multiplier_floor.denominator,
         );
+    }
+    // Pin the time-series representative to the lexicographically
+    // smallest node name. Without this, the first node to schedule
+    // its `PricingTick` task wins, which depends on tokio scheduling
+    // rather than the simulator seed.
+    if let Some(name) = config.nodes.iter().map(|n| &n.name).min() {
+        collector.set_representative_node(name.clone());
     }
 
     let (events_tx, mut events_rx) =
@@ -551,29 +558,37 @@ async fn run_job(suite: &Suite, job_idx: usize, seed: u64) -> Result<RunSummary>
 mod tests {
     use super::*;
 
-    /// `verify_suite` must bail when a Completed (job, seed) entry's
-    /// persisted `pricing_event_stream.sha256` is empty or non-hex —
-    /// otherwise an empty stored hash silently matches an empty
-    /// freshly-computed hash and the determinism check passes by
-    /// default. (See `runner.rs` lines 360-374.)
-    #[test]
-    fn verify_suite_bails_on_empty_stored_hash() {
-        let tmp = tempfile::tempdir().unwrap();
+    /// Common scaffolding: lays down a tempdir-backed
+    /// (suite.yaml, manifest.json, run_summary.json) so the verifier
+    /// reaches the malformed-hash bail. The hash file's contents are
+    /// what the test varies. Returns the suite path the verifier
+    /// should be pointed at.
+    fn lay_down_verify_suite_fixture(tmp: &tempfile::TempDir, hash_contents: &str) -> PathBuf {
         let suite_dir = tmp.path();
         let output_dir = suite_dir.join("output");
         let job_dir = output_dir.join("the_job").join("1");
         std::fs::create_dir_all(&job_dir).unwrap();
-        // Empty hash file — the bug shape we're guarding against.
-        std::fs::write(job_dir.join("pricing_event_stream.sha256"), "").unwrap();
-        // run_summary.json must exist but the verifier never reads it
-        // before the malformed-hash bail, so a stub is fine.
+        std::fs::write(job_dir.join("pricing_event_stream.sha256"), hash_contents).unwrap();
+        // The verifier never reads `run_summary.json` before the
+        // malformed-hash bail; a stub matching the on-disk schema is
+        // sufficient. Use `serde_json::json!` rather than a raw
+        // string literal so a future field rename in `RunSummary`
+        // doesn't silently let this drift.
+        let run_summary = serde_json::json!({
+            "pricing_event_stream_sha256": "",
+            "total_txs_included": 0,
+            "total_txs_evicted_quote_drift": 0,
+            "multiplier_floor_breaches": 0,
+            "pricing_ticks": 0,
+            "components": [],
+        });
         std::fs::write(
             job_dir.join("run_summary.json"),
-            r#"{"pricing_event_stream_sha256":"","total_txs_included":0,"total_txs_evicted_quote_drift":0,"multiplier_floor_breaches":0,"pricing_ticks":0,"components":[]}"#,
+            serde_json::to_string(&run_summary).unwrap(),
         )
         .unwrap();
-        // Minimal suite YAML. Paths inside it never resolve because
-        // run_job is unreachable past the bail.
+        // Suite YAML: paths inside never resolve because run_job is
+        // unreachable past the bail.
         let suite_yaml = format!(
             "suite-name: t\noutput-dir: {}\nseeds: [1]\ndefault-slots: 1\n\
              default-topology: nope.yaml\ndefault-protocol: nope.yaml\n\
@@ -582,18 +597,41 @@ mod tests {
         );
         let suite_path = suite_dir.join("suite.yaml");
         std::fs::write(&suite_path, suite_yaml).unwrap();
-        // Manifest with the (the_job, seed=1) entry marked Completed so
-        // verify_suite tries to check its hash.
-        let manifest = format!(
-            r#"{{"suite-name":"t","started-at-utc":"2026-01-01T00:00:00Z",
-                "jobs":{{"the_job":{{"1":{{"status":"completed",
-                  "started-at-utc":"2026-01-01T00:00:00Z",
-                  "completed-at-utc":"2026-01-01T00:00:00Z",
-                  "output-path":"{}"}}}}}}}}"#,
-            job_dir.display()
-        );
-        std::fs::write(output_dir.join("manifest.json"), manifest).unwrap();
+        // Manifest marking (the_job, seed=1) Completed so verify_suite
+        // tries to check its hash. Built via `serde_json::json!` so a
+        // future Manifest/JobEntry rename surfaces here as a
+        // serialise-side error rather than a silent string mismatch.
+        let manifest = serde_json::json!({
+            "suite-name": "t",
+            "started-at-utc": "2026-01-01T00:00:00Z",
+            "jobs": {
+                "the_job": {
+                    "1": {
+                        "status": "completed",
+                        "started-at-utc": "2026-01-01T00:00:00Z",
+                        "completed-at-utc": "2026-01-01T00:00:00Z",
+                        "output-path": job_dir.to_string_lossy(),
+                    }
+                }
+            }
+        });
+        std::fs::write(
+            output_dir.join("manifest.json"),
+            serde_json::to_string(&manifest).unwrap(),
+        )
+        .unwrap();
+        suite_path
+    }
 
+    /// `verify_suite` must bail when a Completed (job, seed) entry's
+    /// persisted `pricing_event_stream.sha256` is empty or non-hex —
+    /// otherwise an empty stored hash silently matches an empty
+    /// freshly-computed hash and the determinism check passes by
+    /// default. (See `runner.rs` lines 360-374.)
+    #[test]
+    fn verify_suite_bails_on_empty_stored_hash() {
+        let tmp = tempfile::tempdir().unwrap();
+        let suite_path = lay_down_verify_suite_fixture(&tmp, "");
         let err = verify_suite(&suite_path).unwrap_err();
         let msg = format!("{err:#}");
         assert!(
@@ -607,36 +645,7 @@ mod tests {
     #[test]
     fn verify_suite_bails_on_non_hex_stored_hash() {
         let tmp = tempfile::tempdir().unwrap();
-        let suite_dir = tmp.path();
-        let output_dir = suite_dir.join("output");
-        let job_dir = output_dir.join("the_job").join("1");
-        std::fs::create_dir_all(&job_dir).unwrap();
-        // 64 chars of `z` — wrong length-wise it passes, but not hex.
-        std::fs::write(job_dir.join("pricing_event_stream.sha256"), "z".repeat(64))
-            .unwrap();
-        std::fs::write(
-            job_dir.join("run_summary.json"),
-            r#"{"pricing_event_stream_sha256":"","total_txs_included":0,"total_txs_evicted_quote_drift":0,"multiplier_floor_breaches":0,"pricing_ticks":0,"components":[]}"#,
-        )
-        .unwrap();
-        let suite_yaml = format!(
-            "suite-name: t\noutput-dir: {}\nseeds: [1]\ndefault-slots: 1\n\
-             default-topology: nope.yaml\ndefault-protocol: nope.yaml\n\
-             default-demand: nope.yaml\njobs:\n  - name: the_job\n    pricing: nope.yaml\n",
-            output_dir.display()
-        );
-        let suite_path = suite_dir.join("suite.yaml");
-        std::fs::write(&suite_path, suite_yaml).unwrap();
-        let manifest = format!(
-            r#"{{"suite-name":"t","started-at-utc":"2026-01-01T00:00:00Z",
-                "jobs":{{"the_job":{{"1":{{"status":"completed",
-                  "started-at-utc":"2026-01-01T00:00:00Z",
-                  "completed-at-utc":"2026-01-01T00:00:00Z",
-                  "output-path":"{}"}}}}}}}}"#,
-            job_dir.display()
-        );
-        std::fs::write(output_dir.join("manifest.json"), manifest).unwrap();
-
+        let suite_path = lay_down_verify_suite_fixture(&tmp, &"z".repeat(64));
         let err = verify_suite(&suite_path).unwrap_err();
         assert!(format!("{err:#}").contains("malformed"));
     }

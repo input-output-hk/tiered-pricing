@@ -1,5 +1,7 @@
 # M3 → M4 handoff
 
+> **Postscript (post-M5).** The calibration framing in §Known-limitation #9 below — the "M3 §9 degeneracy" — was not a calibration choice. It was a calibration *bug*: `rb-generation-probability: 1.0` combined with the linear-Leios endorsement window prevented EBs from ever landing on chain, which in turn produced the latency-zero / standard-zero outcomes documented as a degeneracy. The bug was fixed post-M5 by dropping `rb-generation-probability` to 0.05, increasing `stake` to 100000 (to preserve probability under VRF stake quantization), and bumping `default-slots` to 1000. Re-runs replaced the suite outputs and goldens. See [calibration-fix-postmortem.md](calibration-fix-postmortem.md) for the full explanation. The body of this handoff is preserved as historical context.
+
 Audience: the engineer picking up [implementation-plan.md §M4](implementation-plan.md#L278) (Reframed experimental questions: RB scarcity, urgency inversion). Read alongside [mechanism-design.md](mechanism-design.md) and [implementation-plan.md](implementation-plan.md) — those are authoritative; this note is just the M3 delta on top of [m1-handoff.md](m1-handoff.md) and [m2-handoff.md](m2-handoff.md).
 
 ## Branch state

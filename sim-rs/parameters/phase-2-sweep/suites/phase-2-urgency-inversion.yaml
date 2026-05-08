@@ -1,7 +1,7 @@
 suite-name: phase-2-urgency-inversion
 output-dir: output/phase-2/urgency-inversion
 seeds: [1, 2, 3]
-default-slots: 200
+default-slots: 1000
 default-topology: parameters/phase-2-sweep/topology-single-producer.yaml
 default-protocol: parameters/phase-2-sweep/protocol-base.yaml
 default-demand: parameters/phase-2-sweep/demand/paper_like_congested.yaml

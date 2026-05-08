@@ -236,16 +236,33 @@ cost of re-calibrating.
   high-urgency component (drops to `{1, 1}`).
 - **`multiplier_floor = 4` in `phase-2-rb-scarcity` and
   `phase-2-urgency-inversion`** rather than the spec default 16 (also
-  the default in the other 5 suites' `*_x16` jobs). Calibration
-  choice driven by the M3 single-producer + `rb-generation-probability:
-  1.0` topology: at 16, only urgency≥5 components find priority
-  attractive on the utility-maximising lane choice and priority demand
-  stays too low to surface controller drift in 200 slots; at 4,
-  urgency≥2 picks priority and the controller does drift.
-  *Re-calibrating*: raise the floor in the suites' pricing YAMLs;
-  signals will weaken because fewer urgency components self-select
-  into priority. The full rationale lives in
-  [m4-handoff.md §Decisions M4 made](docs/phase-2/m4-handoff.md).
+  the default in the other 5 suites' `*_x16` jobs). At 16, only
+  urgency≥5 components find priority attractive on the utility-
+  maximising lane choice and priority demand stays too low to
+  surface controller drift; at 4, urgency≥2 picks priority and the
+  controller does drift. *Re-calibrating*: raise the floor in the
+  suites' pricing YAMLs; signals will weaken because fewer urgency
+  components self-select into priority. (An earlier framing of this
+  knob attributed it to the M3 single-producer +
+  `rb-generation-probability: 1.0` calibration; that calibration
+  was a bug, not a choice — see
+  [docs/phase-2/calibration-fix-postmortem.md](docs/phase-2/calibration-fix-postmortem.md).
+  The `multiplier_floor = 4` choice is independent of that bug
+  and survives into the corrected calibration.)
+- **`rb-generation-probability = 0.05` and `default-slots = 1000`.**
+  Cardano-realistic RB cadence (~20 slots between RBs) clears the
+  linear-Leios 13-slot endorsement window so EBs land on chain.
+  An earlier revision pinned `rb-prob = 1.0` for "uniform
+  tx-bearing-block-per-slot time series" — see
+  [docs/phase-2/calibration-fix-postmortem.md](docs/phase-2/calibration-fix-postmortem.md)
+  for why that was a calibration bug and what changed. The
+  `topology-single-producer.yaml` `stake: 100000` is paired with
+  this — at low rb-prob, single-stake values truncate to
+  `target_vrf_stake = 0` and the lottery never wins.
+  *Re-calibrating*: raise rb-prob, but keep `expected_RB_gap >
+  header_diffusion × 3 + linear_vote_stage_length +
+  linear_diffuse_stage_length` (currently 13 slots) or
+  endorsement breaks again.
 - **Default `target_inclusion_blocks` (priority=1, standard=4)**
   seeds the actor's `LatencyEstimator` per (component, lane). The
   observed-latency EMA overwrites this once inclusion events arrive,

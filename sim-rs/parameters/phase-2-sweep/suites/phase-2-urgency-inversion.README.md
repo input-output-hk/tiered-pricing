@@ -77,56 +77,66 @@ altogether (max_fee < min_fee_b + lane_fee even at submission). That
 isn't "mis-pricing" — that's "doesn't even try". The interesting
 shape is "tries, gets in, gets evicted under drift".
 
+## Calibration history
+
+An earlier revision of this README described mispricing's signal
+as living entirely in `refund_lovelace = 0` because "every slot
+produces a tx-bearing RB that absorbs that slot's priority
+demand, so priority txs are admitted and included in the same
+slot before any quote drift can hit them." That framing was an
+artefact of a calibration bug: `rb-generation-probability: 1.0`
+combined with the linear-Leios 13-slot endorsement window
+prevented EBs from landing, kept RB cadence at 1 per slot, and
+suppressed quote drift. See
+[../../../../docs/phase-2/calibration-fix-postmortem.md](../../../../docs/phase-2/calibration-fix-postmortem.md)
+for the full explanation. The findings below describe behaviour
+under the corrected calibration (`rb-prob = 0.05`, expected RB
+gap ~20 slots, controller now actually drifts under sustained
+priority demand).
+
 ## How to read the output
 
 The per-component breakdown in `metrics_comparison.txt` is the
-primary signal. Under the M3 single-producer + `rb-generation-probability:
-1.0` + 90 KB RB calibration, *every* slot produces a tx-bearing RB
-that is large enough to absorb that slot's priority demand
-(high+medium ≈ 60 KB, RB cap 90 KB), so priority txs are admitted
-and included **in the same slot** before any quote drift can hit
-them in revalidation. Quote-drift evictions therefore stay at 0
-across both jobs even at `multiplier_floor = 4` — the result of
-M3 §Known-limitations #5 which already flagged that the M3
-calibration doesn't surface drift-evictions in 200 slots.
+primary signal. Under the corrected calibration the mispricing
+shape shows up in **both** the refund envelope **and** the
+eviction count:
 
-The mispricing shape shows up instead in the **refund envelope**:
+- `refund_lovelace` for component 0:
+  - `correctly_priced` — `max_fee = 4 × actual_fee` leaves a
+    3 × actual_fee refund margin per included tx.
+  - `mispriced_high_urgency` — `0`. `max_fee = actual_fee` at
+    submission means no refund margin; the actor's budget is
+    fully consumed.
+- `evicted_quote_drift_count`: with the corrected RB cadence,
+  quote drift now bites. Mispriced runs evict ~6500-7000 txs;
+  correctly-priced runs evict 1500-5000 (lower end at slow
+  controller drift, higher end at fast). The mispriced excess
+  is the ratio that is component-0-specific — comp 0 mispriced
+  txs are exactly the ones whose max_fee equals submission-time
+  fee and so go stale on the first quote tick.
+- `fees_paid_lovelace` for component 0 differs across the two
+  jobs (the mispriced run pays less because evicted txs never
+  pay). The economic differentiation is now visible in both
+  what the actor *risks* (refund) and what the actor *loses*
+  (eviction).
+- `inclusion_rate` for component 0 drops below 1.0 under both
+  jobs — the corrected RB cadence means priority demand
+  sometimes outpaces priority capacity per slot, and not every
+  comp-0 tx gets included even before mispricing kicks in.
 
-- `refund_lovelace` for component 0 (per `metrics_comparison.txt`):
-  - `correctly_priced` — `~13 B` per seed (max_fee = 4 × actual_fee
-    leaves a 3 × actual_fee refund margin).
-  - `mispriced_high_urgency` — exactly `0` (max_fee = actual_fee,
-    zero refund room). The actor's max-fee budget is fully consumed
-    by the inclusion charge.
-- `fees_paid_lovelace` for component 0 is *identical* across the two
-  jobs at each seed (same submitted txs, same served quote at
-  inclusion). The economic difference is in what the actor *risked*,
-  not what they *paid*.
-- `inclusion_rate` for component 0 stays at 1.0 under both jobs —
-  confirming that under this calibration, mis-pricing does not
-  evict priority service in-slot.
+The interpretation under the corrected calibration: mispriced
+high-urgency actors face a double penalty — eviction risk
+(quote drift past their `{1, 1}` budget) plus surrender of all
+refund margin even when included. The `{4, 1}` default exists
+precisely to give actors a safety margin against drift; the
+`{1, 1}` mispricing shape shows what they're giving up by
+tightening it.
 
-The interpretation: under priority capacity that absorbs each
-slot's demand, mispricing is operationally equivalent to
-correct pricing for service quality, but costs the actor every
-lovelace of their max_fee budget. In a slightly more aggressive
-drift regime — smaller RB capacity, multi-producer slot battles, or
-demand spikes that linger across slots — the mispriced actors would
-be evicted on the first revalidation tick because they have zero
-headroom. The {4, 1} default exists to give actors a safety margin
-against drift; the {1, 1} mispricing shape shows what they're giving
-up by tightening it.
-
-`time_series.csv`'s `c_priority` column confirms the controller is
-moving — `priority_over_standard_quote_ratio` reaches ~50 × under
-saturation in both jobs (initial 4 × → ~200 × min_fee_a) — but the
-within-slot inclusion timing means lingering txs aren't where the
-drift bites.
-
-For a calibration that *does* trigger evictions, see
-`phase-2-rb-scarcity` with `rb_reduced_third` or `rb_reduced_quarter`
-overlays — when RB capacity is too small to absorb a slot's priority
-demand, txs linger and become eviction-eligible.
+`time_series.csv`'s `c_priority` column confirms the controller
+is moving — `priority_over_standard_quote_ratio` reaches the
+tens of × under saturation in both jobs (initial 4 × → much
+larger as the controller drifts under sustained priority
+demand).
 
 ## How to run
 

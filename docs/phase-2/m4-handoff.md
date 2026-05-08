@@ -1,5 +1,7 @@
 # M4 → M5 handoff
 
+> **Postscript (post-M5).** The "M3-class calibration" referenced throughout this handoff — single-producer + `rb-generation-probability: 1.0` — was a calibration bug, not a calibration choice. It prevented EB endorsement entirely (every RB's parent was 1 slot back, the 13-slot endorsement window failed every time, EBs never landed on chain). The mispricing-signal framing in §Decisions ("signal manifests in `refund_lovelace = 0`, not eviction") was correct *as a description of the buggy runs* but is no longer the right framing for the fixed runs. Post-fix, mispricing manifests in *both* refund and eviction. The rb-scarcity cliff explanation in §Known-limitation #7 was correct (priority demand exceeds RB body capacity, with no EB-partition relief) but the underlying calibration that produced it has been replaced. See [calibration-fix-postmortem.md](calibration-fix-postmortem.md) for the full explanation. The body of this handoff is preserved as historical context.
+
 Audience: the engineer picking up [implementation-plan.md §M5](implementation-plan.md#L286)
 (Determinism, docs, finalisation). Read alongside [mechanism-design.md](mechanism-design.md)
 and [implementation-plan.md](implementation-plan.md) — those are

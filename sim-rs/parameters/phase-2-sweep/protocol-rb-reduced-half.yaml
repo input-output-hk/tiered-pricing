@@ -20,7 +20,7 @@ min-fee-b: 155381
 mempool-max-total-size-bytes: null
 
 simulate-transactions: true
-rb-generation-probability: 1.0
+rb-generation-probability: 0.05
 vote-threshold: 1
 
 # RB-scarcity knob.

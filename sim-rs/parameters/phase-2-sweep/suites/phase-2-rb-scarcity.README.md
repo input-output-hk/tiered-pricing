@@ -65,71 +65,66 @@ holds when the protected partition is constrained.
 `metrics_comparison.txt` carries the per-job per-component breakdown.
 The **baseline-vs-reduced gradient** is the primary signal:
 
-- `priority_lane_retained_value_ratio` (per job): how much of
-  priority-served value is preserved through latency. Approaches
-  1.0 when priority is uncontested; declines as RB scarcity bites.
-  Observed: 1.0 (baseline) → 0.93 (half) → 0.12 (third) → 0.12
-  (quarter).
-- `included_count_priority` per slot (in `time_series.csv`) and
-  total `txs_included` (in `metrics_comparison.txt`): the
+- `included_count_priority` and total `txs_included`: the
   cross-job inclusion gradient is the primary scarcity signal.
-  Observed: ~10500 → ~6000 → ~440 → ~400.
+  Under the corrected calibration the gradient is gentle:
+  total inclusions roughly halve from baseline to half-RB and
+  approximately halve again to quarter-RB.
 - Per-component `priority_included` and `inclusion_rate` (in
   `metrics_comparison.txt`): show which components retain service
-  under scarcity. High-urgency stays close to 1.0 inclusion-rate
-  through `rb_reduced_half`; medium-urgency drops sharply at
-  reduced sizes; low-urgency falls to near-zero.
-- `evicted_quote_drift_count` is **expected to stay at 0** with
-  the default `{4, 1}` headroom. Under sustained scarcity the
-  controller drifts `c_priority` upward but ~5× upward isn't
-  enough to push txs above their max-fee budget. This isn't a
-  bug; it's the calibration choice. Mis-priced calibrations would
-  surface non-zero values here — see `phase-2-urgency-inversion`
-  for a related shape.
+  under scarcity. High-urgency (component 0) is most exposed
+  to RB shrinkage by share of priority demand, but absolute
+  comp-0 inclusion drops smoothly across the four jobs rather
+  than falling off a cliff.
+- `latency_blocks_mean` per component is roughly stable across
+  the gradient (~6-9 blocks). At the corrected RB cadence
+  (~1 RB per 20 slots) the bottleneck is RB *cadence* more than
+  RB *body size* — shrinking the body reduces throughput
+  proportionally without producing a sharp regime change.
+- `evicted_quote_drift_count` shows non-zero values across the
+  gradient as the controller drifts under sustained priority
+  demand. Under the corrected calibration this is the regime
+  where mis-priced actor calibrations (`{1, 1}` budget — see
+  `phase-2-urgency-inversion`) face real eviction risk.
 
-## Known caveat (M3 §Known-limitations #9 persists; standard service stays empty)
+## Calibration history
 
-The M3 protocol-base pins `rb-generation-probability: 1.0` and a
-single producer (`tx-generation-weight: 1`). Under this calibration
-*at baseline RB*, every slot produces a tx-bearing RB and every EB
-saturates, so every priority-fee tx is served as Priority and
-`priority_lane_retained_value_ratio = 1.0`,
-`standard_lane_retained_value_ratio = 0.0` for the
-`rb_baseline` job. This is documented as "informational only" in the
-M3 handoff.
+An earlier revision of this README described an "M3 §9 degeneracy"
+where `standard_lane_retained_value_ratio = 0.0` across all jobs.
+That outcome was a *calibration bug*, not a calibration consequence:
+`rb-generation-probability: 1.0` combined with the linear-Leios
+13-slot endorsement window prevented EBs from ever landing on
+chain, so EB-borne service (where standard-fee txs go in
+RB-reserved variants) was structurally invisible. The bug was
+fixed post-M5 by dropping rb-prob to 0.05 and bumping
+`default-slots` to 1000; see
+[../../../../docs/phase-2/calibration-fix-postmortem.md](../../../../docs/phase-2/calibration-fix-postmortem.md)
+for the full explanation. The findings below describe behaviour
+under the corrected calibration.
 
-**The degeneracy persists across all four jobs in this suite.** A
-fresh end-to-end run confirms `standard_lane_retained_value_ratio
-= 0.000000` and `standard_included = 0` for every component on
-every (job, seed) pair, baseline through quarter. The cross-RB
-gradient does not lift standard service off zero — actor lane
-choice keeps every component on priority across the gradient
-(under utility-maximising lane choice with `multiplier_floor = 4`,
-priority retains positive expected utility against standard for
-all three components even at heavily-drifted priority quotes), and
-mis-fit priority txs accumulate in the mempool rather than
-overflowing into standard space.
+## What the suite shows
 
-The mechanism is: under reduced RB, priority demand exceeds the
-per-slot RB priority capacity. With `{4, 1}` headroom, the
-mempool gate's quote-drift revalidation does not evict the excess
-priority txs; they simply sit. The EB priority partition activates
-under saturation (so priority overflow lands in EB priority space,
-not EB standard space), and what doesn't fit waits. By the end of
-the 200-slot run, much of the mempool is priority-resident and
-never makes it to a block. There is no priority-to-standard
-refund because the partition activated; refund-to-standard is the
-non-activation path, which doesn't fire here.
+**The informative signal is the cross-job priority inclusion
+gradient.** As the RB body shrinks, priority capacity (`2 ×
+rb_body_max_size_bytes` per spec) shrinks proportionally. At
+baseline the priority lane absorbs the high+medium-urgency
+demand; below half-RB it runs out, and additional priority
+demand stalls in the mempool rather than flooding into standard
+(the EB priority partition activates only when the EB body
+reaches its 16 MB capacity, which the actor demand profile does
+not produce at this rate). Standard service is now non-zero
+across the suite — EB endorsement fires under the corrected
+calibration, so standard-fee txs from comp 2 (and overflow
+priority refunded to standard when the partition is *not*
+activated) appear as `standard_included` per component.
 
-**The informative signal is therefore the cross-job priority
-inclusion gradient**, not a within-job priority-vs-standard split.
-Inclusion counts: baseline ≈ 10500 → reduced_half ≈ 6000 →
-reduced_third ≈ 440 → reduced_quarter ≈ 400. `priority_lane_retained_value_ratio`
-slides from 1.0 at baseline through 0.93 (half) to 0.12
-(third/quarter). That's the answer: priority service degrades
-sharply once total priority capacity (`2 × rb_body_max_size_bytes`)
-falls below sustained demand. Standard service plays no role in
-this experiment under the M3 calibration.
+The headline numbers (each averaged across 3 seeds) under the
+corrected calibration are in the suite output's
+[metrics_comparison.txt](../../../output/phase-2/rb-scarcity/metrics_comparison.txt).
+Cross-job priority inclusion gradient stays the qualitative
+answer: priority service degrades sharply once total priority
+capacity falls below sustained demand. Standard service is
+present but congested under the same demand profile.
 
 ## How to run
 

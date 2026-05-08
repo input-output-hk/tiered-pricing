@@ -14,6 +14,26 @@ the closure note. The §Phase-2 closure addendum at the top is the
 short list of items the CIP / external write-up needs to surface;
 the rest of the handoff follows the m4-handoff shape.
 
+> **Post-M5 calibration fix.** A latent calibration bug —
+> `rb-generation-probability: 1.0` combined with the linear-Leios
+> 13-slot endorsement window — was identified after M5 closed.
+> Under that calibration EBs never landed on chain; standard-fee
+> tx service in RB-reserved variants was structurally zero, and
+> what was previously framed as the "M3 §9 degeneracy" was a
+> consequence of the bug rather than a calibration-by-design
+> choice. The fix (drop probability to 0.05, raise stake to
+> 100000 to preserve probability under VRF stake quantization,
+> bump default-slots to 1000) is a YAML-only change that did not
+> touch simulator code; all 132 unit tests still pass and the
+> 8 → 1 methodology-table claim is unchanged. Suite outputs and
+> the seven `.goldens/` files were regenerated against the fixed
+> calibration. **Anywhere this handoff describes suite findings,
+> read those findings as conditional on the *new* calibration**;
+> the previous numbers are superseded. See
+> [calibration-fix-postmortem.md](calibration-fix-postmortem.md)
+> for the full explanation, including reinterpretation of each
+> suite's findings.
+
 ## Phase-2 closure addendum (for the CIP / external write-up)
 
 1. **Cross-arch CI verification is not yet built.** Determinism
@@ -50,9 +70,14 @@ the rest of the handoff follows the m4-handoff shape.
      (4× quote-drift headroom).
    - `multiplier_floor = 4` in `phase-2-rb-scarcity` and
      `phase-2-urgency-inversion` (vs the spec default 16);
-     calibration choice driven by the M3 single-producer +
-     `rb-generation-probability: 1.0` topology — at 16 priority
-     demand is too low to surface controller drift in 200 slots.
+     calibration choice to keep priority demand high enough that
+     mixed components self-select into priority and surface
+     controller drift within the run.
+   - `rb-generation-probability = 0.05` (Cardano-realistic) and
+     `default-slots = 1000`. This combination clears the
+     linear-Leios 13-slot endorsement window so EB-borne
+     inclusions actually fire — see
+     [calibration-fix-postmortem.md](calibration-fix-postmortem.md).
    - Default `target_inclusion_blocks` (priority=1, standard=4)
      seeds the actor `LatencyEstimator`.
    - Mempool cap default = `2 × eb_referenced_txs_max_size_bytes`.
@@ -86,24 +111,29 @@ the rest of the handoff follows the m4-handoff shape.
      [README](../../sim-rs/parameters/phase-2-sweep/suites/phase-2-rb-scarcity.README.md)
      +
      [output](../../sim-rs/output/phase-2/rb-scarcity/metrics_comparison.txt).
-     The headline finding (m4-handoff §"`rb-scarcity` has a
-     steep cliff between half and third RB capacities") is that
-     under the M3 single-producer + rb-gen-prob=1 calibration,
-     RB scarcity does not push txs onto the standard lane — it
-     pushes them off-chain (mempool-resident, unincluded). The
-     experimental answer is in the priority inclusion gradient
-     and `priority_lane_retained_value_ratio`.
+     The headline finding under the corrected calibration is
+     that RB scarcity narrows the priority service window
+     (priority capacity = `2 × rb_body_max_size_bytes`, as the
+     spec ties the EB priority partition to RB body size). At
+     baseline RB the priority lane absorbs the high+medium
+     urgency demand cleanly; at one-third RB and below, the
+     priority lane runs out and demand stalls in the mempool.
+     See [calibration-fix-postmortem.md](calibration-fix-postmortem.md)
+     for the reinterpretation against the corrected runs.
    - `phase-2-urgency-inversion` (M4 reframing) — urgency
      inversion restated.
      [README](../../sim-rs/parameters/phase-2-sweep/suites/phase-2-urgency-inversion.README.md)
      +
      [output](../../sim-rs/output/phase-2/urgency-inversion/metrics_comparison.txt).
-     The signal manifests in `refund_lovelace = 0` per
-     mispriced component (vs ~13B for correctly-priced) — a
-     refund-budget signal, not the eviction-cascade signal the
-     experimental design originally anticipated. Both signals
-     are economically real; the README explains the
-     calibration-dependent shape.
+     Under the corrected calibration the mispricing signal
+     manifests in *both* `refund_lovelace` (mispriced comp 0
+     refunds 0; correctly-priced refunds the full
+     `{4, 1}` headroom) *and* `evicted_quote_drift_count`
+     (mispriced runs evict 6500-7000 txs vs correctly-priced
+     ~1500-5000), since the `0.05` RB cadence allows quote drift
+     to push the controller past the `{1, 1}` budget before
+     inclusion. The original M4 framing ("signal lives in
+     refund only") was an artefact of the calibration bug.
 
 4. **Welfare evidence on `pricing-sim-base` is invalidated**
    by the rebuild. The down-select arguments for the CIP must
@@ -130,14 +160,15 @@ branch.
 - 7 phase-2 suites all run to completion.
   `experiment-suite verify` on all 7 reports
   `determinism verify ok` for every (job, seed) pair.
-- Branch tag: `m5-goldens-v1` (annotated) **will annotate the
-  commit that lands M5**, applied immediately after the M5
+- Branch tag: `m6-goldens-v1` (annotated) **will annotate the
+  commit that lands the post-M5 calibration fix** — the original
+  M5-time goldens were superseded before tagging by the
+  calibration-fix re-runs (see
+  [calibration-fix-postmortem.md](calibration-fix-postmortem.md)).
+  The tag should be applied immediately after the calibration-fix
   commit so the goldens at
   [sim-rs/parameters/phase-2-sweep/suites/.goldens/](../../sim-rs/parameters/phase-2-sweep/suites/.goldens/)
-  are recoverable from the tag if a future change inadvertently
-  flips them. As of this handoff being written the tag does not
-  yet exist; it is a verification step to be applied after the
-  M5 commit lands.
+  are recoverable from the tag.
 
 The hard rules (no `pricing-sim-base` content; no f64 in
 simulation-affecting state) held throughout. M5 added no

@@ -363,6 +363,62 @@ struct NodeActorState {
 
 type EventResult = super::EventResult<LinearLeiosNode>;
 
+/// Producer-side staleness filter for EB packing. Predicts which
+/// candidate txs would have `posted_fee > max_fee_lovelace` against
+/// the worst-case lane quote at expected endorsement time, and lets
+/// the producer skip them at packing time. Without this, a single
+/// stale priority-fee tx in the EB causes `eb_endorsement_valid` to
+/// refuse the entire EB, throwing co-resident standard-fee
+/// passengers under the bus.
+struct StalenessPredictor {
+    priority_quote_at_endorsement: u64,
+    standard_quote_at_endorsement: u64,
+    min_fee_b: u64,
+}
+
+impl StalenessPredictor {
+    fn is_predicted_stale(&self, tx: &Transaction) -> bool {
+        let q = match tx.posted_lane {
+            Lane::Priority => self.priority_quote_at_endorsement,
+            Lane::Standard => self.standard_quote_at_endorsement,
+        };
+        // posted_fee at the projected worst-case quote.
+        let predicted_fee = self
+            .min_fee_b
+            .saturating_add(q.saturating_mul(tx.bytes));
+        predicted_fee > tx.max_fee_lovelace
+    }
+}
+
+/// Expected upper bound on the number of *priced blocks* that fire
+/// during the endorsement window. Producers use this as the
+/// projection horizon for staleness prediction.
+///
+/// The endorsement window in *slots* is fixed by the protocol's
+/// stage delays (header_diffusion × 3 + vote_stage + diffuse_stage,
+/// ~13 slots under defaults). But the price controller only steps
+/// when a priced block lands, which happens with probability
+/// `block_generation_probability` per slot. So expected priced
+/// blocks in the window is `μ = window_slots × rb_prob`. We use a
+/// 2-sigma upper bound on Poisson(μ): `μ + 2·√μ`, ceil'd to an
+/// integer step count, with a floor of 1 (always assume at least
+/// one drift step is possible over a non-trivial window).
+///
+/// Cross-arch determinism: f64 +, ×, and √ are bit-exact under
+/// IEEE-754; `libm::ceil` is bit-stable across architectures.
+fn endorsement_window_priced_blocks(cfg: &SimConfiguration) -> u32 {
+    let window_slots = cfg
+        .header_diffusion_time
+        .as_secs()
+        .saturating_mul(3)
+        .saturating_add(cfg.linear_vote_stage_length)
+        .saturating_add(cfg.linear_diffuse_stage_length);
+    let mu = (window_slots as f64) * cfg.block_generation_probability;
+    let bound = mu + 2.0 * mu.sqrt();
+    let n = libm::ceil(bound) as u32;
+    n.max(1)
+}
+
 impl NodeImpl for LinearLeiosNode {
     type Message = Message;
     type Task = CpuTask;
@@ -716,12 +772,16 @@ impl LinearLeiosNode {
                     .track_transaction_generated(&tx, self.id, slot);
                 rb_transactions.push(Arc::new(tx));
             } else {
+                // RB body: txs are charged inclusions immediately
+                // (no staleness risk — no time between packing and
+                // inclusion), so no staleness filter.
                 self.sample_from_mempool_lane_aware(
                     &mut rb_transactions,
                     self.sim_config.max_block_size,
                     true,
                     validity_rule,
                     selection_order,
+                    None,
                 );
             }
         }
@@ -1689,6 +1749,7 @@ impl LinearLeiosNode {
         remove: bool,
         validity_rule: LaneValidityRule,
         selection_order: LaneSelectionOrder,
+        staleness_filter: Option<&StalenessPredictor>,
     ) {
         let mut size = txs.iter().map(|tx| tx.bytes).sum::<u64>();
         let mut candidates: Vec<_> = self.mempool.ids().collect();
@@ -1722,6 +1783,8 @@ impl LinearLeiosNode {
         // and is what the EB binary fullness trigger's "valid
         // unselected mempool tx remains and none fits in residual"
         // case relies on — see implementation-plan.md lines 109-112).
+        // Staleness rejections `continue` (the next candidate may not
+        // be stale).
         let mut removed_ids = vec![];
         while let Some(id) = candidates.pop() {
             let Some(TransactionView::Received(tx)) = self.txs.get(&id) else {
@@ -1729,6 +1792,11 @@ impl LinearLeiosNode {
             };
             if matches!(validity_rule, LaneValidityRule::PriorityOnly)
                 && tx.posted_lane == Lane::Standard
+            {
+                continue;
+            }
+            if let Some(predictor) = staleness_filter
+                && predictor.is_predicted_stale(tx)
             {
                 continue;
             }
@@ -1774,6 +1842,23 @@ impl LinearLeiosNode {
         eb_capacity: u64,
         selection_order: LaneSelectionOrder,
     ) -> (Vec<Arc<Transaction>>, bool) {
+        // Producer-side staleness filter: skip txs that won't survive
+        // worst-case controller drift between EB build time and
+        // expected endorsement time. Without this, a single mis-priced
+        // priority-fee tx in the EB causes `eb_endorsement_valid` to
+        // refuse the entire EB, taking all co-resident standard-fee
+        // passengers down with it.
+        let endorsement_window_blocks = endorsement_window_priced_blocks(&self.sim_config);
+        let predictor = StalenessPredictor {
+            priority_quote_at_endorsement: self
+                .pricing
+                .worst_case_quote_at(Lane::Priority, endorsement_window_blocks),
+            standard_quote_at_endorsement: self
+                .pricing
+                .worst_case_quote_at(Lane::Standard, endorsement_window_blocks),
+            min_fee_b: self.gate.config().min_fee_b,
+        };
+
         // Pack the EB greedily under the configured selection order.
         let mut packed: Vec<Arc<Transaction>> = Vec::new();
         self.sample_from_mempool_lane_aware(
@@ -1782,6 +1867,7 @@ impl LinearLeiosNode {
             false, // don't drain the mempool — selection happens elsewhere
             LaneValidityRule::None,
             selection_order,
+            Some(&predictor),
         );
         let selected_bytes: u64 = packed.iter().map(|t| t.bytes).sum();
         let residual = eb_capacity.saturating_sub(selected_bytes);
@@ -2176,7 +2262,7 @@ impl LinearLeiosNode {
                 .map(|(i, c)| ComponentInputs {
                     priority_latency: state.latency[i].expected(crate::tx_pricing::Lane::Priority),
                     standard_latency: state.latency[i].expected(crate::tx_pricing::Lane::Standard),
-                    arrival_rate: c.arrival_rate_per_slot,
+                    arrival_rate: c.arrival_rate_per_slot.rate_at_slot(slot),
                     size_bytes: c.size_bytes,
                     value_lovelace: c.value_lovelace,
                     urgency: c.urgency,
@@ -2197,7 +2283,7 @@ impl LinearLeiosNode {
             // logic in one place (`tx_actors::ActorComponent`).
             let comp = crate::tx_actors::ActorComponent {
                 index: ci.index,
-                arrival_rate_per_slot: ci.arrival_rate,
+                arrival_rate_per_slot: crate::tx_actors::ArrivalRate::Constant(ci.arrival_rate),
                 size_bytes: ci.size_bytes,
                 value_lovelace: ci.value_lovelace,
                 urgency: ci.urgency,
@@ -2208,7 +2294,7 @@ impl LinearLeiosNode {
             };
             let count = {
                 let state = self.actor_state.as_mut().expect("checked above");
-                comp.sample_arrival_count(&mut state.component_rngs[i])
+                comp.sample_arrival_count(&mut state.component_rngs[i], slot)
             };
             for _ in 0..count {
                 let inputs = {
@@ -2240,9 +2326,15 @@ impl LinearLeiosNode {
                     crate::tx_pricing::Lane::Priority => q_priority,
                     crate::tx_pricing::Lane::Standard => q_standard,
                 };
+                let max_fee_ctx = crate::tx_actors::MaxFeeContext {
+                    expected_wait_blocks: match posted_lane {
+                        crate::tx_pricing::Lane::Priority => ci.priority_latency,
+                        crate::tx_pricing::Lane::Standard => ci.standard_latency,
+                    },
+                };
                 let Ok(max_fee_lovelace) =
                     ci.max_fee_policy
-                        .compute(lane_quote, inputs.bytes, min_fee_b)
+                        .compute(lane_quote, inputs.bytes, min_fee_b, max_fee_ctx)
                 else {
                     // Overflow in max_fee computation: skip this
                     // arrival. The tx_actors test suite already

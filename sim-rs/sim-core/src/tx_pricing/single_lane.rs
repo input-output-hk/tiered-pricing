@@ -247,9 +247,49 @@ impl Eip1559Pricing {
     }
 }
 
+/// Compute the worst-case EIP-1559 per-byte rate after `n` consecutive
+/// max-up controller steps. Each step multiplies the quote by
+/// `(D+1)/D` (the spec's `+1/D` clamp). Capped at u64::MAX on overflow
+/// and at `MAX_PROJECTION_BLOCKS` so the exponentiation stays in u128.
+///
+/// Producers use this at EB-build time to skip txs whose
+/// `max_fee_lovelace` won't survive the worst-case drift over the
+/// endorsement window.
+pub fn worst_case_eip1559_quote(current_quote: u64, d: u64, blocks_ahead: u32) -> u64 {
+    if d == 0 || blocks_ahead == 0 {
+        return current_quote;
+    }
+    // Cap N to keep ((D+1)/D)^N tractable in u128. For typical D ≥ 4
+    // and N ≤ 32, (D+1)^32 fits comfortably in u128. Beyond that the
+    // worst-case bound is dominated by other failure modes anyway
+    // (mempool overflow, run-end truncation).
+    const MAX_PROJECTION_BLOCKS: u32 = 32;
+    let n = blocks_ahead.min(MAX_PROJECTION_BLOCKS);
+    let num = match (d as u128 + 1).checked_pow(n) {
+        Some(v) => v,
+        None => return u64::MAX,
+    };
+    let den = match (d as u128).checked_pow(n) {
+        Some(v) => v,
+        None => return u64::MAX,
+    };
+    // ⌈current_quote × num / den⌉, saturating to u64::MAX.
+    let numerator = (current_quote as u128).saturating_mul(num);
+    let projected = if numerator == 0 {
+        0u128
+    } else {
+        1 + (numerator - 1) / den
+    };
+    u64::try_from(projected).unwrap_or(u64::MAX)
+}
+
 impl PricingBackend for Eip1559Pricing {
     fn current_quote(&self, _lane: Lane) -> u64 {
         self.quote_per_byte
+    }
+
+    fn worst_case_quote_at(&self, _lane: Lane, blocks_ahead: u32) -> u64 {
+        worst_case_eip1559_quote(self.quote_per_byte, self.settings.max_change_denominator, blocks_ahead)
     }
 
     fn update_after_block(&mut self, samples: &[PricedBlockSample]) {

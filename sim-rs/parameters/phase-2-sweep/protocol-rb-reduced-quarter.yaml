@@ -14,4 +14,10 @@ simulate-transactions: true
 rb-generation-probability: 0.05
 vote-threshold: 1
 
+# CIP-0164 Table 7 calibration (matches protocol-base.yaml).
+linear-vote-stage-length-slots: 4
+linear-diffuse-stage-length-slots: 7
+eb-referenced-txs-max-size-bytes: 12000000
+eb-body-validation-cpu-time-ms-per-byte: 2.15e-5
+
 rb-body-max-size-bytes: 22528

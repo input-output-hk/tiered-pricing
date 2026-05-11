@@ -58,11 +58,36 @@ simulate-transactions: true
 # two-lane suite's per-lane inclusion counts and welfare metrics.
 #
 # Fix: drop rb-prob to a Cardano-realistic value (0.05) so the
-# expected RB cadence (~20 slots) clears the 13-slot endorsement
+# expected RB cadence (~20 slots) clears the 14-slot endorsement
 # window. Single-producer is preserved (the producer wins ~5% of
 # slots, all RBs). Vote-threshold stays at 1 so the producer's own
 # vote certifies its own EBs.
 rb-generation-probability: 0.05
 # Single-node ⇒ vote threshold of 1 lets the EB get certified.
 vote-threshold: 1
+
+# CIP-0164 §"Feasible Protocol Parameters" (Table 7) calibration.
+#
+# History: an earlier revision inherited the upstream-Leios `short`
+# variant defaults (L_vote=5, L_diff=5, eb-referenced-txs-max=16 MB,
+# eb-body-validation-cpu-time-ms-per-byte=5e-4 = 500 ns/byte). Those
+# values are coherent for `short` Leios, where EBs reference IBs and
+# carry only a few KB of data. In phase-2's `linear` variant, EBs
+# carry full transaction bodies up to the cap, so 500 ns/byte × 16 MB
+# = 8 s of EB validation CPU — well past `header-diffusion-time = 1 s`
+# and the `LateRBHeader` voting deadline. The producer therefore
+# fails to vote on its own EBs, no EB ever reaches the
+# `vote-threshold`, and no RB ever endorses an EB. Throughput collapses
+# to the 90 KB-per-RB praos_fallback path.
+#
+# Fix: align with CIP-0164 Table 7. The CIP cites the Cardano formal-
+# spec linear validation model `(353.9 μs) + (21.51 μs/kB) × bytes`
+# (≈ 21.5 ns/byte) — about 23× cheaper than the inherited 500 ns/byte
+# default. At the CIP's 12 MB EB cap, that gives ~258 ms of validation
+# CPU (plus the constant 75+50 = 125 ms generation+constant), well
+# inside L_hdr.
+linear-vote-stage-length-slots: 4
+linear-diffuse-stage-length-slots: 7
+eb-referenced-txs-max-size-bytes: 12000000
+eb-body-validation-cpu-time-ms-per-byte: 2.15e-5
 

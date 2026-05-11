@@ -47,23 +47,92 @@ use crate::{probability::FloatDistribution, tx_pricing::Lane};
 // ----------------------------------------------------------------------
 
 /// Policy for computing `max_fee_lovelace` from the per-byte quote
-/// at submission time. M3 ships only the `ScaledOverLaneQuote`
-/// variant; future variants (e.g. fixed-lovelace, per-actor-derived)
-/// can be added without breaking the trait surface.
+/// at submission time.
+///
+/// - `ScaledOverLaneQuote` is the default rule-of-thumb: a fixed
+///   multiplier (e.g. `{4, 1}` for 4× quote-drift headroom).
+///   Doesn't adapt to expected wait or controller cadence.
+/// - `VolatilityAware` adapts the headroom to the expected wait
+///   under worst-case unidirectional controller drift, using the
+///   `MaxFeeContext` provided at submission. Models a user who
+///   actively avoids quote-drift eviction.
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum MaxFeePolicy {
     /// `max_fee_lovelace = min_fee_b + ⌈quote × bytes × num / den⌉`.
     ScaledOverLaneQuote { numerator: u64, denominator: u64 },
+    /// `max_fee_lovelace = min_fee_b + ⌈quote × bytes × ((D+1)/D)^N
+    /// × safety_num / safety_den⌉` where `N = ⌈expected_wait_blocks⌉`
+    /// is taken from the `MaxFeeContext` and capped at
+    /// `MAX_VOLATILITY_AWARE_BLOCKS = 16` to keep the exponentiation
+    /// tractable. The `(D+1)/D` factor is the controller's
+    /// per-step max-up-move under EIP-1559 (one step is ±1/D); the
+    /// exponent compounds that bound over the expected wait.
+    /// `safety_factor` provides additional headroom over the
+    /// worst-case bound.
+    VolatilityAware {
+        /// Conservative estimate of the priority controller's
+        /// `max_change_denominator`. Real D may be larger (slower
+        /// drift) — using a smaller assumed D over-estimates worst
+        /// case, which is the safer direction.
+        assumed_max_change_denominator: u64,
+        /// Multiplicative safety factor over the worst-case drift
+        /// bound. `{1, 1}` = no extra margin (just the worst case);
+        /// `{2, 1}` = 2× extra; etc.
+        safety_factor_num: u64,
+        safety_factor_den: u64,
+    },
+}
+
+/// Cap on the worst-case exponent for `VolatilityAware`. Keeps
+/// `((D+1)/D)^N` tractable in u128 (`9^16 ≈ 1.8 × 10^15`, well
+/// inside u128) and acknowledges that beyond ~16 blocks of expected
+/// wait the worst-case bound is dominated by other failure modes
+/// (mempool overflow, run-end truncation).
+pub const MAX_VOLATILITY_AWARE_BLOCKS: u32 = 16;
+
+/// Inputs that some `MaxFeePolicy` variants need beyond
+/// `(quote, bytes, min_fee_b)`. `ScaledOverLaneQuote` ignores all
+/// fields; `VolatilityAware` consumes `expected_wait_blocks`.
+#[derive(Debug, Clone, Copy)]
+pub struct MaxFeeContext {
+    /// Expected wait until inclusion at the posted lane, in blocks
+    /// (typically from `LatencyEstimator::expected`).
+    pub expected_wait_blocks: f64,
+}
+
+impl MaxFeeContext {
+    /// A context with no useful data. Use only for callers that
+    /// invoke variants which ignore the context (`ScaledOverLaneQuote`).
+    pub fn unused() -> Self {
+        Self {
+            expected_wait_blocks: 0.0,
+        }
+    }
 }
 
 impl MaxFeePolicy {
-    /// Validate at construction. Required field: `denominator > 0`.
+    /// Validate at construction. Required fields: any denominator
+    /// or `assumed_max_change_denominator` must be non-zero.
     pub fn validate(&self) -> Result<()> {
         match *self {
             MaxFeePolicy::ScaledOverLaneQuote { denominator, .. } if denominator == 0 => {
                 bail!("ScaledOverLaneQuote.denominator must be non-zero")
             }
+            MaxFeePolicy::VolatilityAware {
+                assumed_max_change_denominator: 0,
+                ..
+            } => {
+                bail!("VolatilityAware.assumed_max_change_denominator must be non-zero")
+            }
+            MaxFeePolicy::VolatilityAware {
+                safety_factor_den: 0,
+                ..
+            } => bail!("VolatilityAware.safety_factor_den must be non-zero"),
+            MaxFeePolicy::VolatilityAware {
+                safety_factor_num: 0,
+                ..
+            } => bail!("VolatilityAware.safety_factor_num must be non-zero"),
             _ => Ok(()),
         }
     }
@@ -71,7 +140,13 @@ impl MaxFeePolicy {
     /// Compute `max_fee_lovelace` for a tx of `bytes` bytes posted on
     /// a lane with `quote_per_byte`. Spec invariant: result ≥ `min_fee_b`.
     /// Overflow-safe via `u128` intermediates and `ceil_div_u128`.
-    pub fn compute(&self, quote_per_byte: u64, bytes: u64, min_fee_b: u64) -> Result<u64> {
+    pub fn compute(
+        &self,
+        quote_per_byte: u64,
+        bytes: u64,
+        min_fee_b: u64,
+        ctx: MaxFeeContext,
+    ) -> Result<u64> {
         match *self {
             MaxFeePolicy::ScaledOverLaneQuote {
                 numerator,
@@ -95,6 +170,64 @@ impl MaxFeePolicy {
                         "max_fee_policy result exceeds u64: scaled={scaled} \
                          (quote={quote_per_byte} bytes={bytes} num={numerator} den={denominator})"
                     )
+                })?;
+                min_fee_b.checked_add(scaled_u64).ok_or_else(|| {
+                    anyhow!(
+                        "max_fee_lovelace overflow: min_fee_b={min_fee_b} + scaled={scaled_u64}"
+                    )
+                })
+            }
+            MaxFeePolicy::VolatilityAware {
+                assumed_max_change_denominator: d,
+                safety_factor_num,
+                safety_factor_den,
+            } => {
+                if d == 0 {
+                    bail!("VolatilityAware.assumed_max_change_denominator must be non-zero");
+                }
+                if safety_factor_den == 0 {
+                    bail!("VolatilityAware.safety_factor_den must be non-zero");
+                }
+                if safety_factor_num == 0 {
+                    bail!("VolatilityAware.safety_factor_num must be non-zero");
+                }
+                // N = ⌈expected_wait_blocks⌉, clamped to [1, MAX].
+                // `libm::ceil` is bit-deterministic across arches;
+                // the `as u32` cast saturates non-finite/out-of-range
+                // values to 0/u32::MAX, which we then clamp.
+                let n_raw = libm::ceil(ctx.expected_wait_blocks.max(1.0)) as u32;
+                let n: u32 = n_raw.clamp(1, MAX_VOLATILITY_AWARE_BLOCKS);
+                // Worst-case drift over N blocks: ((D+1)/D)^N.
+                let drift_num: u128 = (d as u128 + 1)
+                    .checked_pow(n)
+                    .ok_or_else(|| anyhow!("VolatilityAware drift_num overflow: D={d} N={n}"))?;
+                let drift_den: u128 = (d as u128)
+                    .checked_pow(n)
+                    .ok_or_else(|| anyhow!("VolatilityAware drift_den overflow: D={d} N={n}"))?;
+                // max_fee_excess = ⌈quote × bytes × drift_num × safety_num
+                //                  / (drift_den × safety_den)⌉.
+                let product_num = (quote_per_byte as u128)
+                    .checked_mul(bytes as u128)
+                    .and_then(|v| v.checked_mul(drift_num))
+                    .and_then(|v| v.checked_mul(safety_factor_num as u128))
+                    .ok_or_else(|| {
+                        anyhow!(
+                            "VolatilityAware product overflow: \
+                             quote={quote_per_byte} bytes={bytes} D={d} N={n} \
+                             safety_num={safety_factor_num}"
+                        )
+                    })?;
+                let den = drift_den
+                    .checked_mul(safety_factor_den as u128)
+                    .ok_or_else(|| {
+                        anyhow!(
+                            "VolatilityAware denominator overflow: D={d} N={n} \
+                             safety_den={safety_factor_den}"
+                        )
+                    })?;
+                let scaled = ceil_div_u128(product_num, den);
+                let scaled_u64: u64 = scaled.try_into().map_err(|_| {
+                    anyhow!("VolatilityAware result exceeds u64: scaled={scaled}")
                 })?;
                 min_fee_b.checked_add(scaled_u64).ok_or_else(|| {
                     anyhow!(
@@ -311,6 +444,45 @@ impl LatencyEstimator {
 }
 
 // ----------------------------------------------------------------------
+// Arrival rate (time-varying via phases)
+// ----------------------------------------------------------------------
+
+/// One phase of a time-varying arrival rate. `[start_slot, end_slot)`
+/// is half-open. Phases must be non-overlapping; outside the union of
+/// phases the effective rate is 0.
+#[derive(Debug, Clone)]
+pub struct ArrivalPhase {
+    pub start_slot: u64,
+    pub end_slot: u64,
+    pub rate: f64,
+}
+
+/// Per-component arrival rate. `Constant` is the legacy behaviour;
+/// `Phased` supports demand shocks (Sundaeswap-style DEX launches,
+/// daily peak hours, etc.). The lookup is linear over phases — fine
+/// for small phase counts; revisit if a profile carries 100+ phases.
+#[derive(Debug, Clone)]
+pub enum ArrivalRate {
+    Constant(f64),
+    Phased(Vec<ArrivalPhase>),
+}
+
+impl ArrivalRate {
+    /// Effective rate at `slot`. `Constant` ignores the slot. `Phased`
+    /// returns the rate of the first phase whose interval contains
+    /// `slot`, or 0 outside all phases.
+    pub fn rate_at_slot(&self, slot: u64) -> f64 {
+        match self {
+            ArrivalRate::Constant(r) => *r,
+            ArrivalRate::Phased(phases) => phases
+                .iter()
+                .find(|p| slot >= p.start_slot && slot < p.end_slot)
+                .map_or(0.0, |p| p.rate),
+        }
+    }
+}
+
+// ----------------------------------------------------------------------
 // ActorComponent / ActorProfile
 // ----------------------------------------------------------------------
 
@@ -325,9 +497,11 @@ pub struct ActorComponent {
     /// bucket per-class.
     pub index: u32,
     /// Mean transaction arrivals per slot for this component.
-    /// Sampled per slot via Poisson. Components fire independently;
-    /// the per-slot total is the sum across components.
-    pub arrival_rate_per_slot: f64,
+    /// `Constant` for a flat rate; `Phased` for demand shocks.
+    /// Sampled per slot via Poisson at the rate active for the
+    /// current slot. Components fire independently; the per-slot
+    /// total is the sum across components.
+    pub arrival_rate_per_slot: ArrivalRate,
     /// Transaction byte-size distribution.
     pub size_bytes: FloatDistribution,
     /// Value distribution (lovelace; sampled to f64, rounded to u64).
@@ -349,12 +523,54 @@ pub struct ActorComponent {
 
 impl ActorComponent {
     pub fn validate(&self) -> Result<()> {
-        if !self.arrival_rate_per_slot.is_finite() || self.arrival_rate_per_slot < 0.0 {
-            bail!(
-                "arrival_rate_per_slot for component {} must be finite and ≥ 0 (got {})",
-                self.index,
-                self.arrival_rate_per_slot
-            );
+        match &self.arrival_rate_per_slot {
+            ArrivalRate::Constant(r) => {
+                if !r.is_finite() || *r < 0.0 {
+                    bail!(
+                        "arrival_rate_per_slot for component {} must be finite and ≥ 0 (got {})",
+                        self.index,
+                        r
+                    );
+                }
+            }
+            ArrivalRate::Phased(phases) => {
+                if phases.is_empty() {
+                    bail!(
+                        "arrival_rate_per_slot for component {} is Phased with no phases",
+                        self.index
+                    );
+                }
+                for p in phases {
+                    if !p.rate.is_finite() || p.rate < 0.0 {
+                        bail!(
+                            "arrival_rate_per_slot phase rate for component {} must be finite and ≥ 0 (got {})",
+                            self.index,
+                            p.rate
+                        );
+                    }
+                    if p.start_slot >= p.end_slot {
+                        bail!(
+                            "arrival_rate_per_slot phase for component {} must have start_slot < end_slot (got [{}, {}))",
+                            self.index,
+                            p.start_slot,
+                            p.end_slot
+                        );
+                    }
+                }
+                // Detect overlap by checking each phase against the others.
+                for (i, a) in phases.iter().enumerate() {
+                    for b in phases.iter().skip(i + 1) {
+                        if a.start_slot < b.end_slot && b.start_slot < a.end_slot {
+                            bail!(
+                                "arrival_rate_per_slot phases for component {} overlap: [{}, {}) and [{}, {})",
+                                self.index,
+                                a.start_slot, a.end_slot,
+                                b.start_slot, b.end_slot
+                            );
+                        }
+                    }
+                }
+            }
         }
         self.max_fee_policy.validate()?;
         for (label, blocks) in [
@@ -377,15 +593,18 @@ impl ActorComponent {
         Ok(())
     }
 
-    /// Sample the per-slot arrival count from `Poisson(λ)`.
-    /// `λ = arrival_rate_per_slot`. Returns 0 when `λ ≤ 0`.
-    pub fn sample_arrival_count<R: Rng>(&self, rng: &mut R) -> u64 {
-        if !self.arrival_rate_per_slot.is_finite() || self.arrival_rate_per_slot <= 0.0 {
+    /// Sample the per-slot arrival count from `Poisson(λ)` where
+    /// `λ` is the arrival rate active at `slot`. Returns 0 when
+    /// `λ ≤ 0` (e.g. outside the union of phase intervals for a
+    /// `Phased` rate).
+    pub fn sample_arrival_count<R: Rng>(&self, rng: &mut R, slot: u64) -> u64 {
+        let rate = self.arrival_rate_per_slot.rate_at_slot(slot);
+        if !rate.is_finite() || rate <= 0.0 {
             return 0;
         }
         // Poisson::new returns Err only on non-positive λ; we've
         // checked.
-        let dist = Poisson::new(self.arrival_rate_per_slot)
+        let dist = Poisson::new(rate)
             .expect("arrival_rate_per_slot validated > 0");
         // `Poisson<f64>::sample` returns f64 ≥ 0; round-half-away-
         // from-zero is fine for u64.
@@ -472,7 +691,7 @@ mod tests {
     fn comp_default() -> ActorComponent {
         ActorComponent {
             index: 0,
-            arrival_rate_per_slot: 1.0,
+            arrival_rate_per_slot: ArrivalRate::Constant(1.0),
             size_bytes: FloatDistribution::constant(1024.0),
             value_lovelace: FloatDistribution::constant(1_000_000.0),
             urgency: FloatDistribution::constant(1.05),
@@ -497,7 +716,7 @@ mod tests {
             denominator: 0,
         };
         assert!(policy.validate().is_err());
-        assert!(policy.compute(44, 1024, MIN_FEE_B).is_err());
+        assert!(policy.compute(44, 1024, MIN_FEE_B, MaxFeeContext::unused()).is_err());
     }
 
     #[test]
@@ -508,7 +727,7 @@ mod tests {
         };
         let bytes = 1024u64;
         let quote = 44u64;
-        let max_fee = policy.compute(quote, bytes, MIN_FEE_B).unwrap();
+        let max_fee = policy.compute(quote, bytes, MIN_FEE_B, MaxFeeContext::unused()).unwrap();
         // 4 × 44 × 1024 = 180_224
         assert_eq!(max_fee, MIN_FEE_B + 180_224);
     }
@@ -520,7 +739,7 @@ mod tests {
             denominator: 3,
         };
         // 1 × 100 / 3 = 33.33; ceil = 34
-        let max_fee = policy.compute(100, 1, MIN_FEE_B).unwrap();
+        let max_fee = policy.compute(100, 1, MIN_FEE_B, MaxFeeContext::unused()).unwrap();
         assert_eq!(max_fee, MIN_FEE_B + 34);
     }
 
@@ -531,9 +750,9 @@ mod tests {
             denominator: 1,
         };
         // bytes = 0 → max_fee = min_fee_b.
-        assert_eq!(policy.compute(44, 0, MIN_FEE_B).unwrap(), MIN_FEE_B);
+        assert_eq!(policy.compute(44, 0, MIN_FEE_B, MaxFeeContext::unused()).unwrap(), MIN_FEE_B);
         // quote = 0 → max_fee = min_fee_b.
-        assert_eq!(policy.compute(0, 1024, MIN_FEE_B).unwrap(), MIN_FEE_B);
+        assert_eq!(policy.compute(0, 1024, MIN_FEE_B, MaxFeeContext::unused()).unwrap(), MIN_FEE_B);
     }
 
     #[test]
@@ -543,8 +762,169 @@ mod tests {
             denominator: 1,
         };
         // u64::MAX × u64::MAX × u64::MAX overflows u128.
-        let err = policy.compute(u64::MAX, u64::MAX, MIN_FEE_B);
+        let err = policy.compute(u64::MAX, u64::MAX, MIN_FEE_B, MaxFeeContext::unused());
         assert!(err.is_err(), "expected overflow error, got {err:?}");
+    }
+
+    // --- VolatilityAware ---
+
+    #[test]
+    fn volatility_aware_rejects_zero_fields() {
+        let zero_d = MaxFeePolicy::VolatilityAware {
+            assumed_max_change_denominator: 0,
+            safety_factor_num: 1,
+            safety_factor_den: 1,
+        };
+        assert!(zero_d.validate().is_err());
+        let zero_safety_den = MaxFeePolicy::VolatilityAware {
+            assumed_max_change_denominator: 8,
+            safety_factor_num: 1,
+            safety_factor_den: 0,
+        };
+        assert!(zero_safety_den.validate().is_err());
+        let zero_safety_num = MaxFeePolicy::VolatilityAware {
+            assumed_max_change_denominator: 8,
+            safety_factor_num: 0,
+            safety_factor_den: 1,
+        };
+        assert!(zero_safety_num.validate().is_err());
+    }
+
+    #[test]
+    fn volatility_aware_n1_d8_no_safety_matches_one_step_drift() {
+        // ((D+1)/D)^N = (9/8)^1 = 9/8.
+        // max_fee = min_fee_b + ⌈quote × bytes × 9 / 8⌉
+        let policy = MaxFeePolicy::VolatilityAware {
+            assumed_max_change_denominator: 8,
+            safety_factor_num: 1,
+            safety_factor_den: 1,
+        };
+        let ctx = MaxFeeContext {
+            expected_wait_blocks: 1.0,
+        };
+        let bytes = 1024u64;
+        let quote = 44u64;
+        let max_fee = policy.compute(quote, bytes, MIN_FEE_B, ctx).unwrap();
+        // 44 × 1024 × 9 / 8 = 50_688
+        assert_eq!(max_fee, MIN_FEE_B + 50_688);
+    }
+
+    #[test]
+    fn volatility_aware_clamps_n_to_at_least_1() {
+        // expected_wait_blocks = 0 → N clamped to 1.
+        let policy = MaxFeePolicy::VolatilityAware {
+            assumed_max_change_denominator: 8,
+            safety_factor_num: 1,
+            safety_factor_den: 1,
+        };
+        let max_fee_zero_wait = policy
+            .compute(
+                44,
+                1024,
+                MIN_FEE_B,
+                MaxFeeContext {
+                    expected_wait_blocks: 0.0,
+                },
+            )
+            .unwrap();
+        let max_fee_unit_wait = policy
+            .compute(
+                44,
+                1024,
+                MIN_FEE_B,
+                MaxFeeContext {
+                    expected_wait_blocks: 1.0,
+                },
+            )
+            .unwrap();
+        assert_eq!(max_fee_zero_wait, max_fee_unit_wait);
+    }
+
+    #[test]
+    fn volatility_aware_caps_n_at_max_blocks() {
+        // expected_wait_blocks = 1000 should produce the same result
+        // as expected_wait_blocks = MAX_VOLATILITY_AWARE_BLOCKS.
+        let policy = MaxFeePolicy::VolatilityAware {
+            assumed_max_change_denominator: 8,
+            safety_factor_num: 1,
+            safety_factor_den: 1,
+        };
+        let big = policy
+            .compute(
+                44,
+                1024,
+                MIN_FEE_B,
+                MaxFeeContext {
+                    expected_wait_blocks: 1000.0,
+                },
+            )
+            .unwrap();
+        let cap = policy
+            .compute(
+                44,
+                1024,
+                MIN_FEE_B,
+                MaxFeeContext {
+                    expected_wait_blocks: MAX_VOLATILITY_AWARE_BLOCKS as f64,
+                },
+            )
+            .unwrap();
+        assert_eq!(big, cap);
+    }
+
+    #[test]
+    fn volatility_aware_grows_with_expected_wait() {
+        // Strictly monotonic in N until the cap.
+        let policy = MaxFeePolicy::VolatilityAware {
+            assumed_max_change_denominator: 8,
+            safety_factor_num: 1,
+            safety_factor_den: 1,
+        };
+        let mut prev = 0u64;
+        for n in 1..=(MAX_VOLATILITY_AWARE_BLOCKS as u64) {
+            let max_fee = policy
+                .compute(
+                    44,
+                    1024,
+                    MIN_FEE_B,
+                    MaxFeeContext {
+                        expected_wait_blocks: n as f64,
+                    },
+                )
+                .unwrap();
+            assert!(
+                max_fee > prev,
+                "expected strict growth at N={n}: prev={prev} curr={max_fee}"
+            );
+            prev = max_fee;
+        }
+    }
+
+    #[test]
+    fn volatility_aware_with_safety_factor_is_proportional() {
+        // safety_factor = {2, 1} should give ~2× the excess of {1, 1}.
+        let no_safety = MaxFeePolicy::VolatilityAware {
+            assumed_max_change_denominator: 8,
+            safety_factor_num: 1,
+            safety_factor_den: 1,
+        };
+        let double = MaxFeePolicy::VolatilityAware {
+            assumed_max_change_denominator: 8,
+            safety_factor_num: 2,
+            safety_factor_den: 1,
+        };
+        let ctx = MaxFeeContext {
+            expected_wait_blocks: 4.0,
+        };
+        let no_safety_excess = no_safety.compute(44, 1024, MIN_FEE_B, ctx).unwrap() - MIN_FEE_B;
+        let double_excess = double.compute(44, 1024, MIN_FEE_B, ctx).unwrap() - MIN_FEE_B;
+        // With ceil rounding the doubled result may be 1 lovelace
+        // larger than 2× the single result; allow ±1.
+        let twice = no_safety_excess * 2;
+        assert!(
+            (double_excess as i64 - twice as i64).abs() <= 1,
+            "expected ~2× excess; got no_safety={no_safety_excess} double={double_excess} twice={twice}"
+        );
     }
 
     // --- ceil_div_u128 ---
@@ -813,7 +1193,7 @@ mod tests {
     #[test]
     fn negative_arrival_rate_rejects() {
         let mut comp = comp_default();
-        comp.arrival_rate_per_slot = -1.0;
+        comp.arrival_rate_per_slot = ArrivalRate::Constant(-1.0);
         let profile = ActorProfile {
             components: vec![comp],
             block_generation_probability: 0.05,
@@ -840,26 +1220,87 @@ mod tests {
     #[test]
     fn arrival_count_is_zero_when_lambda_is_zero() {
         let mut comp = comp_default();
-        comp.arrival_rate_per_slot = 0.0;
+        comp.arrival_rate_per_slot = ArrivalRate::Constant(0.0);
         let mut rng = ChaChaRng::seed_from_u64(0);
-        assert_eq!(comp.sample_arrival_count(&mut rng), 0);
+        assert_eq!(comp.sample_arrival_count(&mut rng, 0), 0);
     }
 
     #[test]
     fn arrival_count_sampling_is_deterministic_under_seed() {
         let comp = ActorComponent {
-            arrival_rate_per_slot: 5.0,
+            arrival_rate_per_slot: ArrivalRate::Constant(5.0),
             ..comp_default()
         };
         let mut rng_a = ChaChaRng::seed_from_u64(42);
         let mut rng_b = ChaChaRng::seed_from_u64(42);
         // Same seed → same arrival counts across calls.
-        for _ in 0..20 {
+        for slot in 0..20 {
             assert_eq!(
-                comp.sample_arrival_count(&mut rng_a),
-                comp.sample_arrival_count(&mut rng_b)
+                comp.sample_arrival_count(&mut rng_a, slot),
+                comp.sample_arrival_count(&mut rng_b, slot)
             );
         }
+    }
+
+    #[test]
+    fn phased_arrival_rate_selects_active_phase() {
+        let rate = ArrivalRate::Phased(vec![
+            ArrivalPhase { start_slot: 100, end_slot: 200, rate: 5.0 },
+            ArrivalPhase { start_slot: 300, end_slot: 400, rate: 50.0 },
+        ]);
+        assert_eq!(rate.rate_at_slot(0), 0.0);   // before any phase
+        assert_eq!(rate.rate_at_slot(99), 0.0);  // just before phase 1
+        assert_eq!(rate.rate_at_slot(100), 5.0); // start of phase 1 (inclusive)
+        assert_eq!(rate.rate_at_slot(150), 5.0); // mid phase 1
+        assert_eq!(rate.rate_at_slot(199), 5.0); // end of phase 1 (inclusive)
+        assert_eq!(rate.rate_at_slot(200), 0.0); // end_slot is exclusive
+        assert_eq!(rate.rate_at_slot(250), 0.0); // gap between phases
+        assert_eq!(rate.rate_at_slot(300), 50.0);// start of phase 2
+        assert_eq!(rate.rate_at_slot(399), 50.0);
+        assert_eq!(rate.rate_at_slot(400), 0.0); // after all phases
+    }
+
+    #[test]
+    fn phased_arrival_rate_validates_overlap() {
+        let comp = ActorComponent {
+            arrival_rate_per_slot: ArrivalRate::Phased(vec![
+                ArrivalPhase { start_slot: 0, end_slot: 200, rate: 5.0 },
+                ArrivalPhase { start_slot: 100, end_slot: 300, rate: 10.0 },
+            ]),
+            ..comp_default()
+        };
+        assert!(comp.validate().is_err());
+    }
+
+    #[test]
+    fn phased_arrival_rate_validates_inverted_phase() {
+        let comp = ActorComponent {
+            arrival_rate_per_slot: ArrivalRate::Phased(vec![
+                ArrivalPhase { start_slot: 200, end_slot: 100, rate: 5.0 },
+            ]),
+            ..comp_default()
+        };
+        assert!(comp.validate().is_err());
+    }
+
+    #[test]
+    fn phased_arrival_rate_sampling_respects_phase() {
+        let comp = ActorComponent {
+            arrival_rate_per_slot: ArrivalRate::Phased(vec![
+                ArrivalPhase { start_slot: 100, end_slot: 200, rate: 50.0 },
+            ]),
+            ..comp_default()
+        };
+        let mut rng = ChaChaRng::seed_from_u64(0);
+        // Outside the phase: zero arrivals.
+        for slot in [0u64, 50, 99, 200, 500] {
+            assert_eq!(comp.sample_arrival_count(&mut rng, slot), 0);
+        }
+        // Inside the phase: Poisson(50) samples — almost certainly > 0.
+        let total: u64 = (100..200u64)
+            .map(|s| comp.sample_arrival_count(&mut rng, s))
+            .sum();
+        assert!(total > 0, "expected non-zero arrivals across 100 slots at λ=50");
     }
 
     #[test]

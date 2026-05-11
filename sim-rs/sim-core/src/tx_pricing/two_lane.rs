@@ -215,6 +215,19 @@ impl PricingBackend for TwoLanePricing {
         }
     }
 
+    fn worst_case_quote_at(&self, lane: Lane, blocks_ahead: u32) -> u64 {
+        match lane {
+            // Priority-only-static variants pin c_standard at 1 — the
+            // standard controller never moves. Worst case is the current
+            // quote.
+            Lane::Standard if !self.settings.variant.standard_dynamic() => {
+                self.standard.current_quote(Lane::Standard)
+            }
+            Lane::Standard => self.standard.worst_case_quote_at(Lane::Standard, blocks_ahead),
+            Lane::Priority => self.priority.worst_case_quote_at(Lane::Priority, blocks_ahead),
+        }
+    }
+
     fn update_after_block(&mut self, samples: &[PricedBlockSample]) {
         // Each sample carries the lane it feeds. The single-lane
         // backend filtered by `controller_lane == Standard`; here we

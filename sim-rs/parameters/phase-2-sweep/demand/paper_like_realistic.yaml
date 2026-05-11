@@ -1,0 +1,65 @@
+# Phase-2 paper-like REALISTIC demand.
+#
+# Same total arrival rate as `paper_like_congested.yaml` (~150 tx/slot
+# ≈ ~150 KB/slot, slightly exceeding the 90 KB RB-body cap so demand
+# spills into the EB), but with the urgency mix re-calibrated to
+# empirically-grounded values rather than the IOG-paper default of 5.0.
+#
+# Urgency calibration (Sundaeswap-derived; see
+# pricing-sim-base:sim-rs/parameters/phase-2-sweep/demand/sundaeswap_moderate.toml
+# for the underlying real-world tx mix at the Jan 2022 DEX launch):
+#
+#   urgency=2.0  → models MEV arbitrage bots, the ceiling of observed
+#                  Cardano-load urgency. Value half-life ~20s (1 block).
+#   urgency=1.5  → models active DeFi / whale swaps (Sundaeswap-observed
+#                  range 1.15-1.5). Value half-life ~34s (~1.7 blocks).
+#   urgency=1.05 → typical retail / staking / governance. Value half-life
+#                  ~280s (~14 blocks).
+#
+# Compositional shares roughly match Sundaeswap launch-day mix:
+#   ~10% MEV/arb, ~40% active DeFi, ~50% retail.
+#
+# Contrast with `paper_like_congested.yaml`, which retains the IOG-paper
+# urgency=5.0 high-component (value half-life ~9s) — useful for academic
+# benchmarking and "design envelope" stress tests, but represents users
+# who are structurally underwater under any phase-2 mechanism with
+# observed latencies > a few seconds.
+
+actors:
+  components:
+    - arrival-rate-per-slot: 15.0
+      size-bytes:
+        distribution: log-normal
+        mu: 6.833
+        sigma: 0.5
+      value-lovelace:
+        distribution: log-normal
+        mu: 17.0
+        sigma: 0.4
+      urgency:
+        distribution: constant
+        value: 2.0
+    - arrival-rate-per-slot: 60.0
+      size-bytes:
+        distribution: log-normal
+        mu: 6.833
+        sigma: 0.5
+      value-lovelace:
+        distribution: log-normal
+        mu: 15.0
+        sigma: 0.4
+      urgency:
+        distribution: constant
+        value: 1.5
+    - arrival-rate-per-slot: 75.0
+      size-bytes:
+        distribution: log-normal
+        mu: 6.833
+        sigma: 0.5
+      value-lovelace:
+        distribution: log-normal
+        mu: 13.0
+        sigma: 0.4
+      urgency:
+        distribution: constant
+        value: 1.05

@@ -1,0 +1,10 @@
+# Flat-fee baseline pricing.
+#
+# `BaselinePricing` (M1): single-lane, c = 1 always.
+# `quote_per_byte = min_fee_a` regardless of demand. No controller,
+# no drift. Every tx pays `min_fee_b + min_fee_a × bytes`. The
+# spec uses this as the comparison baseline for evaluating
+# dynamic-pricing candidates (mechanism-design.md line 13).
+
+pricing:
+  kind: baseline

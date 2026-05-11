@@ -132,6 +132,18 @@ pub trait PricingBackend: Send + Sync {
     /// derived from an f64 coefficient.
     fn current_quote(&self, lane: Lane) -> u64;
 
+    /// Worst-case (upper-bound) per-byte rate for `lane` after
+    /// `blocks_ahead` consecutive max-up controller steps from the
+    /// current state. Used by the producer at EB-build time to skip
+    /// txs that would go stale before the EB gets endorsed.
+    ///
+    /// Default returns the current quote (no drift) — correct for
+    /// `BaselinePricing`. EIP-1559-driven backends override.
+    /// Saturates at `u64::MAX` if the projected drift overflows.
+    fn worst_case_quote_at(&self, lane: Lane, _blocks_ahead: u32) -> u64 {
+        self.current_quote(lane)
+    }
+
     /// Apply zero or more priced-block samples produced for the most recent
     /// block. Single-lane pricing receives at most one Standard sample per
     /// block; two-lane mechanisms (M2+) typically receive two.

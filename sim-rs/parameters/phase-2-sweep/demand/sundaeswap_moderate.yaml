@@ -1,0 +1,111 @@
+# SundaeSwap-style DEX launch congestion (port from pricing-sim-base
+# branch's `demand/sundaeswap_moderate.toml`).
+#
+# This profile models the SundaeSwap mainnet launch (Jan 2022) — the
+# canonical congestion event in Cardano history. It is the empirical
+# reference the community will recognise. Use this profile whenever
+# the experiment needs phased real-world demand rather than a
+# synthetic uniform one.
+#
+# Phase structure (2000-slot run):
+#
+#   slots    0 –  400  baseline:    ~10 tx/slot  (background only)
+#   slots  400 –  800  DEX spike:   ~50 tx/slot  (retail + arb on top)
+#   slots  800 – 1200  cooldown:    ~30 tx/slot
+#   slots 1200 – 2000  recovery:    ~15 tx/slot
+#
+# Each TOML "actor" maps to N "components" in our schema (one per
+# value-urgency tuple), with arrival rate = actor.rate × tuple.weight.
+# Urgency uniform-ranges in the source TOML are collapsed to their
+# midpoint here (our current `DistributionConfig` doesn't carry
+# `Uniform`; the urgency ranges are tight enough that the midpoint
+# is faithful — e.g. [1.001, 1.005] → 1.003).
+#
+# Origin: SundaeSwap launch data, see CoinTelegraph / CoinDesk
+# coverage Jan 2022.
+#
+# Run length: this profile expects `slots: 2000`. Use a suite job
+# override or the `--slots 2000` CLI flag.
+
+actors:
+  components:
+    # --- background_transfers (6 tx/slot, slots 0-2000) ---
+    # 60% simple transfer
+    - arrival-rate-per-slot: 3.6
+      size-bytes: { distribution: normal, mean: 350.0, std_dev: 80.0 }
+      value-lovelace: { distribution: normal, mean: 1000000.0, std_dev: 400000.0 }
+      urgency: { distribution: constant, value: 1.003 }
+    # 25% staking / governance
+    - arrival-rate-per-slot: 1.5
+      size-bytes: { distribution: normal, mean: 350.0, std_dev: 80.0 }
+      value-lovelace: { distribution: normal, mean: 600000.0, std_dev: 250000.0 }
+      urgency: { distribution: constant, value: 1.00125 }
+    # 15% moderate transfer
+    - arrival-rate-per-slot: 0.9
+      size-bytes: { distribution: normal, mean: 350.0, std_dev: 80.0 }
+      value-lovelace: { distribution: normal, mean: 3000000.0, std_dev: 1500000.0 }
+      urgency: { distribution: constant, value: 1.0065 }
+
+    # --- background_defi (4 tx/slot, slots 0-2000) ---
+    # 50% routine swap
+    - arrival-rate-per-slot: 2.0
+      size-bytes: { distribution: normal, mean: 1000.0, std_dev: 400.0 }
+      value-lovelace: { distribution: normal, mean: 4000000.0, std_dev: 2000000.0 }
+      urgency: { distribution: constant, value: 1.02 }
+    # 30% larger DeFi op
+    - arrival-rate-per-slot: 1.2
+      size-bytes: { distribution: normal, mean: 1000.0, std_dev: 400.0 }
+      value-lovelace: { distribution: normal, mean: 10000000.0, std_dev: 4000000.0 }
+      urgency: { distribution: constant, value: 1.0275 }
+    # 20% small yield farm
+    - arrival-rate-per-slot: 0.8
+      size-bytes: { distribution: normal, mean: 1000.0, std_dev: 400.0 }
+      value-lovelace: { distribution: normal, mean: 2000000.0, std_dev: 800000.0 }
+      urgency: { distribution: constant, value: 1.01 }
+
+    # --- dex_launch_retail (phased: 0 / 35 / 15 / 3 tx/slot) ---
+    # 40% casual swapper
+    - arrival-rate-per-slot:
+        phases:
+          - { start-slot: 400, end-slot: 800, rate: 14.0 }
+          - { start-slot: 800, end-slot: 1200, rate: 6.0 }
+          - { start-slot: 1200, end-slot: 2000, rate: 1.2 }
+      size-bytes: { distribution: normal, mean: 800.0, std_dev: 200.0 }
+      value-lovelace: { distribution: normal, mean: 1500000.0, std_dev: 600000.0 }
+      urgency: { distribution: constant, value: 1.0125 }
+    # 35% eager early adopter
+    - arrival-rate-per-slot:
+        phases:
+          - { start-slot: 400, end-slot: 800, rate: 12.25 }
+          - { start-slot: 800, end-slot: 1200, rate: 5.25 }
+          - { start-slot: 1200, end-slot: 2000, rate: 1.05 }
+      size-bytes: { distribution: normal, mean: 800.0, std_dev: 200.0 }
+      value-lovelace: { distribution: normal, mean: 5000000.0, std_dev: 2000000.0 }
+      urgency: { distribution: constant, value: 1.04 }
+    # 25% FOMO buyer
+    - arrival-rate-per-slot:
+        phases:
+          - { start-slot: 400, end-slot: 800, rate: 8.75 }
+          - { start-slot: 800, end-slot: 1200, rate: 3.75 }
+          - { start-slot: 1200, end-slot: 2000, rate: 0.75 }
+      size-bytes: { distribution: normal, mean: 800.0, std_dev: 200.0 }
+      value-lovelace: { distribution: normal, mean: 1000000.0, std_dev: 400000.0 }
+      urgency: { distribution: constant, value: 1.025 }
+
+    # --- arbitrage_bots (phased: 0 / 5 / 2 / 0 tx/slot) ---
+    # 70% DEX arbitrage
+    - arrival-rate-per-slot:
+        phases:
+          - { start-slot: 400, end-slot: 800, rate: 3.5 }
+          - { start-slot: 800, end-slot: 1200, rate: 1.4 }
+      size-bytes: { distribution: normal, mean: 1200.0, std_dev: 300.0 }
+      value-lovelace: { distribution: normal, mean: 30000000.0, std_dev: 15000000.0 }
+      urgency: { distribution: constant, value: 1.65 }
+    # 30% whale swap
+    - arrival-rate-per-slot:
+        phases:
+          - { start-slot: 400, end-slot: 800, rate: 1.5 }
+          - { start-slot: 800, end-slot: 1200, rate: 0.6 }
+      size-bytes: { distribution: normal, mean: 1200.0, std_dev: 300.0 }
+      value-lovelace: { distribution: normal, mean: 80000000.0, std_dev: 30000000.0 }
+      urgency: { distribution: constant, value: 1.325 }

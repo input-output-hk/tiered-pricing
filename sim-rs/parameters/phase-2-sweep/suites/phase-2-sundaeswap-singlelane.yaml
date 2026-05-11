@@ -1,0 +1,30 @@
+# Sundaeswap × all single-lane pricing variants.
+# Part 1 of 3 (singlelane / priority-only / both-dynamic) — runnable
+# in parallel via three concurrent experiment-suite processes.
+
+suite-name: phase-2-sundaeswap-singlelane
+output-dir: output/phase-2/sundaeswap-singlelane
+seeds: [1, 2, 3]
+default-slots: 2000
+default-topology: parameters/phase-2-sweep/topology-single-producer.yaml
+default-protocol: parameters/phase-2-sweep/protocol-base.yaml
+default-demand: parameters/phase-2-sweep/demand/sundaeswap_moderate.yaml
+
+jobs:
+  - name: baseline_flat_fee
+    pricing: parameters/phase-2-sweep/pricing/baseline_flat_fee.yaml
+
+  - name: eip1559_d4_t50_w32
+    pricing: parameters/phase-2-sweep/pricing/eip1559_d4_target0.5_window32.yaml
+  - name: eip1559_d8_t25_w32
+    pricing: parameters/phase-2-sweep/pricing/eip1559_d8_target0.25_window32.yaml
+  - name: eip1559_d8_t50_w16
+    pricing: parameters/phase-2-sweep/pricing/eip1559_d8_target0.5_window16.yaml
+  - name: eip1559_d8_t50_w32
+    pricing: parameters/phase-2-sweep/pricing/eip1559_d8_target0.5_window32.yaml
+  - name: eip1559_d8_t50_w64
+    pricing: parameters/phase-2-sweep/pricing/eip1559_d8_target0.5_window64.yaml
+  - name: eip1559_d8_t75_w32
+    pricing: parameters/phase-2-sweep/pricing/eip1559_d8_target0.75_window32.yaml
+  - name: eip1559_d16_t50_w32
+    pricing: parameters/phase-2-sweep/pricing/eip1559_d16_target0.5_window32.yaml

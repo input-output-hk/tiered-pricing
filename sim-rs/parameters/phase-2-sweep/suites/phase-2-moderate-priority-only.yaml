@@ -1,0 +1,66 @@
+# paper_like_moderate × all priority-only-static variants.
+# Includes RB-cap sweep for the RB-reserved sub-family (where priority
+# reservation pins to RB body size). Un-reserved variants don't pin to
+# RB body, so they only run at default protocol.
+
+suite-name: phase-2-moderate-priority-only
+output-dir: output/phase-2/moderate-priority-only
+seeds: [1, 2, 3]
+default-slots: 1000
+default-topology: parameters/phase-2-sweep/topology-single-producer.yaml
+default-protocol: parameters/phase-2-sweep/protocol-base.yaml
+default-demand: parameters/phase-2-sweep/demand/paper_like_moderate.yaml
+
+jobs:
+  - name: rb_reserved_x4
+    pricing: parameters/phase-2-sweep/pricing/two_lane_priority_only_static_x4.yaml
+  - name: rb_reserved_x8
+    pricing: parameters/phase-2-sweep/pricing/two_lane_priority_only_static_x8.yaml
+  - name: rb_reserved_x16
+    pricing: parameters/phase-2-sweep/pricing/two_lane_priority_only_static_x16.yaml
+
+  - name: unreserved_x4
+    pricing: parameters/phase-2-sweep/pricing/two_lane_priority_only_unreserved_x4.yaml
+  - name: unreserved_x8
+    pricing: parameters/phase-2-sweep/pricing/two_lane_priority_only_unreserved_x8.yaml
+  - name: unreserved_x16
+    pricing: parameters/phase-2-sweep/pricing/two_lane_priority_only_unreserved_x16.yaml
+
+  - name: rb_reserved_x4_rb_half
+    pricing: parameters/phase-2-sweep/pricing/two_lane_priority_only_static_x4.yaml
+    overrides:
+      protocol: parameters/phase-2-sweep/protocol-rb-reduced-half.yaml
+  - name: rb_reserved_x4_rb_third
+    pricing: parameters/phase-2-sweep/pricing/two_lane_priority_only_static_x4.yaml
+    overrides:
+      protocol: parameters/phase-2-sweep/protocol-rb-reduced-third.yaml
+  - name: rb_reserved_x4_rb_quarter
+    pricing: parameters/phase-2-sweep/pricing/two_lane_priority_only_static_x4.yaml
+    overrides:
+      protocol: parameters/phase-2-sweep/protocol-rb-reduced-quarter.yaml
+
+  - name: rb_reserved_x8_rb_half
+    pricing: parameters/phase-2-sweep/pricing/two_lane_priority_only_static_x8.yaml
+    overrides:
+      protocol: parameters/phase-2-sweep/protocol-rb-reduced-half.yaml
+  - name: rb_reserved_x8_rb_third
+    pricing: parameters/phase-2-sweep/pricing/two_lane_priority_only_static_x8.yaml
+    overrides:
+      protocol: parameters/phase-2-sweep/protocol-rb-reduced-third.yaml
+  - name: rb_reserved_x8_rb_quarter
+    pricing: parameters/phase-2-sweep/pricing/two_lane_priority_only_static_x8.yaml
+    overrides:
+      protocol: parameters/phase-2-sweep/protocol-rb-reduced-quarter.yaml
+
+  - name: rb_reserved_x16_rb_half
+    pricing: parameters/phase-2-sweep/pricing/two_lane_priority_only_static_x16.yaml
+    overrides:
+      protocol: parameters/phase-2-sweep/protocol-rb-reduced-half.yaml
+  - name: rb_reserved_x16_rb_third
+    pricing: parameters/phase-2-sweep/pricing/two_lane_priority_only_static_x16.yaml
+    overrides:
+      protocol: parameters/phase-2-sweep/protocol-rb-reduced-third.yaml
+  - name: rb_reserved_x16_rb_quarter
+    pricing: parameters/phase-2-sweep/pricing/two_lane_priority_only_static_x16.yaml
+    overrides:
+      protocol: parameters/phase-2-sweep/protocol-rb-reduced-quarter.yaml

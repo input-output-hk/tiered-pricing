@@ -247,10 +247,52 @@ pub struct RawActorProfile {
     pub components: Vec<RawActorComponent>,
 }
 
+/// Per-component arrival rate. Backward-compatible: a bare scalar
+/// (`arrival-rate-per-slot: 15.0`) deserialises as `Constant`; an
+/// object with `phases:` deserialises as `Phased`. Phases must be
+/// non-overlapping; outside the union of phase intervals, arrival
+/// rate is 0. Used to model demand shocks (e.g. Sundaeswap-style
+/// DEX-launch traffic).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+pub enum RawArrivalRate {
+    Constant(f64),
+    Phased {
+        phases: Vec<RawArrivalPhase>,
+    },
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub struct RawArrivalPhase {
+    pub start_slot: u64,
+    pub end_slot: u64,
+    pub rate: f64,
+}
+
+impl From<RawArrivalRate> for crate::tx_actors::ArrivalRate {
+    fn from(v: RawArrivalRate) -> Self {
+        match v {
+            RawArrivalRate::Constant(rate) => crate::tx_actors::ArrivalRate::Constant(rate),
+            RawArrivalRate::Phased { phases } => {
+                let phases = phases
+                    .into_iter()
+                    .map(|p| crate::tx_actors::ArrivalPhase {
+                        start_slot: p.start_slot,
+                        end_slot: p.end_slot,
+                        rate: p.rate,
+                    })
+                    .collect();
+                crate::tx_actors::ArrivalRate::Phased(phases)
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct RawActorComponent {
-    pub arrival_rate_per_slot: f64,
+    pub arrival_rate_per_slot: RawArrivalRate,
     pub size_bytes: DistributionConfig,
     pub value_lovelace: DistributionConfig,
     pub urgency: DistributionConfig,
@@ -267,7 +309,16 @@ pub struct RawActorComponent {
 #[derive(Debug, Copy, Clone, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum RawMaxFeePolicy {
-    ScaledOverLaneQuote { numerator: u64, denominator: u64 },
+    ScaledOverLaneQuote {
+        numerator: u64,
+        denominator: u64,
+    },
+    #[serde(rename_all = "kebab-case")]
+    VolatilityAware {
+        assumed_max_change_denominator: u64,
+        safety_factor_num: u64,
+        safety_factor_den: u64,
+    },
 }
 
 impl From<RawMaxFeePolicy> for MaxFeePolicy {
@@ -279,6 +330,15 @@ impl From<RawMaxFeePolicy> for MaxFeePolicy {
             } => MaxFeePolicy::ScaledOverLaneQuote {
                 numerator,
                 denominator,
+            },
+            RawMaxFeePolicy::VolatilityAware {
+                assumed_max_change_denominator,
+                safety_factor_num,
+                safety_factor_den,
+            } => MaxFeePolicy::VolatilityAware {
+                assumed_max_change_denominator,
+                safety_factor_num,
+                safety_factor_den,
             },
         }
     }
@@ -1051,7 +1111,7 @@ impl SimConfiguration {
                 for (idx, c) in raw.components.into_iter().enumerate() {
                     components.push(ActorComponent {
                         index: idx as u32,
-                        arrival_rate_per_slot: c.arrival_rate_per_slot,
+                        arrival_rate_per_slot: c.arrival_rate_per_slot.into(),
                         size_bytes: c.size_bytes.into(),
                         value_lovelace: c.value_lovelace.into(),
                         urgency: c.urgency.into(),

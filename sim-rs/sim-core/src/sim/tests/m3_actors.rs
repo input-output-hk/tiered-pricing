@@ -46,7 +46,7 @@ const MIN_FEE_A: u64 = 44;
 fn one_component_actor(arrival_rate_per_slot: f64) -> RawActorProfile {
     RawActorProfile {
         components: vec![RawActorComponent {
-            arrival_rate_per_slot,
+            arrival_rate_per_slot: crate::config::RawArrivalRate::Constant(arrival_rate_per_slot),
             size_bytes: DistributionConfig::Constant { value: 1024.0 },
             value_lovelace: DistributionConfig::Constant {
                 value: 100_000_000.0,

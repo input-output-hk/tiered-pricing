@@ -1,4 +1,10 @@
-# Single-producer topology for phase-2 suites.
+# Single-producer topology — kernel-correctness reference ONLY.
+#
+# Retained for unit/integration tests and as a controlled regime
+# where slot battles cannot occur. NOT the welfare default — the
+# phase-2 welfare suites have moved to topology-cip-realistic.yaml
+# (CIP-0164 Table 7 calibrated, 600 pools, mainnet-like). See
+# docs/phase-2/m6-handoff.md.
 #
 # One node that both (a) has stake (so it wins the RB lottery) and
 # (b) carries `tx-generation-weight: 1` (so it runs the actor model
@@ -7,11 +13,12 @@
 #
 # Stake granularity: at low rb-generation-probability values (e.g.,
 # Cardano-realistic 0.05) the lottery's `target_vrf_stake` is
-# `total_stake × stake_share × probability`, computed in `f64` and
-# truncated to `u64`. With stake=1 and prob=0.05, that truncates to
-# 0 and the producer never wins. Use stake=100000 so the truncation
-# preserves the probability (100000 × 1.0 × 0.05 = 5000, win iff
-# random_range(0..100000) < 5000, i.e. exactly 5% per slot).
+# `stake × probability` (see lottery.rs::compute_target_vrf_stake;
+# `total_stake × stake_share × probability` simplifies because
+# `stake_share = stake / total_stake`). With stake=1 and prob=0.05
+# that truncates to 0 and the producer never wins. Use stake=100000
+# so the truncation preserves the probability (100000 × 0.05 = 5000,
+# win iff random_range(0..100000) < 5000, i.e. exactly 5% per slot).
 
 nodes:
   node-0:

@@ -46,11 +46,7 @@ pub fn write_run_only(path: &Path, summary: &RunSummary) -> Result<()> {
 }
 
 fn write_run(f: &mut std::fs::File, summary: &RunSummary) -> Result<()> {
-    writeln!(
-        f,
-        "- total_txs_submitted: {}",
-        summary.total_txs_submitted
-    )?;
+    writeln!(f, "- total_txs_submitted: {}", summary.total_txs_submitted)?;
     writeln!(f, "- total_txs_included: {}", summary.total_txs_included)?;
     writeln!(
         f,
@@ -88,6 +84,11 @@ fn write_run(f: &mut std::fs::File, summary: &RunSummary) -> Result<()> {
         summary.min_priority_over_standard_ratio, summary.max_priority_over_standard_ratio
     )?;
     writeln!(f, "- pricing_ticks_observed: {}", summary.pricing_ticks)?;
+    writeln!(
+        f,
+        "- slot_battles_count: {} orphaned_pricing_samples: {}",
+        summary.slot_battles_count, summary.orphaned_pricing_samples
+    )?;
 
     writeln!(f, "- per-component:")?;
     for c in &summary.components {

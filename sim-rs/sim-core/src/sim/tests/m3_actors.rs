@@ -20,9 +20,8 @@ use crate::{
     clock::{Clock, MockClockCoordinator, Timestamp},
     config::{
         DistributionConfig, LeiosVariant, NodeId, RawActorComponent, RawActorProfile,
-        RawEip1559Config, RawLanePolicy, RawMaxFeePolicy, RawNode, RawNodeLocation,
-        RawParameters, RawPricingConfig, RawTopology, RawTwoLaneConfig, RawTwoLaneVariant,
-        SimConfiguration,
+        RawEip1559Config, RawLanePolicy, RawMaxFeePolicy, RawNode, RawNodeLocation, RawParameters,
+        RawPricingConfig, RawTopology, RawTwoLaneConfig, RawTwoLaneVariant, SimConfiguration,
     },
     events::{Event, EventTracker},
     model::TransactionId,

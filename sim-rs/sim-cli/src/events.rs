@@ -401,6 +401,7 @@ impl EventMonitor {
                 Event::TXIncluded { .. } => {}
                 Event::TXEvictedQuoteDrift { .. } => {}
                 Event::PricingTick { .. } => {}
+                Event::LinearPricingSampleApplied { .. } => {}
             }
         }
 

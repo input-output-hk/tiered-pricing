@@ -21,8 +21,8 @@
 //! and applies the same fractional move to that integer value.
 
 use super::{
-    BlockKind, CapacityWeightedWindow, Lane, LaneSelectionOrder, LaneValidityRule, PricedBlockSample,
-    PricingBackend, PricingSnapshot,
+    BlockKind, CapacityWeightedWindow, Lane, LaneSelectionOrder, LaneValidityRule,
+    PricedBlockSample, PricingBackend, PricingSnapshot,
 };
 
 /// Flat-fee backend. `c = 1`, so `quote_per_byte = minFeeA`.
@@ -289,7 +289,11 @@ impl PricingBackend for Eip1559Pricing {
     }
 
     fn worst_case_quote_at(&self, _lane: Lane, blocks_ahead: u32) -> u64 {
-        worst_case_eip1559_quote(self.quote_per_byte, self.settings.max_change_denominator, blocks_ahead)
+        worst_case_eip1559_quote(
+            self.quote_per_byte,
+            self.settings.max_change_denominator,
+            blocks_ahead,
+        )
     }
 
     fn update_after_block(&mut self, samples: &[PricedBlockSample]) {

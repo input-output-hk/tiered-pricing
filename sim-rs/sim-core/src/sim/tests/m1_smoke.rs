@@ -370,4 +370,3 @@ fn smoke_run_produces_refunds_and_evictions() {
         );
     }
 }
-

@@ -1,15 +1,10 @@
 //! Welfare-metrics event collector. M3.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use sim_core::{
-    events::Event,
-    model::TransactionId,
-    tx_actors::welfare,
-    tx_pricing::Lane,
-};
+use sim_core::{events::Event, model::TransactionId, tx_actors::welfare, tx_pricing::Lane};
 
 /// One row of `time_series.csv`. Built per slot.
 #[derive(Debug, Clone, Default)]
@@ -150,6 +145,37 @@ pub struct RunSummary {
     /// bit-identical reproduction.
     #[serde(default)]
     pub pricing_event_stream_sha256: String,
+    /// Multi-node noise metric (M6). Number of distinct slots at
+    /// which the representative node fully validated TWO OR MORE
+    /// sibling RB BODIES from different producers — i.e., slots
+    /// where two sibling headers both passed the VRF tiebreaker at
+    /// `finish_validating_rb_header` before either body finished
+    /// in flight, so both bodies reached `apply_priced_block`.
+    ///
+    /// This is NARROWER than "all slot battles": most slot battles
+    /// resolve at header receipt (`linear_leios.rs::
+    /// finish_validating_rb_header`, ~line 1062), where the losing
+    /// header is dropped before its body is ever requested — those
+    /// resolutions never reach this metric. What IS captured is the
+    /// late-race subset where both bodies got fully validated, which
+    /// is the same subset for which the M1 known limitation (no
+    /// pricing rollback on fork resolution) can actually mutate the
+    /// controller against an orphaned RB.
+    ///
+    /// Therefore this metric is an UPPER BOUND on the pricing-state
+    /// contamination from forks the representative could not roll
+    /// back. A low value here means the M1 limitation does not
+    /// matter empirically at the representative.
+    #[serde(default)]
+    pub slot_battles_count: u64,
+    /// Multi-node noise metric (M6). Sum over `slot_battles_count`
+    /// slots of (N_bodies_at_slot − 1) — one canonical chain, so
+    /// N−1 of the N fully-validated sibling RBs are orphans whose
+    /// pricing samples cannot be rolled back. Upper bound on
+    /// actually-orphan-able applied samples at the representative.
+    /// See `slot_battles_count` for the narrowing condition.
+    #[serde(default)]
+    pub orphaned_pricing_samples: u64,
 }
 
 /// Event-driven welfare-metrics collector.
@@ -200,6 +226,11 @@ pub struct MetricsCollector {
     /// hashed in observation order). The finalised hex digest is
     /// stored on `RunSummary.pricing_event_stream_sha256`.
     pricing_event_hasher: Sha256,
+    /// M6 fork-resolution metric accumulator. Keyed by slot, value
+    /// is the set of producers whose RB was priced at the
+    /// representative node for that slot. Drained at `finalise` to
+    /// compute `slot_battles_count` and `orphaned_pricing_samples`.
+    sample_producers_by_slot: HashMap<u64, HashSet<String>>,
 }
 
 impl MetricsCollector {
@@ -222,6 +253,7 @@ impl MetricsCollector {
             max_ratio: 0.0,
             pricing_ticks: 0,
             pricing_event_hasher: Sha256::new(),
+            sample_producers_by_slot: HashMap::new(),
         }
     }
 
@@ -244,6 +276,11 @@ impl MetricsCollector {
     /// topology.
     pub fn set_representative_node(&mut self, name: impl Into<String>) {
         self.representative_node = Some(name.into());
+    }
+
+    /// Number of representative-node pricing ticks ingested so far.
+    pub fn pricing_ticks(&self) -> u64 {
+        self.pricing_ticks
     }
 
     /// Feed one event into the collector.
@@ -330,21 +367,19 @@ impl MetricsCollector {
                         self.delta.included_count_standard += 1;
                     }
                 }
-                self.delta.fees_paid_lovelace =
-                    self.delta.fees_paid_lovelace.saturating_add(*actual_fee_lovelace);
+                self.delta.fees_paid_lovelace = self
+                    .delta
+                    .fees_paid_lovelace
+                    .saturating_add(*actual_fee_lovelace);
                 self.delta.refund_lovelace =
                     self.delta.refund_lovelace.saturating_add(*refund_lovelace);
 
                 if let Some(meta) = self.tx_meta.remove(id) {
                     let latency_slots = slot.saturating_sub(meta.submit_slot) as f64;
                     let latency_blocks = latency_slots * self.block_generation_probability;
-                    let retained_value = welfare::retained_value(
-                        meta.value_lovelace,
-                        meta.urgency,
-                        latency_blocks,
-                    );
-                    let net_utility =
-                        welfare::net_utility(retained_value, *actual_fee_lovelace);
+                    let retained_value =
+                        welfare::retained_value(meta.value_lovelace, meta.urgency, latency_blocks);
+                    let net_utility = welfare::net_utility(retained_value, *actual_fee_lovelace);
                     let comp = self
                         .components
                         .entry(meta.component_index)
@@ -356,8 +391,7 @@ impl MetricsCollector {
                     comp.bytes_included += bytes;
                     comp.fees_paid_lovelace =
                         comp.fees_paid_lovelace.saturating_add(*actual_fee_lovelace);
-                    comp.refund_lovelace =
-                        comp.refund_lovelace.saturating_add(*refund_lovelace);
+                    comp.refund_lovelace = comp.refund_lovelace.saturating_add(*refund_lovelace);
                     comp.retained_value_total += retained_value;
                     comp.net_utility_total += net_utility;
                     comp.included_value_lovelace_total = comp
@@ -418,6 +452,20 @@ impl MetricsCollector {
                     comp.txs_evicted_quote_drift += 1;
                 }
             }
+            Event::LinearPricingSampleApplied {
+                node,
+                slot,
+                producer,
+            } => {
+                let node_name = node.name.as_str();
+                if !self.is_representative(node_name) {
+                    return;
+                }
+                self.sample_producers_by_slot
+                    .entry(*slot)
+                    .or_default()
+                    .insert(producer.name.as_ref().clone());
+            }
             Event::PricingTick {
                 node,
                 slot,
@@ -437,10 +485,8 @@ impl MetricsCollector {
                 self.advance_to_slot(*slot);
                 self.delta.c_priority_quote_per_byte = *priority_quote_per_byte;
                 self.delta.c_standard_quote_per_byte = *standard_quote_per_byte;
-                self.delta.priority_window_util_x_1e9 =
-                    priority_window_util_x_1e9.unwrap_or(0);
-                self.delta.standard_window_util_x_1e9 =
-                    standard_window_util_x_1e9.unwrap_or(0);
+                self.delta.priority_window_util_x_1e9 = priority_window_util_x_1e9.unwrap_or(0);
+                self.delta.standard_window_util_x_1e9 = standard_window_util_x_1e9.unwrap_or(0);
                 self.delta.mempool_bytes_total = *mempool_bytes_total;
                 self.delta.mempool_bytes_priority = *mempool_bytes_priority;
                 self.delta.mempool_bytes_standard = *mempool_bytes_standard;
@@ -449,8 +495,8 @@ impl MetricsCollector {
                 // and standard quotes both exist and standard > 0,
                 // priority/standard must be ≥ multiplier_floor.
                 if *standard_quote_per_byte > 0 {
-                    let ratio = (*priority_quote_per_byte as f64)
-                        / (*standard_quote_per_byte as f64);
+                    let ratio =
+                        (*priority_quote_per_byte as f64) / (*standard_quote_per_byte as f64);
                     self.min_ratio = self.min_ratio.min(ratio);
                     self.max_ratio = self.max_ratio.max(ratio);
                     if let (Some(num), Some(den)) =
@@ -526,15 +572,27 @@ impl MetricsCollector {
             && row.mempool_bytes_total == 0
     }
 
-    /// Stop accumulating; finalise rows and produce a summary.
-    pub fn finalise(mut self) -> (Vec<TimeSeriesRow>, RunSummary) {
-        self.flush_current_row();
+    /// Build a non-consuming snapshot for progressive artefact writes
+    /// while a simulation is still running.
+    pub fn snapshot(&self) -> (Vec<TimeSeriesRow>, RunSummary) {
+        (self.snapshot_rows(), self.snapshot_summary())
+    }
+
+    fn snapshot_rows(&self) -> Vec<TimeSeriesRow> {
+        let mut rows = self.rows.clone();
+        if !(rows.is_empty() && self.delta.slot == 0 && self.is_zero_row(&self.delta)) {
+            rows.push(self.delta.clone());
+        }
+        rows
+    }
+
+    fn snapshot_summary(&self) -> RunSummary {
         let mut total_submitted = 0u64;
         let mut total_included = 0u64;
         let mut total_evicted = 0u64;
         let mut total_fees = 0u64;
         let mut total_refund = 0u64;
-        let mut components: Vec<ComponentSummary> = self.components.into_values().collect();
+        let mut components: Vec<ComponentSummary> = self.components.values().cloned().collect();
         components.sort_by_key(|c| c.component_index);
         for c in &components {
             total_submitted = total_submitted.saturating_add(c.txs_submitted);
@@ -543,8 +601,16 @@ impl MetricsCollector {
             total_fees = total_fees.saturating_add(c.fees_paid_lovelace);
             total_refund = total_refund.saturating_add(c.refund_lovelace);
         }
-        let pricing_event_stream_sha256 = hex::encode(self.pricing_event_hasher.finalize());
-        let summary = RunSummary {
+        let pricing_event_stream_sha256 = hex::encode(self.pricing_event_hasher.clone().finalize());
+        let mut slot_battles_count: u64 = 0;
+        let mut orphaned_pricing_samples: u64 = 0;
+        for producers in self.sample_producers_by_slot.values() {
+            if producers.len() >= 2 {
+                slot_battles_count += 1;
+                orphaned_pricing_samples += (producers.len() - 1) as u64;
+            }
+        }
+        RunSummary {
             components,
             total_txs_submitted: total_submitted,
             total_txs_included: total_included,
@@ -565,7 +631,15 @@ impl MetricsCollector {
             max_priority_over_standard_ratio: self.max_ratio,
             pricing_ticks: self.pricing_ticks,
             pricing_event_stream_sha256,
-        };
+            slot_battles_count,
+            orphaned_pricing_samples,
+        }
+    }
+
+    /// Stop accumulating; finalise rows and produce a summary.
+    pub fn finalise(mut self) -> (Vec<TimeSeriesRow>, RunSummary) {
+        self.flush_current_row();
+        let summary = self.snapshot_summary();
         (self.rows, summary)
     }
 }
@@ -593,12 +667,7 @@ mod tests {
         }
     }
 
-    fn pricing_tick(
-        node_name: &str,
-        slot: u64,
-        priority_q: u64,
-        standard_q: u64,
-    ) -> Event {
+    fn pricing_tick(node_name: &str, slot: u64, priority_q: u64, standard_q: u64) -> Event {
         Event::PricingTick {
             node: node(0, node_name),
             slot,
@@ -666,6 +735,58 @@ mod tests {
             current_quote_per_byte: current_quote,
             max_fee_lovelace: 0,
         }
+    }
+
+    fn linear_pricing_sample_applied(node_name: &str, slot: u64, producer_name: &str) -> Event {
+        Event::LinearPricingSampleApplied {
+            node: node(0, node_name),
+            slot,
+            producer: node(0, producer_name),
+        }
+    }
+
+    /// M6 fork-resolution metric: at the representative node, count
+    /// slots where two or more RBs were priced (slot battles) and
+    /// the per-extra-RB orphan total (one canonical chain ⇒ N-1
+    /// siblings per battle slot are orphans).
+    #[test]
+    fn slot_battle_metric_counts_sibling_rbs_at_representative() {
+        let mut c = MetricsCollector::new(0.05);
+        c.set_representative_node("pool-000");
+
+        // Slot 10: two sibling RBs (A and B). 1 battle, 1 orphan.
+        c.ingest(&linear_pricing_sample_applied("pool-000", 10, "pool-A"));
+        c.ingest(&linear_pricing_sample_applied("pool-000", 10, "pool-B"));
+        // Slot 11: a single RB. Not a battle.
+        c.ingest(&linear_pricing_sample_applied("pool-000", 11, "pool-A"));
+        // Slot 20: three siblings. 1 battle, 2 orphans.
+        c.ingest(&linear_pricing_sample_applied("pool-000", 20, "pool-A"));
+        c.ingest(&linear_pricing_sample_applied("pool-000", 20, "pool-B"));
+        c.ingest(&linear_pricing_sample_applied("pool-000", 20, "pool-C"));
+        // Non-representative node: must be ignored.
+        c.ingest(&linear_pricing_sample_applied("pool-099", 10, "pool-Z"));
+
+        let (_, summary) = c.finalise();
+        assert_eq!(summary.slot_battles_count, 2, "slots 10 and 20");
+        assert_eq!(
+            summary.orphaned_pricing_samples, 3,
+            "slot 10: 1 orphan + slot 20: 2 orphans"
+        );
+    }
+
+    /// Repeated samples from the same producer at the same slot do
+    /// NOT count as a slot battle (defensive against accidental
+    /// double-emission from the simulator hooking apply_priced_block
+    /// twice on the same RB).
+    #[test]
+    fn slot_battle_metric_ignores_same_producer_duplicates() {
+        let mut c = MetricsCollector::new(0.05);
+        c.set_representative_node("pool-000");
+        c.ingest(&linear_pricing_sample_applied("pool-000", 5, "pool-A"));
+        c.ingest(&linear_pricing_sample_applied("pool-000", 5, "pool-A"));
+        let (_, summary) = c.finalise();
+        assert_eq!(summary.slot_battles_count, 0);
+        assert_eq!(summary.orphaned_pricing_samples, 0);
     }
 
     /// Slot-boundary flush: when an event for slot N+1 arrives, the
@@ -841,7 +962,10 @@ mod tests {
         assert_eq!(rows[0].included_count_priority, 1);
         assert_eq!(rows[0].fees_paid_lovelace, 100);
         // Slot-5 row absorbed the out-of-order inclusion.
-        assert_eq!(rows[1].slot, 5, "row slot must not regress on out-of-order events");
+        assert_eq!(
+            rows[1].slot, 5,
+            "row slot must not regress on out-of-order events"
+        );
         assert_eq!(rows[1].included_count_priority, 1);
         assert_eq!(rows[1].fees_paid_lovelace, 200);
         // Cross-bucket integrity: zero standard activity in either slot.
@@ -892,4 +1016,3 @@ mod tests {
         );
     }
 }
-

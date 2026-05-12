@@ -56,7 +56,8 @@ holds when the protected partition is constrained.
   Net effect: priority is the only served lane in this suite. See
   the *Known caveat* section below for what this implies for the
   cross-job interpretation.
-- **Demand**: `paper_like_congested.yaml` — sustained ~150 KB/slot.
+- **Demand**: `paper_like_congested.yaml` — phased 300/600/200 tx/slot,
+  peaking at roughly 600 KB/slot.
 - **RB capacities**: 90112 (baseline), 45056 (half), 30000 (third),
   22528 (quarter). Priority capacity per slot = 2 × these.
 
@@ -97,7 +98,8 @@ That outcome was a *calibration bug*, not a calibration consequence:
 chain, so EB-borne service (where standard-fee txs go in
 RB-reserved variants) was structurally invisible. The bug was
 fixed post-M5 by dropping rb-prob to 0.05 and bumping
-`default-slots` to 1000; see
+`default-slots` to 1000. The current M6 suites run 2000 slots for
+parity with `pricing-sim-base`; see
 [../../../../docs/phase-2/calibration-fix-postmortem.md](../../../../docs/phase-2/calibration-fix-postmortem.md)
 for the full explanation. The findings below describe behaviour
 under the corrected calibration.

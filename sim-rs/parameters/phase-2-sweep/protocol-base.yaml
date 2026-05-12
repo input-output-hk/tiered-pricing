@@ -39,32 +39,44 @@ mempool-max-total-size-bytes: null
 # sim-rs/sim-core/src/sim/tx.rs).
 simulate-transactions: true
 
-# Phase-2 single-producer suites: Cardano-realistic RB cadence.
+# Phase-2 welfare suites: Cardano-realistic RB cadence.
 #
-# History: an earlier revision of this file set
-# `rb-generation-probability: 1.0` so every slot won the RB lottery,
-# producing a uniform tx-bearing-block-per-slot time series. That
-# choice was a calibration bug. The simulator's
-# `try_generate_rb` enforces an `earliest_endorse_time` check
-# (`linear_leios.rs` ≈ line 654) requiring `slot ≥ parent_rb.slot
-# + header_diffusion_time × 3 + linear_vote_stage_length +
-# linear_diffuse_stage_length`. With config defaults that's
-# parent.slot + 13. At rb-prob=1.0 every RB's parent is the
-# immediate predecessor (gap = 1), the check fails on every RB,
-# endorsement is `None` for every RB, and EBs never get referenced
-# from any RB on chain. EB-borne txs (the standard-fee lane in
-# RB-reserved variants, the standard residual in un-reserved
-# variants) never trigger `TXIncluded` events, distorting every
-# two-lane suite's per-lane inclusion counts and welfare metrics.
+# History: a pre-calibration-fix revision pinned
+# `rb-generation-probability: 1.0`. The simulator's `try_generate_rb`
+# enforces an `earliest_endorse_time` check (`linear_leios.rs` ≈ line
+# 654) requiring `slot ≥ parent_rb.slot + header_diffusion_time × 3
+# + linear_vote_stage_length + linear_diffuse_stage_length`. With
+# config defaults that's parent.slot + 14. At rb-prob=1.0 every RB's
+# parent is the immediate predecessor (gap = 1), the check fails on
+# every RB, endorsement is `None` for every RB, and EBs never get
+# referenced from any RB on chain. EB-borne txs (the standard-fee
+# lane in RB-reserved variants, the standard residual in un-reserved
+# variants) never trigger `TXIncluded` events, distorting every two-
+# lane suite's per-lane inclusion counts and welfare metrics.
 #
-# Fix: drop rb-prob to a Cardano-realistic value (0.05) so the
-# expected RB cadence (~20 slots) clears the 14-slot endorsement
-# window. Single-producer is preserved (the producer wins ~5% of
-# slots, all RBs). Vote-threshold stays at 1 so the producer's own
-# vote certifies its own EBs.
+# Fix: rb-prob = 0.05 (Cardano-realistic). Expected RB cadence ≈ 20
+# slots, comfortably clearing the 14-slot endorsement window so EBs
+# referenced by RBs do get certified on chain. Carried through M6's
+# multi-node migration: with 600 stake-weighted pools and rb-prob =
+# 0.05, the network-wide expected RB rate per slot remains 0.05.
+# See docs/phase-2/m6-handoff.md for the multi-node consequences.
 rb-generation-probability: 0.05
-# Single-node ⇒ vote threshold of 1 lets the EB get certified.
-vote-threshold: 1
+
+# CIP-0164 Table 7 calibrated multi-node voting (M6).
+#
+# Pre-M6 (single-producer): inherited vote-generation-probability=500
+# from config.default.yaml, overrode vote-threshold=1. One node owned
+# all stake, so per-RB it ran 500 always-win lotteries and its single
+# vote certified the EB trivially.
+#
+# Post-M6 (CIP-0164 n=600 mean committee): stake-weighted Poisson
+# sortition via sim-core/src/sim/lottery.rs::vrf_probabilities ×
+# compute_target_vrf_stake gives per-node expected hits =
+# share × probability; summed across 600 pools the total expected
+# vote count equals `vote-generation-probability` itself.
+# Threshold = 75 % of n = 450 (CIP-0164 quorum τ = 75 %).
+vote-generation-probability: 600.0
+vote-threshold: 450
 
 # CIP-0164 §"Feasible Protocol Parameters" (Table 7) calibration.
 #

@@ -15,6 +15,7 @@
 use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},
+    time::{Duration, Instant},
 };
 
 use anyhow::{Context, Result};
@@ -34,9 +35,7 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::{
-    metrics::{
-        MetricsCollector, RunSummary, comparison, diagnostics, time_series,
-    },
+    metrics::{MetricsCollector, RunSummary, comparison, diagnostics, time_series},
     suite::Suite,
 };
 
@@ -127,6 +126,9 @@ impl Manifest {
 /// Filenames inside each (job, seed) directory.
 const RUN_SUMMARY_FILE: &str = "run_summary.json";
 const HASH_FILE: &str = "pricing_event_stream.sha256";
+const PROGRESS_WRITE_EVERY_PRICING_TICKS: u64 = 50;
+const PROGRESS_WRITE_EVERY_EVENTS: u64 = 50_000;
+const PROGRESS_WRITE_WALL_INTERVAL: Duration = Duration::from_secs(10);
 
 /// Run a suite end-to-end. Builds the manifest if absent, executes
 /// each (job, seed) skipping those already `Completed`, and writes
@@ -136,8 +138,40 @@ const HASH_FILE: &str = "pricing_event_stream.sha256";
 /// their `run_summary.json` artefacts are reloaded from disk before
 /// writing `metrics_comparison.txt`, so the comparison file always
 /// reflects the full suite (not just this invocation's jobs).
+/// Append `-<run_id>` to the suite's `output_dir` if `run_id` is set.
+/// Used by `run_suite_with_run_id`, `verify_suite_with_run_id`, and
+/// the `experiment-suite status` command so a single batch invocation
+/// can timestamp all per-suite output dirs uniformly. No-op when
+/// `run_id` is `None` (preserves legacy paths for unit tests and
+/// one-off invocations).
+pub fn apply_run_id(suite: &mut Suite, run_id: Option<&str>) {
+    if let Some(id) = run_id {
+        let parent = suite.output_dir.parent().map(PathBuf::from);
+        let stem = suite
+            .output_dir
+            .file_name()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let suffixed = format!("{stem}-{id}");
+        suite.output_dir = match parent {
+            Some(p) => p.join(suffixed),
+            None => PathBuf::from(suffixed),
+        };
+    }
+}
+
 pub fn run_suite(suite_path: &Path) -> Result<()> {
-    let suite = Suite::load(suite_path)?;
+    run_suite_with_run_id(suite_path, None)
+}
+
+/// Same as [`run_suite`], with an optional `run_id` that, if set,
+/// appends `-<run_id>` to the suite's `output_dir`. Lets a single
+/// invocation of the wrapper script timestamp all per-suite outputs
+/// uniformly while preserving resume semantics when the same
+/// `run_id` is passed again.
+pub fn run_suite_with_run_id(suite_path: &Path, run_id: Option<&str>) -> Result<()> {
+    let mut suite = Suite::load(suite_path)?;
+    apply_run_id(&mut suite, run_id);
     let manifest_path = suite.output_dir.join("manifest.json");
     let mut manifest = Manifest::load_or_init(&manifest_path, &suite)?;
     // Persist initial state so a kill before any job runs leaves a
@@ -195,14 +229,9 @@ pub fn run_suite(suite_path: &Path) -> Result<()> {
         }
         manifest.save(&manifest_path)?;
 
-        let result = runtime.block_on(async {
-            run_job(&suite, job_idx, seed).await
-        });
+        let result = runtime.block_on(async { run_job(&suite, job_idx, seed).await });
 
-        let job_dir = suite
-            .output_dir
-            .join(&job.name)
-            .join(seed.to_string());
+        let job_dir = suite.output_dir.join(&job.name).join(seed.to_string());
         match result {
             Ok(summary) => {
                 persist_run_artefacts(&job_dir, &summary)?;
@@ -218,6 +247,8 @@ pub fn run_suite(suite_path: &Path) -> Result<()> {
                         },
                     );
                 }
+                manifest.save(&manifest_path)?;
+                write_suite_metrics_comparison(&suite, &manifest)?;
                 tracing::info!(
                     "[{}/{}] done: {} seed={} included={} evicted={} hash={}",
                     idx + 1,
@@ -243,21 +274,26 @@ pub fn run_suite(suite_path: &Path) -> Result<()> {
                     );
                 }
                 manifest.save(&manifest_path)?;
-                return Err(e).with_context(|| {
-                    format!("job {} seed {} failed", job.name, seed)
-                });
+                return Err(e).with_context(|| format!("job {} seed {} failed", job.name, seed));
             }
         }
         manifest.save(&manifest_path)?;
     }
 
+    write_suite_metrics_comparison(&suite, &manifest)?;
+
+    Ok(())
+}
+
+fn write_suite_metrics_comparison(suite: &Suite, manifest: &Manifest) -> Result<()> {
     // Per-suite metrics_comparison.txt — load every Completed job's
     // summary from disk so the comparison always reflects the full
-    // suite (not just this invocation's jobs).
-    let all_runs = collect_completed_runs(&suite, &manifest)?;
+    // suite (not just this invocation's jobs). This is called after
+    // each completed job as well as at suite end so long-running
+    // suites leave inspectable partial comparison output.
+    let all_runs = collect_completed_runs(suite, manifest)?;
     let comparison_path = suite.output_dir.join("metrics_comparison.txt");
     comparison::write_suite(&comparison_path, &suite.suite_name, &all_runs)?;
-
     Ok(())
 }
 
@@ -265,14 +301,86 @@ pub fn run_suite(suite_path: &Path) -> Result<()> {
 /// `<job_dir>` so a later resume can reload them.
 fn persist_run_artefacts(job_dir: &Path, summary: &RunSummary) -> Result<()> {
     std::fs::create_dir_all(job_dir)?;
-    std::fs::write(
-        job_dir.join(RUN_SUMMARY_FILE),
-        serde_json::to_string_pretty(summary)?,
-    )?;
+    persist_run_summary(job_dir, summary)?;
     std::fs::write(
         job_dir.join(HASH_FILE),
         &summary.pricing_event_stream_sha256,
     )?;
+    Ok(())
+}
+
+fn persist_run_summary(job_dir: &Path, summary: &RunSummary) -> Result<()> {
+    std::fs::create_dir_all(job_dir)?;
+    std::fs::write(
+        job_dir.join(RUN_SUMMARY_FILE),
+        serde_json::to_string_pretty(summary)?,
+    )?;
+    Ok(())
+}
+
+fn diagnostic_notes(
+    config: &SimConfiguration,
+    summary: &RunSummary,
+    in_progress: bool,
+) -> Vec<diagnostics::DiagnosticNote> {
+    let mut notes: Vec<diagnostics::DiagnosticNote> = Vec::new();
+    if in_progress {
+        notes.push(diagnostics::DiagnosticNote {
+            level: diagnostics::NoteLevel::Info,
+            message:
+                "run is still in progress; run summary, time series, diagnostics, and pricing hash are partial"
+                    .to_string(),
+        });
+    }
+    if let sim_core::config::PricingConfig::TwoLane(s) = config.pricing_config() {
+        if matches!(
+            s.variant,
+            sim_core::tx_pricing::TwoLaneVariant::RbReservedPriorityOnly
+                | sim_core::tx_pricing::TwoLaneVariant::RbReservedBothDynamic
+        ) {
+            // Plan line 320 asks for an RB-reserved rejection count
+            // in diagnostics.log. Standard-fee txs are skipped by
+            // the validity rule during RB-body packing
+            // (sample_from_mempool_lane_aware) — not by an event —
+            // so the rejection isn't directly observable from the
+            // event stream. Point the reader at the CSV column that
+            // carries the equivalent evidence.
+            notes.push(diagnostics::DiagnosticNote {
+                level: diagnostics::NoteLevel::Info,
+                message: "RB-reserved variant: standard-fee txs are excluded from the RB body \
+                     by the validity rule (implementation-plan.md line 91). The CSV \
+                     column `included_count_standard` records the count of standard-fee \
+                     txs that landed on chain; under RB-reserved variants this column \
+                     should be 0 except where an EB partition refunded a priority-fee \
+                     tx down to standard."
+                    .to_string(),
+            });
+        }
+    }
+    if summary.multiplier_floor_breaches > 0 {
+        notes.push(diagnostics::DiagnosticNote {
+            level: diagnostics::NoteLevel::Error,
+            message: format!(
+                "multiplier-floor invariant breached {} time(s); spec invariant requires 0",
+                summary.multiplier_floor_breaches
+            ),
+        });
+    }
+    notes
+}
+
+fn write_progress_artefacts(
+    job_dir: &Path,
+    time_series_path: &Path,
+    diagnostics_path: &Path,
+    config: &SimConfiguration,
+    collector: &MetricsCollector,
+) -> Result<()> {
+    let (rows, summary) = collector.snapshot();
+    persist_run_summary(job_dir, &summary)?;
+    time_series::write_csv(time_series_path, &rows)?;
+    let notes = diagnostic_notes(config, &summary, true);
+    diagnostics::write(diagnostics_path, config, &summary, &notes)?;
     Ok(())
 }
 
@@ -287,20 +395,13 @@ fn collect_completed_runs(
     for (job_idx, seed) in suite.job_seed_pairs() {
         let job = &suite.jobs[job_idx];
         let seed_key = seed.to_string();
-        let Some(entry) = manifest
-            .jobs
-            .get(&job.name)
-            .and_then(|m| m.get(&seed_key))
-        else {
+        let Some(entry) = manifest.jobs.get(&job.name).and_then(|m| m.get(&seed_key)) else {
             continue;
         };
         if entry.status != JobStatus::Completed {
             continue;
         }
-        let job_dir = suite
-            .output_dir
-            .join(&job.name)
-            .join(seed.to_string());
+        let job_dir = suite.output_dir.join(&job.name).join(seed.to_string());
         let summary_path = job_dir.join(RUN_SUMMARY_FILE);
         let text = std::fs::read_to_string(&summary_path).with_context(|| {
             format!(
@@ -308,9 +409,8 @@ fn collect_completed_runs(
                 summary_path.display()
             )
         })?;
-        let summary: RunSummary = serde_json::from_str(&text).with_context(|| {
-            format!("parsing run_summary at {}", summary_path.display())
-        })?;
+        let summary: RunSummary = serde_json::from_str(&text)
+            .with_context(|| format!("parsing run_summary at {}", summary_path.display()))?;
         out.push((job.name.clone(), seed, summary));
     }
     Ok(out)
@@ -320,7 +420,13 @@ fn collect_completed_runs(
 /// freshly-computed pricing-event-stream SHA256 matches the
 /// persisted value. Used by `experiment-suite verify`.
 pub fn verify_suite(suite_path: &Path) -> Result<()> {
-    let suite = Suite::load(suite_path)?;
+    verify_suite_with_run_id(suite_path, None)
+}
+
+/// See [`run_suite_with_run_id`] for the `run_id` semantics.
+pub fn verify_suite_with_run_id(suite_path: &Path, run_id: Option<&str>) -> Result<()> {
+    let mut suite = Suite::load(suite_path)?;
+    apply_run_id(&mut suite, run_id);
     let manifest_path = suite.output_dir.join("manifest.json");
     if !manifest_path.exists() {
         anyhow::bail!(
@@ -337,11 +443,7 @@ pub fn verify_suite(suite_path: &Path) -> Result<()> {
     for (job_idx, seed) in suite.job_seed_pairs() {
         let job = &suite.jobs[job_idx];
         let seed_key = seed.to_string();
-        let Some(entry) = manifest
-            .jobs
-            .get(&job.name)
-            .and_then(|m| m.get(&seed_key))
-        else {
+        let Some(entry) = manifest.jobs.get(&job.name).and_then(|m| m.get(&seed_key)) else {
             continue;
         };
         if entry.status != JobStatus::Completed {
@@ -349,13 +451,12 @@ pub fn verify_suite(suite_path: &Path) -> Result<()> {
             continue;
         }
         let job_dir = suite.output_dir.join(&job.name).join(seed.to_string());
-        let stored = std::fs::read_to_string(job_dir.join(HASH_FILE))
-            .with_context(|| {
-                format!(
-                    "reading {} (manifest says completed; expected hash file)",
-                    job_dir.join(HASH_FILE).display()
-                )
-            })?;
+        let stored = std::fs::read_to_string(job_dir.join(HASH_FILE)).with_context(|| {
+            format!(
+                "reading {} (manifest says completed; expected hash file)",
+                job_dir.join(HASH_FILE).display()
+            )
+        })?;
         let stored = stored.trim();
         // Defensive: a corrupt or hand-edited summary file with a
         // missing `pricing_event_stream_sha256` deserialises with an
@@ -405,10 +506,7 @@ pub fn verify_suite(suite_path: &Path) -> Result<()> {
 }
 
 fn merge_layer(figment: Figment, path: &Path) -> Result<Figment> {
-    let ext = path
-        .extension()
-        .and_then(|s| s.to_str())
-        .unwrap_or("yaml");
+    let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("yaml");
     let merged = match ext {
         "toml" => figment.merge(Toml::file_exact(path)),
         _ => figment.merge(Yaml::file_exact(path)),
@@ -463,23 +561,17 @@ pub async fn run_job(suite: &Suite, job_idx: usize, seed: u64) -> Result<RunSumm
     config.slots = Some(slots);
 
     // Output paths.
-    let job_dir = suite
-        .output_dir
-        .join(&job.name)
-        .join(seed.to_string());
+    let job_dir = suite.output_dir.join(&job.name).join(seed.to_string());
     std::fs::create_dir_all(&job_dir)?;
     let time_series_path = job_dir.join("time_series.csv");
     let diagnostics_path = job_dir.join("diagnostics.log");
 
     // Build the metrics collector and pre-load the multiplier-floor
     // for the breach checker.
-    let mut collector =
-        MetricsCollector::new(config.block_generation_probability());
+    let mut collector = MetricsCollector::new(config.block_generation_probability());
     if let sim_core::config::PricingConfig::TwoLane(s) = config.pricing_config() {
-        collector.set_multiplier_floor(
-            s.multiplier_floor.numerator,
-            s.multiplier_floor.denominator,
-        );
+        collector
+            .set_multiplier_floor(s.multiplier_floor.numerator, s.multiplier_floor.denominator);
     }
     // Pin the time-series representative to the lexicographically
     // smallest node name. Without this, the first node to schedule
@@ -488,6 +580,13 @@ pub async fn run_job(suite: &Suite, job_idx: usize, seed: u64) -> Result<RunSumm
     if let Some(name) = config.nodes.iter().map(|n| &n.name).min() {
         collector.set_representative_node(name.clone());
     }
+    write_progress_artefacts(
+        &job_dir,
+        &time_series_path,
+        &diagnostics_path,
+        &config,
+        &collector,
+    )?;
 
     let (events_tx, mut events_rx) =
         mpsc::unbounded_channel::<(Event, sim_core::clock::Timestamp)>();
@@ -498,9 +597,52 @@ pub async fn run_job(suite: &Suite, job_idx: usize, seed: u64) -> Result<RunSumm
     // The simulation owns the only outstanding event-sender (via the
     // tracker). When `simulation.run` returns we drop it explicitly,
     // closing the channel and letting the drain task end.
+    let progress_job_dir = job_dir.clone();
+    let progress_time_series_path = time_series_path.clone();
+    let progress_diagnostics_path = diagnostics_path.clone();
+    let progress_config = config.clone();
     let drain = tokio::spawn(async move {
+        let mut events_seen = 0u64;
+        let mut last_progress_events = 0u64;
+        let mut last_progress_ticks = collector.pricing_ticks();
+        let mut last_progress_at = Instant::now();
         while let Some((event, _ts)) = events_rx.recv().await {
             collector.ingest(&event);
+            events_seen = events_seen.saturating_add(1);
+            let ticks = collector.pricing_ticks();
+            let should_write = ticks
+                >= last_progress_ticks.saturating_add(PROGRESS_WRITE_EVERY_PRICING_TICKS)
+                || events_seen >= last_progress_events.saturating_add(PROGRESS_WRITE_EVERY_EVENTS)
+                || last_progress_at.elapsed() >= PROGRESS_WRITE_WALL_INTERVAL;
+            if should_write {
+                if let Err(err) = write_progress_artefacts(
+                    &progress_job_dir,
+                    &progress_time_series_path,
+                    &progress_diagnostics_path,
+                    &progress_config,
+                    &collector,
+                ) {
+                    tracing::warn!(
+                        "failed to write in-progress metrics for {}: {err:#}",
+                        progress_job_dir.display()
+                    );
+                }
+                last_progress_ticks = ticks;
+                last_progress_events = events_seen;
+                last_progress_at = Instant::now();
+            }
+        }
+        if let Err(err) = write_progress_artefacts(
+            &progress_job_dir,
+            &progress_time_series_path,
+            &progress_diagnostics_path,
+            &progress_config,
+            &collector,
+        ) {
+            tracing::warn!(
+                "failed to write final in-progress metrics for {}: {err:#}",
+                progress_job_dir.display()
+            );
         }
         collector
     });
@@ -513,43 +655,8 @@ pub async fn run_job(suite: &Suite, job_idx: usize, seed: u64) -> Result<RunSumm
     let collector = drain.await?;
     let (rows, summary) = collector.finalise();
     time_series::write_csv(&time_series_path, &rows)?;
-    // Synthesise diagnostic notes from the resolved config + summary.
-    let mut notes: Vec<diagnostics::DiagnosticNote> = Vec::new();
-    if let sim_core::config::PricingConfig::TwoLane(s) = config.pricing_config() {
-        if matches!(
-            s.variant,
-            sim_core::tx_pricing::TwoLaneVariant::RbReservedPriorityOnly
-                | sim_core::tx_pricing::TwoLaneVariant::RbReservedBothDynamic
-        ) {
-            // Plan line 320 asks for an RB-reserved rejection count
-            // in diagnostics.log. Standard-fee txs are skipped by
-            // the validity rule during RB-body packing
-            // (sample_from_mempool_lane_aware) — not by an event —
-            // so the rejection isn't directly observable from the
-            // event stream. Point the reader at the CSV column that
-            // carries the equivalent evidence.
-            notes.push(diagnostics::DiagnosticNote {
-                level: diagnostics::NoteLevel::Info,
-                message:
-                    "RB-reserved variant: standard-fee txs are excluded from the RB body \
-                     by the validity rule (implementation-plan.md line 91). The CSV \
-                     column `included_count_standard` records the count of standard-fee \
-                     txs that landed on chain; under RB-reserved variants this column \
-                     should be 0 except where an EB partition refunded a priority-fee \
-                     tx down to standard."
-                        .to_string(),
-            });
-        }
-    }
-    if summary.multiplier_floor_breaches > 0 {
-        notes.push(diagnostics::DiagnosticNote {
-            level: diagnostics::NoteLevel::Error,
-            message: format!(
-                "multiplier-floor invariant breached {} time(s); spec invariant requires 0",
-                summary.multiplier_floor_breaches
-            ),
-        });
-    }
+    persist_run_summary(&job_dir, &summary)?;
+    let notes = diagnostic_notes(&config, &summary, false);
     diagnostics::write(&diagnostics_path, &config, &summary, &notes)?;
     Ok(summary)
 }

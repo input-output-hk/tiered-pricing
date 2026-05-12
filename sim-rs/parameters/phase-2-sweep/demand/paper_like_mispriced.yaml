@@ -1,8 +1,7 @@
 # Phase-2 paper-like congested demand with a mis-priced
 # high-urgency component.
 #
-# Same three-component shape as `paper_like_congested.yaml` (high /
-# medium / low urgency at ~6× the moderate arrival rate, sustained),
+# Same three-component, phased-load shape as `paper_like_congested.yaml`,
 # but the high-urgency component (component 0) carries
 # `MaxFeePolicy::ScaledOverLaneQuote { numerator: 1, denominator: 1 }`.
 #
@@ -26,7 +25,11 @@
 actors:
   components:
     # Component 0: high urgency, MIS-PRICED (zero quote-drift headroom).
-    - arrival-rate-per-slot: 12.0
+    - arrival-rate-per-slot:
+        phases:
+          - { start-slot: 0, end-slot: 400, rate: 24.0 }
+          - { start-slot: 400, end-slot: 1200, rate: 48.0 }
+          - { start-slot: 1200, end-slot: 2000, rate: 16.0 }
       size-bytes:
         distribution: log-normal
         mu: 6.833
@@ -43,7 +46,11 @@ actors:
         numerator: 1
         denominator: 1
     # Component 1: moderate urgency, default {4, 1} headroom.
-    - arrival-rate-per-slot: 48.0
+    - arrival-rate-per-slot:
+        phases:
+          - { start-slot: 0, end-slot: 400, rate: 96.0 }
+          - { start-slot: 400, end-slot: 1200, rate: 192.0 }
+          - { start-slot: 1200, end-slot: 2000, rate: 64.0 }
       size-bytes:
         distribution: log-normal
         mu: 6.833
@@ -56,7 +63,11 @@ actors:
         distribution: constant
         value: 2.0
     # Component 2: low urgency, default {4, 1} headroom.
-    - arrival-rate-per-slot: 90.0
+    - arrival-rate-per-slot:
+        phases:
+          - { start-slot: 0, end-slot: 400, rate: 180.0 }
+          - { start-slot: 400, end-slot: 1200, rate: 360.0 }
+          - { start-slot: 1200, end-slot: 2000, rate: 120.0 }
       size-bytes:
         distribution: log-normal
         mu: 6.833

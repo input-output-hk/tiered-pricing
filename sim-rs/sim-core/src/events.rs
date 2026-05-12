@@ -335,6 +335,19 @@ pub enum Event {
         current_quote_per_byte: u64,
         max_fee_lovelace: u64,
     },
+    /// Phase-2 fork-resolution metric (M6). Emitted on every node
+    /// invocation of `apply_priced_block` (i.e. once per RB this
+    /// node priced). The metrics layer counts (slot, producer)
+    /// collisions at the representative node to derive
+    /// `slot_battles_count` and `orphaned_pricing_samples`.
+    /// Unlike `RBReceived`, this is also emitted for the node's
+    /// own locally-produced RB (which never traverses the receive
+    /// path), so it sees every sample the pricing kernel sees.
+    LinearPricingSampleApplied {
+        node: Node,
+        slot: u64,
+        producer: Node,
+    },
     /// Phase-2 per-slot pricing snapshot (M3+). Emitted by every
     /// node at the start of each slot tick. The metrics layer uses
     /// the snapshot from a designated node (typically the lowest-id
@@ -650,6 +663,16 @@ impl EventTracker {
             mempool_bytes_total,
             mempool_bytes_priority,
             mempool_bytes_standard,
+        });
+    }
+
+    /// Phase-2 M6: emitted once per node invocation of
+    /// `apply_priced_block`. Powers the fork-resolution metric.
+    pub fn track_linear_pricing_sample_applied(&self, node: NodeId, slot: u64, producer: NodeId) {
+        self.send(Event::LinearPricingSampleApplied {
+            node: self.to_node(node),
+            slot,
+            producer: self.to_node(producer),
         });
     }
 

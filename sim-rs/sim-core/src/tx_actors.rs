@@ -226,9 +226,9 @@ impl MaxFeePolicy {
                         )
                     })?;
                 let scaled = ceil_div_u128(product_num, den);
-                let scaled_u64: u64 = scaled.try_into().map_err(|_| {
-                    anyhow!("VolatilityAware result exceeds u64: scaled={scaled}")
-                })?;
+                let scaled_u64: u64 = scaled
+                    .try_into()
+                    .map_err(|_| anyhow!("VolatilityAware result exceeds u64: scaled={scaled}"))?;
                 min_fee_b.checked_add(scaled_u64).ok_or_else(|| {
                     anyhow!(
                         "max_fee_lovelace overflow: min_fee_b={min_fee_b} + scaled={scaled_u64}"
@@ -297,10 +297,7 @@ pub mod lane_choice {
             LanePolicy::UtilityMaximising {
                 submit_when_underwater,
             } => {
-                if !submit_when_underwater
-                    && exp_util_priority < 0
-                    && exp_util_standard < 0
-                {
+                if !submit_when_underwater && exp_util_priority < 0 && exp_util_standard < 0 {
                     return None;
                 }
                 Some(if exp_util_priority > exp_util_standard {
@@ -564,8 +561,10 @@ impl ActorComponent {
                             bail!(
                                 "arrival_rate_per_slot phases for component {} overlap: [{}, {}) and [{}, {})",
                                 self.index,
-                                a.start_slot, a.end_slot,
-                                b.start_slot, b.end_slot
+                                a.start_slot,
+                                a.end_slot,
+                                b.start_slot,
+                                b.end_slot
                             );
                         }
                     }
@@ -604,8 +603,7 @@ impl ActorComponent {
         }
         // Poisson::new returns Err only on non-positive λ; we've
         // checked.
-        let dist = Poisson::new(rate)
-            .expect("arrival_rate_per_slot validated > 0");
+        let dist = Poisson::new(rate).expect("arrival_rate_per_slot validated > 0");
         // `Poisson<f64>::sample` returns f64 ≥ 0; round-half-away-
         // from-zero is fine for u64.
         libm::round(dist.sample(rng)).max(0.0) as u64
@@ -716,7 +714,11 @@ mod tests {
             denominator: 0,
         };
         assert!(policy.validate().is_err());
-        assert!(policy.compute(44, 1024, MIN_FEE_B, MaxFeeContext::unused()).is_err());
+        assert!(
+            policy
+                .compute(44, 1024, MIN_FEE_B, MaxFeeContext::unused())
+                .is_err()
+        );
     }
 
     #[test]
@@ -727,7 +729,9 @@ mod tests {
         };
         let bytes = 1024u64;
         let quote = 44u64;
-        let max_fee = policy.compute(quote, bytes, MIN_FEE_B, MaxFeeContext::unused()).unwrap();
+        let max_fee = policy
+            .compute(quote, bytes, MIN_FEE_B, MaxFeeContext::unused())
+            .unwrap();
         // 4 × 44 × 1024 = 180_224
         assert_eq!(max_fee, MIN_FEE_B + 180_224);
     }
@@ -739,7 +743,9 @@ mod tests {
             denominator: 3,
         };
         // 1 × 100 / 3 = 33.33; ceil = 34
-        let max_fee = policy.compute(100, 1, MIN_FEE_B, MaxFeeContext::unused()).unwrap();
+        let max_fee = policy
+            .compute(100, 1, MIN_FEE_B, MaxFeeContext::unused())
+            .unwrap();
         assert_eq!(max_fee, MIN_FEE_B + 34);
     }
 
@@ -750,9 +756,19 @@ mod tests {
             denominator: 1,
         };
         // bytes = 0 → max_fee = min_fee_b.
-        assert_eq!(policy.compute(44, 0, MIN_FEE_B, MaxFeeContext::unused()).unwrap(), MIN_FEE_B);
+        assert_eq!(
+            policy
+                .compute(44, 0, MIN_FEE_B, MaxFeeContext::unused())
+                .unwrap(),
+            MIN_FEE_B
+        );
         // quote = 0 → max_fee = min_fee_b.
-        assert_eq!(policy.compute(0, 1024, MIN_FEE_B, MaxFeeContext::unused()).unwrap(), MIN_FEE_B);
+        assert_eq!(
+            policy
+                .compute(0, 1024, MIN_FEE_B, MaxFeeContext::unused())
+                .unwrap(),
+            MIN_FEE_B
+        );
     }
 
     #[test]
@@ -966,22 +982,10 @@ mod tests {
             submit_when_underwater: true,
         };
         let pick1 = lane_choice::pick(
-            10_000_000,
-            1.05,
-            1024,
-            &priority,
-            &standard,
-            MIN_FEE_B,
-            policy,
+            10_000_000, 1.05, 1024, &priority, &standard, MIN_FEE_B, policy,
         );
         let pick2 = lane_choice::pick(
-            10_000_000,
-            1.05,
-            1024,
-            &priority,
-            &standard,
-            MIN_FEE_B,
-            policy,
+            10_000_000, 1.05, 1024, &priority, &standard, MIN_FEE_B, policy,
         );
         assert_eq!(pick1, pick2);
         assert!(pick1.is_some());
@@ -1006,9 +1010,10 @@ mod tests {
         let policy = LanePolicy::UtilityMaximising {
             submit_when_underwater: true,
         };
-        let lane =
-            lane_choice::pick(1_000_000, 1.0, 1024, &priority, &standard, MIN_FEE_B, policy)
-                .unwrap();
+        let lane = lane_choice::pick(
+            1_000_000, 1.0, 1024, &priority, &standard, MIN_FEE_B, policy,
+        )
+        .unwrap();
         assert_eq!(lane, Lane::Standard);
     }
 
@@ -1056,8 +1061,7 @@ mod tests {
         let policy = LanePolicy::UtilityMaximising {
             submit_when_underwater: false,
         };
-        let lane =
-            lane_choice::pick(1, 1.05, 1024, &priority, &standard, MIN_FEE_B, policy);
+        let lane = lane_choice::pick(1, 1.05, 1024, &priority, &standard, MIN_FEE_B, policy);
         assert!(lane.is_none());
     }
 
@@ -1077,8 +1081,7 @@ mod tests {
             submit_when_underwater: true,
         };
         let lane =
-            lane_choice::pick(1, 1.05, 1024, &priority, &standard, MIN_FEE_B, policy)
-                .unwrap();
+            lane_choice::pick(1, 1.05, 1024, &priority, &standard, MIN_FEE_B, policy).unwrap();
         assert_eq!(lane, Lane::Standard);
     }
 
@@ -1245,17 +1248,25 @@ mod tests {
     #[test]
     fn phased_arrival_rate_selects_active_phase() {
         let rate = ArrivalRate::Phased(vec![
-            ArrivalPhase { start_slot: 100, end_slot: 200, rate: 5.0 },
-            ArrivalPhase { start_slot: 300, end_slot: 400, rate: 50.0 },
+            ArrivalPhase {
+                start_slot: 100,
+                end_slot: 200,
+                rate: 5.0,
+            },
+            ArrivalPhase {
+                start_slot: 300,
+                end_slot: 400,
+                rate: 50.0,
+            },
         ]);
-        assert_eq!(rate.rate_at_slot(0), 0.0);   // before any phase
-        assert_eq!(rate.rate_at_slot(99), 0.0);  // just before phase 1
+        assert_eq!(rate.rate_at_slot(0), 0.0); // before any phase
+        assert_eq!(rate.rate_at_slot(99), 0.0); // just before phase 1
         assert_eq!(rate.rate_at_slot(100), 5.0); // start of phase 1 (inclusive)
         assert_eq!(rate.rate_at_slot(150), 5.0); // mid phase 1
         assert_eq!(rate.rate_at_slot(199), 5.0); // end of phase 1 (inclusive)
         assert_eq!(rate.rate_at_slot(200), 0.0); // end_slot is exclusive
         assert_eq!(rate.rate_at_slot(250), 0.0); // gap between phases
-        assert_eq!(rate.rate_at_slot(300), 50.0);// start of phase 2
+        assert_eq!(rate.rate_at_slot(300), 50.0); // start of phase 2
         assert_eq!(rate.rate_at_slot(399), 50.0);
         assert_eq!(rate.rate_at_slot(400), 0.0); // after all phases
     }
@@ -1264,8 +1275,16 @@ mod tests {
     fn phased_arrival_rate_validates_overlap() {
         let comp = ActorComponent {
             arrival_rate_per_slot: ArrivalRate::Phased(vec![
-                ArrivalPhase { start_slot: 0, end_slot: 200, rate: 5.0 },
-                ArrivalPhase { start_slot: 100, end_slot: 300, rate: 10.0 },
+                ArrivalPhase {
+                    start_slot: 0,
+                    end_slot: 200,
+                    rate: 5.0,
+                },
+                ArrivalPhase {
+                    start_slot: 100,
+                    end_slot: 300,
+                    rate: 10.0,
+                },
             ]),
             ..comp_default()
         };
@@ -1275,9 +1294,11 @@ mod tests {
     #[test]
     fn phased_arrival_rate_validates_inverted_phase() {
         let comp = ActorComponent {
-            arrival_rate_per_slot: ArrivalRate::Phased(vec![
-                ArrivalPhase { start_slot: 200, end_slot: 100, rate: 5.0 },
-            ]),
+            arrival_rate_per_slot: ArrivalRate::Phased(vec![ArrivalPhase {
+                start_slot: 200,
+                end_slot: 100,
+                rate: 5.0,
+            }]),
             ..comp_default()
         };
         assert!(comp.validate().is_err());
@@ -1286,9 +1307,11 @@ mod tests {
     #[test]
     fn phased_arrival_rate_sampling_respects_phase() {
         let comp = ActorComponent {
-            arrival_rate_per_slot: ArrivalRate::Phased(vec![
-                ArrivalPhase { start_slot: 100, end_slot: 200, rate: 50.0 },
-            ]),
+            arrival_rate_per_slot: ArrivalRate::Phased(vec![ArrivalPhase {
+                start_slot: 100,
+                end_slot: 200,
+                rate: 50.0,
+            }]),
             ..comp_default()
         };
         let mut rng = ChaChaRng::seed_from_u64(0);
@@ -1300,7 +1323,10 @@ mod tests {
         let total: u64 = (100..200u64)
             .map(|s| comp.sample_arrival_count(&mut rng, s))
             .sum();
-        assert!(total > 0, "expected non-zero arrivals across 100 slots at λ=50");
+        assert!(
+            total > 0,
+            "expected non-zero arrivals across 100 slots at λ=50"
+        );
     }
 
     #[test]

@@ -21,7 +21,11 @@ mempool-max-total-size-bytes: null
 
 simulate-transactions: true
 rb-generation-probability: 0.05
-vote-threshold: 1
+
+# CIP-0164 Table 7 calibrated multi-node voting (M6). See
+# protocol-base.yaml for the rationale.
+vote-generation-probability: 600.0
+vote-threshold: 450
 
 # CIP-0164 Table 7 calibration (matches protocol-base.yaml).
 linear-vote-stage-length-slots: 4

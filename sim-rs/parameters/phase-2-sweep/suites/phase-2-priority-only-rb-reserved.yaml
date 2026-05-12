@@ -1,8 +1,8 @@
 suite-name: phase-2-priority-only-rb-reserved
 output-dir: output/phase-2/priority-only-rb-reserved
 seeds: [1, 2, 3]
-default-slots: 1000
-default-topology: parameters/phase-2-sweep/topology-single-producer.yaml
+default-slots: 2000
+default-topology: parameters/phase-2-sweep/topology-cip-realistic.yaml
 default-protocol: parameters/phase-2-sweep/protocol-base.yaml
 default-demand: parameters/phase-2-sweep/demand/paper_like_congested.yaml
 jobs:

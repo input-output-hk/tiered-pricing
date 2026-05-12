@@ -127,13 +127,9 @@ fn run_baseline_and_check_golden(suite_name: &str, baseline_job: &str, seed: u64
     if std::env::var("UPDATE_GOLDENS").is_ok() {
         std::fs::create_dir_all(goldens_file.parent().unwrap()).unwrap();
         let line = format!("{baseline_job} {seed} {fresh}\n");
-        std::fs::write(&goldens_file, &line).unwrap_or_else(|e| {
-            panic!("writing golden {}: {e}", goldens_file.display())
-        });
-        eprintln!(
-            "UPDATE_GOLDENS=1 wrote {}: {fresh}",
-            goldens_file.display()
-        );
+        std::fs::write(&goldens_file, &line)
+            .unwrap_or_else(|e| panic!("writing golden {}: {e}", goldens_file.display()));
+        eprintln!("UPDATE_GOLDENS=1 wrote {}: {fresh}", goldens_file.display());
         return;
     }
 
@@ -155,12 +151,14 @@ fn run_baseline_and_check_golden(suite_name: &str, baseline_job: &str, seed: u64
         .unwrap_or_else(|_| panic!("non-integer seed in golden {}", goldens_file.display()));
     let stored_hash = parsed[2];
     assert_eq!(
-        stored_job, baseline_job,
+        stored_job,
+        baseline_job,
         "golden {} pins job '{stored_job}' but the test expects baseline '{baseline_job}'",
         goldens_file.display()
     );
     assert_eq!(
-        stored_seed, seed,
+        stored_seed,
+        seed,
         "golden {} pins seed {stored_seed} but the test expects {seed}",
         goldens_file.display()
     );
@@ -181,11 +179,7 @@ fn run_baseline_and_check_golden(suite_name: &str, baseline_job: &str, seed: u64
 #[test]
 #[ignore]
 fn determinism_phase_2_eip1559_robustness() {
-    run_baseline_and_check_golden(
-        "phase-2-eip1559-robustness",
-        "d8_target0.5_window32",
-        1,
-    );
+    run_baseline_and_check_golden("phase-2-eip1559-robustness", "d8_target0.5_window32", 1);
 }
 
 #[test]
@@ -197,31 +191,19 @@ fn determinism_phase_2_eip1559_smoothing() {
 #[test]
 #[ignore]
 fn determinism_phase_2_priority_only_rb_reserved() {
-    run_baseline_and_check_golden(
-        "phase-2-priority-only-rb-reserved",
-        "multiplier_x4",
-        1,
-    );
+    run_baseline_and_check_golden("phase-2-priority-only-rb-reserved", "multiplier_x4", 1);
 }
 
 #[test]
 #[ignore]
 fn determinism_phase_2_priority_only_unreserved() {
-    run_baseline_and_check_golden(
-        "phase-2-priority-only-unreserved",
-        "multiplier_x4",
-        1,
-    );
+    run_baseline_and_check_golden("phase-2-priority-only-unreserved", "multiplier_x4", 1);
 }
 
 #[test]
 #[ignore]
 fn determinism_phase_2_two_lane_both_dynamic() {
-    run_baseline_and_check_golden(
-        "phase-2-two-lane-both-dynamic",
-        "partitioned_x4",
-        1,
-    );
+    run_baseline_and_check_golden("phase-2-two-lane-both-dynamic", "partitioned_x4", 1);
 }
 
 #[test]
@@ -233,9 +215,5 @@ fn determinism_phase_2_rb_scarcity() {
 #[test]
 #[ignore]
 fn determinism_phase_2_urgency_inversion() {
-    run_baseline_and_check_golden(
-        "phase-2-urgency-inversion",
-        "correctly_priced",
-        1,
-    );
+    run_baseline_and_check_golden("phase-2-urgency-inversion", "correctly_priced", 1);
 }

@@ -118,6 +118,16 @@ pub fn write(
         summary.min_priority_over_standard_ratio, summary.max_priority_over_standard_ratio
     )?;
     writeln!(f, "- pricing_ticks_observed: {}", summary.pricing_ticks)?;
+    writeln!(
+        f,
+        "- slot_battles_count: {} (slots where >=2 sibling RB bodies were fully validated at the representative)",
+        summary.slot_battles_count
+    )?;
+    writeln!(
+        f,
+        "- orphaned_pricing_samples: {} (upper bound on representative-node pricing samples applied to RBs the canonical chain would later orphan)",
+        summary.orphaned_pricing_samples
+    )?;
     writeln!(f)?;
     writeln!(f, "## Notes")?;
     for n in notes {

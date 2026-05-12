@@ -770,8 +770,7 @@ impl LeiosNode {
             if let TransactionConfig::Mock(config) = &self.sim_config.transactions {
                 // Add one transaction, the right size for the extra RB payload
                 let tx = config.mock_tx(config.rb_size);
-                self.tracker
-                    .track_transaction_generated(&tx, self.id, slot);
+                self.tracker.track_transaction_generated(&tx, self.id, slot);
                 transactions.push(Arc::new(tx));
             } else {
                 let mut size = 0;

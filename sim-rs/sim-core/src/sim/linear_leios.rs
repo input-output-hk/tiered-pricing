@@ -383,9 +383,7 @@ impl StalenessPredictor {
             Lane::Standard => self.standard_quote_at_endorsement,
         };
         // posted_fee at the projected worst-case quote.
-        let predicted_fee = self
-            .min_fee_b
-            .saturating_add(q.saturating_mul(tx.bytes));
+        let predicted_fee = self.min_fee_b.saturating_add(q.saturating_mul(tx.bytes));
         predicted_fee > tx.max_fee_lovelace
     }
 }
@@ -448,9 +446,9 @@ impl NodeImpl for LinearLeiosNode {
         // quote-drift revalidation, and no inclusion charging.
         let mempool_max_size_bytes = gate.config().max_total_size_bytes;
         let pricing: Box<dyn PricingBackend> = match sim_config.pricing_config() {
-            PricingConfig::Baseline => {
-                Box::new(BaselinePricing::new(sim_config.mempool_gate_config().min_fee_a))
-            }
+            PricingConfig::Baseline => Box::new(BaselinePricing::new(
+                sim_config.mempool_gate_config().min_fee_a,
+            )),
             PricingConfig::Eip1559(settings) => Box::new(
                 Eip1559Pricing::new(settings.clone())
                     .expect("Eip1559Settings validated at config build time"),
@@ -738,12 +736,8 @@ impl LinearLeiosNode {
                 // from the fee gate and emits one inclusion event
                 // each.
                 let served = self.assign_served_lanes(&eb, rb_reserved);
-                let pairs: Vec<(Arc<Transaction>, Lane)> = eb
-                    .txs
-                    .iter()
-                    .cloned()
-                    .zip(served)
-                    .collect();
+                let pairs: Vec<(Arc<Transaction>, Lane)> =
+                    eb.txs.iter().cloned().zip(served).collect();
                 self.charge_inclusions(&pairs);
                 self.remove_eb_txs_from_mempool(&eb);
             } else {
@@ -768,8 +762,7 @@ impl LinearLeiosNode {
             if let TransactionConfig::Mock(config) = &self.sim_config.transactions {
                 // Add one transaction, the right size for the extra RB payload
                 let tx = config.mock_tx(config.rb_size);
-                self.tracker
-                    .track_transaction_generated(&tx, self.id, slot);
+                self.tracker.track_transaction_generated(&tx, self.id, slot);
                 rb_transactions.push(Arc::new(tx));
             } else {
                 // RB body: txs are charged inclusions immediately
@@ -805,8 +798,7 @@ impl LinearLeiosNode {
                     config.eb_size - withheld_txs.iter().map(|tx| tx.bytes).sum::<u64>();
                 if extra_size > 0 {
                     let tx = config.mock_tx(extra_size);
-                    self.tracker
-                        .track_transaction_generated(&tx, self.id, slot);
+                    self.tracker.track_transaction_generated(&tx, self.id, slot);
                     eb_transactions.push(Arc::new(tx));
                 }
             } else {
@@ -815,8 +807,8 @@ impl LinearLeiosNode {
                 // endorser reuses `eb.partition_activated` via
                 // `assign_served_lanes`; producer and endorser agree
                 // by construction.
-                let (packed, activated) = self
-                    .select_eb_with_partition(self.sim_config.max_eb_size, selection_order);
+                let (packed, activated) =
+                    self.select_eb_with_partition(self.sim_config.max_eb_size, selection_order);
                 eb_transactions.extend(packed);
                 eb_partition_activated = activated;
             }
@@ -989,6 +981,32 @@ impl LinearLeiosNode {
         // Phase-2 controller hook: feed any priced-block samples this RB
         // produces (RB body if non-empty; endorsed EB if locally
         // validated), update pricing, and revalidate the gate.
+        //
+        // M6: emit one event per `apply_priced_block` invocation so
+        // the metrics collector can detect the narrow case where
+        // two sibling RB bodies from different producers were both
+        // fully validated at this node at the same slot.
+        //
+        // The simulator already resolves most slot battles at
+        // header receipt in `finish_validating_rb_header` (~line
+        // 1062): the higher-VRF header is dropped before its body
+        // is ever requested. Those resolutions never reach this
+        // emission. The emission fires for both bodies only when
+        // the VRF race resolves AFTER both bodies have been
+        // requested and validated — the same subset for which the
+        // M1 limitation (no pricing rollback) can mutate the
+        // controller against a later-orphaned RB.
+        //
+        // Hence the resulting collector counters
+        // (`slot_battles_count`, `orphaned_pricing_samples`) are
+        // upper bounds on representative-node pricing-state
+        // contamination. See docs/phase-2/m6-handoff.md for the
+        // noise-bound write-up.
+        self.tracker.track_linear_pricing_sample_applied(
+            self.id,
+            rb.header.id.slot,
+            rb.header.id.producer,
+        );
         self.apply_priced_block(&rb);
         self.praos
             .blocks
@@ -1523,8 +1541,7 @@ impl LinearLeiosNode {
                 TransactionConfig::Real(cfg) => cfg.new_tx(&mut self.rng, None),
                 TransactionConfig::Mock(cfg) => cfg.mock_tx(cfg.eb_size / txs_to_generate),
             };
-            self.tracker
-                .track_transaction_generated(&tx, self.id, slot);
+            self.tracker.track_transaction_generated(&tx, self.id, slot);
             let tx = Arc::new(tx);
             self.txs
                 .insert(tx.id, TransactionView::Received(tx.clone()));
@@ -1928,10 +1945,7 @@ impl LinearLeiosNode {
     /// for EB bodies the partition trigger decides. The actual fee is
     /// charged at the served-lane quote per
     /// implementation-plan.md lines 96-100.
-    fn charge_inclusions(
-        &mut self,
-        txs_with_served_lane: &[(Arc<Transaction>, Lane)],
-    ) {
+    fn charge_inclusions(&mut self, txs_with_served_lane: &[(Arc<Transaction>, Lane)]) {
         if txs_with_served_lane.is_empty() {
             return;
         }
@@ -2235,8 +2249,12 @@ impl LinearLeiosNode {
         // estimates while we have only an immutable borrow on
         // `self.actor_state`. Then move into a mutable section to
         // sample, build, and submit.
-        let q_priority = self.pricing.current_quote(crate::tx_pricing::Lane::Priority);
-        let q_standard = self.pricing.current_quote(crate::tx_pricing::Lane::Standard);
+        let q_priority = self
+            .pricing
+            .current_quote(crate::tx_pricing::Lane::Priority);
+        let q_standard = self
+            .pricing
+            .current_quote(crate::tx_pricing::Lane::Standard);
         let min_fee_b = self.gate.config().min_fee_b;
         // Snapshot per-component sampling inputs while holding only
         // immutable borrows on actor_state (so we can re-borrow
@@ -2349,7 +2367,8 @@ impl LinearLeiosNode {
                     let state = self.actor_state.as_mut().expect("checked above");
                     let counter = state.next_tx_id;
                     state.next_tx_id += 1;
-                    let combined = ((self.id.to_inner() as u64) << 48) | (counter & 0xFFFF_FFFF_FFFF);
+                    let combined =
+                        ((self.id.to_inner() as u64) << 48) | (counter & 0xFFFF_FFFF_FFFF);
                     (TransactionId::new(combined), combined)
                 };
                 let tx = Transaction {
@@ -2364,8 +2383,7 @@ impl LinearLeiosNode {
                     urgency: inputs.urgency,
                     urgency_component_index: ci.index,
                 };
-                self.tracker
-                    .track_transaction_generated(&tx, self.id, slot);
+                self.tracker.track_transaction_generated(&tx, self.id, slot);
                 let arc = Arc::new(tx);
                 {
                     let state = self.actor_state.as_mut().expect("checked above");
@@ -2430,8 +2448,7 @@ impl LinearLeiosNode {
         _rb_reserved: bool,
     ) -> bool {
         let selection_order = self.pricing.lane_selection_order();
-        let (_selected, activated) =
-            self.select_eb_with_partition(eb_capacity, selection_order);
+        let (_selected, activated) = self.select_eb_with_partition(eb_capacity, selection_order);
         activated
     }
 
@@ -2479,8 +2496,7 @@ impl LinearLeiosNode {
             return false;
         }
         let served = self.assign_served_lanes(&eb, rb_reserved);
-        let pairs: Vec<(Arc<Transaction>, Lane)> =
-            eb.txs.iter().cloned().zip(served).collect();
+        let pairs: Vec<(Arc<Transaction>, Lane)> = eb.txs.iter().cloned().zip(served).collect();
         self.charge_inclusions(&pairs);
         self.remove_eb_txs_from_mempool(&eb);
         self.apply_eb_priced_block(&eb);

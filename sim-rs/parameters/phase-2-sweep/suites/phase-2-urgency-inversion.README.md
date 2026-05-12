@@ -50,17 +50,18 @@ mis-pricing?" — re-expressed in two-lane vocabulary.
   16, only high-urgency picks priority and priority demand is too
   low to saturate the partition, so `c_priority` stays at the floor
   and no eviction shape emerges. With `multiplier_floor = 4`,
-  high+medium urgency together generate ~60 KB/slot priority
-  demand against the 90 KB RB partition, the priority controller
-  drifts upward under saturation, and mis-priced txs at `{1, 1}`
-  zero-headroom are evicted on the next update.
+  high+medium urgency together generate roughly 120/240/80 KB per
+  slot across the phased congested profile. This saturates priority
+  service during the overload phase, the priority controller drifts
+  upward, and mis-priced txs at `{1, 1}` zero-headroom are evicted on
+  the next update.
 - **Demand**: two profiles compared.
   - `paper_like_congested.yaml` — every component carries the
     default `ScaledOverLaneQuote{4, 1}` (4× headroom).
   - `paper_like_mispriced.yaml` — high-urgency component (0)
     carries `ScaledOverLaneQuote{1, 1}` (zero headroom); other
     components keep `{4, 1}`.
-- **Slots**: 200 per seed × 3 seeds × 2 jobs = 6 runs.
+- **Slots**: 2000 per seed x 3 seeds x 2 jobs = 6 runs.
 
 ## Why `{1, 1}` is the mis-pricing knob (not `{0, 1}` or smaller)
 
@@ -107,13 +108,11 @@ eviction count:
   - `mispriced_high_urgency` — `0`. `max_fee = actual_fee` at
     submission means no refund margin; the actor's budget is
     fully consumed.
-- `evicted_quote_drift_count`: with the corrected RB cadence,
-  quote drift now bites. Mispriced runs evict ~6500-7000 txs;
-  correctly-priced runs evict 1500-5000 (lower end at slow
-  controller drift, higher end at fast). The mispriced excess
-  is the ratio that is component-0-specific — comp 0 mispriced
-  txs are exactly the ones whose max_fee equals submission-time
-  fee and so go stale on the first quote tick.
+- `evicted_quote_drift_count`: with the corrected RB cadence and the
+  heavier phased demand, quote drift now bites. The mispriced excess
+  should be component-0-specific: comp 0 mispriced txs are exactly
+  the ones whose max_fee equals submission-time fee and so go stale
+  on the first quote tick.
 - `fees_paid_lovelace` for component 0 differs across the two
   jobs (the mispriced run pays less because evicted txs never
   pay). The economic differentiation is now visible in both

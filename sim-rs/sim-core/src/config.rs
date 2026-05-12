@@ -17,7 +17,9 @@ use crate::{
     model::{Transaction, TransactionId},
     probability::FloatDistribution,
     tx_actors::{ActorComponent, ActorProfile, LanePolicy, MaxFeePolicy},
-    tx_pricing::{Eip1559Settings, LaneSelectionOrder, Multiplier, TwoLaneSettings, TwoLaneVariant},
+    tx_pricing::{
+        Eip1559Settings, LaneSelectionOrder, Multiplier, TwoLaneSettings, TwoLaneVariant,
+    },
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -257,9 +259,7 @@ pub struct RawActorProfile {
 #[serde(untagged)]
 pub enum RawArrivalRate {
     Constant(f64),
-    Phased {
-        phases: Vec<RawArrivalPhase>,
-    },
+    Phased { phases: Vec<RawArrivalPhase> },
 }
 
 #[derive(Debug, Clone, Deserialize)]

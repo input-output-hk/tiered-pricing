@@ -223,8 +223,12 @@ impl PricingBackend for TwoLanePricing {
             Lane::Standard if !self.settings.variant.standard_dynamic() => {
                 self.standard.current_quote(Lane::Standard)
             }
-            Lane::Standard => self.standard.worst_case_quote_at(Lane::Standard, blocks_ahead),
-            Lane::Priority => self.priority.worst_case_quote_at(Lane::Priority, blocks_ahead),
+            Lane::Standard => self
+                .standard
+                .worst_case_quote_at(Lane::Standard, blocks_ahead),
+            Lane::Priority => self
+                .priority
+                .worst_case_quote_at(Lane::Priority, blocks_ahead),
         }
     }
 
@@ -252,11 +256,9 @@ impl PricingBackend for TwoLanePricing {
         //
         // We pass the slice and let each controller's `step_with_lane`
         // helper do its own filtering.
-        self.priority
-            .step_with_lane(Lane::Priority, samples);
+        self.priority.step_with_lane(Lane::Priority, samples);
         if self.settings.variant.standard_dynamic() {
-            self.standard
-                .step_with_lane(Lane::Standard, samples);
+            self.standard.step_with_lane(Lane::Standard, samples);
         }
         // Multiplier-floor enforcement after both controllers move.
         self.enforce_multiplier_floor();
@@ -340,10 +342,7 @@ impl PricingBackend for TwoLanePricing {
             // block_capacity (option 1 signal); standard controller
             // (when dynamic) sees standard-paying-bytes against the
             // same. No partition, no per-block byte cap.
-            (
-                TwoLaneVariant::UnreservedPriorityOnly | TwoLaneVariant::UnreservedBothDynamic,
-                _,
-            ) => {
+            (TwoLaneVariant::UnreservedPriorityOnly | TwoLaneVariant::UnreservedBothDynamic, _) => {
                 let mut out = vec![PricedBlockSample {
                     block_kind,
                     controller_lane: Lane::Priority,
@@ -408,13 +407,15 @@ mod tests {
     fn rb_reserved_forces_priority_window_length_one() {
         // Plan line 47: RB-reserved priority controller window length
         // 1 reduces to per-block fill rate.
-        let pricing = TwoLanePricing::new(settings(TwoLaneVariant::RbReservedPriorityOnly)).unwrap();
+        let pricing =
+            TwoLanePricing::new(settings(TwoLaneVariant::RbReservedPriorityOnly)).unwrap();
         assert_eq!(pricing.priority.window().length(), 1);
     }
 
     #[test]
     fn unreserved_keeps_priority_window_length_from_settings() {
-        let pricing = TwoLanePricing::new(settings(TwoLaneVariant::UnreservedPriorityOnly)).unwrap();
+        let pricing =
+            TwoLanePricing::new(settings(TwoLaneVariant::UnreservedPriorityOnly)).unwrap();
         assert_eq!(pricing.priority.window().length(), 4);
     }
 
@@ -500,7 +501,8 @@ mod tests {
         // Plan line 73: RB-reserved priority controller's EB sample uses
         // `relevant_bytes = min(priority_paying_bytes, max_block_size)`.
         // Saturating priority demand cannot push the signal above 1.0.
-        let pricing = TwoLanePricing::new(settings(TwoLaneVariant::RbReservedPriorityOnly)).unwrap();
+        let pricing =
+            TwoLanePricing::new(settings(TwoLaneVariant::RbReservedPriorityOnly)).unwrap();
         let breakdown = BlockLaneBreakdown {
             priority_paying_bytes: 1_000_000, // way over one RB-worth
             standard_paying_bytes: 5_000_000,
@@ -561,8 +563,7 @@ mod tests {
 
     #[test]
     fn unreserved_both_dynamic_emits_two_samples_for_each_block_kind() {
-        let pricing =
-            TwoLanePricing::new(settings(TwoLaneVariant::UnreservedBothDynamic)).unwrap();
+        let pricing = TwoLanePricing::new(settings(TwoLaneVariant::UnreservedBothDynamic)).unwrap();
         let breakdown = BlockLaneBreakdown {
             priority_paying_bytes: 30_000,
             standard_paying_bytes: 60_000,

@@ -325,7 +325,9 @@ fn rb_reserved_skips_standard_fee_tx_in_rb_body() {
         .filter(|(_, served, _)| *served == Lane::Priority)
         .collect();
     assert!(
-        priority_inclusions.iter().any(|(id, _, _)| *id == priority_tx.id),
+        priority_inclusions
+            .iter()
+            .any(|(id, _, _)| *id == priority_tx.id),
         "priority tx should be in priority-only RB body; got {rb_inclusions:?}"
     );
     let standard_in_rb: Vec<_> = priority_inclusions
@@ -395,10 +397,7 @@ fn unreserved_admits_both_lanes_in_rb_body() {
 
 #[test]
 fn refund_formula_case_a_priority_max_fee_yields_priority_minus_standard() {
-    use crate::{
-        config::MempoolGateConfig,
-        sim::mempool_gate::MempoolGate,
-    };
+    use crate::{config::MempoolGateConfig, sim::mempool_gate::MempoolGate};
     // Case (a): posted=Priority, served=Standard, max_fee = priority fee.
     // Expected refund = priority_fee − standard_fee.
     let bytes = 1000u64;
@@ -427,7 +426,9 @@ fn refund_formula_case_a_priority_max_fee_yields_priority_minus_standard() {
     // Admit at priority quote (admission lane = posted_lane).
     gate.try_admit(&tx, q_priority).unwrap();
     // Include at served_lane = Standard, charging the standard quote.
-    let charge = gate.on_inclusion(tx.id, Lane::Standard, q_standard).unwrap();
+    let charge = gate
+        .on_inclusion(tx.id, Lane::Standard, q_standard)
+        .unwrap();
     assert_eq!(charge.actual_fee_lovelace, standard_fee);
     assert_eq!(charge.refund_lovelace, max_fee - standard_fee);
     // And the formula equals the spec's pinned identity for case (a):
@@ -436,10 +437,7 @@ fn refund_formula_case_a_priority_max_fee_yields_priority_minus_standard() {
 
 #[test]
 fn refund_formula_case_b_above_priority_yields_max_minus_standard() {
-    use crate::{
-        config::MempoolGateConfig,
-        sim::mempool_gate::MempoolGate,
-    };
+    use crate::{config::MempoolGateConfig, sim::mempool_gate::MempoolGate};
     // Case (b): posted=Priority, served=Standard, max_fee > priority fee.
     // Expected refund = max_fee − standard_fee (NOT a hardcoded
     // priority−standard).
@@ -467,7 +465,9 @@ fn refund_formula_case_b_above_priority_yields_max_minus_standard() {
         urgency_component_index: 0,
     });
     gate.try_admit(&tx, q_priority).unwrap();
-    let charge = gate.on_inclusion(tx.id, Lane::Standard, q_standard).unwrap();
+    let charge = gate
+        .on_inclusion(tx.id, Lane::Standard, q_standard)
+        .unwrap();
     assert_eq!(charge.actual_fee_lovelace, standard_fee);
     assert_eq!(charge.refund_lovelace, max_fee - standard_fee);
     // Crucially, the formula is NOT priority − standard:
@@ -553,14 +553,17 @@ fn fifo_orders_by_submission_age_in_unreserved_rb() {
     sim.next_slot();
 
     let events = sim.drain_events();
-    let std_pos = events.iter().position(|e| {
-        matches!(e, Event::TXIncluded { id, .. } if *id == standard_tx.id)
-    });
-    let prio_pos = events.iter().position(|e| {
-        matches!(e, Event::TXIncluded { id, .. } if *id == priority_tx.id)
-    });
+    let std_pos = events
+        .iter()
+        .position(|e| matches!(e, Event::TXIncluded { id, .. } if *id == standard_tx.id));
+    let prio_pos = events
+        .iter()
+        .position(|e| matches!(e, Event::TXIncluded { id, .. } if *id == priority_tx.id));
     assert!(std_pos.is_some(), "standard tx must be included under Fifo");
-    assert!(prio_pos.is_some(), "priority tx must be included under Fifo");
+    assert!(
+        prio_pos.is_some(),
+        "priority tx must be included under Fifo"
+    );
     assert!(
         std_pos < prio_pos,
         "Fifo: older tx (standard) must be included before newer tx (priority); \
@@ -611,10 +614,7 @@ fn rb_reserved_standard_isolation_through_simulator() {
 /// drive one slot, count served-lane outcomes. Returns
 /// `(priority_inclusions, standard_inclusions)`.
 fn run_congestion_scenario(variant: RawTwoLaneVariant) -> (usize, usize) {
-    let cfg = RawPricingConfig::TwoLane(two_lane_cfg(
-        variant,
-        LaneSelectionOrder::PriorityFirst,
-    ));
+    let cfg = RawPricingConfig::TwoLane(two_lane_cfg(variant, LaneSelectionOrder::PriorityFirst));
     let mut sim = TwoLaneDriver::new(cfg);
     let big_max_fee = MIN_FEE_B + 100_000 * RB_BODY_MAX;
     // Saturating demand: 12 priority + 12 standard txs at 10k each
@@ -721,7 +721,10 @@ fn eb_partition_unit_test_four_cases() {
         &[(30_000, Lane::Priority), (60_000, Lane::Priority)],
         50_000,
     );
-    assert!(activated, "case (iv): capacity-bound rejection trigger fires");
+    assert!(
+        activated,
+        "case (iv): capacity-bound rejection trigger fires"
+    );
 }
 
 // ============================================================================
@@ -773,11 +776,7 @@ fn refuse_to_endorse_breaks_inclusion_and_pricing_cascade() {
     sim_refuse.submit_tx(bystander.clone());
 
     let producer = sim_refuse.producer_id();
-    let pricing_before = sim_refuse
-        .nodes
-        .get(&producer)
-        .unwrap()
-        .pricing_snapshot();
+    let pricing_before = sim_refuse.nodes.get(&producer).unwrap().pricing_snapshot();
     let bystander_resident_before = {
         let node = sim_refuse.nodes.get(&producer).unwrap();
         node.gate_contains_for_test(&bystander.id)
@@ -795,17 +794,14 @@ fn refuse_to_endorse_breaks_inclusion_and_pricing_cascade() {
     assert!(!endorsed, "refusal: EB with stale tx must not endorse");
 
     // (1) controller did not move — no priced sample fired.
-    let pricing_after = sim_refuse
-        .nodes
-        .get(&producer)
-        .unwrap()
-        .pricing_snapshot();
+    let pricing_after = sim_refuse.nodes.get(&producer).unwrap().pricing_snapshot();
     assert_eq!(
         pricing_before.priority_quote_per_byte, pricing_after.priority_quote_per_byte,
         "refusal must not feed an EB priced sample to the controller"
     );
     assert_eq!(
-        pricing_before.standard_quote_per_byte, pricing_after.standard_quote_per_byte
+        pricing_before.standard_quote_per_byte,
+        pricing_after.standard_quote_per_byte
     );
     assert_eq!(
         pricing_before.priority_window_util_x_1e9, pricing_after.priority_window_util_x_1e9,
@@ -830,12 +826,14 @@ fn refuse_to_endorse_breaks_inclusion_and_pricing_cascade() {
 
     // No TXIncluded fired for either tx in the refused EB.
     let events = sim_refuse.drain_events();
-    let stale_inclusions = events.iter().filter(|e| {
-        matches!(e, Event::TXIncluded { id, .. } if *id == stale_tx.id)
-    }).count();
-    let bystander_inclusions = events.iter().filter(|e| {
-        matches!(e, Event::TXIncluded { id, .. } if *id == bystander.id)
-    }).count();
+    let stale_inclusions = events
+        .iter()
+        .filter(|e| matches!(e, Event::TXIncluded { id, .. } if *id == stale_tx.id))
+        .count();
+    let bystander_inclusions = events
+        .iter()
+        .filter(|e| matches!(e, Event::TXIncluded { id, .. } if *id == bystander.id))
+        .count();
     assert_eq!(stale_inclusions, 0, "stale tx must not produce TXIncluded");
     assert_eq!(
         bystander_inclusions, 0,
@@ -1171,10 +1169,7 @@ fn run_seeded_pricing_scenario_unreserved() -> String {
 
 mod m2_two_lane_helpers {
     use super::*;
-    use crate::{
-        sim::linear_leios::LinearLeiosNode,
-        tx_pricing::Lane,
-    };
+    use crate::{sim::linear_leios::LinearLeiosNode, tx_pricing::Lane};
 
     /// Run the partition trigger on a fresh node with a hand-built
     /// mempool. Returns whether the partition activated. Used only by

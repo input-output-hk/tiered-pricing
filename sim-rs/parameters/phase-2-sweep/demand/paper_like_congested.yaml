@@ -1,14 +1,26 @@
 # Phase-2 paper-like congested demand.
 #
-# Same urgency mix as `paper_like_moderate.yaml` but at ~6× the
-# arrival rate, sustained. Per-slot total ≈ 150 txs of ~1KB each →
-# ~150KB/slot, exceeding the 90KB RB body cap so demand spills into
-# the EB body and exercises priority-vs-standard lane separation,
-# quote drift, and the multiplier-floor invariant.
+# Same urgency mix as `paper_like_moderate.yaml`, but with the
+# pricing-sim-base phased load envelope so branch-to-branch runtime
+# comparisons are not accidentally shortened by lower demand:
+#
+#   slots    0-400   ramp-up:            ~300 tx/slot
+#   slots  400-1200  sustained overload: ~600 tx/slot
+#   slots 1200-2000  recovery:           ~200 tx/slot
+#
+# With the current ~1KB weighted mean tx size, the overload phase is
+# roughly 600 KB/slot. That exceeds the RB body cap and drives EB
+# traffic, priority-vs-standard lane separation, quote drift, and the
+# multiplier-floor invariant.
 
 actors:
   components:
-    - arrival-rate-per-slot: 12.0
+    # Component 0: high urgency.
+    - arrival-rate-per-slot:
+        phases:
+          - { start-slot: 0, end-slot: 400, rate: 24.0 }
+          - { start-slot: 400, end-slot: 1200, rate: 48.0 }
+          - { start-slot: 1200, end-slot: 2000, rate: 16.0 }
       size-bytes:
         distribution: log-normal
         mu: 6.833
@@ -20,7 +32,12 @@ actors:
       urgency:
         distribution: constant
         value: 5.0
-    - arrival-rate-per-slot: 48.0
+    # Component 1: medium urgency.
+    - arrival-rate-per-slot:
+        phases:
+          - { start-slot: 0, end-slot: 400, rate: 96.0 }
+          - { start-slot: 400, end-slot: 1200, rate: 192.0 }
+          - { start-slot: 1200, end-slot: 2000, rate: 64.0 }
       size-bytes:
         distribution: log-normal
         mu: 6.833
@@ -32,7 +49,12 @@ actors:
       urgency:
         distribution: constant
         value: 2.0
-    - arrival-rate-per-slot: 90.0
+    # Component 2: low urgency.
+    - arrival-rate-per-slot:
+        phases:
+          - { start-slot: 0, end-slot: 400, rate: 180.0 }
+          - { start-slot: 400, end-slot: 1200, rate: 360.0 }
+          - { start-slot: 1200, end-slot: 2000, rate: 120.0 }
       size-bytes:
         distribution: log-normal
         mu: 6.833

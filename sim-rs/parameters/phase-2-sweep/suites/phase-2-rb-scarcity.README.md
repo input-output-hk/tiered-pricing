@@ -40,18 +40,15 @@ holds when the protected partition is constrained.
   static-standard, `multiplier_floor = 4`). The lower-than-default
   multiplier-floor (×4 instead of ×16) puts more components onto the
   priority lane, raising priority demand into the constrained
-  capacity. Under utility-maximising lane choice with the default
-  `MaxFeePolicy::ScaledOverLaneQuote{4, 1}`:
-  - High-urgency (×5) prefers priority (4× cost vs ~125× retained-value
-    benefit).
-  - Medium-urgency (×2) prefers priority (4× cost vs ~8× benefit).
-  - Low-urgency (×1.05) submits to priority too in practice. The
-    absolute fee gap (priority ~335 K lovelace vs standard ~200 K
-    at era-floor quotes) is small relative to log-normal sampled
-    values, so high-V txs find priority's 1.16× retained-value
-    benefit worth the extra ~135 K fee. Component 2's
-    `priority_included = 89, standard_included = 0` at baseline
-    confirms this — every served low-urgency tx was priority-served.
+  capacity. Actor delay sensitivity is sampled from half-life
+  distributions:
+  - Component 0: hard-deadline / arb tail, median half-life 60s.
+  - Component 1: active DeFi, median half-life 5 minutes.
+  - Component 2: patient traffic, median half-life 1 hour.
+
+  Under utility-maximising lane choice with the default
+  `MaxFeePolicy::ScaledOverLaneQuote{4, 1}`, the short-half-life
+  components create the priority-pressure signal this suite needs.
 
   Net effect: priority is the only served lane in this suite. See
   the *Known caveat* section below for what this implies for the
@@ -109,7 +106,7 @@ under the corrected calibration.
 **The informative signal is the cross-job priority inclusion
 gradient.** As the RB body shrinks, priority capacity (`2 ×
 rb_body_max_size_bytes` per spec) shrinks proportionally. At
-baseline the priority lane absorbs the high+medium-urgency
+baseline the priority lane absorbs the hard-deadline and active-DeFi
 demand; below half-RB it runs out, and additional priority
 demand stalls in the mempool rather than flooding into standard
 (the EB priority partition activates only when the EB body

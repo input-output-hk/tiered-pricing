@@ -2,7 +2,8 @@
 //!
 //! Provides the demand-side surface used by phase-2 suites:
 //! - `ActorComponent` — one weighted profile component sampling
-//!   `(bytes, value, urgency)` per arrival, choosing `posted_lane`,
+//!   `(bytes, value, half-life)` per arrival, deriving the retained-value
+//!   decay base, choosing `posted_lane`,
 //!   and computing `max_fee_lovelace` via a configurable policy.
 //! - `ActorProfile` — list of components plus the
 //!   `block_generation_probability` and `min_fee_b` constants the
@@ -14,7 +15,7 @@
 //!   `ceil_div_u128` from plan lines 138-143. **Validation at config
 //!   load**: `denominator > 0`.
 //! - `lane_choice::pick` — utility-maximising lane choice. Uses
-//!   `libm::pow` for `urgency^(-latency_blocks)` and `libm::round`
+//!   `libm::exp` / `libm::pow` for the retained-value decay math and `libm::round`
 //!   (round-half-away-from-zero) to round into `i128` lovelace
 //!   before the `>` comparison. Bit-deterministic given identical
 //!   inputs.
@@ -25,7 +26,7 @@
 //!   estimator (blocks).
 //!
 //! **Cross-arch caveat (inherited from M2).** `libm::pow` is
-//! bit-stable given identical inputs, but those inputs (`urgency`,
+//! bit-stable given identical inputs, but those inputs (half-life,
 //! `value_lovelace`, `bytes`) are sampled via `rand_distr`, whose
 //! internals use `f64::ln`/`f64::exp` (not in IEEE-754's bit-exact
 //! mandate). Sampling drift can still cause cross-arch divergence in
@@ -246,6 +247,30 @@ pub fn ceil_div_u128(a: u128, b: u128) -> u128 {
     if a == 0 { 0 } else { 1 + (a - 1) / b }
 }
 
+/// Convert an economic value half-life into the paper's exponential
+/// retained-value decay base.
+///
+/// The simulator's welfare formula is `value * urgency^(-latency_blocks)`.
+/// Actor configs specify half-life in wall-clock seconds instead, so one
+/// expected block of delay retains `2^(-seconds_per_block / half_life)`.
+pub fn urgency_from_half_life_seconds(half_life_seconds: f64, seconds_per_block: f64) -> f64 {
+    if !half_life_seconds.is_finite()
+        || half_life_seconds <= 0.0
+        || !seconds_per_block.is_finite()
+        || seconds_per_block <= 0.0
+    {
+        return 1.0;
+    }
+
+    let exponent = core::f64::consts::LN_2 * seconds_per_block / half_life_seconds;
+    let urgency = libm::exp(exponent.min(709.0));
+    if urgency.is_finite() && urgency > 1.0 {
+        urgency
+    } else {
+        1.0
+    }
+}
+
 // ----------------------------------------------------------------------
 // Lane policy + lane-choice math
 // ----------------------------------------------------------------------
@@ -255,11 +280,18 @@ pub fn ceil_div_u128(a: u128, b: u128) -> u128 {
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum LanePolicy {
-    /// Pick the lane with the higher `expected_utility`. If both
-    /// lanes are negative, `submit_when_underwater = true` submits
-    /// anyway with `posted_lane = Standard` (per plan line 165 — the
-    /// phase-2 default; actors don't game submission); `false`
-    /// returns `None`.
+    /// Pick the lane with the higher `expected_utility`. If the best
+    /// lane has utility ≤ 0, behaviour depends on `submit_when_underwater`:
+    /// `true` submits anyway (legacy/test behaviour); `false` returns
+    /// `None` (rational-actor behaviour: refuse to submit unless the
+    /// best lane offers strictly positive expected utility).
+    ///
+    /// Phase-2 production default (M8): `submit_when_underwater = false`.
+    /// Real wallets/services don't submit txs whose expected utility is
+    /// zero or negative; modelling them as submitting at any price
+    /// breaks the controller's demand-response feedback loop and
+    /// produces price runaway under low-demand regimes
+    /// (see docs/phase-2/m8-actor-rationality.md once written).
     UtilityMaximising { submit_when_underwater: bool },
 }
 
@@ -278,8 +310,12 @@ pub mod lane_choice {
 
     /// Pick the lane with the higher expected utility (rounded into
     /// `i128` lovelace via `libm::round`). Ties break to `Standard`.
-    /// Returns `None` only when `submit_when_underwater = false` and
-    /// both lanes' expected utility is negative.
+    ///
+    /// Returns `None` when `submit_when_underwater = false` and the
+    /// best lane's expected utility is ≤ 0 (zero or negative). Rational
+    /// actors don't submit when the chain offers no surplus; the
+    /// "underwater" threshold is inclusive of zero per M8 to give the
+    /// controller a clean demand-response feedback signal.
     pub fn pick(
         value_lovelace: u64,
         urgency: f64,
@@ -297,7 +333,8 @@ pub mod lane_choice {
             LanePolicy::UtilityMaximising {
                 submit_when_underwater,
             } => {
-                if !submit_when_underwater && exp_util_priority < 0 && exp_util_standard < 0 {
+                let best = exp_util_priority.max(exp_util_standard);
+                if !submit_when_underwater && best <= 0 {
                     return None;
                 }
                 Some(if exp_util_priority > exp_util_standard {
@@ -484,8 +521,9 @@ impl ArrivalRate {
 // ----------------------------------------------------------------------
 
 /// One weighted component of an actor profile. Each arrival samples
-/// `(bytes, value, urgency)` from f64 distributions, computes a
-/// `posted_lane` via `LanePolicy`, and computes `max_fee_lovelace`
+/// `(bytes, value, half-life)` from f64 distributions, derives the
+/// exponential decay base used by the retained-value formula, computes
+/// a `posted_lane` via `LanePolicy`, and computes `max_fee_lovelace`
 /// via `MaxFeePolicy`.
 #[derive(Debug, Clone)]
 pub struct ActorComponent {
@@ -503,10 +541,13 @@ pub struct ActorComponent {
     pub size_bytes: FloatDistribution,
     /// Value distribution (lovelace; sampled to f64, rounded to u64).
     pub value_lovelace: FloatDistribution,
-    /// Urgency distribution. Spec calls for u > 1; the actor clamps
-    /// to `[1.0, ∞)` at sample time so the lane-choice math never
-    /// inverts the decay direction.
-    pub urgency: FloatDistribution,
+    /// Economic value half-life distribution, in wall-clock seconds.
+    /// Sampled values are converted to the paper's exponential decay
+    /// base at tx-generation time.
+    pub half_life_seconds: FloatDistribution,
+    /// Expected wall-clock seconds per ranking block. For current
+    /// Cardano calibration this is ~20s.
+    pub seconds_per_block: f64,
     /// Lane-choice policy.
     pub lane_policy: LanePolicy,
     /// Max-fee policy.
@@ -589,6 +630,13 @@ impl ActorComponent {
                 );
             }
         }
+        if !self.seconds_per_block.is_finite() || self.seconds_per_block <= 0.0 {
+            bail!(
+                "seconds_per_block for component {} must be finite and > 0 (got {})",
+                self.index,
+                self.seconds_per_block,
+            );
+        }
         Ok(())
     }
 
@@ -611,19 +659,16 @@ impl ActorComponent {
 
     /// Sample one transaction's `(bytes, value_lovelace, urgency)`
     /// triple. Negative samples are clamped: `bytes ≥ 1`,
-    /// `value_lovelace ≥ 0`, `urgency ≥ 1.0`.
+    /// `value_lovelace ≥ 0`; non-positive half-life samples are
+    /// treated as no decay (`urgency = 1.0`).
     pub fn sample_tx_inputs<R: Rng>(&self, rng: &mut R) -> SampledTxInputs {
         let bytes_f = self.size_bytes.sample(rng);
         let value_f = self.value_lovelace.sample(rng);
-        let urgency_f = self.urgency.sample(rng);
+        let half_life_seconds = self.half_life_seconds.sample(rng);
         SampledTxInputs {
             bytes: bytes_f.max(1.0) as u64,
             value_lovelace: value_f.max(0.0) as u64,
-            urgency: if urgency_f.is_finite() && urgency_f > 1.0 {
-                urgency_f
-            } else {
-                1.0
-            },
+            urgency: urgency_from_half_life_seconds(half_life_seconds, self.seconds_per_block),
         }
     }
 }
@@ -692,7 +737,8 @@ mod tests {
             arrival_rate_per_slot: ArrivalRate::Constant(1.0),
             size_bytes: FloatDistribution::constant(1024.0),
             value_lovelace: FloatDistribution::constant(1_000_000.0),
-            urgency: FloatDistribution::constant(1.05),
+            half_life_seconds: FloatDistribution::constant(300.0),
+            seconds_per_block: 20.0,
             lane_policy: LanePolicy::UtilityMaximising {
                 submit_when_underwater: true,
             },
@@ -1125,6 +1171,14 @@ mod tests {
     }
 
     #[test]
+    fn half_life_seconds_converts_to_urgency_per_expected_block() {
+        // 20s half-life and 20s expected block interval ⇒ one block
+        // halves retained value, so the decay base is exactly 2.
+        let u = urgency_from_half_life_seconds(20.0, 20.0);
+        assert!((u - 2.0).abs() < 1e-12);
+    }
+
+    #[test]
     fn net_utility_can_be_negative_regret_event() {
         // retained < actual_fee ⇒ negative net_utility.
         let nu = welfare::net_utility(100.0, 500);
@@ -1335,8 +1389,8 @@ mod tests {
             // value can be negative under a normal distribution; it
             // must be clamped to ≥ 0.
             value_lovelace: FloatDistribution::normal(-1_000_000.0, 1.0),
-            // urgency below 1 must be clamped to 1.0.
-            urgency: FloatDistribution::constant(0.5),
+            // half-life below zero must collapse to no decay.
+            half_life_seconds: FloatDistribution::constant(-1.0),
             // size below 1 byte must be clamped to 1.
             size_bytes: FloatDistribution::constant(0.0),
             ..comp_default()

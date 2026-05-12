@@ -80,7 +80,7 @@ Each sample is appended to its controller's `CapacityWeightedWindow`; the simula
 
 Transaction fields:
 - `value_lovelace: u64`
-- `urgency: f64`
+- `urgency: f64` — derived retained-value decay base, computed from actor half-life inputs
 - `bytes: u64`
 - `max_fee_lovelace: u64` — total posted max
 - `posted_lane: Lane` — what the user paid into
@@ -131,7 +131,7 @@ New module `sim-rs/sim-core/src/tx_actors.rs`. Actor profile is a list of weight
 - arrival rate
 - transaction size distribution
 - value distribution (samples `value_lovelace`)
-- urgency distribution (samples `urgency` — a real number `> 1` per the paper)
+- value half-life distribution in seconds (`half-life-seconds`); the simulator derives the paper's `urgency > 1` decay base from `urgency = 2^(seconds_per_block / half_life_seconds)`
 - `lane_policy`: utility-maximising lane choice (defined below)
 - `max_fee_policy`: enum of named policies; default `ScaledOverLaneQuote { numerator: 4, denominator: 1 }` (rational multiplier — **not** f64, to keep simulation-affecting state deterministic across platforms) producing
   ```
@@ -146,7 +146,7 @@ A transaction sampled from a component records `urgency_component_index` for per
 
 **Welfare formulas** (pinned, not left to the implementer):
 
-- `retained_value(value_lovelace, urgency, latency_blocks) = value_lovelace × urgency^(-latency_blocks)`. This is the Kiayias et al. paper's exponential-in-blocks decay (Kiayias et al., "Tiered Mechanisms for Blockchain Transaction Fees", arXiv:2304.06014). Latency conversion: `latency_blocks = latency_slots as f64 × block_generation_probability` (e.g., with `block_generation_probability = 0.05`, 20 slots → 1.0 block; latency may be fractional).
+- `retained_value(value_lovelace, urgency, latency_blocks) = value_lovelace × urgency^(-latency_blocks)`. This is the Kiayias et al. paper's exponential-in-blocks decay (Kiayias et al., "Tiered Mechanisms for Blockchain Transaction Fees", arXiv:2304.06014). Actor configs specify economic half-life in seconds and convert to `urgency = 2^(seconds_per_block / half_life_seconds)`. Latency conversion: `latency_blocks = latency_slots as f64 × block_generation_probability` (e.g., with `block_generation_probability = 0.05`, 20 slots → 1.0 block; latency may be fractional).
 - `net_utility(tx) = retained_value(tx) − actual_fee_lovelace(tx)` for an *included* transaction.
 - For an *evicted or unincluded* transaction: `retained_value = 0`, no fee paid, `net_utility = 0`. The actor simply lost the opportunity.
 - For an *included* transaction whose `retained_value < actual_fee`, `net_utility` is negative (a regret event).
@@ -205,7 +205,7 @@ The new branch carries no configs at the start. Authoring order: protocol baseli
 **Protocol baseline** — `sim-rs/parameters/phase-2-sweep/protocol-base.yaml` overlaying `parameters/linear.yaml` with the spec's defaults (`minFeeA = 44`, `minFeeB = 155381`, `mempool_max_total_size_bytes = 2 × eb_referenced_txs_max_size_bytes` per the simulator's interpretation of the spec's "max block body size" in linear-Leios, default actor `max_fee_policy = ScaledOverLaneQuote { numerator: 4, denominator: 1 }`).
 
 **Demand profiles** (initially 2; expand only if an experiment requires it):
-- `paper_like_moderate.toml` — moderate demand, weighted high/medium/low urgency components matching the spec's value-urgency narrative.
+- `paper_like_moderate.toml` — moderate demand, weighted hard-deadline / active-DeFi / patient components using half-life distributions.
 - `paper_like_congested.toml` — sustained congestion to exercise quote drift, evictions, and partition activation.
 
 **Pricing configs** by mechanism, one TOML per controller-tuning point:
@@ -227,7 +227,7 @@ Roughly 20-30 pricing configs total — substantially fewer than the `pricing-si
 4. `phase-2-priority-only-unreserved.yaml` — un-reserved priority-only premium with the same multiplier sweep, comparing partition vs no partition.
 5. `phase-2-two-lane-both-dynamic.yaml` — both-dynamic, partitioned and un-partitioned variants.
 6. `phase-2-rb-scarcity.yaml` — restates the previous RB-scarcity experimental question on the two-lane mechanism: how does priority-lane access to one RB-worth of guaranteed service hold up when RB capacity is reduced? Compares baseline RB capacity vs reduced.
-7. `phase-2-urgency-inversion.yaml` — restates the urgency-inversion question: under congested demand with mis-priced actors (high-urgency actors with low maxFee multipliers), does the priority lane still deliver urgency separation? Compares utility-maximising actors vs mis-priced actors on a two-lane priority-dynamic mechanism.
+7. `phase-2-urgency-inversion.yaml` — restates the urgency-inversion question: under congested demand with mis-priced actors (short-half-life actors with low maxFee multipliers), does the priority lane still deliver urgency separation? Compares utility-maximising actors vs mis-priced actors on a two-lane priority-dynamic mechanism.
 
 The "premium queue" experimental question is subsumed by suites 3 and 4 (RB-reserved priority-only is the spec equivalent of the previous "premium queue strict" intent). Documented in the suite's README, not split into its own suite, unless the multiplier sweep needs different actor demand.
 
@@ -266,7 +266,7 @@ Goal: prove the new pricing semantics end-to-end on the simplest possible setup.
 
 ### M3: Actor model + metrics + suite runner + authored phase-2 suites
 
-- Implement `tx_actors.rs` from scratch: weighted multi-component value-urgency sampling, `lane_policy`, `max_fee_policy` (default `ScaledOverLaneQuote { numerator: 4, denominator: 1 }`).
+- Implement `tx_actors.rs` from scratch: weighted multi-component value/half-life sampling, `lane_policy`, `max_fee_policy` (default `ScaledOverLaneQuote { numerator: 4, denominator: 1 }`).
 - Implement `events.rs` welfare-metrics core: per-actor/per-component breakdowns, lane audit, time-series, comparison tables, diagnostics.
 - Implement runner + suite-runner CLI with resumable manifest.
 - Author `protocol-base.yaml`, `paper_like_moderate.toml`, `paper_like_congested.toml`.

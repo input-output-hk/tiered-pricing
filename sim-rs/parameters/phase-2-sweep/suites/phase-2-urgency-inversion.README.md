@@ -2,11 +2,11 @@
 
 ## Experimental question
 
-**With high-urgency actors paired with a low-multiplier
+**With short-half-life actors paired with a low-multiplier
 `MaxFeePolicy` (zero quote-drift headroom), does the priority lane
-still deliver urgency separation? Or do mis-priced high-urgency
+still deliver urgency separation? Or do mis-priced short-half-life
 actors get evicted under sustained drift while correctly-priced
-lower-urgency actors retain their service?**
+lower-sensitivity actors retain their service?**
 
 The phase-2 mechanism's promise is that under congestion, urgent
 users self-select into the priority lane and receive faster
@@ -18,7 +18,7 @@ that gives zero drift headroom — the mempool gate will evict them
 on the first controller update that nudges `c_priority` upward.
 
 This suite asks: how robust is urgency separation to mis-pricing on
-the high-urgency component?
+the hard-deadline / arb component?
 
 ## Relation to the previous (tiered-backend) framing
 
@@ -30,8 +30,8 @@ fee).
 
 The two-lane translation: instead of "low-urgency actors paying high
 fees beat high-urgency actors paying low fees", the question becomes
-"high-urgency actors with zero quote-drift headroom lose priority
-service to lower-urgency actors with adequate headroom". The
+"short-half-life actors with zero quote-drift headroom lose priority
+service to lower-sensitivity actors with adequate headroom". The
 mechanism is the mempool gate's quote-drift revalidation: as
 `c_priority` ticks up under load, mis-priced actors fall out of the
 mempool while correctly-priced actors hold their place.
@@ -45,20 +45,16 @@ mis-pricing?" — re-expressed in two-lane vocabulary.
   (partitioned both-dynamic, `multiplier_floor = 4`). Both lanes
   are dynamic, so both `c_standard` and `c_priority` move under
   load. The lower-than-spec-default `multiplier_floor` (4 vs 16) is
-  picked to drive both high-urgency and medium-urgency components
-  onto the priority lane under utility-maximising lane choice — at
-  16, only high-urgency picks priority and priority demand is too
-  low to saturate the partition, so `c_priority` stays at the floor
-  and no eviction shape emerges. With `multiplier_floor = 4`,
-  high+medium urgency together generate roughly 120/240/80 KB per
-  slot across the phased congested profile. This saturates priority
-  service during the overload phase, the priority controller drifts
-  upward, and mis-priced txs at `{1, 1}` zero-headroom are evicted on
-  the next update.
+  picked to drive the hard-deadline and active-DeFi components onto
+  the priority lane under utility-maximising lane choice. With
+  `multiplier_floor = 4`, those short-half-life components saturate
+  priority service during the overload phase, the priority controller
+  drifts upward, and mis-priced txs at `{1, 1}` zero-headroom are
+  evicted on the next update.
 - **Demand**: two profiles compared.
   - `paper_like_congested.yaml` — every component carries the
     default `ScaledOverLaneQuote{4, 1}` (4× headroom).
-  - `paper_like_mispriced.yaml` — high-urgency component (0)
+  - `paper_like_mispriced.yaml` — hard-deadline component (0)
     carries `ScaledOverLaneQuote{1, 1}` (zero headroom); other
     components keep `{4, 1}`.
 - **Slots**: 2000 per seed x 3 seeds x 2 jobs = 6 runs.
@@ -124,7 +120,7 @@ eviction count:
   comp-0 tx gets included even before mispricing kicks in.
 
 The interpretation under the corrected calibration: mispriced
-high-urgency actors face a double penalty — eviction risk
+short-half-life actors face a double penalty — eviction risk
 (quote drift past their `{1, 1}` budget) plus surrender of all
 refund margin even when included. The `{4, 1}` default exists
 precisely to give actors a safety margin against drift; the

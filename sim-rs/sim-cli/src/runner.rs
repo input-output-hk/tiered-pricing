@@ -573,6 +573,7 @@ pub async fn run_job(suite: &Suite, job_idx: usize, seed: u64) -> Result<RunSumm
         collector
             .set_multiplier_floor(s.multiplier_floor.numerator, s.multiplier_floor.denominator);
     }
+    collector.set_shock_window_slots(config.endorsement_window_slots());
     // Pin the time-series representative to the lexicographically
     // smallest node name. Without this, the first node to schedule
     // its `PricingTick` task wins, which depends on tokio scheduling

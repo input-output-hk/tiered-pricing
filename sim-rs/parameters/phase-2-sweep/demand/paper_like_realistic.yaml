@@ -1,29 +1,21 @@
 # Phase-2 paper-like REALISTIC demand.
 #
 # Lower-load realistic profile (~150 tx/slot, about 150 KB/slot),
-# with the urgency mix re-calibrated to empirically-grounded values
-# rather than the IOG-paper default of 5.0.
+# with value-decay sampled as economic half-lives rather than fixed
+# urgency constants.
 #
-# Urgency calibration (Sundaeswap-derived; see
-# pricing-sim-base:sim-rs/parameters/phase-2-sweep/demand/sundaeswap_moderate.toml
-# for the underlying real-world tx mix at the Jan 2022 DEX launch):
+# Half-life calibration:
 #
-#   urgency=2.0  → models MEV arbitrage bots, the ceiling of observed
-#                  Cardano-load urgency. Value half-life ~20s (1 block).
-#   urgency=1.5  → models active DeFi / whale swaps (Sundaeswap-observed
-#                  range 1.15-1.5). Value half-life ~34s (~1.7 blocks).
-#   urgency=1.05 → typical retail / staking / governance. Value half-life
-#                  ~280s (~14 blocks).
+#   hard-deadline / arb tail  → log-normal median 60s.
+#   active DeFi              → log-normal median 5 minutes.
+#   patient traffic          → log-normal median 1 hour.
 #
-# Compositional shares roughly match Sundaeswap launch-day mix:
-#   ~10% MEV/arb, ~40% active DeFi, ~50% retail.
+# Compositional shares intentionally model a DeFi-heavy stress day:
+#   ~10% hard-deadline/arb, ~40% active DeFi, ~50% patient traffic.
 #
 # Contrast with `paper_like_congested.yaml`, which is now a heavier
-# 300/600/200 tx/slot phased stress profile and retains the IOG-paper
-# urgency=5.0 high-component (value half-life ~9s). That profile is
-# useful for academic benchmarking and "design envelope" stress tests,
-# but represents users who are structurally underwater under any
-# phase-2 mechanism with observed latencies > a few seconds.
+# 300/600/200 tx/slot phased stress profile with the same half-life
+# families but much higher arrival rates.
 
 actors:
   components:
@@ -36,9 +28,10 @@ actors:
         distribution: log-normal
         mu: 17.0
         sigma: 0.4
-      urgency:
-        distribution: constant
-        value: 2.0
+      half-life-seconds:
+        distribution: log-normal
+        mu: 4.094345    # median 60s
+        sigma: 0.5
     - arrival-rate-per-slot: 60.0
       size-bytes:
         distribution: log-normal
@@ -48,9 +41,10 @@ actors:
         distribution: log-normal
         mu: 15.0
         sigma: 0.4
-      urgency:
-        distribution: constant
-        value: 1.5
+      half-life-seconds:
+        distribution: log-normal
+        mu: 5.703782    # median 5 minutes
+        sigma: 0.6
     - arrival-rate-per-slot: 75.0
       size-bytes:
         distribution: log-normal
@@ -60,6 +54,7 @@ actors:
         distribution: log-normal
         mu: 13.0
         sigma: 0.4
-      urgency:
-        distribution: constant
-        value: 1.05
+      half-life-seconds:
+        distribution: log-normal
+        mu: 8.188689    # median 1 hour
+        sigma: 1.0

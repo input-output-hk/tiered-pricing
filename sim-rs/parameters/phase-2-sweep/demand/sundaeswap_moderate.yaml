@@ -15,11 +15,12 @@
 #   slots 1200 – 2000  recovery:    ~15 tx/slot
 #
 # Each TOML "actor" maps to N "components" in our schema (one per
-# value-urgency tuple), with arrival rate = actor.rate × tuple.weight.
-# Urgency uniform-ranges in the source TOML are collapsed to their
-# midpoint here (our current `DistributionConfig` doesn't carry
-# `Uniform`; the urgency ranges are tight enough that the midpoint
-# is faithful — e.g. [1.001, 1.005] → 1.003).
+# value-decay tuple), with arrival rate = actor.rate × tuple.weight.
+# Public SundaeSwap congestion data constrains demand shape and
+# backlog, not per-user urgency. Half-life distributions below are
+# use-case priors: background traffic decays over hours/days, retail
+# DEX traffic over minutes, and the automated arb tail over about a
+# minute.
 #
 # Origin: SundaeSwap launch data, see CoinTelegraph / CoinDesk
 # coverage Jan 2022.
@@ -34,34 +35,34 @@ actors:
     - arrival-rate-per-slot: 3.6
       size-bytes: { distribution: normal, mean: 350.0, std_dev: 80.0 }
       value-lovelace: { distribution: normal, mean: 1000000.0, std_dev: 400000.0 }
-      urgency: { distribution: constant, value: 1.003 }
+      half-life-seconds: { distribution: log-normal, mu: 11.366743, sigma: 1.0 } # median 1 day
     # 25% staking / governance
     - arrival-rate-per-slot: 1.5
       size-bytes: { distribution: normal, mean: 350.0, std_dev: 80.0 }
       value-lovelace: { distribution: normal, mean: 600000.0, std_dev: 250000.0 }
-      urgency: { distribution: constant, value: 1.00125 }
+      half-life-seconds: { distribution: log-normal, mu: 12.05989, sigma: 1.0 } # median 2 days
     # 15% moderate transfer
     - arrival-rate-per-slot: 0.9
       size-bytes: { distribution: normal, mean: 350.0, std_dev: 80.0 }
       value-lovelace: { distribution: normal, mean: 3000000.0, std_dev: 1500000.0 }
-      urgency: { distribution: constant, value: 1.0065 }
+      half-life-seconds: { distribution: log-normal, mu: 9.980449, sigma: 1.0 } # median 6 hours
 
     # --- background_defi (4 tx/slot, slots 0-2000) ---
     # 50% routine swap
     - arrival-rate-per-slot: 2.0
       size-bytes: { distribution: normal, mean: 1000.0, std_dev: 400.0 }
       value-lovelace: { distribution: normal, mean: 4000000.0, std_dev: 2000000.0 }
-      urgency: { distribution: constant, value: 1.02 }
+      half-life-seconds: { distribution: log-normal, mu: 7.495542, sigma: 0.8 } # median 30 minutes
     # 30% larger DeFi op
     - arrival-rate-per-slot: 1.2
       size-bytes: { distribution: normal, mean: 1000.0, std_dev: 400.0 }
       value-lovelace: { distribution: normal, mean: 10000000.0, std_dev: 4000000.0 }
-      urgency: { distribution: constant, value: 1.0275 }
+      half-life-seconds: { distribution: log-normal, mu: 6.802395, sigma: 0.7 } # median 15 minutes
     # 20% small yield farm
     - arrival-rate-per-slot: 0.8
       size-bytes: { distribution: normal, mean: 1000.0, std_dev: 400.0 }
       value-lovelace: { distribution: normal, mean: 2000000.0, std_dev: 800000.0 }
-      urgency: { distribution: constant, value: 1.01 }
+      half-life-seconds: { distribution: log-normal, mu: 8.188689, sigma: 0.8 } # median 1 hour
 
     # --- dex_launch_retail (phased: 0 / 35 / 15 / 3 tx/slot) ---
     # 40% casual swapper
@@ -72,7 +73,7 @@ actors:
           - { start-slot: 1200, end-slot: 2000, rate: 1.2 }
       size-bytes: { distribution: normal, mean: 800.0, std_dev: 200.0 }
       value-lovelace: { distribution: normal, mean: 1500000.0, std_dev: 600000.0 }
-      urgency: { distribution: constant, value: 1.0125 }
+      half-life-seconds: { distribution: log-normal, mu: 7.495542, sigma: 0.7 } # median 30 minutes
     # 35% eager early adopter
     - arrival-rate-per-slot:
         phases:
@@ -81,7 +82,7 @@ actors:
           - { start-slot: 1200, end-slot: 2000, rate: 1.05 }
       size-bytes: { distribution: normal, mean: 800.0, std_dev: 200.0 }
       value-lovelace: { distribution: normal, mean: 5000000.0, std_dev: 2000000.0 }
-      urgency: { distribution: constant, value: 1.04 }
+      half-life-seconds: { distribution: log-normal, mu: 5.703782, sigma: 0.6 } # median 5 minutes
     # 25% FOMO buyer
     - arrival-rate-per-slot:
         phases:
@@ -90,7 +91,7 @@ actors:
           - { start-slot: 1200, end-slot: 2000, rate: 0.75 }
       size-bytes: { distribution: normal, mean: 800.0, std_dev: 200.0 }
       value-lovelace: { distribution: normal, mean: 1000000.0, std_dev: 400000.0 }
-      urgency: { distribution: constant, value: 1.025 }
+      half-life-seconds: { distribution: log-normal, mu: 6.39693, sigma: 0.7 } # median 10 minutes
 
     # --- arbitrage_bots (phased: 0 / 5 / 2 / 0 tx/slot) ---
     # 70% DEX arbitrage
@@ -100,7 +101,7 @@ actors:
           - { start-slot: 800, end-slot: 1200, rate: 1.4 }
       size-bytes: { distribution: normal, mean: 1200.0, std_dev: 300.0 }
       value-lovelace: { distribution: normal, mean: 30000000.0, std_dev: 15000000.0 }
-      urgency: { distribution: constant, value: 1.65 }
+      half-life-seconds: { distribution: log-normal, mu: 4.094345, sigma: 0.5 } # median 60s
     # 30% whale swap
     - arrival-rate-per-slot:
         phases:
@@ -108,4 +109,4 @@ actors:
           - { start-slot: 800, end-slot: 1200, rate: 0.6 }
       size-bytes: { distribution: normal, mean: 1200.0, std_dev: 300.0 }
       value-lovelace: { distribution: normal, mean: 80000000.0, std_dev: 30000000.0 }
-      urgency: { distribution: constant, value: 1.325 }
+      half-life-seconds: { distribution: log-normal, mu: 4.787492, sigma: 0.5 } # median 120s

@@ -176,6 +176,50 @@ pub struct RunSummary {
     /// See `slot_battles_count` for the narrowing condition.
     #[serde(default)]
     pub orphaned_pricing_samples: u64,
+    // ------------------------------------------------------------------
+    // Price-shock UX metrics (M9).
+    //
+    // All four are derived from the per-slot `c_priority` time series
+    // observed at the representative node. They quantify the
+    // user-facing volatility of the priority lane's quote: how
+    // dramatically can the quote move against an in-flight tx between
+    // submission and inclusion?
+    //
+    // The endorsement-window length used for the rolling-window
+    // metrics is `(3 × header_diffusion_time_slots) +
+    // linear_vote_stage_length_slots + linear_diffuse_stage_length_slots`
+    // — 14 slots under CIP-0164 defaults. Configured per run via
+    // `MetricsCollector::set_shock_window_slots`.
+    /// Largest single-slot upward ratio change in `c_priority`. Bounded
+    /// above by the controller's `(D + 1) / D` step size; an empirical
+    /// value above this bound indicates a simulator bug.
+    #[serde(default)]
+    pub max_single_step_priority_shock: f64,
+    /// Worst-case upward shock observed in any rolling
+    /// `shock_window_slots` window of `c_priority`. A user who submits
+    /// at the start of the worst window faces this multiplier on their
+    /// quote before inclusion is possible. If this exceeds the actor's
+    /// `max_fee_lovelace` headroom multiplier (default `{4, 1}` = 4×),
+    /// their tx is at risk of quote-drift eviction.
+    #[serde(default)]
+    pub max_priority_shock_over_window: f64,
+    /// 90th-percentile upward shock across all rolling
+    /// `shock_window_slots` windows. Captures "what does an
+    /// unlucky-but-not-pathological user experience?"
+    #[serde(default)]
+    pub p90_priority_shock_over_window: f64,
+    /// Fraction of rolling `shock_window_slots` windows whose upward
+    /// shock exceeds 4× — i.e., a user with the default
+    /// `ScaledOverLaneQuote{4, 1}` max-fee policy would have evicted
+    /// had they submitted at the window's start.
+    #[serde(default)]
+    pub eviction_risk_rate_at_4x: f64,
+    /// Length (in slots) of the rolling window used to compute the
+    /// shock metrics above. Surfaces so `metrics_comparison.txt`
+    /// readers know what window the shock metrics were measured over.
+    /// 0 = shock metrics not computed (insufficient data or unset).
+    #[serde(default)]
+    pub shock_window_slots: u64,
 }
 
 /// Event-driven welfare-metrics collector.
@@ -231,6 +275,10 @@ pub struct MetricsCollector {
     /// representative node for that slot. Drained at `finalise` to
     /// compute `slot_battles_count` and `orphaned_pricing_samples`.
     sample_producers_by_slot: HashMap<u64, HashSet<String>>,
+    /// M9 shock-window length in slots. The runner sets this from the
+    /// resolved sim config: `(3 × header_diffusion) + L_vote + L_diff`.
+    /// Defaults to 14 (CIP-0164 Table 7) if unset.
+    shock_window_slots: u64,
 }
 
 impl MetricsCollector {
@@ -254,7 +302,15 @@ impl MetricsCollector {
             pricing_ticks: 0,
             pricing_event_hasher: Sha256::new(),
             sample_producers_by_slot: HashMap::new(),
+            shock_window_slots: 14,
         }
+    }
+
+    /// Set the rolling-window length (in slots) used for the
+    /// price-shock UX metrics. Default is 14 (CIP-0164 endorsement
+    /// window). Set by the runner from the resolved sim config.
+    pub fn set_shock_window_slots(&mut self, slots: u64) {
+        self.shock_window_slots = slots;
     }
 
     /// Configure the run-level multiplier-floor invariant for the
@@ -610,6 +666,8 @@ impl MetricsCollector {
                 orphaned_pricing_samples += (producers.len() - 1) as u64;
             }
         }
+        let (max_single_step_shock, max_window_shock, p90_window_shock, eviction_risk_at_4x) =
+            self.compute_price_shock_metrics();
         RunSummary {
             components,
             total_txs_submitted: total_submitted,
@@ -633,7 +691,59 @@ impl MetricsCollector {
             pricing_event_stream_sha256,
             slot_battles_count,
             orphaned_pricing_samples,
+            max_single_step_priority_shock: max_single_step_shock,
+            max_priority_shock_over_window: max_window_shock,
+            p90_priority_shock_over_window: p90_window_shock,
+            eviction_risk_rate_at_4x: eviction_risk_at_4x,
+            shock_window_slots: self.shock_window_slots,
         }
+    }
+
+    /// Compute the four M9 price-shock UX metrics from the per-slot
+    /// priority-quote time series. Returns
+    /// `(max_single_step, max_window, p90_window, eviction_risk_at_4x)`.
+    /// Returns all-zero when there are fewer than `shock_window_slots`
+    /// rows of priced data (insufficient signal).
+    fn compute_price_shock_metrics(&self) -> (f64, f64, f64, f64) {
+        let prices: Vec<u64> = self
+            .rows
+            .iter()
+            .chain(std::iter::once(&self.delta))
+            .map(|r| r.c_priority_quote_per_byte)
+            .filter(|&q| q > 0)
+            .collect();
+        let window = self.shock_window_slots as usize;
+        if prices.len() < 2 || window == 0 || prices.len() < window + 1 {
+            return (0.0, 0.0, 0.0, 0.0);
+        }
+        // Max single-slot ratio change.
+        let mut max_single_step = 1.0_f64;
+        for w in prices.windows(2) {
+            let ratio = (w[1] as f64) / (w[0] as f64);
+            if ratio > max_single_step {
+                max_single_step = ratio;
+            }
+        }
+        // Rolling-window upward shock.
+        let mut window_shocks: Vec<f64> = Vec::with_capacity(prices.len().saturating_sub(window));
+        for i in 0..(prices.len() - window) {
+            let start = prices[i] as f64;
+            let peak = prices[i..i + window].iter().max().copied().unwrap_or(0) as f64;
+            window_shocks.push(peak / start);
+        }
+        let max_window = window_shocks.iter().copied().fold(1.0_f64, f64::max);
+        // p90: 90th-percentile shock across all windows.
+        let mut sorted = window_shocks.clone();
+        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let p90_idx = ((sorted.len() as f64) * 0.9) as usize;
+        let p90 = sorted
+            .get(p90_idx.min(sorted.len() - 1))
+            .copied()
+            .unwrap_or(1.0);
+        // Eviction-risk rate at 4×.
+        let dangerous = window_shocks.iter().filter(|&&s| s > 4.0).count();
+        let eviction_risk = (dangerous as f64) / (window_shocks.len() as f64);
+        (max_single_step, max_window, p90, eviction_risk)
     }
 
     /// Stop accumulating; finalise rows and produce a summary.

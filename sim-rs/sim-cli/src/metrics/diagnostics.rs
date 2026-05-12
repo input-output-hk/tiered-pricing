@@ -128,6 +128,15 @@ pub fn write(
         "- orphaned_pricing_samples: {} (upper bound on representative-node pricing samples applied to RBs the canonical chain would later orphan)",
         summary.orphaned_pricing_samples
     )?;
+    writeln!(
+        f,
+        "- price_shock (window={} slots): max_single_step={:.3}x  max_window={:.2}x  p90_window={:.2}x  eviction_risk_at_4x={:.4}",
+        summary.shock_window_slots,
+        summary.max_single_step_priority_shock,
+        summary.max_priority_shock_over_window,
+        summary.p90_priority_shock_over_window,
+        summary.eviction_risk_rate_at_4x,
+    )?;
     writeln!(f)?;
     writeln!(f, "## Notes")?;
     for n in notes {

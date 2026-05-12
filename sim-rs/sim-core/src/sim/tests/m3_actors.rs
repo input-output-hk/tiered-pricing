@@ -40,8 +40,8 @@ const MIN_FEE_A: u64 = 44;
 
 /// Build a single-component actor profile suitable for tests. The
 /// component fires one tx per slot (mean) at constant 1024 bytes,
-/// constant 1 ADA value, and constant 1.05 urgency. Defaults can be
-/// overridden by the test.
+/// constant 100 ADA value, and constant five-minute value half-life.
+/// Defaults can be overridden by the test.
 fn one_component_actor(arrival_rate_per_slot: f64) -> RawActorProfile {
     RawActorProfile {
         components: vec![RawActorComponent {
@@ -50,7 +50,7 @@ fn one_component_actor(arrival_rate_per_slot: f64) -> RawActorProfile {
             value_lovelace: DistributionConfig::Constant {
                 value: 100_000_000.0,
             },
-            urgency: DistributionConfig::Constant { value: 1.05 },
+            half_life_seconds: DistributionConfig::Constant { value: 300.0 },
             lane_policy: RawLanePolicy::UtilityMaximising {
                 submit_when_underwater: true,
             },
@@ -316,11 +316,11 @@ fn actor_max_fee_policy_default_is_4x_quote() {
 
 #[test]
 fn high_urgency_actor_picks_priority_lane_under_two_lane() {
-    // High urgency + standard lane's 4-block default latency ⇒
+    // Short value half-life + standard lane's 4-block default latency ⇒
     // actor's expected_utility is much higher on Priority despite
     // priority's 16× higher quote (multiplier_floor at construction).
     let mut profile = one_component_actor(1.0);
-    profile.components[0].urgency = DistributionConfig::Constant { value: 5.0 };
+    profile.components[0].half_life_seconds = DistributionConfig::Constant { value: 20.0 };
     profile.components[0].value_lovelace = DistributionConfig::Constant {
         value: 100_000_000.0,
     };

@@ -295,7 +295,7 @@ pub struct RawActorComponent {
     pub arrival_rate_per_slot: RawArrivalRate,
     pub size_bytes: DistributionConfig,
     pub value_lovelace: DistributionConfig,
-    pub urgency: DistributionConfig,
+    pub half_life_seconds: DistributionConfig,
     #[serde(default = "default_lane_policy")]
     pub lane_policy: RawLanePolicy,
     #[serde(default = "default_max_fee_policy")]
@@ -365,8 +365,11 @@ impl From<RawLanePolicy> for LanePolicy {
     }
 }
 
+/// Phase-2 default per M8: rational actors refuse to submit when no
+/// lane offers strictly positive expected utility. See `LanePolicy`
+/// for the rationale.
 fn default_submit_when_underwater() -> bool {
-    true
+    false
 }
 
 /// Phase-2 default per implementation-plan.md line 136.
@@ -379,7 +382,7 @@ fn default_max_fee_policy() -> RawMaxFeePolicy {
 
 fn default_lane_policy() -> RawLanePolicy {
     RawLanePolicy::UtilityMaximising {
-        submit_when_underwater: true,
+        submit_when_underwater: default_submit_when_underwater(),
     }
 }
 
@@ -1107,6 +1110,13 @@ impl SimConfiguration {
         let actors = match params.actors.take() {
             None => None,
             Some(raw) => {
+                let seconds_per_block = if params.rb_generation_probability.is_finite()
+                    && params.rb_generation_probability > 0.0
+                {
+                    1.0 / params.rb_generation_probability
+                } else {
+                    f64::NAN
+                };
                 let mut components = Vec::with_capacity(raw.components.len());
                 for (idx, c) in raw.components.into_iter().enumerate() {
                     components.push(ActorComponent {
@@ -1114,7 +1124,8 @@ impl SimConfiguration {
                         arrival_rate_per_slot: c.arrival_rate_per_slot.into(),
                         size_bytes: c.size_bytes.into(),
                         value_lovelace: c.value_lovelace.into(),
-                        urgency: c.urgency.into(),
+                        half_life_seconds: c.half_life_seconds.into(),
+                        seconds_per_block,
                         lane_policy: c.lane_policy.into(),
                         max_fee_policy: c.max_fee_policy.into(),
                         target_inclusion_blocks_priority: c.target_inclusion_blocks_priority,
@@ -1200,6 +1211,17 @@ impl SimConfiguration {
 
     pub fn mempool_gate_config(&self) -> MempoolGateConfig {
         self.mempool_gate
+    }
+
+    /// Endorsement window length in slots:
+    /// `(3 × header_diffusion_time_secs) + L_vote_slots + L_diff_slots`.
+    /// Used by phase-2 metrics to size the price-shock rolling window.
+    pub fn endorsement_window_slots(&self) -> u64 {
+        let header_secs = self.header_diffusion_time.as_secs();
+        header_secs
+            .saturating_mul(3)
+            .saturating_add(self.linear_vote_stage_length)
+            .saturating_add(self.linear_diffuse_stage_length)
     }
 }
 

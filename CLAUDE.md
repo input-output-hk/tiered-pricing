@@ -352,6 +352,17 @@ READMEs because their framing matches the spec directly.
   unit-test constants, M5 suite goldens) reproduce bit-identically
   on the same arch (the development machine is x86_64 / glibc).
   Cross-arch CI verification is documented as not-yet-built.
+- **"Single-producer" ≠ "single mempool"; "one tx source" ≠ "one
+  mempool".** Every node has its own mempool — admission/eviction/
+  inclusion run per-node, gossip distributes txs across the network.
+  `topology-single-producer.yaml` is the only topology where N=1, so
+  the producer/source/mempool counts all happen to coincide; in any
+  multi-node topology (e.g. `topology.default.yaml`, `topology-cip-
+  realistic.yaml`) there are N mempools regardless of how many nodes
+  carry `tx-generation-weight`. Don't infer "one source ⇒ one
+  mempool" — gossip propagation, slot-battle dynamics, and per-node
+  `LatencyEstimator` state all behave per-mempool even with a
+  single explicit source.
 - **`Event::TXGenerated` carries `slot: u64`** (M4) so the metrics
   collector reads `submit_slot` from the event field, not from a
   delta-tracking ordering invariant. Don't re-introduce a delta-slot

@@ -514,6 +514,22 @@ impl ArrivalRate {
                 .map_or(0.0, |p| p.rate),
         }
     }
+
+    /// Divide every rate by `divisor`. Used by the SimConfiguration
+    /// build path when an actor profile is configured but no node has
+    /// explicit `tx_generation_weight`: the simulator auto-enables
+    /// every node as a source and rescales per-component rates so
+    /// network-aggregate demand matches the profile.
+    pub fn scale_by(&mut self, divisor: f64) {
+        match self {
+            ArrivalRate::Constant(r) => *r /= divisor,
+            ArrivalRate::Phased(phases) => {
+                for p in phases.iter_mut() {
+                    p.rate /= divisor;
+                }
+            }
+        }
+    }
 }
 
 // ----------------------------------------------------------------------

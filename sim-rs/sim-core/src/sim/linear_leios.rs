@@ -655,6 +655,10 @@ impl LinearLeiosNode {
 
         let referenced_by_eb = self.acknowledge_tx(&tx);
         let added_to_mempool = self.try_add_tx_to_mempool(&tx);
+        if !referenced_by_eb && !added_to_mempool {
+            self.forget_actor_pending(id);
+            self.forget_terminal_tx(id);
+        }
 
         // If we added the TX to our mempool, we want to propagate it so our peers can as well.
         // If it was referenced by an EB, we want to propagate it so our peers have the full EB.
@@ -1984,6 +1988,7 @@ impl LinearLeiosNode {
                 );
                 self.gate.remove_silent(tx.id);
                 self.forget_actor_pending(tx.id);
+                self.forget_terminal_tx(tx.id);
                 continue;
             }
             let refund = tx.max_fee_lovelace - actual_fee;
@@ -2000,6 +2005,7 @@ impl LinearLeiosNode {
                 refund,
             );
             self.observe_actor_inclusion(tx.id, *served_lane, slot);
+            self.forget_terminal_tx(tx.id);
         }
     }
 
@@ -2087,12 +2093,12 @@ impl LinearLeiosNode {
                 record.max_fee_lovelace,
             );
             self.forget_actor_pending(record.tx_id);
-            // Look up the underlying tx to find its `input_id`. Evicted
-            // txs are still in `self.txs` (TransactionView::Received)
-            // because we never drop them from the propagation cache.
+            // Look up the underlying tx before pruning it from the
+            // propagation cache.
             if let Some(TransactionView::Received(tx)) = self.txs.get(&record.tx_id) {
                 input_ids.insert(tx.input_id);
             }
+            self.forget_terminal_tx(record.tx_id);
         }
         if !input_ids.is_empty() {
             // Drop these from the conflict-aware mempool. Any newly
@@ -2131,6 +2137,22 @@ impl LinearLeiosNode {
                     .send_to(*peer, Message::AnnounceTx(newly_queued_tx));
             }
         }
+        for tx in txs {
+            self.forget_terminal_tx(tx.id);
+        }
+    }
+
+    /// Bound the per-node transaction propagation cache once a tx is
+    /// terminal for this node. Full-body Linear EBs/RBs carry the tx
+    /// payloads in block structures, so old standalone tx cache entries
+    /// are not needed after admission rejection, inclusion, or eviction.
+    ///
+    /// Do not prune `LinearWithTxReferences`: in that mode EB validation
+    /// and voting intentionally depend on the standalone tx cache.
+    fn forget_terminal_tx(&mut self, tx_id: TransactionId) {
+        if matches!(self.sim_config.variant, LeiosVariant::Linear) {
+            self.txs.remove(&tx_id);
+        }
     }
 
     fn resolve_ledger_state(&mut self, rb_ref: Option<BlockId>) -> Arc<LedgerState> {
@@ -2168,7 +2190,9 @@ impl LinearLeiosNode {
                 match self.leios.ebs.get(&endorsement.eb) {
                     Some(EndorserBlockView::Received { eb, .. }) => {
                         for tx in &eb.txs {
-                            if self.has_tx(tx.id) {
+                            if matches!(self.sim_config.variant, LeiosVariant::Linear)
+                                || self.has_tx(tx.id)
+                            {
                                 state.spent_inputs.insert(tx.input_id);
                             } else {
                                 complete = false;

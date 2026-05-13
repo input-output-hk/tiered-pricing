@@ -10,7 +10,7 @@ use rand::Rng;
 use rand_chacha::ChaCha20Rng;
 use rand_distr::Distribution;
 use serde::{Deserialize, Serialize};
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::{
     clock::Timestamp,
@@ -1107,6 +1107,34 @@ impl SimConfiguration {
             min_fee_a,
             min_fee_b,
         };
+        // Footgun guard: an actor profile with zero eligible source
+        // nodes silently produces zero traffic. The per-node default
+        // (`stake > 0 → 0, else → 1` at `linear_leios.rs`) suppresses
+        // every node in any stake-bearing topology where `tx-generation-
+        // weight` is omitted (e.g. `parameters/topology.default.yaml`).
+        // When an actor profile is configured and no node has an
+        // explicit positive weight, treat the topology as "every node
+        // is an actor source" and rescale per-component arrival rates
+        // by 1/N so network-aggregate demand matches the profile.
+        let auto_default_sources = params.actors.is_some()
+            && !topology.nodes.is_empty()
+            && topology
+                .nodes
+                .iter()
+                .all(|n| n.tx_generation_weight.is_none_or(|w| w == 0));
+        if auto_default_sources {
+            let n = topology.nodes.len();
+            for node in topology.nodes.iter_mut() {
+                node.tx_generation_weight = Some(1);
+            }
+            warn!(
+                "no node had tx_generation_weight > 0; defaulting all {} nodes to weight=1 \
+                 and rescaling per-component arrival rates by 1/{} so network-aggregate \
+                 demand matches the profile. Set tx-generation-weight explicitly on at \
+                 least one node to opt out.",
+                n, n,
+            );
+        }
         let actors = match params.actors.take() {
             None => None,
             Some(raw) => {
@@ -1117,11 +1145,21 @@ impl SimConfiguration {
                 } else {
                     f64::NAN
                 };
+                let scale_divisor = if auto_default_sources {
+                    topology.nodes.len() as f64
+                } else {
+                    1.0
+                };
                 let mut components = Vec::with_capacity(raw.components.len());
                 for (idx, c) in raw.components.into_iter().enumerate() {
+                    let mut arrival_rate: crate::tx_actors::ArrivalRate =
+                        c.arrival_rate_per_slot.into();
+                    if scale_divisor > 1.0 {
+                        arrival_rate.scale_by(scale_divisor);
+                    }
                     components.push(ActorComponent {
                         index: idx as u32,
-                        arrival_rate_per_slot: c.arrival_rate_per_slot.into(),
+                        arrival_rate_per_slot: arrival_rate,
                         size_bytes: c.size_bytes.into(),
                         value_lovelace: c.value_lovelace.into(),
                         half_life_seconds: c.half_life_seconds.into(),

@@ -7,7 +7,7 @@ suite-name: phase-2-sundaeswap-both-dynamic
 output-dir: output/phase-2/sundaeswap-both-dynamic
 seeds: [1, 2, 3]
 default-slots: 2000
-default-topology: parameters/phase-2-sweep/topology-cip-realistic.yaml
+default-topology: parameters/topology.default.yaml
 default-protocol: parameters/phase-2-sweep/protocol-base.yaml
 default-demand: parameters/phase-2-sweep/demand/sundaeswap_moderate.yaml
 

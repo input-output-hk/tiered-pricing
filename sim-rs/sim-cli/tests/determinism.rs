@@ -6,7 +6,7 @@
 //! committed golden under
 //! `parameters/phase-2-sweep/suites/.goldens/<suite>.sha256`.
 //!
-//! These tests are slow (each baseline run is a 200-slot
+//! These tests are slow (each baseline run is clamped to a 200-slot
 //! single-producer simulation) and `#[ignore]`'d by default so the
 //! standard `cargo test` cycle stays fast. Run them via:
 //!
@@ -27,6 +27,8 @@
 use std::path::{Path, PathBuf};
 
 use sim_cli::{runner, suite::Suite};
+
+const DETERMINISM_SLOTS: u64 = 200;
 
 /// `sim-rs/` root, computed from cargo's `CARGO_MANIFEST_DIR`
 /// (`sim-rs/sim-cli/`). Suite YAMLs reference paths like
@@ -49,6 +51,10 @@ fn goldens_path(suite_name: &str) -> PathBuf {
     sim_rs_root()
         .join("parameters/phase-2-sweep/suites/.goldens")
         .join(format!("{suite_name}.sha256"))
+}
+
+fn determinism_topology_path() -> PathBuf {
+    sim_rs_root().join("parameters/phase-2-sweep/topology-single-producer.yaml")
 }
 
 /// Rebase every relative path inside a freshly-loaded `Suite` onto
@@ -107,6 +113,10 @@ fn run_baseline_and_check_golden(suite_name: &str, baseline_job: &str, seed: u64
                 suite.jobs.iter().map(|j| &j.name).collect::<Vec<_>>()
             )
         });
+    suite.default_slots = DETERMINISM_SLOTS;
+    suite.jobs[job_idx].overrides.slots = Some(DETERMINISM_SLOTS);
+    suite.default_topology = determinism_topology_path();
+    suite.jobs[job_idx].overrides.topology = Some(suite.default_topology.clone());
 
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()

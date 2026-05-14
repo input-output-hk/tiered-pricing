@@ -1047,12 +1047,7 @@ impl SimConfiguration {
         // (implementation-plan.md §Finite mempool cap, line 124).
         let mempool_max_total_size_bytes = params
             .mempool_max_total_size_bytes
-            .or_else(|| {
-                params
-                    .eb_referenced_txs_max_size_bytes
-                    .checked_mul(2)
-                    .into()
-            })
+            .or_else(|| params.eb_referenced_txs_max_size_bytes.checked_mul(2))
             .unwrap_or(u64::MAX);
         let pricing = match params.pricing.clone().unwrap_or(RawPricingConfig::Baseline) {
             RawPricingConfig::Baseline => PricingConfig::Baseline,

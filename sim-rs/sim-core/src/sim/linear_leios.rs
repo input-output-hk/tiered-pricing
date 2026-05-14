@@ -402,8 +402,11 @@ impl StalenessPredictor {
 /// integer step count, with a floor of 1 (always assume at least
 /// one drift step is possible over a non-trivial window).
 ///
-/// Cross-arch determinism: f64 +, ×, and √ are bit-exact under
-/// IEEE-754; `libm::ceil` is bit-stable across architectures.
+/// Cross-arch determinism: f64 +, − and × are correctly-rounded per
+/// IEEE-754 §5.4.1; `libm::sqrt` and `libm::ceil` are software
+/// implementations and therefore bit-stable across architectures.
+/// (Hardware `f64::sqrt` is NOT mandated correctly-rounded by IEEE-754
+/// — using `libm::sqrt` closes that gap.)
 fn endorsement_window_priced_blocks(cfg: &SimConfiguration) -> u32 {
     let window_slots = cfg
         .header_diffusion_time
@@ -412,7 +415,7 @@ fn endorsement_window_priced_blocks(cfg: &SimConfiguration) -> u32 {
         .saturating_add(cfg.linear_vote_stage_length)
         .saturating_add(cfg.linear_diffuse_stage_length);
     let mu = (window_slots as f64) * cfg.block_generation_probability;
-    let bound = mu + 2.0 * mu.sqrt();
+    let bound = mu + 2.0 * libm::sqrt(mu);
     let n = libm::ceil(bound) as u32;
     n.max(1)
 }
@@ -445,6 +448,16 @@ impl NodeImpl for LinearLeiosNode {
         // re-enter the active mempool with no fee admission, no
         // quote-drift revalidation, and no inclusion charging.
         let mempool_max_size_bytes = gate.config().max_total_size_bytes;
+        // Invariant: mempool.max_size_bytes == gate.max_total_size_bytes.
+        // The construction above enforces this; the explicit assert
+        // surfaces any future drift (e.g. a "soft cap" knob added to
+        // one but not the other) that would silently reopen the
+        // queue-bypass path described in `Mempool::try_insert`.
+        debug_assert_eq!(
+            mempool_max_size_bytes,
+            gate.config().max_total_size_bytes,
+            "mempool byte cap must equal gate byte cap to keep the gate the sole byte-cap authority"
+        );
         let pricing: Box<dyn PricingBackend> = match sim_config.pricing_config() {
             PricingConfig::Baseline => Box::new(BaselinePricing::new(
                 sim_config.mempool_gate_config().min_fee_a,
@@ -897,7 +910,24 @@ impl LinearLeiosNode {
                 .and_then(|x| x.checked_add(min_fee_b));
             match posted_fee {
                 Some(fee) if fee <= tx.max_fee_lovelace => continue,
-                _ => return false,
+                Some(_) => return false,
+                None => {
+                    // Genuine arithmetic overflow — distinct from
+                    // "tx's max_fee_lovelace was exceeded". Refusing the
+                    // endorsement is still correct (the EB cannot ship),
+                    // but the overflow is a pathological-config signal
+                    // we want diagnosable in the log stream rather than
+                    // silently conflated with staleness.
+                    tracing::warn!(
+                        "EB endorsement skipped due to fee arithmetic overflow: \
+                         tx={:?} q={} bytes={} min_fee_b={}",
+                        tx.id,
+                        q,
+                        tx.bytes,
+                        min_fee_b
+                    );
+                    return false;
+                }
             }
         }
         true
@@ -2570,6 +2600,18 @@ impl Mempool {
         }
     }
     fn try_insert(&mut self, tx: Arc<Transaction>) -> bool {
+        // Invariant: `mempool_count <= queue.len()`. The "queue" holds
+        // both the active mempool prefix (first `mempool_count` items)
+        // and any overflow items waiting for slack. Anything that
+        // breaks this ordering would let an overflow item slip into
+        // the active mempool without going through the gate (see the
+        // dead-code comment on the gate ↔ mempool invariant).
+        debug_assert!(
+            self.mempool_count <= self.queue.len(),
+            "mempool_count ({}) must not exceed queue.len() ({})",
+            self.mempool_count,
+            self.queue.len()
+        );
         let new_bytes = self.mempool_size_bytes + tx.bytes;
         if self.mempool_count < self.queue.len() || new_bytes > self.max_size_bytes {
             // mempool is or would be full, just put this at the end and Be Done

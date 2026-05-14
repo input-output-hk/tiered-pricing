@@ -306,6 +306,8 @@ pub mod lane_choice {
     //! Lane-choice math. Cross-arch determinism scope is documented at
     //! the module top.
 
+    use std::cmp::Ordering;
+
     use super::{Lane, LaneInputs, LanePolicy};
 
     /// Pick the lane with the higher expected utility (rounded into
@@ -337,10 +339,14 @@ pub mod lane_choice {
                 if !submit_when_underwater && best <= 0 {
                     return None;
                 }
-                Some(if exp_util_priority > exp_util_standard {
-                    Lane::Priority
-                } else {
-                    Lane::Standard
+                // Explicit `cmp` instead of `>` to make the tie-break
+                // policy load-bearing in the code rather than implicit
+                // in the comparison operator: equal expected utilities
+                // (including the both-zero edge case) route to
+                // Standard.
+                Some(match exp_util_priority.cmp(&exp_util_standard) {
+                    Ordering::Greater => Lane::Priority,
+                    Ordering::Equal | Ordering::Less => Lane::Standard,
                 })
             }
         }

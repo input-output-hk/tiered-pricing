@@ -163,7 +163,11 @@ impl SmokeDriver {
             self.time.advance_time(next);
             now = next;
 
-            let mut updates: HashMap<NodeId, EventResult<LinearLeiosNode>> = HashMap::new();
+            // BTreeMap (not HashMap) so iteration order is deterministic.
+            // Single-node smoke test doesn't strictly need this, but it
+            // future-proofs the driver shape against multi-node reuse
+            // and costs nothing here.
+            let mut updates: BTreeMap<NodeId, EventResult<LinearLeiosNode>> = BTreeMap::new();
             if now == next_slot_time {
                 self.slot += 1;
                 for (id, node) in &mut self.nodes {

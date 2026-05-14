@@ -7,7 +7,7 @@ use sha2::{Digest, Sha256};
 use sim_core::{events::Event, model::TransactionId, tx_actors::welfare, tx_pricing::Lane};
 
 /// One row of `time_series.csv`. Built per slot.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct TimeSeriesRow {
     pub slot: u64,
     pub c_priority_quote_per_byte: u64,
@@ -575,6 +575,19 @@ impl MetricsCollector {
     }
 
     fn is_representative(&mut self, node_name: &str) -> bool {
+        // Production callers (runner::run_job) pin the representative
+        // via `set_representative_node` before any event arrives, so
+        // this fallback should never fire in a real suite run. Surface
+        // a regression (e.g. someone deletes the runner's pre-set call)
+        // in dev. Release builds still take the lazy branch as a
+        // permissive fallback for standalone callers, but at least the
+        // debug build won't silently let tokio scheduling pick the
+        // representative.
+        debug_assert!(
+            self.representative_node.is_some(),
+            "representative node should be pre-pinned by the runner before any event is ingested; \
+             the lazy first-arrival fallback is only safe for explicitly opt-in standalone uses"
+        );
         match &self.representative_node {
             Some(name) => name == node_name,
             None => {
@@ -616,16 +629,14 @@ impl MetricsCollector {
     }
 
     fn is_zero_row(&self, row: &TimeSeriesRow) -> bool {
-        row.included_bytes_priority == 0
-            && row.included_bytes_standard == 0
-            && row.included_count_priority == 0
-            && row.included_count_standard == 0
-            && row.evicted_quote_drift_count == 0
-            && row.fees_paid_lovelace == 0
-            && row.refund_lovelace == 0
-            && row.c_priority_quote_per_byte == 0
-            && row.c_standard_quote_per_byte == 0
-            && row.mempool_bytes_total == 0
+        // Compare against an all-default row at the same slot so any
+        // future field added to `TimeSeriesRow` is automatically
+        // covered. Avoids the open-coded subset that would silently
+        // misclassify rows where only a newly-added column was set.
+        row == &TimeSeriesRow {
+            slot: row.slot,
+            ..Default::default()
+        }
     }
 
     /// Build a non-consuming snapshot for progressive artefact writes
@@ -905,6 +916,7 @@ mod tests {
     #[test]
     fn slot_boundary_flushes_in_progress_row() {
         let mut c = MetricsCollector::new(0.05);
+        c.set_representative_node("n0");
         // Slot 1 has activity.
         c.ingest(&pricing_tick("n0", 1, 100, 50));
         c.ingest(&tx_generated(1, 0, 1_000_000, 1.05, 1024));
@@ -930,6 +942,7 @@ mod tests {
     #[test]
     fn empty_first_row_is_suppressed() {
         let mut c = MetricsCollector::new(0.05);
+        c.set_representative_node("n0");
         c.ingest(&pricing_tick("n0", 0, 44, 44));
         c.ingest(&pricing_tick("n0", 1, 44, 44));
         let (rows, _) = c.finalise();
@@ -960,6 +973,7 @@ mod tests {
     #[test]
     fn negative_net_utility_is_preserved_in_summary() {
         let mut c = MetricsCollector::new(0.05);
+        c.set_representative_node("n0");
         c.ingest(&pricing_tick("n0", 0, 1000, 1000));
         // value 1, urgency 1.0 ⇒ retained_value = 1.0; actual_fee
         // 1_000_000 ⇒ net_utility = 1.0 - 1_000_000 = very negative.
@@ -983,6 +997,7 @@ mod tests {
     fn pricing_event_stream_hash_deterministic_across_runs() {
         fn run_once() -> String {
             let mut c = MetricsCollector::new(0.05);
+            c.set_representative_node("n0");
             c.ingest(&pricing_tick("n0", 0, 100, 50));
             c.ingest(&tx_generated(1, 0, 1_000_000, 1.05, 1024));
             c.ingest(&tx_included(1, 0, 1024, Lane::Priority, 200, 800));
@@ -1010,8 +1025,15 @@ mod tests {
         assert_ne!(h1, h2);
     }
 
-    /// Lazy fallback: with no pre-set representative, the first
-    /// observed node wins and other nodes' ticks are ignored.
+    /// Lazy fallback (release-only safety net): with no pre-set
+    /// representative, the first observed node wins and other nodes'
+    /// ticks are ignored. **Debug builds panic on this path** via the
+    /// `debug_assert!` in `is_representative`, surfacing the regression
+    /// risk that a future change deletes the runner's pre-set call.
+    /// This test pins the release-mode behaviour and stays `cfg`-gated
+    /// off the debug build so the assert keeps biting where it
+    /// matters.
+    #[cfg(not(debug_assertions))]
     #[test]
     fn representative_node_lazy_fallback_picks_first_arrived() {
         let mut c = MetricsCollector::new(0.05);
@@ -1020,6 +1042,17 @@ mod tests {
         c.ingest(&pricing_tick("n1", 0, 999, 999));
         let (_, summary) = c.finalise();
         assert_eq!(summary.pricing_ticks, 1);
+    }
+
+    /// Debug builds: the lazy first-arrival fallback panics via the
+    /// `is_representative` debug_assert. This locks in the regression
+    /// surface so any future removal of the assert is caught.
+    #[cfg(debug_assertions)]
+    #[test]
+    #[should_panic(expected = "representative node should be pre-pinned")]
+    fn representative_node_lazy_fallback_panics_in_debug() {
+        let mut c = MetricsCollector::new(0.05);
+        c.ingest(&pricing_tick("n0", 0, 100, 50));
     }
 
     /// Pre-set representative pins the choice even when another node
@@ -1054,6 +1087,7 @@ mod tests {
     #[test]
     fn out_of_order_events_do_not_roll_slot_backwards() {
         let mut c = MetricsCollector::new(0.05);
+        c.set_representative_node("n0");
         // Slot 1 has its own activity that must survive untouched.
         c.ingest(&pricing_tick("n0", 1, 90, 45));
         c.ingest(&tx_generated(99, 0, 1_000_000, 1.0, 1024));
@@ -1089,6 +1123,7 @@ mod tests {
     #[test]
     fn multiplier_floor_breach_is_counted() {
         let mut c = MetricsCollector::new(0.05);
+        c.set_representative_node("n0");
         c.set_multiplier_floor(16, 1);
         // priority=44, standard=44 → ratio = 1.0, well below 16. Breach.
         c.ingest(&pricing_tick("n0", 0, 44, 44));
@@ -1100,6 +1135,7 @@ mod tests {
     #[test]
     fn multiplier_floor_holds_no_breach() {
         let mut c = MetricsCollector::new(0.05);
+        c.set_representative_node("n0");
         c.set_multiplier_floor(16, 1);
         // priority=704 = 16*44, standard=44 → ratio = 16.0, exact floor.
         c.ingest(&pricing_tick("n0", 0, 704, 44));
@@ -1112,6 +1148,7 @@ mod tests {
     #[test]
     fn run_summary_json_roundtrip() {
         let mut c = MetricsCollector::new(0.05);
+        c.set_representative_node("n0");
         c.ingest(&pricing_tick("n0", 0, 100, 50));
         c.ingest(&tx_generated(1, 3, 1_000_000, 2.0, 1024));
         c.ingest(&tx_included(1, 0, 1024, Lane::Priority, 200, 800));

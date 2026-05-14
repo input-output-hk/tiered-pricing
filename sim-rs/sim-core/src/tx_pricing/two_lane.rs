@@ -111,6 +111,30 @@ impl TwoLaneSettings {
         if self.priority_reservation_bytes == 0 {
             anyhow::bail!("priority_reservation_bytes must be non-zero");
         }
+        // Bound the multiplier-floor ratio so the u128 → u64 conversion
+        // in `enforce_multiplier_floor` cannot silently saturate for any
+        // plausible `q_standard`. With a ratio cap of 2^32, we can fit
+        //   floor = num × q_standard / den ≤ 2^32 × u64::MAX / 1
+        // comfortably in u128; the residual saturation risk only kicks
+        // in once `q_standard > u64::MAX / ratio`, which itself would
+        // mean the controller has already saturated upstream and the
+        // floor enforcement is moot. Realistic suites use ratios of 4,
+        // 8, or 16 — orders of magnitude below the cap.
+        const MULTIPLIER_FLOOR_RATIO_CAP_LOG2: u32 = 32;
+        let ratio_cap = 1u128 << MULTIPLIER_FLOOR_RATIO_CAP_LOG2;
+        let num = self.multiplier_floor.numerator as u128;
+        let den = self.multiplier_floor.denominator as u128;
+        // Ratio in fixed-point: num/den ≤ 2^32 ↔ num ≤ 2^32 × den.
+        if num > ratio_cap.saturating_mul(den) {
+            anyhow::bail!(
+                "TwoLaneSettings.multiplier_floor ratio too large: \
+                 {}/{} exceeds 2^{} cap; the u128 → u64 conversion in \
+                 enforce_multiplier_floor would saturate silently",
+                self.multiplier_floor.numerator,
+                self.multiplier_floor.denominator,
+                MULTIPLIER_FLOOR_RATIO_CAP_LOG2,
+            );
+        }
         Ok(())
     }
 }
@@ -192,11 +216,14 @@ impl TwoLanePricing {
         if q_priority < floor {
             // Bypass the controller's own window: we're enforcing an
             // invariant, not running an EIP-1559 step. Reach in via the
-            // newly-added setter on `Eip1559Pricing`. The floor fits in
-            // u64 for any sane configuration (q_standard ≤ u64::MAX,
-            // multiplier_floor ratio ≪ 2^64); a misconfiguration that
-            // overflows is a bug we want to surface in dev rather than
-            // silently saturate.
+            // newly-added setter on `Eip1559Pricing`.
+            //
+            // `TwoLaneSettings::validate` caps the multiplier-floor ratio
+            // at 2^32, so floor only exceeds u64::MAX when `q_standard`
+            // is already saturated upstream — at which point the
+            // controller is in pathological territory and saturating the
+            // floor to u64::MAX is the right fallback. The debug_assert
+            // keeps the realistic-config invariant load-bearing in dev.
             debug_assert!(
                 floor <= u64::MAX as u128,
                 "multiplier-floor overflow: floor={floor} num={num} den={den} q_standard={q_standard}"

@@ -277,7 +277,10 @@ pub fn run_suite_with_run_id(suite_path: &Path, run_id: Option<&str>) -> Result<
                 return Err(e).with_context(|| format!("job {} seed {} failed", job.name, seed));
             }
         }
-        manifest.save(&manifest_path)?;
+        // No trailing save here: the Completed arm already persisted the
+        // final manifest state at line 250, and the Failed arm returns
+        // before reaching this point. Keeping a second save was a
+        // defensive belt-and-braces with no recoverable state to write.
     }
 
     write_suite_metrics_comparison(&suite, &manifest)?;

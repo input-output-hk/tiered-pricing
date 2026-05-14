@@ -106,6 +106,43 @@ impl Eip1559Settings {
         if self.window_length == 0 {
             anyhow::bail!("Eip1559Settings.window_length must be non-zero");
         }
+        // Validate that the controller-parameter intermediates fit in u128
+        // for any per-sample bytes value up to a conservative cap. The
+        // worst u128 intermediate in `step` is
+        //   q × (move_den + move_num)   where
+        //   move_den = util_den × target_num × max_change_denominator
+        //   util_den ≤ window_length × MAX_BYTES_PER_SAMPLE
+        //   move_num ≤ move_den
+        //   q ≤ u64::MAX
+        // We bound MAX_BYTES_PER_SAMPLE at 2^40 (≈ 1 TiB per block — well
+        // above realistic block-body caps of ~12 MB) and require that
+        //   u64::MAX × 2 × window_length × 2^40 × target_num × D ≤ u128::MAX
+        // Equivalently, window_length × target_num × D ≤ 2^23.
+        // This catches pathological controller settings (huge D, huge
+        // target_num, huge window_length) at construction. Sample-time
+        // bytes that exceed MAX_BYTES_PER_SAMPLE still saturate as a
+        // belt-and-braces fallback (see `step`).
+        const MAX_BYTES_PER_SAMPLE_LOG2: u32 = 40;
+        const SAFETY_HEADROOM_LOG2: u32 = 1; // factor 2 for (move_den + move_num)
+        let log2_budget: u32 = 128 - 64 - MAX_BYTES_PER_SAMPLE_LOG2 - SAFETY_HEADROOM_LOG2;
+        let budget: u128 = 1u128 << log2_budget;
+        let product = (self.window_length as u128)
+            .checked_mul(self.target_num as u128)
+            .and_then(|x| x.checked_mul(self.max_change_denominator as u128));
+        match product {
+            Some(p) if p <= budget => {}
+            _ => anyhow::bail!(
+                "Eip1559Settings: controller intermediates may overflow u128: \
+                 window_length ({}) × target_num ({}) × max_change_denominator ({}) \
+                 must be ≤ 2^{} = {}; got product {:?}",
+                self.window_length,
+                self.target_num,
+                self.max_change_denominator,
+                log2_budget,
+                budget,
+                product,
+            ),
+        }
         Ok(())
     }
 }
@@ -144,6 +181,16 @@ impl Eip1559Pricing {
     /// vector (each variant emits at most one sample per controller
     /// per block; the filter is what routes them).
     pub fn step_with_lane(&mut self, lane: Lane, samples: &[PricedBlockSample]) {
+        // `samples` is the unfiltered per-block slice; both lanes' samples
+        // arrive together and this function filters its own lane out. A
+        // slice with no matching samples is a legitimate no-op — for
+        // example, RB-reserved variants don't emit a Standard sample on
+        // priority-only RBs, so the standard controller correctly sees
+        // a "no samples for this lane this block" call. No debug_assert
+        // here: the only way "wrong lane passed" could manifest as a
+        // bug is if the caller filtered the slice incorrectly upstream,
+        // and that would be caught by the sample-emission tests rather
+        // than by this filter step.
         for sample in samples.iter().filter(|s| s.controller_lane == lane) {
             self.window.push(*sample);
         }
@@ -181,11 +228,14 @@ impl Eip1559Pricing {
         //   = (util_num · target_den − target_num · util_den)
         //     / (util_den · target_num · D)
         //
-        // u128 holds these for any realistic config (window length 32 ×
-        // u64 bytes ≈ 2^69; target/D parameters single-digit). Saturate
-        // in release as a defensive backstop, but flag pathological
-        // inputs in dev so we don't silently mask a real bug behind a
-        // saturated max value.
+        // `Eip1559Settings::validate` ensures
+        //   window_length × target_num × max_change_denominator
+        // is bounded so any per-sample bytes value up to 2^40 keeps these
+        // u128 intermediates in range. The `saturating_mul`s below are
+        // belt-and-braces only: a fatal misconfig would have failed
+        // earlier in `validate`; a runtime sample exceeding the 2^40
+        // bytes assumption would saturate here (a far less likely
+        // failure mode, but harmless).
         debug_assert!(util_num.checked_mul(target_den).is_some());
         debug_assert!(target_num.checked_mul(util_den).is_some());
         debug_assert!(
@@ -211,7 +261,9 @@ impl Eip1559Pricing {
         // 1/D as rational over `den`: numerator = den / D = den / D.
         // For safety we clamp by comparing signal_abs_num against den/D,
         // i.e. signal_abs_num · D against den.
-        let max_step_num = den / d; // den / D, integer division (safe: D|den_val? not always)
+        // D | den by construction (den = util_den · target_num · D),
+        // so `den / D = util_den · target_num` is exact.
+        let max_step_num = den / d;
         let mut move_num = signal_abs_num;
         let move_den = den;
         // If move_num > max_step_num, clamp.

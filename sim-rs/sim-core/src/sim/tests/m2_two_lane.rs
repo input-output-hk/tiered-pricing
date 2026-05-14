@@ -195,7 +195,13 @@ impl TwoLaneDriver {
             self.time.advance_time(next);
             now = next;
 
-            let mut updates: HashMap<NodeId, EventResult<LinearLeiosNode>> = HashMap::new();
+            // BTreeMap (not HashMap) so iteration order is deterministic.
+            // Single-node tests today don't strictly need this, but the
+            // driver shape will be reused for multi-node M6+ tests and a
+            // HashMap-iteration regression is silent there. Switching
+            // does not affect goldens: the only test running with N>1
+            // would be unable to rely on map order anyway.
+            let mut updates: BTreeMap<NodeId, EventResult<LinearLeiosNode>> = BTreeMap::new();
             if now == next_slot_time {
                 self.slot += 1;
                 for (id, node) in &mut self.nodes {

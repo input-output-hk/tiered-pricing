@@ -23,7 +23,8 @@ use crate::{
     model::{
         BlockId, Endorsement, EndorserBlockId, LinearEndorserBlock as EndorserBlock,
         LinearRankingBlock as RankingBlock, LinearRankingBlockHeader as RankingBlockHeader,
-        NoVoteReason, Transaction, TransactionId, VoteBundle, VoteBundleId,
+        NoVoteReason, PerLaneQuote, Transaction, TransactionId, VoteBundle, VoteBundleId,
+        WindowAggregate,
     },
     sim::{
         MiniProtocol, NodeImpl, SimCpuTask, SimMessage,
@@ -32,8 +33,9 @@ use crate::{
         mempool_gate::MempoolGate,
     },
     tx_pricing::{
-        BaselinePricing, BlockKind, BlockLaneBreakdown, Eip1559Pricing, Lane, LaneSelectionOrder,
-        LaneValidityRule, PricedBlockSample, PricingBackend, TwoLanePricing,
+        BaselinePricing, BlockKind, BlockLaneBreakdown, ChainView, Eip1559Pricing, Lane,
+        LaneSelectionOrder, LaneValidityRule, PricedBlockSample, PricingBackend, TwoLanePricing,
+        snapshot_at,
     },
 };
 
@@ -260,6 +262,14 @@ impl RankingBlockView {
             Self::Received { header_seen, .. } => Some(*header_seen),
         }
     }
+    /// Test/chain-derived helper: the fully-validated RB if this view
+    /// is in the `Received` state.
+    fn received_rb(&self) -> Option<&Arc<RankingBlock>> {
+        match self {
+            Self::Received { rb, .. } => Some(rb),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Default)]
@@ -318,9 +328,22 @@ pub struct LinearLeiosNode {
     /// Phase-2 fee gate: tracks per-lane bytes, fee admission, and
     /// quote-drift revalidation.
     gate: MempoolGate,
-    /// Phase-2 pricing backend (single-lane M1: `BaselinePricing` or
-    /// `Eip1559Pricing`).
+    /// Phase-2 pricing backend (chain-derived, spike 007): a pure-
+    /// function policy object with no mutable controller state. The
+    /// chain-derived `derived_quote` lives on each `LinearRankingBlock`
+    /// in `praos.blocks`.
     pricing: Box<dyn PricingBackend>,
+    /// Whether the backend is two-lane (renders both quotes in the
+    /// `PricingTick` snapshot); cached once at construction so
+    /// `emit_pricing_tick` doesn't dispatch dynamically per tick.
+    pricing_is_two_lane: bool,
+    /// Per-block samples cache for chain-derived computation. Each
+    /// canonical RB's `samples_in_block` (RB body + endorsed EB) is
+    /// stored here so the `ChainView` impl can serve them when a
+    /// descendant computes its own `derived_quote`. Pruned at
+    /// `2 × window_length` behind the chain tip in `publish_rb` to
+    /// keep memory bounded (spike 007 §"Edge cases" item 1).
+    block_samples: BTreeMap<BlockId, Vec<PricedBlockSample>>,
     ledger_states: BTreeMap<BlockId, Arc<LedgerState>>,
     praos: NodePraosState,
     leios: NodeLeiosState,
@@ -458,19 +481,29 @@ impl NodeImpl for LinearLeiosNode {
             gate.config().max_total_size_bytes,
             "mempool byte cap must equal gate byte cap to keep the gate the sole byte-cap authority"
         );
-        let pricing: Box<dyn PricingBackend> = match sim_config.pricing_config() {
-            PricingConfig::Baseline => Box::new(BaselinePricing::new(
-                sim_config.mempool_gate_config().min_fee_a,
-            )),
-            PricingConfig::Eip1559(settings) => Box::new(
-                Eip1559Pricing::new(settings.clone())
-                    .expect("Eip1559Settings validated at config build time"),
-            ),
-            PricingConfig::TwoLane(settings) => Box::new(
-                TwoLanePricing::new(settings.clone())
-                    .expect("TwoLaneSettings validated at config build time"),
-            ),
-        };
+        let (pricing, pricing_is_two_lane): (Box<dyn PricingBackend>, bool) =
+            match sim_config.pricing_config() {
+                PricingConfig::Baseline => (
+                    Box::new(BaselinePricing::new(
+                        sim_config.mempool_gate_config().min_fee_a,
+                    )),
+                    false,
+                ),
+                PricingConfig::Eip1559(settings) => (
+                    Box::new(
+                        Eip1559Pricing::new(settings.clone())
+                            .expect("Eip1559Settings validated at config build time"),
+                    ),
+                    false,
+                ),
+                PricingConfig::TwoLane(settings) => (
+                    Box::new(
+                        TwoLanePricing::new(settings.clone())
+                            .expect("TwoLaneSettings validated at config build time"),
+                    ),
+                    true,
+                ),
+            };
 
         // M3: only nodes with `tx_generation_weight > 0` run actors.
         // Default weight is 0 if `stake > 0`, 1 otherwise (matches the
@@ -525,6 +558,8 @@ impl NodeImpl for LinearLeiosNode {
             mempool: Mempool::new(mempool_max_size_bytes),
             gate,
             pricing,
+            pricing_is_two_lane,
+            block_samples: BTreeMap::new(),
             ledger_states: BTreeMap::new(),
             praos: NodePraosState::default(),
             leios: NodeLeiosState::default(),
@@ -848,6 +883,15 @@ impl LinearLeiosNode {
             (Some(eb_id), Some((eb, withheld_txs)))
         };
 
+        // Chain-derived controller (spike 007): compute the new RB's
+        // `derived_quote` and `window_aggregate` as a pure function of
+        // the parent's chain-derived state + samples emitted by the
+        // parent. This replaces the legacy node-local accumulator.
+        // The block_samples cache is populated below from the new RB
+        // (and its endorsed EB, if any).
+        let (derived_quote, window_aggregate) =
+            self.compute_chain_derived_quote_for_child_of(parent);
+
         let rb = RankingBlock {
             header: RankingBlockHeader {
                 id: BlockId {
@@ -861,12 +905,19 @@ impl LinearLeiosNode {
             },
             transactions: rb_transactions,
             endorsement,
+            derived_quote,
+            window_aggregate,
         };
 
         // Producer charges its own RB body's transactions for inclusion.
         // RB body served-lane policy:
         // - RB-reserved variants (priority-only RB): served_lane = Priority.
         // - Un-reserved (single-lane and un-reserved two-lane): served_lane = posted_lane.
+        //
+        // Chain-derived: charge at the NEW block's `derived_quote`, not
+        // the parent's — the new block is the canonical reference for
+        // its own body. This matches spike 007's design (the controller's
+        // "future" is fixed at production).
         let rb_pairs: Vec<(Arc<Transaction>, Lane)> = rb
             .transactions
             .iter()
@@ -880,7 +931,7 @@ impl LinearLeiosNode {
                 (tx, served)
             })
             .collect();
-        self.charge_inclusions(&rb_pairs);
+        self.charge_inclusions_at(&rb_pairs, rb.derived_quote.standard, rb.derived_quote.priority);
 
         self.tracker.track_praos_block_lottery_won(rb.header.id);
         self.queued
@@ -897,8 +948,12 @@ impl LinearLeiosNode {
     /// the endorser cannot rewrite the EB body, so the only spec-faithful
     /// response to a stale-tx EB is to skip the endorsement entirely.
     fn eb_endorsement_valid(&self, eb: &EndorserBlock) -> bool {
-        let q_standard = self.pricing.current_quote(Lane::Standard);
-        let q_priority = self.pricing.current_quote(Lane::Priority);
+        // Chain-derived: read quotes from the canonical chain tip's
+        // `derived_quote`, not from a node-local accumulator. The
+        // staleness predictor logic upstream uses the same chain-tip
+        // source so producer and endorser agree by construction.
+        let q_standard = self.current_chain_tip_quote(Lane::Standard);
+        let q_priority = self.current_chain_tip_quote(Lane::Priority);
         let min_fee_b = self.gate.config().min_fee_b;
         for tx in &eb.txs {
             let q = match tx.posted_lane {
@@ -1012,39 +1067,39 @@ impl LinearLeiosNode {
         if let Some(eb_id) = rb.header.eb_announcement {
             self.leios.ebs_by_rb.insert(rb.header.id, eb_id);
         }
-        // Phase-2 controller hook: feed any priced-block samples this RB
-        // produces (RB body if non-empty; endorsed EB if locally
-        // validated), update pricing, and revalidate the gate.
+        // Chain-derived controller (spike 007): the RB carries its own
+        // `derived_quote` and `window_aggregate` (computed at production
+        // and stored on the block). Insert into the chain, cache the
+        // block's emitted samples for descendants, prune the cache
+        // tail, and revalidate the mempool gate against the new tip.
         //
-        // M6: emit one event per `apply_priced_block` invocation so
-        // the metrics collector can detect the narrow case where
-        // two sibling RB bodies from different producers were both
-        // fully validated at this node at the same slot.
-        //
-        // The simulator already resolves most slot battles at
-        // header receipt in `finish_validating_rb_header` (~line
-        // 1062): the higher-VRF header is dropped before its body
-        // is ever requested. Those resolutions never reach this
-        // emission. The emission fires for both bodies only when
-        // the VRF race resolves AFTER both bodies have been
-        // requested and validated — the same subset for which the
-        // M1 limitation (no pricing rollback) can mutate the
-        // controller against a later-orphaned RB.
-        //
-        // Hence the resulting collector counters
-        // (`slot_battles_count`, `orphaned_pricing_samples`) are
-        // upper bounds on representative-node pricing-state
-        // contamination. See docs/phase-2/m6-handoff.md for the
-        // noise-bound write-up.
+        // `track_linear_pricing_sample_applied` becomes a "sibling-
+        // pair-fully-validated-at-this-node" event for orphan-rate
+        // observability. Under chain-derivation the counter is no
+        // longer a contamination-bound signal — sibling blocks
+        // produce identical `derived_quote` by pure-function
+        // reasoning, so even fully-validated orphans cannot contaminate
+        // the canonical chain's controller trajectory.
         self.tracker.track_linear_pricing_sample_applied(
             self.id,
             rb.header.id.slot,
             rb.header.id.producer,
         );
-        self.apply_priced_block(&rb);
+        // Cache the samples this block emitted so descendants can read
+        // them via `ChainView::samples_in_block` when computing their
+        // own `derived_quote`.
+        let block_samples = self.samples_for_rb(&rb);
+        let rb_id = rb.header.id;
+        self.block_samples.insert(rb_id, block_samples);
+        let slot = rb_id.slot;
         self.praos
             .blocks
-            .insert(rb.header.id, RankingBlockView::Received { rb, header_seen });
+            .insert(rb_id, RankingBlockView::Received { rb, header_seen });
+        // Bound memory: prune samples older than 2 × window_length
+        // behind the chain tip.
+        self.prune_block_samples();
+        // Revalidate the gate against the new tip's `derived_quote`.
+        self.revalidate_against_new_tip(slot);
     }
 
     fn receive_announce_rb_header(&mut self, from: NodeId, id: BlockId) {
@@ -1441,10 +1496,48 @@ impl LinearLeiosNode {
     fn finish_validating_eb(&mut self, eb: Arc<EndorserBlock>, seen: Timestamp) {
         if self.leios.incomplete_onchain_ebs.remove(&eb.id()) {
             self.remove_eb_txs_from_mempool(&eb);
-            // The cert RB landed on-chain earlier; emit the deferred EB
-            // sample now and run the consequent pricing update +
-            // revalidation. Single-lane: one Standard sample.
-            self.apply_eb_priced_block(&eb);
+            // Chain-derived: the certifying RB's `derived_quote` is
+            // already canonical (computed at production and stored on
+            // the block). What the deferred EB validation gives us is
+            // the chance to populate the `block_samples` cache entry
+            // for the parent RB with the full sample set (RB body +
+            // EB body), so any descendants we produce on top of this
+            // RB read the correct samples. Find the RB carrying this
+            // EB on our canonical chain and update its cached samples.
+            let eb_id = eb.id();
+            // Locate the RB that endorsed this EB on our chain.
+            let mut parent_rb_id: Option<BlockId> = None;
+            for (block_id, view) in self.praos.blocks.iter() {
+                if let Some(rb) = view.received_rb()
+                    && rb
+                        .endorsement
+                        .as_ref()
+                        .is_some_and(|e| e.eb == eb_id)
+                {
+                    parent_rb_id = Some(*block_id);
+                    break;
+                }
+            }
+            if let Some(rb_id) = parent_rb_id
+                && let Some(rb_arc) = self
+                    .praos
+                    .blocks
+                    .get(&rb_id)
+                    .and_then(|v| v.received_rb())
+                    .cloned()
+            {
+                // Recompute samples_for_rb now that the EB is
+                // validated — it will now include the EB body.
+                let samples = self.samples_for_rb(&rb_arc);
+                self.block_samples.insert(rb_id, samples);
+            }
+            // Gate revalidation: the chain tip's `derived_quote` may
+            // not have changed (it was set at production), but a
+            // newly-canonical EB-included tx might already have been
+            // included on the producer side and the gate needs to be
+            // resynced.
+            let slot = (self.clock.now() - Timestamp::zero()).as_secs();
+            self.revalidate_against_new_tip(slot);
         }
         let Some(EndorserBlockView::Received { validated, .. }) = self.leios.ebs.get_mut(&eb.id())
         else {
@@ -1764,8 +1857,9 @@ impl LinearLeiosNode {
 
         // Phase-2 fee admission. Reject if posted_fee at the lane's
         // current quote exceeds the tx's max-fee budget, or if the
-        // mempool byte cap would be exceeded.
-        let quote = self.pricing.current_quote(tx.posted_lane);
+        // mempool byte cap would be exceeded. Chain-derived: the
+        // quote comes from the canonical chain tip's `derived_quote`.
+        let quote = self.current_chain_tip_quote(tx.posted_lane);
         if self.gate.try_admit(tx, quote).is_err() {
             return false;
         }
@@ -1900,13 +1994,24 @@ impl LinearLeiosNode {
         // refuse the entire EB, taking all co-resident standard-fee
         // passengers down with it.
         let endorsement_window_blocks = endorsement_window_priced_blocks(&self.sim_config);
+        // Chain-derived staleness projection: read the chain tip's
+        // `derived_quote` per lane, then project N max-up steps
+        // forward. CR-1's `endorsement_window_priced_blocks` math is
+        // unchanged (`libm::sqrt` / `libm::ceil`, bit-stable across
+        // architectures).
+        let priority_now = self.current_chain_tip_quote(Lane::Priority);
+        let standard_now = self.current_chain_tip_quote(Lane::Standard);
         let predictor = StalenessPredictor {
-            priority_quote_at_endorsement: self
-                .pricing
-                .worst_case_quote_at(Lane::Priority, endorsement_window_blocks),
-            standard_quote_at_endorsement: self
-                .pricing
-                .worst_case_quote_at(Lane::Standard, endorsement_window_blocks),
+            priority_quote_at_endorsement: self.worst_case_quote_for_staleness(
+                Lane::Priority,
+                priority_now,
+                endorsement_window_blocks,
+            ),
+            standard_quote_at_endorsement: self.worst_case_quote_for_staleness(
+                Lane::Standard,
+                standard_now,
+                endorsement_window_blocks,
+            ),
             min_fee_b: self.gate.config().min_fee_b,
         };
 
@@ -1980,12 +2085,32 @@ impl LinearLeiosNode {
     /// charged at the served-lane quote per
     /// implementation-plan.md lines 96-100.
     fn charge_inclusions(&mut self, txs_with_served_lane: &[(Arc<Transaction>, Lane)]) {
+        // Chain-derived: source served-lane quotes from the canonical
+        // chain tip's `derived_quote`. Used by EB inclusion paths
+        // (`try_generate_rb`'s endorsement branch and
+        // `test_endorse_eb_dry_run`) where the consuming block is the
+        // chain tip itself, not a newly-produced RB.
+        let q_standard = self.current_chain_tip_quote(Lane::Standard);
+        let q_priority = self.current_chain_tip_quote(Lane::Priority);
+        self.charge_inclusions_at(txs_with_served_lane, q_standard, q_priority);
+    }
+
+    /// Like `charge_inclusions`, but with the served-lane quotes
+    /// supplied explicitly. Used by the RB-body inclusion path inside
+    /// `try_generate_rb`, where the producer charges its own block's
+    /// txs at the NEW block's `derived_quote` (spike 007: "the values
+    /// used for tx admissibility are the new block's own `derived_quote`
+    /// — the controller's future is fixed at the moment of production").
+    fn charge_inclusions_at(
+        &mut self,
+        txs_with_served_lane: &[(Arc<Transaction>, Lane)],
+        q_standard: u64,
+        q_priority: u64,
+    ) {
         if txs_with_served_lane.is_empty() {
             return;
         }
         let slot = (self.clock.now() - Timestamp::zero()).as_secs();
-        let q_standard = self.pricing.current_quote(Lane::Standard);
-        let q_priority = self.pricing.current_quote(Lane::Priority);
         let min_fee_b = self.gate.config().min_fee_b;
         for (tx, served_lane) in txs_with_served_lane {
             let quote = match served_lane {
@@ -2039,30 +2164,142 @@ impl LinearLeiosNode {
         }
     }
 
-    /// Build priced-block samples from this RB and (if its EB is
-    /// locally validated) the endorsed EB. Apply them to the pricing
-    /// backend, then revalidate the gate; any quote-drift evictions
-    /// emit `TXEvictedQuoteDrift` events and are also removed from the
-    /// linear-leios mempool.
+    /// Chain-derived controller (spike 007): compute the `derived_quote`
+    /// and `window_aggregate` for a new block whose parent is `parent`.
     ///
-    /// **Known limitation (M1)**: pricing state mutates here with no
-    /// rollback path. Slot-battle replacement at
-    /// `finish_validating_rb_header` removes the losing block from
-    /// `praos.blocks` but does not undo controller updates, gate
-    /// `on_inclusion` removals, or `TXIncluded` events that the losing
-    /// block already triggered. The mechanism spec treats `c` as
-    /// ledger state, so a fork resolution conceptually requires
-    /// rolling back the controller and re-applying samples for the
-    /// canonical chain. M1's exit criterion is the single-producer
-    /// smoke test where slot battles cannot occur; M2's deterministic
-    /// scenario tests should either avoid slot battles or implement
-    /// snapshot-and-replay rollback before exercising them.
-    fn apply_priced_block(&mut self, rb: &RankingBlock) {
-        let slot = rb.header.id.slot;
+    /// Pure function of (parent's chain-derived state, samples emitted
+    /// by the parent, samples falling off the tail of the window). No
+    /// per-node mutable accumulator is involved — orphan blocks from
+    /// slot battles cannot contaminate the canonical chain's controller
+    /// trajectory because their `derived_quote` is discarded along with
+    /// the block.
+    ///
+    /// Cold start (no parent): use the backend's `cold_start_quote` for
+    /// each lane and start from `WindowAggregate::ZERO`.
+    fn compute_chain_derived_quote_for_child_of(
+        &self,
+        parent: Option<BlockId>,
+    ) -> (PerLaneQuote, WindowAggregate) {
+        let parent_quote = parent
+            .and_then(|id| self.derived_quote(id))
+            .unwrap_or_else(|| PerLaneQuote {
+                standard: self.pricing.cold_start_quote(Lane::Standard),
+                priority: self.pricing.cold_start_quote(Lane::Priority),
+            });
+        let parent_aggregate = parent
+            .and_then(|id| self.window_aggregate(id))
+            .unwrap_or(WindowAggregate::ZERO);
+        // Samples emitted by the parent (RB body + endorsed EB, per
+        // the variant's samples_for_block policy). Empty during cold
+        // start.
+        let parent_samples: Vec<PricedBlockSample> = parent
+            .map(|id| self.samples_in_block(id).to_vec())
+            .unwrap_or_default();
+        // Samples falling off the tail: the block at distance
+        // `window_length + 1` back. None during the warm-up regime.
+        let window_length = self.pricing.effective_window_length();
+        let evicted_samples: Vec<PricedBlockSample> = parent
+            .filter(|_| window_length != usize::MAX)
+            .and_then(|p| {
+                // Need `window_length` ancestors back from `parent`,
+                // i.e. the block whose samples roll off when we add
+                // the parent's. That is the (window_length-1)-ancestor
+                // of `parent` — its samples were in the window for
+                // `window_length` consecutive blocks ending at parent,
+                // and the new child's window no longer includes them.
+                let k = u32::try_from(window_length).ok()?;
+                let ancestor_id = self.ancestor(p, k)?;
+                Some(self.samples_in_block(ancestor_id).to_vec())
+            })
+            .unwrap_or_default();
+        self.pricing.compute_derived_quote(
+            parent_quote,
+            parent_aggregate,
+            &parent_samples,
+            &evicted_samples,
+        )
+    }
+
+    /// Project the worst-case quote for `lane` after `blocks_ahead`
+    /// max-up controller steps from `current_quote`. Reads the
+    /// backend's static configuration (D, etc.) via the
+    /// `PricingConfig` enum on `sim_config`; the chain-tip quote
+    /// itself is supplied by the caller via `current_quote`. Pure
+    /// math; no node-local state.
+    fn worst_case_quote_for_staleness(
+        &self,
+        lane: Lane,
+        current_quote: u64,
+        blocks_ahead: u32,
+    ) -> u64 {
+        match self.sim_config.pricing_config() {
+            PricingConfig::Baseline => current_quote, // flat fee — no drift
+            PricingConfig::Eip1559(settings) => crate::tx_pricing::single_lane::worst_case_eip1559_quote(
+                current_quote,
+                settings.max_change_denominator,
+                blocks_ahead,
+            ),
+            PricingConfig::TwoLane(settings) => {
+                let d = match lane {
+                    Lane::Priority => settings.priority.max_change_denominator,
+                    Lane::Standard if !settings.variant.standard_dynamic() => {
+                        // c_standard pinned; no drift.
+                        return current_quote;
+                    }
+                    Lane::Standard => settings.standard.max_change_denominator,
+                };
+                crate::tx_pricing::single_lane::worst_case_eip1559_quote(
+                    current_quote,
+                    d,
+                    blocks_ahead,
+                )
+            }
+        }
+    }
+
+    /// Read the quote that consumers (admission, lane choice, EB
+    /// endorsement validation, EB inclusion charging) should use against
+    /// the current canonical chain tip.
+    ///
+    /// Returns the controller state *after* folding in the chain tip's
+    /// own samples — equivalent to a hypothetical child of the tip's
+    /// `derived_quote`. This matches legacy accumulator semantics where
+    /// `pricing.current_quote()` after `publish_rb(tip)` reflected the
+    /// post-`apply_priced_block(tip)` state. The chain tip's stored
+    /// `rb.derived_quote` is one controller step earlier (it was stepped
+    /// from its *parent's* samples), so reading it directly would lag
+    /// admission/charging by one step. RB body inclusion charging
+    /// continues to use the new RB's own `rb.derived_quote` (the
+    /// post-step value computed for that block at production), so all
+    /// consumers end up using the same quote on the canonical chain.
+    ///
+    /// Falls back to the cold-start initial quote when there is no
+    /// canonical RB yet (genesis path).
+    fn current_chain_tip_quote(&self, lane: Lane) -> u64 {
+        let tip = self.latest_rb_id();
+        if tip.is_none() {
+            return self.pricing.cold_start_quote(lane);
+        }
+        let (next_quote, _agg) = self.compute_chain_derived_quote_for_child_of(tip);
+        next_quote.get(lane)
+    }
+
+    /// Read the chain tip's `window_aggregate`. Empty `ZERO` aggregate
+    /// at cold start.
+    fn current_chain_tip_aggregate(&self) -> WindowAggregate {
+        self.latest_rb_id()
+            .and_then(|id| self.praos.blocks.get(&id))
+            .and_then(|view| view.received_rb())
+            .map(|rb| rb.window_aggregate)
+            .unwrap_or(WindowAggregate::ZERO)
+    }
+
+    /// Build priced-block samples for this RB (RB body + endorsed EB
+    /// when locally validated). The returned slice is what canonical
+    /// descendants will fold into their own `compute_derived_quote`
+    /// inputs via the `ChainView::samples_in_block` lookup.
+    fn samples_for_rb(&self, rb: &RankingBlock) -> Vec<PricedBlockSample> {
         let mut samples: Vec<PricedBlockSample> = Vec::new();
-        // Tx-bearing RB → variant-aware sample(s) via the backend's
-        // `samples_for_block` policy. Endorsement-only RB → no RB
-        // sample (implementation-plan.md line 70).
         if !rb.transactions.is_empty() {
             let breakdown = breakdown_for(&rb.transactions, self.sim_config.max_block_size);
             samples.extend(
@@ -2070,37 +2307,52 @@ impl LinearLeiosNode {
                     .samples_for_block(BlockKind::RankingBlock, &breakdown),
             );
         }
-        // Endorsed EB applied alongside this RB iff it's locally
-        // validated. Otherwise the EB sample is deferred until
-        // `finish_validating_eb`.
         if let Some(endorsement) = &rb.endorsement
             && let Some(eb) = self.get_validated_eb(endorsement.eb)
         {
-            samples.extend(self.eb_samples(&eb));
+            let breakdown = breakdown_for(&eb.txs, self.sim_config.max_eb_size);
+            samples.extend(
+                self.pricing
+                    .samples_for_block(BlockKind::EndorserBlock, &breakdown),
+            );
         }
-        self.feed_samples_and_revalidate(slot, &samples);
+        samples
     }
 
-    fn apply_eb_priced_block(&mut self, eb: &EndorserBlock) {
-        let slot = (self.clock.now() - Timestamp::zero()).as_secs();
-        let samples = self.eb_samples(eb);
-        self.feed_samples_and_revalidate(slot, &samples);
-    }
-
-    fn eb_samples(&self, eb: &EndorserBlock) -> Vec<PricedBlockSample> {
-        let breakdown = breakdown_for(&eb.txs, self.sim_config.max_eb_size);
-        self.pricing
-            .samples_for_block(BlockKind::EndorserBlock, &breakdown)
-    }
-
-    fn feed_samples_and_revalidate(&mut self, slot: u64, samples: &[PricedBlockSample]) {
-        if !samples.is_empty() {
-            self.pricing.update_after_block(samples);
+    /// Prune the `block_samples` cache to bound memory at
+    /// `2 × window_length` behind the chain tip. Called from
+    /// `publish_rb` after the new RB lands.
+    fn prune_block_samples(&mut self) {
+        let window_length = self.pricing.effective_window_length();
+        if window_length == usize::MAX {
+            // Baseline has no window — nothing to retain.
+            self.block_samples.clear();
+            return;
         }
-        // Walk the gate; evict any txs whose lane quote drifted above
-        // their max-fee budget. Returns the eviction records.
-        let q_standard = self.pricing.current_quote(Lane::Standard);
-        let q_priority = self.pricing.current_quote(Lane::Priority);
+        let Some(tip_id) = self.latest_rb_id() else {
+            return;
+        };
+        // Walk back 2 × window_length from the tip; anything older can
+        // be evicted (it cannot contribute to any future descendant's
+        // `compute_derived_quote` since the eviction window is
+        // window_length back).
+        let cap = u32::try_from(window_length.saturating_mul(2)).unwrap_or(u32::MAX);
+        let keep_from_slot = match self.ancestor(tip_id, cap) {
+            Some(boundary) => boundary.slot,
+            None => return, // chain shorter than 2×window — nothing to prune
+        };
+        self.block_samples
+            .retain(|id, _| id.slot >= keep_from_slot);
+    }
+
+    /// Revalidate the mempool gate against the new canonical chain
+    /// tip's `derived_quote`. Emits `TXEvictedQuoteDrift` events for
+    /// txs whose lane quote has drifted above their `max_fee_lovelace`.
+    /// Called from `publish_rb` after the new RB is inserted into
+    /// `self.praos.blocks` so the chain tip read is consistent.
+    fn revalidate_against_new_tip(&mut self, slot: u64) {
+        let q_standard = self.current_chain_tip_quote(Lane::Standard);
+        let q_priority = self.current_chain_tip_quote(Lane::Priority);
         let evicted = self.gate.revalidate(|lane| match lane {
             Lane::Standard => q_standard,
             Lane::Priority => q_priority,
@@ -2108,9 +2360,6 @@ impl LinearLeiosNode {
         if evicted.is_empty() {
             return;
         }
-        // Emit the eviction events and clear the same txs from the
-        // linear-leios mempool. `remove_conflicting_txs` is the right
-        // existing API: each evicted tx maps to its `input_id`.
         let mut input_ids: HashSet<u64> = HashSet::with_capacity(evicted.len());
         for record in &evicted {
             self.tracker.track_tx_evicted_quote_drift(
@@ -2123,25 +2372,12 @@ impl LinearLeiosNode {
                 record.max_fee_lovelace,
             );
             self.forget_actor_pending(record.tx_id);
-            // Look up the underlying tx before pruning it from the
-            // propagation cache.
             if let Some(TransactionView::Received(tx)) = self.txs.get(&record.tx_id) {
                 input_ids.insert(tx.input_id);
             }
             self.forget_terminal_tx(record.tx_id);
         }
         if !input_ids.is_empty() {
-            // Drop these from the conflict-aware mempool. Any newly
-            // queued slack txs get re-announced to peers.
-            //
-            // Note for M2: under the gate-is-sole-byte-cap-authority
-            // invariant (handoff §3), `mempool.queue` is empty in the
-            // wired flow, so `remove_conflicting_txs` returns zero
-            // promotions and this fan-out is dead in practice. Kept
-            // as a defensive matched mirror of `sample_from_mempool`'s
-            // re-announce. If multi-node M2 tests reintroduce queue
-            // semantics, double-check that the per-evicted-tx × peers
-            // fan-out cost stays bounded.
             for newly_queued_tx in self.mempool.remove_conflicting_txs(&input_ids) {
                 for peer in &self.consumers {
                     self.queued
@@ -2156,7 +2392,7 @@ impl LinearLeiosNode {
         // these silent removes do not emit inclusion events. Producers
         // emit inclusion events at block-generation time via
         // `charge_inclusions`. Quote-drift evictions emit eviction
-        // events from `apply_priced_block`.
+        // events from `revalidate_against_new_tip` (chain-derived).
         for tx in txs {
             self.gate.remove_silent(tx.id);
         }
@@ -2256,12 +2492,46 @@ impl LinearLeiosNode {
         self.lottery.run(kind, success_rate, &mut self.rng)
     }
 
-    /// Test-only inspection: a fresh `PricingSnapshot` from the
-    /// node's pricing backend. Used by M2 deterministic scenario
-    /// tests (line 313 standard-isolation assertion etc.).
+    /// Test-only inspection: a fresh `PricingSnapshot` derived from
+    /// the canonical chain tip's `derived_quote` + `window_aggregate`.
+    /// Used by M2 deterministic scenario tests (line 313 standard-
+    /// isolation assertion etc.).
     #[cfg(test)]
     pub(crate) fn pricing_snapshot(&self) -> crate::tx_pricing::PricingSnapshot {
-        self.pricing.snapshot()
+        let derived_quote = PerLaneQuote {
+            standard: self.current_chain_tip_quote(Lane::Standard),
+            priority: self.current_chain_tip_quote(Lane::Priority),
+        };
+        let aggregate = self.current_chain_tip_aggregate();
+        snapshot_at(derived_quote, aggregate, self.pricing_is_two_lane)
+    }
+
+    /// Test-only inspection: the consumer-visible chain-tip quote for
+    /// `lane`. Mirrors what admission, lane choice, EB endorsement
+    /// validation, and EB inclusion charging actually read. Used by
+    /// the chain-derived "post-step quote at admission" regression
+    /// test to guard against re-introducing the one-step lag bug
+    /// (fixed 2026-05-14).
+    #[cfg(test)]
+    pub(crate) fn current_chain_tip_quote_for_test(&self, lane: Lane) -> u64 {
+        self.current_chain_tip_quote(lane)
+    }
+
+    /// Test-only inspection: the chain tip's stored `derived_quote`
+    /// for `lane` — i.e., the value computed at the tip's production
+    /// (stepped from its parent's samples), NOT the post-step state
+    /// after the tip's own samples. Used by the regression test to
+    /// demonstrate that this value differs from
+    /// `current_chain_tip_quote_for_test` (the consumer-visible quote)
+    /// once non-empty samples have flowed.
+    #[cfg(test)]
+    pub(crate) fn chain_tip_stored_derived_quote_for_test(&self, lane: Lane) -> Option<u64> {
+        let tip = self.latest_rb_id()?;
+        self.praos
+            .blocks
+            .get(&tip)
+            .and_then(|view| view.received_rb())
+            .map(|rb| rb.derived_quote.get(lane))
     }
 
     /// Test-only inspection: whether the node's mempool gate still
@@ -2276,7 +2546,16 @@ impl LinearLeiosNode {
     /// populate `time_series.csv` rows with controller state and
     /// per-lane mempool bytes. M3+.
     fn emit_pricing_tick(&self, slot: u64) {
-        let snapshot = self.pricing.snapshot();
+        // Chain-derived: render the snapshot from the canonical chain
+        // tip's `derived_quote` + `window_aggregate`, not from a per-
+        // node accumulator. Cold start uses the backend's
+        // `cold_start_quote` values for both lanes.
+        let derived_quote = PerLaneQuote {
+            standard: self.current_chain_tip_quote(Lane::Standard),
+            priority: self.current_chain_tip_quote(Lane::Priority),
+        };
+        let aggregate = self.current_chain_tip_aggregate();
+        let snapshot = snapshot_at(derived_quote, aggregate, self.pricing_is_two_lane);
         self.tracker.track_pricing_tick(
             self.id,
             slot,
@@ -2302,13 +2581,11 @@ impl LinearLeiosNode {
         // Read pricing snapshot + per-lane quotes and latency
         // estimates while we have only an immutable borrow on
         // `self.actor_state`. Then move into a mutable section to
-        // sample, build, and submit.
-        let q_priority = self
-            .pricing
-            .current_quote(crate::tx_pricing::Lane::Priority);
-        let q_standard = self
-            .pricing
-            .current_quote(crate::tx_pricing::Lane::Standard);
+        // sample, build, and submit. Chain-derived: quotes come from
+        // the canonical chain tip's `derived_quote`, not from a
+        // per-node accumulator.
+        let q_priority = self.current_chain_tip_quote(crate::tx_pricing::Lane::Priority);
+        let q_standard = self.current_chain_tip_quote(crate::tx_pricing::Lane::Standard);
         let min_fee_b = self.gate.config().min_fee_b;
         // Snapshot per-component sampling inputs while holding only
         // immutable borrows on actor_state (so we can re-borrow
@@ -2556,8 +2833,53 @@ impl LinearLeiosNode {
         let pairs: Vec<(Arc<Transaction>, Lane)> = eb.txs.iter().cloned().zip(served).collect();
         self.charge_inclusions(&pairs);
         self.remove_eb_txs_from_mempool(&eb);
-        self.apply_eb_priced_block(&eb);
+        // Chain-derived: an EB body does not mutate a per-node
+        // controller. The next RB produced on top of this chain tip
+        // will fold the parent RB's samples (including this EB's
+        // samples, if the parent endorsed it) into its
+        // `derived_quote`. The test's pricing-snapshot assertions
+        // therefore check the chain-tip-derived snapshot, which is
+        // stable across EB-only operations.
         true
+    }
+}
+
+/// ChainView impl — read-only view of the canonical chain exposed to
+/// pure-function compute steps. The backend never gets a mutable
+/// reference to the simulator; this trait is the only seam.
+impl ChainView for LinearLeiosNode {
+    fn ancestor(&self, from: BlockId, k: u32) -> Option<BlockId> {
+        let mut current = Some(from);
+        for _ in 0..k {
+            let id = current?;
+            let view = self.praos.blocks.get(&id)?;
+            let header = view.header()?;
+            current = header.parent;
+        }
+        current
+    }
+
+    fn samples_in_block(&self, block_id: BlockId) -> &[PricedBlockSample] {
+        self.block_samples
+            .get(&block_id)
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+    }
+
+    fn derived_quote(&self, block_id: BlockId) -> Option<PerLaneQuote> {
+        self.praos
+            .blocks
+            .get(&block_id)
+            .and_then(|v| v.received_rb())
+            .map(|rb| rb.derived_quote)
+    }
+
+    fn window_aggregate(&self, block_id: BlockId) -> Option<WindowAggregate> {
+        self.praos
+            .blocks
+            .get(&block_id)
+            .and_then(|v| v.received_rb())
+            .map(|rb| rb.window_aggregate)
     }
 }
 

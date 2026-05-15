@@ -15,6 +15,8 @@
 use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},
+    sync::{Arc, Mutex},
+    thread,
     time::{Duration, Instant},
 };
 
@@ -161,7 +163,7 @@ pub fn apply_run_id(suite: &mut Suite, run_id: Option<&str>) {
 }
 
 pub fn run_suite(suite_path: &Path) -> Result<()> {
-    run_suite_with_run_id(suite_path, None)
+    run_suite_with_run_id(suite_path, None, 1)
 }
 
 /// Same as [`run_suite`], with an optional `run_id` that, if set,
@@ -169,36 +171,60 @@ pub fn run_suite(suite_path: &Path) -> Result<()> {
 /// invocation of the wrapper script timestamp all per-suite outputs
 /// uniformly while preserving resume semantics when the same
 /// `run_id` is passed again.
-pub fn run_suite_with_run_id(suite_path: &Path, run_id: Option<&str>) -> Result<()> {
+///
+/// `parallelism` caps the number of concurrent (job, seed) pairs.
+/// Per-(job, seed) determinism is the simulator's contract — `run_job`
+/// produces bit-identical output regardless of how many siblings run
+/// concurrently — so parallelism only changes wall-clock interleaving,
+/// not the pricing event stream. Each parallel job owns its own
+/// simulator state (config, topology, mempool, collector), so peak RSS
+/// scales linearly in `parallelism`.
+pub fn run_suite_with_run_id(
+    suite_path: &Path,
+    run_id: Option<&str>,
+    parallelism: usize,
+) -> Result<()> {
     let mut suite = Suite::load(suite_path)?;
     apply_run_id(&mut suite, run_id);
     let manifest_path = suite.output_dir.join("manifest.json");
-    let mut manifest = Manifest::load_or_init(&manifest_path, &suite)?;
+    let manifest = Manifest::load_or_init(&manifest_path, &suite)?;
     // Persist initial state so a kill before any job runs leaves a
     // consistent manifest.
     manifest.save(&manifest_path)?;
 
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()?;
+    let parallelism = parallelism.max(1);
+    let suite_arc = Arc::new(suite);
+    let manifest_path_arc = Arc::new(manifest_path.clone());
+    let total_jobs = suite_arc.job_seed_pairs().len();
 
-    let total_jobs = suite.job_seed_pairs().len();
-    for (idx, (job_idx, seed)) in suite.job_seed_pairs().into_iter().enumerate() {
-        let job = &suite.jobs[job_idx];
-        let seed_key = seed.to_string();
+    // Snapshot pending (job, seed) pairs BEFORE dispatch. Suite's natural
+    // iteration order gives deterministic dispatch order; the manifest
+    // snapshot is taken once so "is Completed" checks don't race with
+    // our own writes inside the worker threads.
+    let pending: Vec<(usize, usize, u64)> = suite_arc
+        .job_seed_pairs()
+        .into_iter()
+        .enumerate()
+        .filter(|(_, (job_idx, seed))| {
+            let job = &suite_arc.jobs[*job_idx];
+            let entry = manifest
+                .jobs
+                .get(&job.name)
+                .and_then(|s| s.get(&seed.to_string()));
+            !matches!(entry, Some(e) if e.status == JobStatus::Completed)
+        })
+        .map(|(seq_idx, (job_idx, seed))| (seq_idx, job_idx, seed))
+        .collect();
+
+    // Log already-Completed pairs in suite order so logs match the
+    // pre-refactor sequential layout for the resumed-suite case.
+    for (idx, (job_idx, seed)) in suite_arc.job_seed_pairs().into_iter().enumerate() {
+        let job = &suite_arc.jobs[job_idx];
         let entry = manifest
             .jobs
             .get(&job.name)
-            .and_then(|m| m.get(&seed_key))
-            .cloned()
-            .unwrap_or(JobEntry {
-                status: JobStatus::Pending,
-                started_at_utc: None,
-                completed_at_utc: None,
-                output_path: None,
-                error: None,
-            });
-        if entry.status == JobStatus::Completed {
+            .and_then(|s| s.get(&seed.to_string()));
+        if matches!(entry, Some(e) if e.status == JobStatus::Completed) {
             tracing::info!(
                 "[{}/{}] skip (completed): {} seed={}",
                 idx + 1,
@@ -206,84 +232,224 @@ pub fn run_suite_with_run_id(suite_path: &Path, run_id: Option<&str>) -> Result<
                 job.name,
                 seed
             );
-            continue;
         }
-        tracing::info!(
-            "[{}/{}] run: {} seed={}",
-            idx + 1,
-            total_jobs,
-            job.name,
-            seed
-        );
-        if let Some(jobs) = manifest.jobs.get_mut(&job.name) {
-            jobs.insert(
-                seed_key.clone(),
-                JobEntry {
-                    status: JobStatus::Running,
-                    started_at_utc: Some(Utc::now()),
-                    completed_at_utc: None,
-                    output_path: None,
-                    error: None,
-                },
-            );
-        }
-        manifest.save(&manifest_path)?;
+    }
 
-        let result = runtime.block_on(async { run_job(&suite, job_idx, seed).await });
+    // The `Simulation` future contains `Box<dyn Actor>` which is not
+    // `Send` (sim-core/src/sim.rs:86), so we cannot drive it via a
+    // multi-thread tokio runtime's `spawn`. Instead each parallel job
+    // gets its own OS thread + per-thread `current_thread` runtime,
+    // which keeps the simulation pinned to a single thread (no `Send`
+    // required) while still parallelising across jobs. A
+    // std::sync::Mutex around the manifest is sufficient because lock
+    // hold-times are tiny (single fs::write + a metrics-comparison
+    // O(completed) summary reload).
+    let manifest_arc: Arc<Mutex<Manifest>> = Arc::new(Mutex::new(manifest));
+    let (work_tx, work_rx) = std::sync::mpsc::channel::<(usize, usize, u64)>();
+    let work_rx = Arc::new(Mutex::new(work_rx));
 
-        let job_dir = suite.output_dir.join(&job.name).join(seed.to_string());
-        match result {
-            Ok(summary) => {
-                persist_run_artefacts(&job_dir, &summary)?;
-                if let Some(jobs) = manifest.jobs.get_mut(&job.name) {
-                    jobs.insert(
-                        seed_key.clone(),
-                        JobEntry {
+    // Outcome reported back by each worker so the driver can log and
+    // aggregate failures consistently.
+    struct JobOutcome {
+        job_name: String,
+        seed: u64,
+        seq_idx: usize,
+        result: Result<RunSummary>,
+    }
+    let (done_tx, done_rx) = std::sync::mpsc::channel::<JobOutcome>();
+
+    for (seq_idx, job_idx, seed) in pending {
+        work_tx.send((seq_idx, job_idx, seed)).unwrap();
+    }
+    drop(work_tx);
+
+    let worker_count = parallelism;
+    let mut workers = Vec::with_capacity(worker_count);
+    for _ in 0..worker_count {
+        let suite_w = Arc::clone(&suite_arc);
+        let manifest_w = Arc::clone(&manifest_arc);
+        let manifest_path_w = Arc::clone(&manifest_path_arc);
+        let work_rx_w = Arc::clone(&work_rx);
+        let done_tx_w = done_tx.clone();
+        let handle = thread::spawn(move || -> Result<()> {
+            // Per-thread current_thread runtime. Keeps the
+            // !Send Simulation future pinned to this OS thread.
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()?;
+            loop {
+                let next = {
+                    let rx = work_rx_w.lock().unwrap();
+                    rx.recv()
+                };
+                let (seq_idx, job_idx, seed) = match next {
+                    Ok(item) => item,
+                    Err(_) => break, // channel closed, all work dispatched
+                };
+                let job_name = suite_w.jobs[job_idx].name.clone();
+                let seed_key = seed.to_string();
+
+                tracing::info!(
+                    "[{}/{}] run: {} seed={}",
+                    seq_idx + 1,
+                    total_jobs,
+                    job_name,
+                    seed
+                );
+
+                // Manifest transition: Pending → Running. Hold the lock
+                // for the read-modify-write window only. `Manifest::save`
+                // does a single atomic `std::fs::write`, so on-disk state
+                // is consistent at any SIGINT moment — the
+                // `Manifest::load_or_init` recovery resets Running →
+                // Pending on the next run.
+                let prev_started_at = {
+                    let mut m = manifest_w.lock().unwrap();
+                    let prev = m
+                        .jobs
+                        .get(&job_name)
+                        .and_then(|s| s.get(&seed_key))
+                        .and_then(|e| e.started_at_utc);
+                    if let Some(jobs) = m.jobs.get_mut(&job_name) {
+                        jobs.insert(
+                            seed_key.clone(),
+                            JobEntry {
+                                status: JobStatus::Running,
+                                started_at_utc: Some(Utc::now()),
+                                completed_at_utc: None,
+                                output_path: None,
+                                error: None,
+                            },
+                        );
+                    }
+                    m.save(&manifest_path_w)?;
+                    prev
+                };
+
+                let result =
+                    runtime.block_on(async { run_job(&suite_w, job_idx, seed).await });
+                let job_dir = suite_w.output_dir.join(&job_name).join(seed.to_string());
+
+                // Persist artefacts before the manifest transition so a
+                // crash between "Running" and "Completed" leaves the
+                // artefacts on disk and the next run retries the job
+                // (Running → Pending on reload), which is the safe
+                // direction.
+                let entry = match &result {
+                    Ok(summary) => match persist_run_artefacts(&job_dir, summary) {
+                        Err(e) => JobEntry {
+                            status: JobStatus::Failed,
+                            started_at_utc: prev_started_at.or(Some(Utc::now())),
+                            completed_at_utc: Some(Utc::now()),
+                            output_path: Some(job_dir.clone()),
+                            error: Some(format!("persist_run_artefacts: {e:#}")),
+                        },
+                        Ok(()) => JobEntry {
                             status: JobStatus::Completed,
-                            started_at_utc: entry.started_at_utc.or(Some(Utc::now())),
+                            started_at_utc: prev_started_at.or(Some(Utc::now())),
                             completed_at_utc: Some(Utc::now()),
                             output_path: Some(job_dir.clone()),
                             error: None,
                         },
-                    );
+                    },
+                    Err(e) => JobEntry {
+                        status: JobStatus::Failed,
+                        started_at_utc: prev_started_at,
+                        completed_at_utc: Some(Utc::now()),
+                        output_path: Some(job_dir.clone()),
+                        error: Some(format!("{e:#}")),
+                    },
+                };
+
+                // Manifest transition: Running → Completed | Failed.
+                // Also rewrite metrics_comparison.txt under the same
+                // lock so long-running suites have inspectable partial
+                // comparison output. The metrics-comparison rebuild is
+                // O(completed_jobs) JSON reads (~5-20 ms even for a
+                // full suite), well under simulation runtime.
+                {
+                    let mut m = manifest_w.lock().unwrap();
+                    if let Some(jobs) = m.jobs.get_mut(&job_name) {
+                        jobs.insert(seed_key, entry);
+                    }
+                    m.save(&manifest_path_w)?;
+                    write_suite_metrics_comparison(&suite_w, &m)?;
                 }
-                manifest.save(&manifest_path)?;
-                write_suite_metrics_comparison(&suite, &manifest)?;
-                tracing::info!(
-                    "[{}/{}] done: {} seed={} included={} evicted={} hash={}",
-                    idx + 1,
-                    total_jobs,
-                    job.name,
-                    seed,
-                    summary.total_txs_included,
-                    summary.total_txs_evicted_quote_drift,
-                    &summary.pricing_event_stream_sha256[..16]
-                );
+
+                done_tx_w
+                    .send(JobOutcome {
+                        job_name,
+                        seed,
+                        seq_idx,
+                        result,
+                    })
+                    .ok();
             }
+            Ok(())
+        });
+        workers.push(handle);
+    }
+    drop(done_tx);
+
+    // Aggregate-and-continue rather than fail-fast: a failed (job, seed)
+    // ends Failed in the manifest (recoverable on next run), and
+    // cancelling siblings on first failure would waste in-flight compute.
+    // CI callers that want fail-fast can rely on the non-zero exit code
+    // that propagates from the final `bail!`.
+    let mut failures: Vec<anyhow::Error> = Vec::new();
+    while let Ok(outcome) = done_rx.recv() {
+        match outcome.result {
+            Ok(summary) => tracing::info!(
+                "[{}/{}] done: {} seed={} included={} evicted={} hash={}",
+                outcome.seq_idx + 1,
+                total_jobs,
+                outcome.job_name,
+                outcome.seed,
+                summary.total_txs_included,
+                summary.total_txs_evicted_quote_drift,
+                &summary.pricing_event_stream_sha256[..16]
+            ),
             Err(e) => {
-                if let Some(jobs) = manifest.jobs.get_mut(&job.name) {
-                    jobs.insert(
-                        seed_key.clone(),
-                        JobEntry {
-                            status: JobStatus::Failed,
-                            started_at_utc: entry.started_at_utc,
-                            completed_at_utc: Some(Utc::now()),
-                            output_path: Some(job_dir.clone()),
-                            error: Some(format!("{e:#}")),
-                        },
-                    );
-                }
-                manifest.save(&manifest_path)?;
-                return Err(e).with_context(|| format!("job {} seed {} failed", job.name, seed));
+                tracing::error!(
+                    "[{}/{}] FAILED: {} seed={}: {e:#}",
+                    outcome.seq_idx + 1,
+                    total_jobs,
+                    outcome.job_name,
+                    outcome.seed
+                );
+                failures.push(e.context(format!(
+                    "job {} seed {} failed",
+                    outcome.job_name, outcome.seed
+                )));
             }
         }
-        // No trailing save here: the Completed arm already persisted the
-        // final manifest state at line 250, and the Failed arm returns
-        // before reaching this point. Keeping a second save was a
-        // defensive belt-and-braces with no recoverable state to write.
     }
 
-    write_suite_metrics_comparison(&suite, &manifest)?;
+    // Surface worker-thread infrastructure errors (manifest save
+    // failures, runtime build failures, etc.) as suite failures.
+    for handle in workers {
+        match handle.join() {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => failures.push(e.context("worker thread reported an error")),
+            Err(_) => failures.push(anyhow::anyhow!("worker thread panicked")),
+        }
+    }
+
+    if !failures.is_empty() {
+        let mut combined = anyhow::anyhow!("{} (job, seed) pair(s) failed", failures.len());
+        for e in failures {
+            combined = combined.context(format!("{e:#}"));
+        }
+        return Err(combined);
+    }
+
+    // Final suite-end metrics_comparison rewrite. The in-loop writer
+    // also runs after the last completion under the manifest mutex, so
+    // this trailing write is mostly for the case where no jobs ran
+    // (all already-Completed on resume) — gives the user a fresh
+    // comparison file regardless.
+    let manifest_final = manifest_arc.lock().unwrap();
+    write_suite_metrics_comparison(&suite_arc, &manifest_final)?;
 
     Ok(())
 }
@@ -423,11 +589,19 @@ fn collect_completed_runs(
 /// freshly-computed pricing-event-stream SHA256 matches the
 /// persisted value. Used by `experiment-suite verify`.
 pub fn verify_suite(suite_path: &Path) -> Result<()> {
-    verify_suite_with_run_id(suite_path, None)
+    verify_suite_with_run_id(suite_path, None, 1)
 }
 
-/// See [`run_suite_with_run_id`] for the `run_id` semantics.
-pub fn verify_suite_with_run_id(suite_path: &Path, run_id: Option<&str>) -> Result<()> {
+/// See [`run_suite_with_run_id`] for the `run_id` and `parallelism`
+/// semantics. Verify is read-only over the manifest (no transitions)
+/// so no mutex is needed; concurrent tasks each run their (job, seed)
+/// independently and the driver aggregates outcomes after the JoinSet
+/// drains.
+pub fn verify_suite_with_run_id(
+    suite_path: &Path,
+    run_id: Option<&str>,
+    parallelism: usize,
+) -> Result<()> {
     let mut suite = Suite::load(suite_path)?;
     apply_run_id(&mut suite, run_id);
     let manifest_path = suite.output_dir.join("manifest.json");
@@ -438,13 +612,28 @@ pub fn verify_suite_with_run_id(suite_path: &Path, run_id: Option<&str>) -> Resu
         );
     }
     let manifest = Manifest::load_or_init(&manifest_path, &suite)?;
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()?;
-    let mut mismatches = 0usize;
-    let mut checked = 0usize;
-    for (job_idx, seed) in suite.job_seed_pairs() {
-        let job = &suite.jobs[job_idx];
+    let parallelism = parallelism.max(1);
+
+    // Outcome of a single (job, seed) verify task.
+    struct VerifyOutcome {
+        job_name: String,
+        seed: u64,
+        matched: bool,
+        stored: String,
+        fresh: String,
+    }
+
+    // Pre-flight: walk the manifest in suite order, decide what to
+    // check, surface any malformed hashes BEFORE spawning any work.
+    // Same defensive bail as the previous serial implementation
+    // (corrupt/hand-edited summaries deserialise as empty hashes;
+    // silent pass-by-default is worse than aborting). Doing this
+    // before spawning is also a micro-optimisation: we don't waste
+    // simulator cycles on jobs whose stored hash is unrecoverable.
+    let suite_arc = Arc::new(suite);
+    let mut to_verify: Vec<(usize, u64, String)> = Vec::new();
+    for (job_idx, seed) in suite_arc.job_seed_pairs() {
+        let job = &suite_arc.jobs[job_idx];
         let seed_key = seed.to_string();
         let Some(entry) = manifest.jobs.get(&job.name).and_then(|m| m.get(&seed_key)) else {
             continue;
@@ -453,14 +642,14 @@ pub fn verify_suite_with_run_id(suite_path: &Path, run_id: Option<&str>) -> Resu
             tracing::info!("skip (not completed): {} seed={}", job.name, seed);
             continue;
         }
-        let job_dir = suite.output_dir.join(&job.name).join(seed.to_string());
+        let job_dir = suite_arc.output_dir.join(&job.name).join(seed.to_string());
         let stored = std::fs::read_to_string(job_dir.join(HASH_FILE)).with_context(|| {
             format!(
                 "reading {} (manifest says completed; expected hash file)",
                 job_dir.join(HASH_FILE).display()
             )
         })?;
-        let stored = stored.trim();
+        let stored = stored.trim().to_string();
         // Defensive: a corrupt or hand-edited summary file with a
         // missing `pricing_event_stream_sha256` deserialises with an
         // empty string under `#[serde(default)]`, and the dedicated
@@ -476,27 +665,125 @@ pub fn verify_suite_with_run_id(suite_path: &Path, run_id: Option<&str>) -> Resu
                 stored,
             );
         }
-        let summary = runtime.block_on(async { run_job(&suite, job_idx, seed).await })?;
-        let fresh = summary.pricing_event_stream_sha256.trim();
-        checked += 1;
-        if stored == fresh {
+        to_verify.push((job_idx, seed, stored));
+    }
+
+    // Worker-thread pool: same shape as `run_suite_with_run_id` — the
+    // `Simulation` future isn't `Send` so we drive it via per-thread
+    // `current_thread` runtimes rather than a tokio multi-thread pool.
+    // No manifest mutation during verify, so no shared lock needed.
+    let (work_tx, work_rx) = std::sync::mpsc::channel::<(usize, u64, String)>();
+    let work_rx = Arc::new(Mutex::new(work_rx));
+    let (done_tx, done_rx) = std::sync::mpsc::channel::<Result<VerifyOutcome>>();
+
+    for item in to_verify.into_iter() {
+        work_tx.send(item).unwrap();
+    }
+    drop(work_tx);
+
+    let worker_count = parallelism;
+    let mut workers = Vec::with_capacity(worker_count);
+    for _ in 0..worker_count {
+        let suite_w = Arc::clone(&suite_arc);
+        let work_rx_w = Arc::clone(&work_rx);
+        let done_tx_w = done_tx.clone();
+        let handle = thread::spawn(move || -> Result<()> {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()?;
+            loop {
+                let next = {
+                    let rx = work_rx_w.lock().unwrap();
+                    rx.recv()
+                };
+                let (job_idx, seed, stored) = match next {
+                    Ok(item) => item,
+                    Err(_) => break,
+                };
+                let job_name = suite_w.jobs[job_idx].name.clone();
+                let res = runtime
+                    .block_on(async { run_job(&suite_w, job_idx, seed).await })
+                    .with_context(|| format!("re-running {job_name} seed={seed} for verify"));
+                let outcome = res.map(|summary| {
+                    let fresh = summary.pricing_event_stream_sha256.trim().to_string();
+                    let matched = fresh == stored;
+                    VerifyOutcome {
+                        job_name: job_name.clone(),
+                        seed,
+                        matched,
+                        stored,
+                        fresh,
+                    }
+                });
+                done_tx_w.send(outcome).ok();
+            }
+            Ok(())
+        });
+        workers.push(handle);
+    }
+    drop(done_tx);
+
+    // Aggregate-and-continue, same rationale as `run_suite`: don't
+    // cancel siblings on first failure, so the user sees the full
+    // verify report. Per-task errors (e.g. config build failure during
+    // re-run) collect alongside outcomes; we surface them after all
+    // tasks finish.
+    let mut outcomes: Vec<VerifyOutcome> = Vec::new();
+    let mut errors: Vec<anyhow::Error> = Vec::new();
+    while let Ok(item) = done_rx.recv() {
+        match item {
+            Ok(o) => outcomes.push(o),
+            Err(e) => errors.push(e),
+        }
+    }
+    for handle in workers {
+        match handle.join() {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => errors.push(e.context("verify worker thread reported an error")),
+            Err(_) => errors.push(anyhow::anyhow!("verify worker thread panicked")),
+        }
+    }
+    if !errors.is_empty() {
+        let mut combined = anyhow::anyhow!("{} verify task(s) errored", errors.len());
+        for e in errors {
+            combined = combined.context(format!("{e:#}"));
+        }
+        return Err(combined);
+    }
+
+    // Log in deterministic suite order regardless of completion order
+    // so users (and any future log-text diffs) see the same lines either
+    // way.
+    let pair_order: BTreeMap<(String, u64), usize> = suite_arc
+        .job_seed_pairs()
+        .into_iter()
+        .enumerate()
+        .map(|(i, (job_idx, seed))| ((suite_arc.jobs[job_idx].name.clone(), seed), i))
+        .collect();
+    outcomes.sort_by_key(|o| pair_order.get(&(o.job_name.clone(), o.seed)).copied());
+
+    let checked = outcomes.len();
+    let mut mismatches = 0usize;
+    for o in &outcomes {
+        if o.matched {
             tracing::info!(
                 "verify ok: {} seed={} hash={}",
-                job.name,
-                seed,
-                &fresh[..16]
+                o.job_name,
+                o.seed,
+                &o.fresh[..16]
             );
         } else {
             mismatches += 1;
             tracing::error!(
                 "verify FAIL: {} seed={} stored={} fresh={}",
-                job.name,
-                seed,
-                stored,
-                fresh
+                o.job_name,
+                o.seed,
+                o.stored,
+                o.fresh
             );
         }
     }
+
     if mismatches > 0 {
         anyhow::bail!(
             "determinism verify failed: {} of {} (job, seed) pairs produced a different hash",

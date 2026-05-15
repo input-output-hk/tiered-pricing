@@ -9,6 +9,11 @@ The implementation plan and per-milestone deltas live under
 [implementation-plan.md](docs/phase-2/implementation-plan.md) and the
 m1→m5 handoffs.
 
+**Latest mechanism decision:** Family B (EIP-1559-faithful chain-derived,
+one controller step per canonical block). See
+[`.planning/family-b-decision-2026-05-14.md`](.planning/family-b-decision-2026-05-14.md)
+for the authoritative decision memo and audit trail.
+
 The build is `cd sim-rs && cargo build --release`; the test suite is
 `cd sim-rs && cargo test --workspace`. The phase-2 suite runner is the
 `experiment-suite` binary in `sim-cli`.
@@ -20,14 +25,14 @@ sim-rs/
 ├── sim-core/                          # protocol + pricing kernel
 │   └── src/
 │       ├── lib.rs
-│       ├── model.rs                   # Transaction, EB, RB, ledger types
+│       ├── model.rs                   # Transaction, EB, RB, ledger types + PerLaneQuote, WindowAggregate (chain-derived)
 │       ├── config.rs                  # all Raw* deserialisation + SimConfiguration
 │       ├── events.rs                  # Event enum + EventTracker
-│       ├── tx_pricing/                # the phase-2 pricing kernel
-│       │   ├── mod.rs                 # PricingBackend trait, Lane, samples, lane rules
-│       │   ├── window.rs              # CapacityWeightedWindow (u128 rationals)
-│       │   ├── single_lane.rs         # BaselinePricing + Eip1559Pricing
-│       │   └── two_lane.rs            # TwoLanePricing + 4 TwoLaneVariant arms
+│       ├── tx_pricing/                # the phase-2 pricing kernel (chain-derived; spike 007)
+│       │   ├── mod.rs                 # PricingBackend trait + ChainView, Lane, samples, lane rules
+│       │   ├── window.rs              # aggregate_from_chain + update_aggregate (pure)
+│       │   ├── single_lane.rs         # BaselinePricing + Eip1559Pricing (stateless policies)
+│       │   └── two_lane.rs            # TwoLanePricing + 4 TwoLaneVariant arms (stateless policy)
 │       ├── tx_actors.rs               # ActorComponent, MaxFeePolicy, lane_choice, welfare
 │       └── sim/
 │           ├── linear_leios.rs        # the only simulated protocol relevant to phase-2
@@ -48,6 +53,7 @@ sim-rs/
     ├── protocol-base.yaml             # phase-2 protocol baseline
     ├── protocol-rb-reduced-{half,third,quarter}.yaml  # M4 RB-scarcity overlays
     ├── topology-single-producer.yaml  # one-node topology (every slot wins the RB lottery)
+    ├── topology-realistic-100.yaml    # 100-node, mass-stratified mainnet curve — phase-2 suites' default since 2026-05-13
     ├── demand/                        # actor profiles (paper_like_*.yaml)
     ├── pricing/                       # 13 controller-tuning YAMLs
     └── suites/                        # 7 phase-2 suite YAMLs (+ READMEs, .goldens/)
@@ -67,20 +73,44 @@ docs/phase-2/
   branch.
 - **`PricingBackend`** trait
   ([sim-core/src/tx_pricing/mod.rs](sim-rs/sim-core/src/tx_pricing/mod.rs)):
-  policy-only. Exposes `current_quote(lane)`,
-  `update_after_block(samples)`, `lane_validity_rule(block_kind)`,
-  `lane_selection_order()`,
-  `min_priority_premium_multiplier()`, `samples_for_block(...)`,
-  `snapshot()`. **Selection lives in the simulator block builder**;
-  the backend never sees simulator types.
-- **`BaselinePricing`** — flat `c = 1`. **`Eip1559Pricing`** —
-  single-controller dynamic; integer-rational EIP-1559 update with
-  the spec's clamp formula and era floor, fed by a
-  `CapacityWeightedWindow`. **`TwoLanePricing`** — wraps two
-  filtered `Eip1559Pricing` controllers + multiplier-floor invariant
-  enforced post-update on `quote_per_byte`. Four
-  `TwoLaneVariant` arms cover the spec's RB-reserved /
-  un-reserved × priority-only-static / both-dynamic matrix.
+  pure-function policy under the chain-derived pattern (spike 007).
+  Exposes `compute_derived_quote(parent_quote, parent_aggregate,
+  parent_samples, evicted_samples) -> (PerLaneQuote, WindowAggregate)`,
+  `lane_validity_rule`, `lane_selection_order`,
+  `min_priority_premium_multiplier`, `samples_for_block`,
+  `effective_window_length`, `cold_start_quote`. The backend holds no
+  mutable controller state — `derived_quote` is computed per block at
+  production and stored on the `LinearRankingBlock` as a header field.
+  This matches EIP-1559's stateless pattern: orphan blocks from slot
+  battles carry their own `derived_quote` which is discarded with the
+  block, so controller contamination from short forks is impossible
+  by construction (closes WR-1, per spike 007). **Selection lives in
+  the simulator block builder**; the backend never sees simulator
+  types — the only seam is `ChainView` (read-only chain walk exposed
+  to the backend via `&dyn ChainView` parameter).
+- **`derived_quote` on `LinearRankingBlock`**: every RB carries a
+  `PerLaneQuote { standard: u64, priority: u64 }` plus a
+  `WindowAggregate` (the controller window's incremental state).
+  These are pure functions of the parent RB plus samples in canonical
+  predecessors. EBs do not carry `derived_quote` — they inherit it
+  from their parent RB via chain lookup. The simulator's local block
+  cache (`block_samples: BTreeMap<BlockId, Vec<PricedBlockSample>>`)
+  is pruned at `2 × window_length` behind the chain tip to bound
+  memory; under Cardano's k=2160 finality, this is trivially well
+  within the chain-stability horizon.
+- **`BaselinePricing`** — flat `c = 1`, returns `min_fee_a` for every
+  `compute_derived_quote` call. **`Eip1559Pricing`** — stateless
+  policy carrier; `compute_derived_quote` runs the integer-rational
+  EIP-1559 step (clamp formula and era floor) against the chain-
+  derived `WindowAggregate`. **`TwoLanePricing`** — same pattern with
+  two controllers driven from a shared `WindowAggregate` (per-lane
+  bytes/capacity split) + multiplier-floor invariant enforced on the
+  output of `compute_derived_quote`. Four `TwoLaneVariant` arms cover
+  the spec's RB-reserved / un-reserved × priority-only-static /
+  both-dynamic matrix. None of the three backends hold any mutable
+  controller state — under chain-derivation the canonical chain itself
+  carries the controller state (`derived_quote` + `window_aggregate`
+  per RB).
 - **`MempoolGate`**
   ([sim-core/src/sim/mempool_gate.rs](sim-rs/sim-core/src/sim/mempool_gate.rs)):
   the sole byte-cap authority. Owns admission
@@ -90,14 +120,20 @@ docs/phase-2/
   (`actual_fee = minFeeB + quote(served_lane) × bytes`,
   `refund = max_fee − actual_fee`). Reject-only on full mempool —
   no eviction of valid txs to make room.
-- **`CapacityWeightedWindow`**: rolling
-  `Σ relevantBytes / Σ relevantCapacity` over a u128 ring. Length
-  parameterised per controller. Capacity-varying signals
+- **`WindowAggregate`** (chain-derived): the rolling
+  `Σ relevantBytes / Σ relevantCapacity` is carried on every RB as a
+  `WindowAggregate { standard_sum_bytes, standard_sum_capacity,
+  priority_sum_bytes, priority_sum_capacity, blocks_in_window }`
+  (u128 sums). Each block's aggregate is the parent's aggregate +
+  parent's samples − any samples falling off the tail. The window
+  length is parameterised per controller. Capacity-varying signals
   (single-lane EIP-1559, both-dynamic standard, un-reserved priority)
   default to length 32. RB-reserved priority is forced to length 1
   (mathematically reduces to per-block fill rate, which is what the
   spec prescribes since RB-reserved priority capacity is uniform per
-  block).
+  block). The `tx_pricing/window.rs` module exposes
+  `aggregate_from_chain` (cold-start aggregator) and
+  `update_aggregate` (incremental step) as pure functions.
 - **EB binary fullness trigger**
   ([sim-core/src/sim/linear_leios.rs `select_eb_with_partition`](sim-rs/sim-core/src/sim/linear_leios.rs)):
   the priority partition activates iff (a) the EB is saturated, OR
@@ -161,6 +197,12 @@ constants, M5 suite-level goldens) are over `TXIncluded` and
 simulator outcomes — so any accidental f64 entry into a hot path
 flips them.
 
+All chain-derived computation is integer/u128 throughout:
+`compute_derived_quote` is a pure function returning `PerLaneQuote`
+and `WindowAggregate`, both of which are `u64`/`u128` only. Block
+fields `derived_quote` and `window_aggregate` are bit-stable across
+architectures.
+
 ## Determinism scope
 
 Determinism is asserted **intra-architecture** with pinned golden
@@ -192,7 +234,12 @@ but the simulator inherits f64 from `main` in non-pricing code paths
 (slot lottery, propagation, distribution sampling) which has not been
 hardened for cross-arch determinism. A second-arch build pipeline is
 infrastructure work outside phase-2's code scope; flagged in the m5
-handoff for the CIP / external write-up.
+handoff for the CIP / external write-up. Chain-derivation is reorg-
+safe by construction: deep reorgs replace the canonical chain
+entirely, and every block on the new chain carries its own
+`derived_quote` (computed as a pure function of its own ancestors),
+so no rollback step is needed and no contamination from orphan
+blocks is possible.
 
 ## Calibration choices
 
@@ -207,12 +254,14 @@ cost of re-calibrating.
   *Re-calibrating*: change the `window-length` field in the relevant
   pricing YAML; suite goldens flip; re-run `UPDATE_GOLDENS=1` and
   re-tag.
-- **Update cadence: per priced block**. Every priced block emits
-  zero or more `PricedBlockSample`s; the controller steps once per
-  block. Answers
+- **Derived-quote cadence: per priced block**, materialised on the
+  canonical chain as `LinearRankingBlock.derived_quote`. Each block's
+  `derived_quote` is a pure function of `parent.derived_quote`,
+  `parent.window_aggregate`, and the samples carried by the parent
+  (and any endorsed EB). Answers
   [mechanism-design.md §"Open calibration choices"](docs/phase-2/mechanism-design.md).
   *Re-calibrating*: per-RB or per-epoch cadence requires a rewrite of
-  `apply_priced_block`/`apply_eb_priced_block`; intrusive.
+  the chain-derived production path in `linear_leios.rs`; intrusive.
 - **Un-reserved priority signal source = option 1**
   (`priority_paying_bytes / total_block_capacity`). Answers
   [mechanism-design.md §"Un-reserved priority-only premium"](docs/phase-2/mechanism-design.md)
@@ -249,20 +298,34 @@ cost of re-calibrating.
   [docs/phase-2/calibration-fix-postmortem.md](docs/phase-2/calibration-fix-postmortem.md).
   The `multiplier_floor = 4` choice is independent of that bug
   and survives into the corrected calibration.)
-- **`rb-generation-probability = 0.05` and `default-slots = 1000`.**
+- **`rb-generation-probability = 0.05` and `default-slots = 2000`.**
   Cardano-realistic RB cadence (~20 slots between RBs) clears the
   linear-Leios 13-slot endorsement window so EBs land on chain.
   An earlier revision pinned `rb-prob = 1.0` for "uniform
   tx-bearing-block-per-slot time series" — see
   [docs/phase-2/calibration-fix-postmortem.md](docs/phase-2/calibration-fix-postmortem.md)
-  for why that was a calibration bug and what changed. The
-  `topology-single-producer.yaml` `stake: 100000` is paired with
-  this — at low rb-prob, single-stake values truncate to
-  `target_vrf_stake = 0` and the lottery never wins.
+  for why that was a calibration bug and what changed. Phase-2 suites
+  use `topology-realistic-100.yaml` (100 nodes, mainnet-snapshot
+  mass-stratified stakes, rescaled to total = 3 × 10^10 lovelace).
+  The minimum stake in that curve clears the lottery-quantization
+  check (min × rb-prob ≥ 100) by three orders of magnitude.
   *Re-calibrating*: raise rb-prob, but keep `expected_RB_gap >
   header_diffusion × 3 + linear_vote_stage_length +
   linear_diffuse_stage_length` (currently 13 slots) or
   endorsement breaks again.
+- **Topology = `parameters/phase-2-sweep/topology-realistic-100.yaml`.**
+  100 nodes; same locations/latencies/producers/bandwidth as upstream
+  `parameters/topology.default.yaml`; stake values are a mass-stratified
+  downsample of the 1,510 Cardano mainnet pools with ≥ 1k ADA active
+  stake (Cardano mainnet on-chain state, epoch 582, retrieved 2026-05-14), rescaled linearly to
+  total = 3 × 10^10 lovelace. Top-1 stake share = 1.97 %; Nakamoto
+  coefficient = 35; Gini = 0.253. See
+  [`.planning/spikes/006-curve-design/README.md`](.planning/spikes/006-curve-design/README.md)
+  for the curve-design rationale and `topology-realistic-100.yaml`'s
+  header comment for the reproduction recipe.
+  *Re-calibrating*: re-run the on-chain query at a later epoch and
+  regenerate via `sim-rs/scripts/generate-realistic-100-topology.py`;
+  the M5 suite goldens flip and require `UPDATE_GOLDENS=1` re-pinning.
 - **Default `target_inclusion_blocks` (priority=1, standard=4)**
   seeds the actor's `LatencyEstimator` per (component, lane). The
   observed-latency EMA overwrites this once inclusion events arrive,
@@ -274,6 +337,42 @@ cost of re-calibrating.
   [mechanism-design.md line 59](docs/phase-2/mechanism-design.md).
   *Re-calibrating*: set
   `mempool-max-total-size-bytes` in `protocol-base.yaml`.
+
+## Mechanism choice and audit trail (2026-05-14)
+
+Phase-2's controller is **chain-derived (Family B)**: every
+`LinearRankingBlock` carries its own `derived_quote` as a pure
+function of the parent block's chain-derived state plus the samples
+emitted by canonical predecessors within the smoothing window. The
+controller advances exactly once per canonical block — the
+EIP-1559-faithful cadence. The pre-2026-05-14 node-local accumulator
+implementation effectively stepped twice per RB-EB pair (one step
+at `apply_priced_block` on RB publish, a second step at
+`apply_eb_priced_block` on deferred EB validation); this was an
+unintentional implementation artifact diverging from
+[`mechanism-design.md`](docs/phase-2/mechanism-design.md)'s
+per-block-cadence intent, and was corrected by the chain-derived
+refactor (spike 007 ADOPT).
+
+**Family B was committed for publication 2026-05-14**; see
+[`.planning/family-b-decision-2026-05-14.md`](.planning/family-b-decision-2026-05-14.md)
+for the authoritative decision memo (rationale, ready-to-paste
+publication framing, follow-on work).
+Empirical welfare-impact characterisation (accumulator vs
+chain-derived across 33 sundaeswap-smoke jobs) lives at
+[`.planning/mechanism-welfare-impact-2026-05-14.md`](.planning/mechanism-welfare-impact-2026-05-14.md):
+the un-reserved arms are mechanism-robust (median |Δ%| 15%, no
+sign-flips); RB-reserved and partitioned arms gain ~30% median
+welfare under Family B with isolated `x4_rb_quarter` corner-stress
+flips; single-lane EIP-1559 collapses by orders of magnitude (a more
+honest characterisation of single-lane's narrower welfare regime).
+
+**WR-1** (pricing-state contamination on slot-battle reorg) is
+**RESOLVED 2026-05-14** by the chain-derived design: there is no
+node-local mutable controller state, so orphan-block samples cannot
+contaminate the canonical controller trajectory. See the Fix Status
+table in [`.planning/REVIEW.md`](.planning/REVIEW.md) for the full
+disposition of every review finding.
 
 ## Running the suites
 
@@ -307,6 +406,12 @@ git commit -m "M5 goldens regenerated after <reason>"
 git tag -a m5-goldens-<n> -m "..."
 ```
 
+Note: the table below covers the 7 M3/M4 mechanism-characterisation
+suites pinned by M5 suite-level goldens. The full suite directory holds
+19 YAMLs (the 7 listed here plus 12 demand-regime suites under
+`paper_like_*` and `sundaeswap_*` profiles). The 12 demand-regime
+suites are not goldens-pinned.
+
 The 7 suites:
 
 | Suite | Question |
@@ -322,6 +427,21 @@ The 7 suites:
 Suite READMEs live next to each YAML
 (`<suite>.README.md`) for the M4 suites; the M3 suites do not have
 READMEs because their framing matches the spec directly.
+
+**Parallelism.** `experiment-suite run` and `experiment-suite verify`
+run (job, seed) pairs concurrently by default. The cap is
+`min(available_parallelism(), 8)`; override with `--parallelism N`
+(`-P N`). Each parallel job owns its own simulator state (config,
+topology, mempool, metrics collector) and runs inside its own OS
+thread + per-thread `current_thread` tokio runtime — required because
+`Simulation` contains `Box<dyn Actor>` which isn't `Send`. Peak RSS
+scales linearly in N; with a 100-node topology, the default cap of 8
+stays comfortably under 32 GB on the dev machine. Raise via
+`--parallelism` if you know your machine has more headroom; lower it
+if you run on memory-constrained hardware or stack with another
+parallel driver (e.g. `scripts/run-parallel-suites.sh` parallelises
+*across* suites — total tokio worker threads ≈ cross-suite K ×
+intra-suite P).
 
 ## Conventions / gotchas
 
@@ -352,15 +472,30 @@ READMEs because their framing matches the spec directly.
   unit-test constants, M5 suite goldens) reproduce bit-identically
   on the same arch (the development machine is x86_64 / glibc).
   Cross-arch CI verification is documented as not-yet-built.
-- **"Single-producer" ≠ "single mempool"; "one tx source" ≠ "one
-  mempool".** Every node has its own mempool — admission/eviction/
-  inclusion run per-node, gossip distributes txs across the network.
-  `topology-single-producer.yaml` is the only topology where N=1, so
-  the producer/source/mempool counts all happen to coincide; in any
-  multi-node topology (e.g. `topology.default.yaml`, `topology-cip-
-  realistic.yaml`) there are N mempools regardless of how many nodes
-  carry `tx-generation-weight`. Don't infer "one source ⇒ one
-  mempool" — gossip propagation, slot-battle dynamics, and per-node
+- **In-suite parallelism preserves per-(job, seed) determinism.** The
+  suite-level golden hashes and the `verify` subcommand both treat
+  each (job, seed) as the determinism unit. Parallelism changes only
+  the wall-clock interleaving of jobs, not their seeds, inputs, or
+  event streams. The manifest's `BTreeMap`-keyed-by-(job_name,
+  seed_string) layout (runner.rs:71) gives deterministic on-disk
+  order regardless of completion order; per-(job, seed) artefact
+  paths `<output_dir>/<job_name>/<seed>/` are unique so no two
+  parallel jobs ever touch the same file. The only cross-job shared
+  state is `manifest.json`, guarded by a single mutex; lock
+  hold-times are tiny (one `fs::write` + the
+  `metrics_comparison.txt` rebuild).
+- **Multi-producer topology, per-node mempool.** Every node has its
+  own mempool — admission/eviction/inclusion run per-node, gossip
+  distributes txs across the network. The suite default
+  `topology-realistic-100.yaml` has 100 producers and 100 mempools;
+  in any earlier `topology-single-producer.yaml`-based test, the
+  producer/source/mempool counts happen to coincide at N=1, but
+  this is the special case, not the default. In any multi-node
+  topology (the operational `topology-realistic-100.yaml`,
+  `topology.default.yaml`, `topology-cip-realistic.yaml`) there are
+  N mempools regardless of how many nodes carry
+  `tx-generation-weight`. Don't infer "one source ⇒ one mempool" —
+  gossip propagation, slot-battle dynamics, and per-node
   `LatencyEstimator` state all behave per-mempool even with a
   single explicit source.
 - **`Event::TXGenerated` carries `slot: u64`** (M4) so the metrics

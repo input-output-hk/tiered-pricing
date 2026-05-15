@@ -93,11 +93,108 @@ pub struct LinearRankingBlockHeader {
     pub eb_announcement: Option<EndorserBlockId>,
 }
 
+/// Per-lane `quote_per_byte` carried as a header field on every RB
+/// under the chain-derived controller pattern (spike 007). Single-lane
+/// mechanisms set `standard == priority` so callers reading via
+/// [`PerLaneQuote::get`] always see the right value.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct PerLaneQuote {
+    pub standard: u64,
+    pub priority: u64,
+}
+
+impl PerLaneQuote {
+    /// Lane-keyed lookup.
+    pub fn get(&self, lane: crate::tx_pricing::Lane) -> u64 {
+        match lane {
+            crate::tx_pricing::Lane::Standard => self.standard,
+            crate::tx_pricing::Lane::Priority => self.priority,
+        }
+    }
+
+    /// Both lanes equal to the same flat quote. Used by `BaselinePricing`
+    /// and `Eip1559Pricing` (which is single-lane: priority and standard
+    /// share one controller).
+    pub fn flat(quote: u64) -> Self {
+        Self {
+            standard: quote,
+            priority: quote,
+        }
+    }
+}
+
+/// Capacity-weighted window aggregate carried alongside `derived_quote`
+/// on every RB. Stored as `u128` sums so the EIP-1559 controller step
+/// can incrementally update without re-walking the canonical chain.
+///
+/// Per-lane (standard, priority) split mirrors the two-lane controller
+/// inputs; single-lane mechanisms only populate the standard fields.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WindowAggregate {
+    pub standard_sum_bytes: u128,
+    pub standard_sum_capacity: u128,
+    pub priority_sum_bytes: u128,
+    pub priority_sum_capacity: u128,
+    /// Number of canonical blocks contributing to this aggregate
+    /// (capped at the configured `window_length`). Used to detect the
+    /// cold-start regime (`blocks_in_window < window_length`) and to
+    /// decide whether eviction must fire on the next step.
+    pub blocks_in_window: u32,
+}
+
+impl WindowAggregate {
+    pub const ZERO: Self = Self {
+        standard_sum_bytes: 0,
+        standard_sum_capacity: 0,
+        priority_sum_bytes: 0,
+        priority_sum_capacity: 0,
+        blocks_in_window: 0,
+    };
+
+    /// Aggregate as a rational `(numerator, denominator)` for one lane,
+    /// matching the legacy `CapacityWeightedWindow::aggregate_util`
+    /// convention: `(0, 1)` when no signal exists.
+    pub fn aggregate_util(&self, lane: crate::tx_pricing::Lane) -> (u128, u128) {
+        let (n, d) = match lane {
+            crate::tx_pricing::Lane::Standard => {
+                (self.standard_sum_bytes, self.standard_sum_capacity)
+            }
+            crate::tx_pricing::Lane::Priority => {
+                (self.priority_sum_bytes, self.priority_sum_capacity)
+            }
+        };
+        if d == 0 { (0, 1) } else { (n, d) }
+    }
+}
+
+/// Per-block sample payload, recorded at production for each canonical
+/// block so descendants can fold them into their `WindowAggregate`. Held
+/// in a node-local cache (pruned at `2 × window_length` behind the chain
+/// tip) so `ChainView::samples_in_block` is O(1).
+#[derive(Clone, Debug)]
+pub struct CanonicalBlockSamples {
+    pub block_id: BlockId,
+    pub samples: Vec<crate::tx_pricing::PricedBlockSample>,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LinearRankingBlock {
     pub header: LinearRankingBlockHeader,
     pub transactions: Vec<Arc<Transaction>>,
     pub endorsement: Option<Endorsement>,
+    /// Chain-derived per-lane quote, computed at block production as a
+    /// pure function of the parent's `derived_quote` + samples emitted
+    /// by canonical predecessors within the window. Carried on the
+    /// block (header equivalent) so every node reads the same value
+    /// without consulting node-local controller state. Closes WR-1 by
+    /// construction (spike 007).
+    pub derived_quote: PerLaneQuote,
+    /// Incremental capacity-weighted window state used to compute
+    /// `derived_quote`. Stored on the block so descendants can step
+    /// the controller in O(1) without re-walking the chain. EBs do
+    /// NOT carry this — they inherit from their parent RB via chain
+    /// lookup (spike 007 §"Edge cases" item 4).
+    pub window_aggregate: WindowAggregate,
 }
 
 impl LinearRankingBlock {
@@ -265,6 +362,12 @@ impl StracciatellaEndorserBlock {
     }
 }
 
+/// EBs deliberately do **not** carry `derived_quote`. They inherit it
+/// from their parent RB via chain-tip lookup. Adding a redundant field
+/// would risk drift between `EB.parent_rb.derived_quote` and an
+/// `EB.derived_quote` on slot-battle paths (the parent RB's quote is
+/// always canonical; an EB-side mirror could lag). Spike 007 §"Edge
+/// cases" item 4 is the authoritative reference.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LinearEndorserBlock {
     pub slot: u64,

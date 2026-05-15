@@ -15,9 +15,12 @@
 # previous batch). Outputs land at
 #   sim-rs/output/phase-2/<suite>-<run-id>/
 #
-# Each suite runs in its own process; jobs within a suite still run
-# sequentially because the experiment-suite runner is single-threaded.
-# So the effective parallelism is capped at min(N, len(SUITE)).
+# Each suite runs in its own process and `experiment-suite run` now
+# parallelises (job, seed) pairs internally (default
+# min(available_parallelism(), 8); override via `--parallelism`/`-P`).
+# Total tokio worker threads ≈ cross-suite N × intra-suite P; if you
+# raise N here, consider lowering --parallelism on each suite to avoid
+# CPU oversubscription on smaller boxes.
 #
 # Multi-node (CIP-0164 topology, 600 pools) is roughly 30x slower per
 # run than the M5-era single-producer baseline. Per-suite wall time

@@ -336,13 +336,15 @@ pub enum Event {
         max_fee_lovelace: u64,
     },
     /// Phase-2 fork-resolution metric (M6). Emitted on every node
-    /// invocation of `apply_priced_block` (i.e. once per RB this
-    /// node priced). The metrics layer counts (slot, producer)
-    /// collisions at the representative node to derive
-    /// `slot_battles_count` and `orphaned_pricing_samples`.
-    /// Unlike `RBReceived`, this is also emitted for the node's
-    /// own locally-produced RB (which never traverses the receive
-    /// path), so it sees every sample the pricing kernel sees.
+    /// `publish_rb` invocation (i.e. once per RB this node sees
+    /// canonicalised on its chain). Under chain-derivation (spike 007)
+    /// this counter is no longer a contamination-bound signal —
+    /// sibling RBs produce identical `derived_quote` by pure-function
+    /// reasoning, so fully-validated orphans cannot contaminate the
+    /// canonical chain's controller trajectory. The metrics layer
+    /// still counts (slot, producer) collisions for orphan-rate
+    /// observability. Unlike `RBReceived`, this is also emitted for
+    /// the node's own locally-produced RB.
     LinearPricingSampleApplied {
         node: Node,
         slot: u64,
@@ -666,8 +668,10 @@ impl EventTracker {
         });
     }
 
-    /// Phase-2 M6: emitted once per node invocation of
-    /// `apply_priced_block`. Powers the fork-resolution metric.
+    /// Phase-2 M6: emitted once per node `publish_rb` invocation
+    /// (chain-derivation, spike 007). Powers the fork-resolution
+    /// metric — now a pure orphan-rate observability signal rather
+    /// than a contamination bound.
     pub fn track_linear_pricing_sample_applied(&self, node: NodeId, slot: u64, producer: NodeId) {
         self.send(Event::LinearPricingSampleApplied {
             node: self.to_node(node),

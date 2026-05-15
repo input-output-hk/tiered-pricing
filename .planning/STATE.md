@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Phase 1 plan 02 completed; Phase 1 complete
-last_updated: "2026-05-15T13:30:00.000Z"
-last_activity: 2026-05-15 -- Phase 1 plan 02 completed (realism-risks register v1 finalised)
+stopped_at: Phase 2 complete (plans 02-01 and 02-02 done; verifier PASS 5/5); ready to begin Phase 3 (Targeted Cheap Tests)
+last_updated: "2026-05-15T14:45:04.299Z"
+last_activity: 2026-05-15 -- Phase 02 marked complete
 progress:
   total_phases: 5
-  completed_phases: 1
-  total_plans: 2
-  completed_plans: 2
-  percent: 20
+  completed_phases: 2
+  total_plans: 4
+  completed_plans: 4
+  percent: 40
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-15)
 
 **Core value:** A reader of the Cardano Improvement Proposal (CIP) can verify each menu-option claim against a specific simulator job and can inspect the realism-risks register to see what the simulator does and does not faithfully model, so the CIP stands on documented evidence rather than asserted authority.
-**Current focus:** Phase 1 — Register Inventory
+**Current focus:** Phase 02 — Coverage Check Skeleton
 
 ## Current Position
 
-Phase: 1 (Register Inventory) — COMPLETE
-Plan: 2 of 2 completed
-Status: Phase 1 complete; ready to begin Phase 2 (Coverage Check Skeleton)
-Last activity: 2026-05-15 -- Phase 1 plan 02 completed (realism-risks register v1 finalised)
+Phase: 02 — COMPLETE
+Plan: 2 of 2
+Status: Phase 02 complete
+Last activity: 2026-05-15 -- Phase 02 marked complete
 
-Progress: [██░░░░░░░░] 20%
+Progress: [████░░░░░░] 40%
 
 ## Performance Metrics
 
@@ -99,5 +99,5 @@ Items acknowledged and carried forward from previous milestone close (see PROJEC
 ## Session Continuity
 
 Last session: 2026-05-15T13:30:00.000Z
-Stopped at: Phase 1 complete (plans 01-01 and 01-02 done); ready to begin Phase 2 (Coverage Check Skeleton)
-Resume file: .planning/phases/01-register-inventory/01-02-SUMMARY.md (final phase artefact); Phase 2 begins with context-gathering for `docs/phase-2/coverage-check.md`
+Stopped at: Phase 2 complete (plans 02-01 and 02-02 done; verifier PASS 5/5); ready to begin Phase 3 (Targeted Cheap Tests)
+Resume file: .planning/phases/02-coverage-check-skeleton/VERIFICATION.md (final phase artefact); Phase 3 begins with context-gathering for the `paired_bootstrap.rs` cheap tests and the multi-seed scoping run (TEST-01..02)

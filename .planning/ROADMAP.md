@@ -15,7 +15,7 @@ Granularity: standard. Five phases, 25 v1 requirements, 100% coverage.
 - Decimal phases (e.g. 2.1): urgent insertions (marked with INSERTED)
 
 - [x] **Phase 1: Register Inventory** - Build the realism-risks register that disciplines every downstream test (completed 2026-05-15)
-- [ ] **Phase 2: Coverage Check Skeleton** - Map menu-item trade-off claims to backing simulator jobs, surface gaps
+- [x] **Phase 2: Coverage Check Skeleton** - Map menu-item trade-off claims to backing simulator jobs, surface gaps (completed 2026-05-15)
 - [ ] **Phase 3: Targeted Cheap Tests** - Resolve Live risks via paired-bootstrap variance bands, pool-number sensitivity, run-length validation
 - [ ] **Phase 4: Refresh and Anchor** - Refresh authoritative audit documents and anchor or disclose the four un-anchored controller knobs
 - [ ] **Phase 5: Handoff** - Consolidate the evidence package into a CIP-author summary and tag the citable commit
@@ -50,7 +50,13 @@ Plans:
   3. Non-welfare property columns are present alongside welfare claims — anti-bribery, standard-user-fee-drift exposure, signal-source anchoring, implementation complexity — with each cell citing a spec section, a simulator measurement, or "disclosed gap"
   4. The 12 unpinned demand-regime suites appear as `WEAK`-verdict rows where they cover claims not backed by the seven goldens-pinned suites; they are not promoted to goldens-pinned in this milestone
   5. The skeleton is committable before Phase 3 begins: rows for claims awaiting cheap-test results carry `status: UNBACKED`, surfacing compute priorities for Phase 3 task ordering
-**Plans**: TBD
+**Plans:** 2 plans
+Plans:
+**Wave 1**
+- [x] 02-01-PLAN.md — Enumerate (claim, menu-option) pairs from the four D-12 source documents plus user-seeded structural/calibration claims; lay down the 14-column table skeleton with header, hash-diversity-gate semantics line (COV-05), and stable CLM-NN identifiers (append-only per D-15); populate cells with what is available now, leaving Phase-3-dependent cells as `UNBACKED` with `confidence-method: TBD Phase 3` (completed 2026-05-15)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+- [x] 02-02-PLAN.md — Replace `TBD plan 02` placeholders, populate the four non-welfare property columns end-to-end (per D-14), walk UNRESOLVED-suite output directories to promote rows UNBACKED→WEAK where data exists, populate `related-RSK-ids` from the register and `golden-sha256` from the `.goldens/` directory, run cross-reference consistency verification (completed 2026-05-15)
 
 ### Phase 3: Targeted Cheap Tests
 **Goal**: Live risks identified in the register are resolved (or explicitly downgraded to disclosure) via targeted cheap tests, producing variance bands and sensitivity verdicts that flip coverage-check rows from `UNBACKED` / `WEAK` to `BACKED` where the evidence supports it.
@@ -95,7 +101,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Register Inventory | 2/2 | Complete | 2026-05-15 |
-| 2. Coverage Check Skeleton | 0/TBD | Not started | - |
+| 2. Coverage Check Skeleton | 2/2 | Complete | 2026-05-15 |
 | 3. Targeted Cheap Tests | 0/TBD | Not started | - |
 | 4. Refresh and Anchor | 0/TBD | Not started | - |
 | 5. Handoff | 0/TBD | Not started | - |

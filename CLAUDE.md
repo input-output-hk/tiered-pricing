@@ -445,6 +445,15 @@ intra-suite P).
 
 ## Conventions / gotchas
 
+- **Abbreviations: expand on first use.** Every acronym or abbreviation
+  in `.planning/`, `docs/phase-2/`, `CLAUDE.md`, or any documentation
+  written for this project must be spelled out in full the first time
+  it appears in a given document, with the abbreviation in parentheses
+  immediately after — e.g. "Paired Seed Evaluation (PSE)", "Overview,
+  Design concepts, Details (ODD) protocol", "Bias-corrected and
+  accelerated (BCa) bootstrap". Subsequent uses can use the
+  abbreviation alone. This applies regardless of how common the
+  abbreviation is in the surrounding literature.
 - **No `pricing-sim-base` content.** That branch is observable as
   prior art only — no file, type, or function moved across. Hard rule
   from [implementation-plan.md](docs/phase-2/implementation-plan.md).

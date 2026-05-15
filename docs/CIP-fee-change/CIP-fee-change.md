@@ -66,7 +66,10 @@ address optional allows for backwards compatibility.
 No additional signing requirements are imposed, as it is not mandatory for a 
 user to output fee change into an address they own. 
 
-(1) We changes the *produced* calculation are :
+**`feeChangeAddr` provided.** When a transaction provides 
+this address, the following changes to ledger rules are required :
+
+(1) To the *produced* calculation :
 
 - the `txb .txFee` summand is replaced with `collectedFee pp utxo tx`
 
@@ -87,6 +90,9 @@ transaction processing :
 ```agda
 rwds' = rwds ∪⁺ ❴ feeChangeAddr , feeChange ❵ᵐ
 ```
+**`feeChangeAddr` not provided.** When this value is `feeChangeAddr = Nothing`, no changes 
+to ledger rules are required.
+
 
 #### Fee accounting
 
@@ -96,7 +102,9 @@ fee calculation changes.
 
 #### `TxInfo`
 
-No changes to `TxInfo` are required. The reason for this is that all Plutus scripts
+It is important to note that no changes to `TxInfo` are required. 
+
+The reason for this is that all Plutus scripts
 should be blind to the fee change provided. This value is not fixed at the time of 
 transaction construction and therefore cannot be used to predict the outcome of 
 script validation at the time of construction. Note here that this change may 

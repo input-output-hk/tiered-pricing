@@ -2,7 +2,7 @@ suite-name: phase-2-two-lane-both-dynamic
 output-dir: output/phase-2/two-lane-both-dynamic
 seeds: [1, 2, 3]
 default-slots: 2000
-default-topology: parameters/topology.default.yaml
+default-topology: parameters/phase-2-sweep/topology-realistic-100.yaml
 default-protocol: parameters/phase-2-sweep/protocol-base.yaml
 default-demand: parameters/phase-2-sweep/demand/paper_like_congested.yaml
 jobs:

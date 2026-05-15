@@ -209,3 +209,19 @@ re-examined against the new runs. In particular:
   are immediate) and recover the high-cadence regime *without*
   the bug. Trade-off: less realistic Cardano timing, but
   potentially more mechanism-relevant signal density.
+
+## See also
+
+An additional implementation-vs-spec divergence was discovered and
+resolved 2026-05-14 (the pre-2026-05-14 accumulator effectively
+stepped the controller twice per RB-EB pair — once at RB publish via
+`apply_priced_block`, once at deferred EB validation via
+`apply_eb_priced_block` — diverging from the spec's per-block-cadence
+intent); see
+[`.planning/family-b-decision-2026-05-14.md`](../../.planning/family-b-decision-2026-05-14.md)
+for the chain-derived (Family B, EIP-1559-faithful) refactor and the
+publication-committed mechanism choice. This calibration-fix
+post-mortem and the Family B decision are sibling events: each
+corrected a divergence between intent (spec) and behaviour
+(simulator), discovered through empirical revalidation rather than
+by code inspection.

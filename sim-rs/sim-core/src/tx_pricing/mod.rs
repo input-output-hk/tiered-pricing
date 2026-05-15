@@ -1,16 +1,23 @@
-//! Transaction-pricing layer.
+//! Transaction-pricing layer (chain-derived controller — spike 007).
 //!
 //! See `docs/phase-2/mechanism-design.md` for the spec these modules implement,
 //! and `docs/phase-2/implementation-plan.md` lines 26-180 for the architecture.
 //!
-//! A `PricingBackend` is policy-only: it answers "what is the per-byte rate
-//! for lane `L`?" and "given the priced blocks I just saw, how should the
-//! coefficient(s) move?". Block packing, partition activation, and selection
-//! live in the simulator and consult the backend through these queries.
+//! A `PricingBackend` is a **pure-function policy** under the chain-derived
+//! pattern: it answers "given the parent block's `derived_quote` and
+//! `window_aggregate`, plus the samples emitted by the parent (and any
+//! samples evicted from the tail of the window), what is the child's
+//! `(PerLaneQuote, WindowAggregate)`?" The backend holds no mutable
+//! controller state — `derived_quote` is computed per block at production
+//! and stored on `LinearRankingBlock` as a header field. This matches
+//! EIP-1559's stateless pattern and closes WR-1 by construction: orphan
+//! blocks from slot battles carry their own `derived_quote` which is
+//! discarded with the block.
 //!
 //! All simulation-affecting state (controller coefficients, window contents,
 //! quote-per-byte) is stored as `u64`/`u128` integers or as rationals. f64
-//! never enters this module's hot paths.
+//! never enters this module's hot paths. `compute_derived_quote` is pure
+//! and integer/u128 throughout.
 
 pub mod single_lane;
 pub mod two_lane;
@@ -20,7 +27,7 @@ use serde::{Deserialize, Serialize};
 
 pub use single_lane::{BaselinePricing, Eip1559Pricing, Eip1559Settings};
 pub use two_lane::{TwoLanePricing, TwoLaneSettings, TwoLaneVariant};
-pub use window::CapacityWeightedWindow;
+pub use window::{aggregate_from_chain, update_aggregate};
 
 /// One of two transaction lanes. Single-lane mechanisms always set
 /// `Lane::Standard`; two-lane mechanisms (M2+) populate both variants.
@@ -113,7 +120,9 @@ impl Multiplier {
     }
 }
 
-/// Snapshot of pricing state for time-series logging.
+/// Snapshot of pricing state for time-series logging. Derived from a
+/// canonical block's `derived_quote` + `window_aggregate` (see
+/// `snapshot_at`) — not from any node-local controller state.
 #[derive(Debug, Clone)]
 pub struct PricingSnapshot {
     pub standard_quote_per_byte: u64,
@@ -122,32 +131,75 @@ pub struct PricingSnapshot {
     pub priority_window_util_x_1e9: Option<u64>,
 }
 
-/// Policy-only transaction pricing backend.
+/// Read-only view of the canonical chain exposed to a `PricingBackend`'s
+/// pure-function computation. The backend cannot mutate the chain — it
+/// only walks ancestors and reads per-block fields. This is the seam
+/// that keeps chain-derived computation a pure function of canonical
+/// state (spike 007 §"Type-level shape").
+pub trait ChainView {
+    /// k-th canonical ancestor of `from`, walking back along canonical
+    /// parents only. Returns `None` when the chain runs out (cold start)
+    /// or `k` exceeds available depth.
+    fn ancestor(&self, from: crate::model::BlockId, k: u32) -> Option<crate::model::BlockId>;
+
+    /// Samples that the given canonical block emitted (RB body + endorsed
+    /// EB body, per the variant's `samples_for_block` policy). Returns
+    /// an empty slice when the block has no recorded samples.
+    fn samples_in_block(&self, block_id: crate::model::BlockId) -> &[PricedBlockSample];
+
+    /// `derived_quote` of a given canonical block (read of the field).
+    /// `None` when the block is not on this node's canonical chain.
+    fn derived_quote(&self, block_id: crate::model::BlockId)
+        -> Option<crate::model::PerLaneQuote>;
+
+    /// `window_aggregate` of a given canonical block (for incremental
+    /// updates). `None` when the block is not on this node's canonical
+    /// chain.
+    fn window_aggregate(
+        &self,
+        block_id: crate::model::BlockId,
+    ) -> Option<crate::model::WindowAggregate>;
+}
+
+/// Pure-function transaction-pricing policy (chain-derived; spike 007).
 ///
-/// The simulator owns block packing; the backend answers pricing queries
-/// and accepts post-block samples to update its controller(s).
+/// The simulator owns block packing and the canonical chain. The
+/// backend is a configuration carrier + pure-function compute step:
+/// given the parent block's `derived_quote` + `window_aggregate` +
+/// the parent's samples + any evicted samples, return the child's
+/// `(PerLaneQuote, WindowAggregate)`. No `&mut self` anywhere.
 pub trait PricingBackend: Send + Sync {
-    /// Per-byte rate (lovelace/byte) for `lane` after the spec's clamp/floor
-    /// and integer rounding. Reads `quote_per_byte: u64` directly — never
-    /// derived from an f64 coefficient.
-    fn current_quote(&self, lane: Lane) -> u64;
-
-    /// Worst-case (upper-bound) per-byte rate for `lane` after
-    /// `blocks_ahead` consecutive max-up controller steps from the
-    /// current state. Used by the producer at EB-build time to skip
-    /// txs that would go stale before the EB gets endorsed.
+    /// Compute the child block's `derived_quote` and `window_aggregate`
+    /// as a pure function of the parent's chain-derived state.
     ///
-    /// Default returns the current quote (no drift) — correct for
-    /// `BaselinePricing`. EIP-1559-driven backends override.
-    /// Saturates at `u64::MAX` if the projected drift overflows.
-    fn worst_case_quote_at(&self, lane: Lane, _blocks_ahead: u32) -> u64 {
-        self.current_quote(lane)
-    }
+    /// - `parent_quote` — parent block's `derived_quote` (or the
+    ///   cold-start initial quote when the parent has none).
+    /// - `parent_aggregate` — parent block's `window_aggregate` (or
+    ///   `WindowAggregate::ZERO` for cold start).
+    /// - `parent_samples` — samples emitted by the parent block, to
+    ///   fold into the aggregate.
+    /// - `evicted_samples` — samples falling off the tail of the window
+    ///   this step (from the block at distance `window_length + 1` back,
+    ///   or empty during the warm-up regime).
+    fn compute_derived_quote(
+        &self,
+        parent_quote: crate::model::PerLaneQuote,
+        parent_aggregate: crate::model::WindowAggregate,
+        parent_samples: &[PricedBlockSample],
+        evicted_samples: &[PricedBlockSample],
+    ) -> (crate::model::PerLaneQuote, crate::model::WindowAggregate);
 
-    /// Apply zero or more priced-block samples produced for the most recent
-    /// block. Single-lane pricing receives at most one Standard sample per
-    /// block; two-lane mechanisms (M2+) typically receive two.
-    fn update_after_block(&mut self, samples: &[PricedBlockSample]);
+    /// Effective window length used by this backend. For
+    /// `BaselinePricing` returns `usize::MAX` (no window). For
+    /// `Eip1559Pricing` returns its configured length. For
+    /// `TwoLanePricing` returns the maximum of both lanes' lengths
+    /// (the simulator uses this to size the per-block-samples cache).
+    fn effective_window_length(&self) -> usize;
+
+    /// Cold-start initial quote for `lane`. Used by the simulator at
+    /// genesis (no parent RB exists) so the first block's
+    /// `derived_quote` has a defined starting value.
+    fn cold_start_quote(&self, lane: Lane) -> u64;
 
     /// Lane-validity rule for blocks of the given kind.
     /// `LaneValidityRule::None` for single-lane and un-reserved variants;
@@ -173,10 +225,6 @@ pub trait PricingBackend: Send + Sync {
     /// (priority bytes are always 0 in single-lane, so this collapses
     /// to the M1 emission rule). Two-lane backends override per
     /// variant (implementation-plan.md lines 65-77).
-    ///
-    /// **Policy, not selection.** The simulator still owns block
-    /// packing; this method only chooses what to feed back into the
-    /// controller(s) once a block is sealed.
     fn samples_for_block(
         &self,
         block_kind: BlockKind,
@@ -192,7 +240,42 @@ pub trait PricingBackend: Send + Sync {
             relevant_capacity: breakdown.block_capacity,
         }]
     }
+}
 
-    /// Snapshot for time-series logging.
-    fn snapshot(&self) -> PricingSnapshot;
+/// Render a `PricingSnapshot` from a canonical block's chain-derived
+/// state. Used for time-series logging and `PricingTick` events.
+/// Two-lane variants render both quotes; single-lane variants leave
+/// `priority_quote_per_byte` as `None` (priority and standard share the
+/// same controller — the convention matches the legacy renderer).
+pub fn snapshot_at(
+    derived_quote: crate::model::PerLaneQuote,
+    aggregate: crate::model::WindowAggregate,
+    is_two_lane: bool,
+) -> PricingSnapshot {
+    fn util_x_1e9(num: u128, den: u128) -> Option<u64> {
+        if den == 0 {
+            None
+        } else {
+            let scaled = num.saturating_mul(1_000_000_000) / den;
+            Some(u64::try_from(scaled).unwrap_or(u64::MAX))
+        }
+    }
+    let standard_util = util_x_1e9(aggregate.standard_sum_bytes, aggregate.standard_sum_capacity);
+    if is_two_lane {
+        let priority_util =
+            util_x_1e9(aggregate.priority_sum_bytes, aggregate.priority_sum_capacity);
+        PricingSnapshot {
+            standard_quote_per_byte: derived_quote.standard,
+            priority_quote_per_byte: Some(derived_quote.priority),
+            standard_window_util_x_1e9: standard_util,
+            priority_window_util_x_1e9: priority_util,
+        }
+    } else {
+        PricingSnapshot {
+            standard_quote_per_byte: derived_quote.standard,
+            priority_quote_per_byte: None,
+            standard_window_util_x_1e9: standard_util,
+            priority_window_util_x_1e9: None,
+        }
+    }
 }

@@ -1,104 +1,121 @@
-//! `CapacityWeightedWindow` — the unified utilisation-signal abstraction.
+//! `CapacityWeightedWindow` — pure-function capacity-weighted-window
+//! aggregator (chain-derived; spike 007).
 //!
 //! Per implementation-plan.md lines 30-44 and mechanism-design.md lines
-//! 80-105, all controllers share one window type parameterised by length.
-//! Capacity-varying signals (single-lane EIP-1559, both-dynamic standard)
-//! use length 32; uniform-capacity priority signals (RB-reserved priority
-//! controller) use length 1, which mathematically reduces to the per-block
-//! fill rate.
+//! 80-105, all controllers share one aggregation shape parameterised by
+//! length. Capacity-varying signals (single-lane EIP-1559, both-dynamic
+//! standard) use length 32; uniform-capacity priority signals
+//! (RB-reserved priority controller) use length 1, which mathematically
+//! reduces to the per-block fill rate.
 //!
-//! The aggregate is `sum(relevant_bytes) / sum(relevant_capacity)`. State
-//! is `u64`/`u128` only; no f64 enters simulation-affecting math.
+//! Under chain-derivation, the window is no longer a persistent
+//! per-node ring buffer. Each block carries its own `WindowAggregate`
+//! (`model.rs`) so descendants can step the controller in O(1):
+//!   - Add the parent's samples to the parent's aggregate.
+//!   - Subtract any samples that have just rolled off the tail
+//!     (block at distance `window_length + 1` back).
+//!
+//! All state is `u128`/`u64` integers. f64 never enters this module.
 
-use std::collections::VecDeque;
+use crate::model::WindowAggregate;
 
-use super::PricedBlockSample;
+use super::{Lane, PricedBlockSample};
 
-/// A bounded ring of `(relevant_bytes, relevant_capacity)` pairs that
-/// produces a capacity-weighted aggregate utilisation as a rational.
-#[derive(Debug, Clone)]
-pub struct CapacityWeightedWindow {
-    length: usize,
-    samples: VecDeque<Sample>,
-    sum_bytes: u128,
-    sum_capacity: u128,
+/// Walk an iterator of `PricedBlockSample`s and produce a
+/// `WindowAggregate`. Used for cold-start computation and tests.
+/// Bytes / capacity are split by `controller_lane`.
+///
+/// Note: `blocks_in_window` is incremented once per sample (not once
+/// per block) — multi-sample blocks (e.g. both-dynamic EBs emit two
+/// samples) increment the counter twice. This matches the legacy
+/// `CapacityWeightedWindow::push` behaviour where each push counts
+/// as one "ring slot". Per-controller window length is per-lane, so
+/// this convention is invariant under lane filtering.
+pub fn aggregate_from_chain<'a>(
+    samples: impl IntoIterator<Item = &'a PricedBlockSample>,
+) -> WindowAggregate {
+    let mut agg = WindowAggregate::ZERO;
+    for sample in samples {
+        add_one(&mut agg, sample);
+    }
+    agg
 }
 
-#[derive(Debug, Clone, Copy)]
-struct Sample {
-    bytes: u64,
-    capacity: u64,
+/// Incrementally update an aggregate: add `add_samples`, subtract
+/// `evict_samples`. The `window_length` is informational here (no
+/// trimming happens — the caller is responsible for sourcing
+/// `evict_samples` correctly to keep the per-lane sample count bounded
+/// at `window_length`).
+///
+/// The caller (a `PricingBackend::compute_derived_quote` impl) is
+/// responsible for sourcing `evict_samples` correctly: empty during the
+/// warm-up regime, and the samples of the block at distance
+/// `window_length + 1` once warm.
+pub fn update_aggregate(
+    parent: WindowAggregate,
+    add_samples: &[PricedBlockSample],
+    evict_samples: &[PricedBlockSample],
+    _window_length: usize,
+) -> WindowAggregate {
+    let mut agg = parent;
+    for sample in add_samples {
+        add_one(&mut agg, sample);
+    }
+    for sample in evict_samples {
+        sub_one(&mut agg, sample);
+    }
+    agg
 }
 
-impl CapacityWeightedWindow {
-    /// `length` is the maximum number of samples retained. `length == 0` is
-    /// rejected — a zero-length window has no defined aggregate.
-    pub fn new(length: usize) -> anyhow::Result<Self> {
-        if length == 0 {
-            anyhow::bail!("CapacityWeightedWindow length must be non-zero");
+fn add_one(agg: &mut WindowAggregate, sample: &PricedBlockSample) {
+    match sample.controller_lane {
+        Lane::Standard => {
+            agg.standard_sum_bytes = agg
+                .standard_sum_bytes
+                .saturating_add(sample.relevant_bytes as u128);
+            agg.standard_sum_capacity = agg
+                .standard_sum_capacity
+                .saturating_add(sample.relevant_capacity as u128);
         }
-        Ok(Self {
-            length,
-            samples: VecDeque::with_capacity(length),
-            sum_bytes: 0,
-            sum_capacity: 0,
-        })
-    }
-
-    pub fn length(&self) -> usize {
-        self.length
-    }
-
-    pub fn samples_len(&self) -> usize {
-        self.samples.len()
-    }
-
-    /// Append a sample, evicting the oldest if full.
-    pub fn push(&mut self, sample: PricedBlockSample) {
-        let s = Sample {
-            bytes: sample.relevant_bytes,
-            capacity: sample.relevant_capacity,
-        };
-        if self.samples.len() == self.length {
-            if let Some(old) = self.samples.pop_front() {
-                self.sum_bytes -= old.bytes as u128;
-                self.sum_capacity -= old.capacity as u128;
-            }
-        }
-        self.samples.push_back(s);
-        self.sum_bytes += s.bytes as u128;
-        self.sum_capacity += s.capacity as u128;
-    }
-
-    /// Aggregate as a rational `(numerator, denominator)` where
-    /// `numerator = sum(relevant_bytes)` and
-    /// `denominator = sum(relevant_capacity)`.
-    ///
-    /// Returns `(0, 1)` when the window is empty (no signal yet).
-    pub fn aggregate_util(&self) -> (u128, u128) {
-        if self.samples.is_empty() || self.sum_capacity == 0 {
-            (0, 1)
-        } else {
-            (self.sum_bytes, self.sum_capacity)
+        Lane::Priority => {
+            agg.priority_sum_bytes = agg
+                .priority_sum_bytes
+                .saturating_add(sample.relevant_bytes as u128);
+            agg.priority_sum_capacity = agg
+                .priority_sum_capacity
+                .saturating_add(sample.relevant_capacity as u128);
         }
     }
+    agg.blocks_in_window = agg.blocks_in_window.saturating_add(1);
+}
 
-    /// Numerator, for tests and reporting.
-    pub fn sum_bytes(&self) -> u128 {
-        self.sum_bytes
+fn sub_one(agg: &mut WindowAggregate, sample: &PricedBlockSample) {
+    match sample.controller_lane {
+        Lane::Standard => {
+            agg.standard_sum_bytes = agg
+                .standard_sum_bytes
+                .saturating_sub(sample.relevant_bytes as u128);
+            agg.standard_sum_capacity = agg
+                .standard_sum_capacity
+                .saturating_sub(sample.relevant_capacity as u128);
+        }
+        Lane::Priority => {
+            agg.priority_sum_bytes = agg
+                .priority_sum_bytes
+                .saturating_sub(sample.relevant_bytes as u128);
+            agg.priority_sum_capacity = agg
+                .priority_sum_capacity
+                .saturating_sub(sample.relevant_capacity as u128);
+        }
     }
-
-    /// Denominator, for tests and reporting.
-    pub fn sum_capacity(&self) -> u128 {
-        self.sum_capacity
-    }
+    agg.blocks_in_window = agg.blocks_in_window.saturating_sub(1);
 }
 
 #[cfg(test)]
 mod tests {
     use crate::tx_pricing::{BlockKind, Lane, PricedBlockSample};
 
-    use super::CapacityWeightedWindow;
+    use super::*;
 
     fn rb(bytes: u64, capacity: u64) -> PricedBlockSample {
         PricedBlockSample {
@@ -119,70 +136,66 @@ mod tests {
     }
 
     #[test]
-    fn rejects_zero_length() {
-        assert!(CapacityWeightedWindow::new(0).is_err());
-    }
-
-    #[test]
-    fn empty_window_returns_zero_aggregate() {
-        let window = CapacityWeightedWindow::new(8).unwrap();
-        assert_eq!(window.aggregate_util(), (0, 1));
+    fn empty_iterator_returns_zero_aggregate() {
+        let agg = aggregate_from_chain(std::iter::empty::<&PricedBlockSample>());
+        assert_eq!(agg, WindowAggregate::ZERO);
     }
 
     #[test]
     fn heterogeneous_rb_and_eb_blocks_aggregate_correctly() {
         // Mechanism-design.md lines 88-94: capacity-weighting blends a
         // small RB and a large EB proportionally.
-        // Full RB at 90KB plus half-full EB at 12MB:
-        //   sum_bytes    = 90_000 + 6_000_000 = 6_090_000
-        //   sum_capacity = 90_000 + 12_000_000 = 12_090_000
-        let mut window = CapacityWeightedWindow::new(8).unwrap();
-        window.push(rb(90_000, 90_000));
-        window.push(eb(6_000_000, 12_000_000));
-        let (num, den) = window.aggregate_util();
-        assert_eq!((num, den), (6_090_000, 12_090_000));
+        let samples = vec![rb(90_000, 90_000), eb(6_000_000, 12_000_000)];
+        let agg = aggregate_from_chain(samples.iter());
+        let (n, d) = agg.aggregate_util(Lane::Standard);
+        assert_eq!((n, d), (6_090_000, 12_090_000));
     }
 
     #[test]
     fn length_one_reduces_to_per_block_fill_rate() {
-        // Implementation-plan.md line 252: "Window length 1 reduces to
-        // per-block fill rate (regression test for spec-priority-controller
-        // equivalence)."
-        let mut window = CapacityWeightedWindow::new(1).unwrap();
-        window.push(rb(45_000, 90_000));
-        let (num, den) = window.aggregate_util();
-        assert_eq!((num, den), (45_000, 90_000));
+        let first = vec![rb(45_000, 90_000)];
+        let agg1 = update_aggregate(WindowAggregate::ZERO, &first, &[], 1);
+        let (n, d) = agg1.aggregate_util(Lane::Standard);
+        assert_eq!((n, d), (45_000, 90_000));
 
-        window.push(eb(3_000_000, 12_000_000));
-        let (num, den) = window.aggregate_util();
-        // Older RB sample evicted; only the EB remains, giving its
-        // own per-block fill rate of 3M / 12M = 0.25.
-        assert_eq!((num, den), (3_000_000, 12_000_000));
+        let second = vec![eb(3_000_000, 12_000_000)];
+        let agg2 = update_aggregate(agg1, &second, &first, 1);
+        let (n, d) = agg2.aggregate_util(Lane::Standard);
+        assert_eq!((n, d), (3_000_000, 12_000_000));
     }
 
     #[test]
     fn ring_evicts_oldest_when_full() {
-        let mut window = CapacityWeightedWindow::new(3).unwrap();
-        window.push(rb(10, 100));
-        window.push(rb(20, 100));
-        window.push(rb(30, 100));
-        // sum: 60 / 300 = 0.2
-        let (num, den) = window.aggregate_util();
-        assert_eq!((num, den), (60, 300));
+        let s1 = vec![rb(10, 100)];
+        let s2 = vec![rb(20, 100)];
+        let s3 = vec![rb(30, 100)];
+        let s4 = vec![rb(70, 100)];
+        let agg = update_aggregate(WindowAggregate::ZERO, &s1, &[], 3);
+        let agg = update_aggregate(agg, &s2, &[], 3);
+        let agg = update_aggregate(agg, &s3, &[], 3);
+        let (n, d) = agg.aggregate_util(Lane::Standard);
+        assert_eq!((n, d), (60, 300));
 
-        window.push(rb(70, 100)); // evicts the 10/100 sample
-        let (num, den) = window.aggregate_util();
-        assert_eq!((num, den), (120, 300));
+        let agg = update_aggregate(agg, &s4, &s1, 3);
+        let (n, d) = agg.aggregate_util(Lane::Standard);
+        assert_eq!((n, d), (120, 300));
     }
 
     #[test]
     fn endorsement_only_rb_with_zero_bytes_drags_aggregate_down() {
-        // Mechanism-design.md line 94: an endorsement-only RB contributes
-        // 0 bytes to the numerator and its body capacity to the denominator.
-        let mut window = CapacityWeightedWindow::new(4).unwrap();
-        window.push(rb(90_000, 90_000)); // saturated RB
-        window.push(rb(0, 90_000)); // endorsement-only RB
-        let (num, den) = window.aggregate_util();
-        assert_eq!((num, den), (90_000, 180_000));
+        let s1 = vec![rb(90_000, 90_000)];
+        let s2 = vec![rb(0, 90_000)];
+        let agg = update_aggregate(WindowAggregate::ZERO, &s1, &[], 4);
+        let agg = update_aggregate(agg, &s2, &[], 4);
+        let (n, d) = agg.aggregate_util(Lane::Standard);
+        assert_eq!((n, d), (90_000, 180_000));
+    }
+
+    #[test]
+    fn aggregate_from_chain_is_deterministic() {
+        let samples = vec![rb(90_000, 90_000), eb(6_000_000, 12_000_000), rb(0, 90_000)];
+        let a = aggregate_from_chain(samples.iter());
+        let b = aggregate_from_chain(samples.iter());
+        assert_eq!(a, b);
     }
 }

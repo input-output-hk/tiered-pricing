@@ -1,25 +1,28 @@
-//! Two-lane pricing backend — covers all four spec variants
+//! Two-lane pricing backend — covers all four spec variants (chain-derived).
 //! (mechanism-design.md §"RB-reserved priority-only premium",
 //! §"Un-reserved priority-only premium", §"Both-dynamic").
 //!
-//! Architecture (implementation-plan.md lines 46-50):
-//! - Two `Eip1559Pricing`-style controllers, one per lane.
+//! Architecture (chain-derived, spike 007):
+//! - Two `Eip1559Settings`-driven controllers, one per lane.
 //! - Window length is per partition × signal source: RB-reserved
-//!   priority controller uses length 1 (per-block fill rate, since
-//!   priority capacity is uniform per block); capacity-varying signals
-//!   (un-reserved priority, both-dynamic standard) use the configured
-//!   length.
+//!   priority controller uses length 1 (per-block fill rate); capacity-
+//!   varying signals (un-reserved priority, both-dynamic standard) use
+//!   the configured length.
 //! - Multiplier-floor invariant `c_priority ≥ multiplier_floor ×
-//!   c_standard` enforced **after** both controllers' independent
-//!   updates each block. State is the integer `quote_per_byte` so the
-//!   floor reduces to `q_priority ≥ ceil(num × q_standard / den)`.
+//!   c_standard` enforced **inside** `compute_derived_quote`'s return:
+//!   the function returns the post-floor `PerLaneQuote`. No persistent
+//!   state to enforce on after construction.
 //! - Sample emission rules per variant live in `samples_for_block`.
 //!
 //! All state is `u64`/`u128`. f64 is forbidden in this module.
 
+use crate::model::{PerLaneQuote, WindowAggregate};
+
 use super::{
-    BlockKind, BlockLaneBreakdown, Eip1559Pricing, Eip1559Settings, Lane, LaneSelectionOrder,
-    LaneValidityRule, Multiplier, PricedBlockSample, PricingBackend, PricingSnapshot,
+    BlockKind, BlockLaneBreakdown, Eip1559Settings, Lane, LaneSelectionOrder, LaneValidityRule,
+    Multiplier, PricedBlockSample, PricingBackend,
+    single_lane::compute_eip1559_step,
+    window::update_aggregate,
 };
 
 /// Which of the four spec variants this backend implements. The variant
@@ -76,7 +79,7 @@ pub struct TwoLaneSettings {
     /// ignore this.
     pub standard: Eip1559Settings,
     /// Multiplier-floor invariant: `c_priority ≥ multiplier_floor ×
-    /// c_standard`. Enforced post-update.
+    /// c_standard`. Enforced inside `compute_derived_quote`.
     pub multiplier_floor: Multiplier,
     /// Block-build scan order (`PriorityFirst` or `Fifo`).
     pub lane_selection_order: LaneSelectionOrder,
@@ -112,7 +115,7 @@ impl TwoLaneSettings {
             anyhow::bail!("priority_reservation_bytes must be non-zero");
         }
         // Bound the multiplier-floor ratio so the u128 → u64 conversion
-        // in `enforce_multiplier_floor` cannot silently saturate for any
+        // in the floor enforcement path cannot silently saturate for any
         // plausible `q_standard`. With a ratio cap of 2^32, we can fit
         //   floor = num × q_standard / den ≤ 2^32 × u64::MAX / 1
         // comfortably in u128; the residual saturation risk only kicks
@@ -129,7 +132,7 @@ impl TwoLaneSettings {
             anyhow::bail!(
                 "TwoLaneSettings.multiplier_floor ratio too large: \
                  {}/{} exceeds 2^{} cap; the u128 → u64 conversion in \
-                 enforce_multiplier_floor would saturate silently",
+                 the multiplier-floor enforcement would saturate silently",
                 self.multiplier_floor.numerator,
                 self.multiplier_floor.denominator,
                 MULTIPLIER_FLOOR_RATIO_CAP_LOG2,
@@ -139,18 +142,15 @@ impl TwoLaneSettings {
     }
 }
 
-/// Two-controller pricing backend.
+/// Two-controller pricing backend (chain-derived; spike 007).
 ///
-/// Holds two `Eip1559Pricing` instances (priority, standard). For
-/// priority-only variants the standard controller is constructed but
-/// never stepped — its `quote_per_byte` stays pinned at `min_fee_a`
-/// (so `c_standard = 1` per spec). The priority controller's window
-/// length is forced to 1 for RB-reserved variants per plan line 47.
+/// Holds only the settings — no controller state. `compute_derived_quote`
+/// is a pure function over `(parent_quote, parent_aggregate, parent_samples,
+/// evicted_samples)`. The multiplier-floor invariant is enforced on the
+/// returned `PerLaneQuote` (not on persistent state, because there is none).
 #[derive(Debug, Clone)]
 pub struct TwoLanePricing {
     settings: TwoLaneSettings,
-    priority: Eip1559Pricing,
-    standard: Eip1559Pricing,
 }
 
 impl TwoLanePricing {
@@ -162,21 +162,14 @@ impl TwoLanePricing {
             settings.priority.window_length = 1;
         }
         // Priority-only variants: pin standard at min_fee_a (c = 1).
+        // The construction-time floor enforcement is N/A under chain-
+        // derivation — there is no persistent state to enforce on.
+        // The floor is enforced exclusively on the *output* of
+        // `compute_derived_quote`.
         if !settings.variant.standard_dynamic() {
             settings.standard.initial_quote_per_byte = settings.standard.min_fee_a;
         }
-        let priority = Eip1559Pricing::new(settings.priority.clone())?;
-        let standard = Eip1559Pricing::new(settings.standard.clone())?;
-        let mut me = Self {
-            settings,
-            priority,
-            standard,
-        };
-        // Apply the floor at construction so the initial state already
-        // satisfies the invariant. (If `initial_quote_per_byte` for
-        // priority is below the floor, the floor wins.)
-        me.enforce_multiplier_floor();
-        Ok(me)
+        Ok(Self { settings })
     }
 
     pub fn variant(&self) -> TwoLaneVariant {
@@ -187,108 +180,150 @@ impl TwoLanePricing {
         &self.settings
     }
 
-    /// Test/inspection accessor.
-    pub fn priority_controller(&self) -> &Eip1559Pricing {
-        &self.priority
-    }
-
-    /// Test/inspection accessor.
-    pub fn standard_controller(&self) -> &Eip1559Pricing {
-        &self.standard
-    }
-
-    /// Apply the multiplier-floor invariant: `q_priority ≥ ceil(num ×
-    /// q_standard / den)`. Equivalent to `c_priority ≥ multiplier_floor
-    /// × c_standard` since `q = c × min_fee_a` and `min_fee_a` cancels.
-    /// Done with `u128` to keep the multiplication safe.
-    fn enforce_multiplier_floor(&mut self) {
-        let q_standard = self.standard.current_quote(Lane::Standard) as u128;
+    /// Apply the multiplier-floor invariant to a `(standard, priority)`
+    /// pair. `q_priority ≥ ceil(num × q_standard / den)`. Uses u128
+    /// intermediates; saturates at u64::MAX (which `validate` caps).
+    fn apply_floor(&self, q_standard: u64, q_priority: u64) -> u64 {
         let num = self.settings.multiplier_floor.numerator as u128;
         let den = self.settings.multiplier_floor.denominator as u128;
-        // ceil(num × q_standard / den)
-        let scaled = q_standard.saturating_mul(num);
+        let scaled = (q_standard as u128).saturating_mul(num);
         let floor = if scaled == 0 {
-            0
+            0u128
         } else {
             (scaled - 1) / den + 1
         };
-        let q_priority = self.priority.current_quote(Lane::Priority) as u128;
-        if q_priority < floor {
-            // Bypass the controller's own window: we're enforcing an
-            // invariant, not running an EIP-1559 step. Reach in via the
-            // newly-added setter on `Eip1559Pricing`.
-            //
-            // `TwoLaneSettings::validate` caps the multiplier-floor ratio
-            // at 2^32, so floor only exceeds u64::MAX when `q_standard`
-            // is already saturated upstream — at which point the
-            // controller is in pathological territory and saturating the
-            // floor to u64::MAX is the right fallback. The debug_assert
-            // keeps the realistic-config invariant load-bearing in dev.
-            debug_assert!(
-                floor <= u64::MAX as u128,
-                "multiplier-floor overflow: floor={floor} num={num} den={den} q_standard={q_standard}"
-            );
-            let new_q = u64::try_from(floor).unwrap_or(u64::MAX);
-            self.priority.set_quote_for_floor(new_q);
+        debug_assert!(
+            floor <= u64::MAX as u128,
+            "multiplier-floor overflow: floor={floor} num={num} den={den} q_standard={q_standard}"
+        );
+        let floor_u64 = u64::try_from(floor).unwrap_or(u64::MAX);
+        q_priority.max(floor_u64)
+    }
+
+    /// Per-lane worst-case quote projection. Used by the staleness
+    /// predictor: read the chain-tip's `derived_quote.get(lane)`, then
+    /// call this to project N max-up steps forward. Priority-only
+    /// variants pin standard, so worst-case standard = current.
+    pub fn worst_case_quote_for(
+        &self,
+        current_quote_for_lane: u64,
+        lane: Lane,
+        blocks_ahead: u32,
+    ) -> u64 {
+        match lane {
+            Lane::Standard if !self.settings.variant.standard_dynamic() => current_quote_for_lane,
+            Lane::Standard => super::single_lane::worst_case_eip1559_quote(
+                current_quote_for_lane,
+                self.settings.standard.max_change_denominator,
+                blocks_ahead,
+            ),
+            Lane::Priority => super::single_lane::worst_case_eip1559_quote(
+                current_quote_for_lane,
+                self.settings.priority.max_change_denominator,
+                blocks_ahead,
+            ),
         }
     }
 }
 
 impl PricingBackend for TwoLanePricing {
-    fn current_quote(&self, lane: Lane) -> u64 {
-        match lane {
-            Lane::Standard => self.standard.current_quote(Lane::Standard),
-            Lane::Priority => self.priority.current_quote(Lane::Priority),
-        }
-    }
+    fn compute_derived_quote(
+        &self,
+        parent_quote: PerLaneQuote,
+        parent_aggregate: WindowAggregate,
+        parent_samples: &[PricedBlockSample],
+        evicted_samples: &[PricedBlockSample],
+    ) -> (PerLaneQuote, WindowAggregate) {
+        // Step 1: fold parent_samples and evicted_samples into the
+        // window aggregate. Each sample is lane-keyed (priority vs
+        // standard) via its `controller_lane` field.
+        // The per-lane window lengths can differ (RB-reserved priority
+        // is forced to 1), but the aggregate carries both lanes in one
+        // struct — the actual eviction policy is the caller's
+        // responsibility (the simulator sources the evicted slice from
+        // the block at `window_length + 1` back per controller).
+        let new_aggregate = update_aggregate(
+            parent_aggregate,
+            parent_samples,
+            evicted_samples,
+            self.settings.priority.window_length.max(self.settings.standard.window_length),
+        );
 
-    fn worst_case_quote_at(&self, lane: Lane, blocks_ahead: u32) -> u64 {
-        match lane {
-            // Priority-only-static variants pin c_standard at 1 — the
-            // standard controller never moves. Worst case is the current
-            // quote.
-            Lane::Standard if !self.settings.variant.standard_dynamic() => {
-                self.standard.current_quote(Lane::Standard)
+        // Step 2: priority controller step. Skip when the priority
+        // lane has no samples in the window (matches legacy
+        // `Eip1559Pricing::step` semantics — no signal, no movement).
+        let priority_quote = if new_aggregate.priority_sum_capacity == 0 {
+            parent_quote.priority
+        } else {
+            let (p_num, p_den) = new_aggregate.aggregate_util(Lane::Priority);
+            compute_eip1559_step(parent_quote.priority, (p_num, p_den), &self.settings.priority)
+        };
+
+        // Step 3: standard controller step (or pin to min_fee_a for
+        // priority-only variants). Skip-on-empty for the dynamic
+        // variant too.
+        let standard_quote = if self.settings.variant.standard_dynamic() {
+            if new_aggregate.standard_sum_capacity == 0 {
+                parent_quote.standard
+            } else {
+                let (s_num, s_den) = new_aggregate.aggregate_util(Lane::Standard);
+                compute_eip1559_step(parent_quote.standard, (s_num, s_den), &self.settings.standard)
             }
-            Lane::Standard => self
-                .standard
-                .worst_case_quote_at(Lane::Standard, blocks_ahead),
-            Lane::Priority => self
-                .priority
-                .worst_case_quote_at(Lane::Priority, blocks_ahead),
-        }
+        } else {
+            // Pin c_standard = 1 (mechanism-design.md §"RB-reserved
+            // priority-only premium"). The output is the spec's static
+            // standard quote, regardless of input parent_quote.standard.
+            self.settings.standard.min_fee_a
+        };
+
+        // Step 4: multiplier-floor invariant.
+        let priority_quote_floored = self.apply_floor(standard_quote, priority_quote);
+
+        (
+            PerLaneQuote {
+                standard: standard_quote,
+                priority: priority_quote_floored,
+            },
+            new_aggregate,
+        )
     }
 
-    fn update_after_block(&mut self, samples: &[PricedBlockSample]) {
-        // Each sample carries the lane it feeds. The single-lane
-        // backend filtered by `controller_lane == Standard`; here we
-        // route Priority samples to the priority controller and (if
-        // the standard side is dynamic) Standard samples to the
-        // standard controller. Priority-only variants ignore Standard
-        // samples even if the simulator emitted them — the spec keeps
-        // c_standard = 1.
-        //
-        // Implementation: feed each controller its own filtered slice
-        // through `update_after_block`, which already honours its
-        // `controller_lane` filter (priority controller only consumes
-        // Priority samples; standard controller's existing impl filters
-        // Standard).
-        //
-        // Two issues with reusing the single-lane impl directly:
-        //  1. `Eip1559Pricing::update_after_block` filters on
-        //     `controller_lane == Lane::Standard` — we need a Priority
-        //     filter for the priority controller.
-        //  2. Priority-only variants must skip the standard controller
-        //     entirely.
-        //
-        // We pass the slice and let each controller's `step_with_lane`
-        // helper do its own filtering.
-        self.priority.step_with_lane(Lane::Priority, samples);
-        if self.settings.variant.standard_dynamic() {
-            self.standard.step_with_lane(Lane::Standard, samples);
+    fn effective_window_length(&self) -> usize {
+        self.settings
+            .priority
+            .window_length
+            .max(self.settings.standard.window_length)
+    }
+
+    fn cold_start_quote(&self, lane: Lane) -> u64 {
+        match lane {
+            Lane::Standard => self
+                .settings
+                .standard
+                .initial_quote_per_byte
+                .max(self.settings.standard.min_fee_a),
+            Lane::Priority => {
+                // Raise priority's initial quote to the multiplier-floor
+                // if needed (mirrors the legacy constructor's `enforce_
+                // multiplier_floor` invariant at construction time).
+                let initial = self
+                    .settings
+                    .priority
+                    .initial_quote_per_byte
+                    .max(self.settings.priority.min_fee_a);
+                let standard = self
+                    .settings
+                    .standard
+                    .initial_quote_per_byte
+                    .max(self.settings.standard.min_fee_a);
+                let standard_for_floor = if self.settings.variant.standard_dynamic() {
+                    standard
+                } else {
+                    self.settings.standard.min_fee_a
+                };
+                self.apply_floor(standard_for_floor, initial)
+            }
         }
-        // Multiplier-floor enforcement after both controllers move.
-        self.enforce_multiplier_floor();
     }
 
     fn lane_validity_rule(&self, block_kind: BlockKind) -> LaneValidityRule {
@@ -314,15 +349,6 @@ impl PricingBackend for TwoLanePricing {
         // Sample-emission rules per implementation-plan.md lines 65-77,
         // branching on (variant, block_kind).
         match (self.settings.variant, block_kind) {
-            // RB-reserved RB: priority-only by validity rule. Only the
-            // priority controller sees an RB sample (line 68); standard
-            // controller is isolated even when it's dynamic.
-            //
-            // The selection-time validity filter guarantees every tx in
-            // this RB has `posted_lane = Priority`. Assert that
-            // invariant rather than silently summing both lanes — a
-            // standard byte leaking through the filter is a regression
-            // we want to fail loudly in dev, not absorb.
             (
                 TwoLaneVariant::RbReservedPriorityOnly | TwoLaneVariant::RbReservedBothDynamic,
                 BlockKind::RankingBlock,
@@ -338,10 +364,6 @@ impl PricingBackend for TwoLanePricing {
                     relevant_capacity: breakdown.block_capacity,
                 }]
             }
-            // RB-reserved EB: priority controller's `relevant_bytes` is
-            // capped at one RB-worth (plan line 73,
-            // mechanism-design.md lines 168-180). Standard controller
-            // (when dynamic) sees the EB's `standard_paying_bytes`.
             (
                 TwoLaneVariant::RbReservedPriorityOnly | TwoLaneVariant::RbReservedBothDynamic,
                 BlockKind::EndorserBlock,
@@ -364,11 +386,6 @@ impl PricingBackend for TwoLanePricing {
                 }
                 out
             }
-            // Un-reserved (RB and EB share the same emission shape):
-            // priority controller sees priority-paying-bytes against
-            // block_capacity (option 1 signal); standard controller
-            // (when dynamic) sees standard-paying-bytes against the
-            // same. No partition, no per-block byte cap.
             (TwoLaneVariant::UnreservedPriorityOnly | TwoLaneVariant::UnreservedBothDynamic, _) => {
                 let mut out = vec![PricedBlockSample {
                     block_kind,
@@ -388,22 +405,12 @@ impl PricingBackend for TwoLanePricing {
             }
         }
     }
-
-    fn snapshot(&self) -> PricingSnapshot {
-        let p_snap = self.priority.snapshot();
-        let s_snap = self.standard.snapshot();
-        PricingSnapshot {
-            standard_quote_per_byte: s_snap.standard_quote_per_byte,
-            priority_quote_per_byte: Some(p_snap.standard_quote_per_byte),
-            standard_window_util_x_1e9: s_snap.standard_window_util_x_1e9,
-            priority_window_util_x_1e9: p_snap.standard_window_util_x_1e9,
-        }
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::{PerLaneQuote, WindowAggregate};
 
     fn settings(variant: TwoLaneVariant) -> TwoLaneSettings {
         TwoLaneSettings {
@@ -432,61 +439,63 @@ mod tests {
 
     #[test]
     fn rb_reserved_forces_priority_window_length_one() {
-        // Plan line 47: RB-reserved priority controller window length
-        // 1 reduces to per-block fill rate.
         let pricing =
             TwoLanePricing::new(settings(TwoLaneVariant::RbReservedPriorityOnly)).unwrap();
-        assert_eq!(pricing.priority.window().length(), 1);
+        assert_eq!(pricing.settings().priority.window_length, 1);
     }
 
     #[test]
     fn unreserved_keeps_priority_window_length_from_settings() {
         let pricing =
             TwoLanePricing::new(settings(TwoLaneVariant::UnreservedPriorityOnly)).unwrap();
-        assert_eq!(pricing.priority.window().length(), 4);
+        assert_eq!(pricing.settings().priority.window_length, 4);
     }
 
     #[test]
     fn priority_only_variant_pins_standard_at_min_fee_a() {
-        // Standard side is c = 1 (mechanism-design.md
-        // §"RB-reserved priority-only premium").
-        let mut pricing =
+        let pricing =
             TwoLanePricing::new(settings(TwoLaneVariant::RbReservedPriorityOnly)).unwrap();
-        let q0 = pricing.current_quote(Lane::Standard);
-        // Feed a saturated standard sample directly — variant must
-        // ignore it and keep c_standard = 1 (q = min_fee_a).
-        pricing.update_after_block(&[PricedBlockSample {
-            block_kind: BlockKind::EndorserBlock,
-            controller_lane: Lane::Standard,
-            relevant_bytes: 100,
-            relevant_capacity: 100,
-        }]);
-        let q1 = pricing.current_quote(Lane::Standard);
-        assert_eq!(q0, 44);
-        assert_eq!(q1, 44, "priority-only variant must not move c_standard");
+        // Initial quote at cold start: priority and standard.
+        let q_standard = pricing.cold_start_quote(Lane::Standard);
+        assert_eq!(q_standard, 44);
+        // Feed a saturated standard sample — must not move c_standard.
+        let parent = PerLaneQuote {
+            standard: 44,
+            priority: pricing.cold_start_quote(Lane::Priority),
+        };
+        let (q, _) = pricing.compute_derived_quote(
+            parent,
+            WindowAggregate::ZERO,
+            &[PricedBlockSample {
+                block_kind: BlockKind::EndorserBlock,
+                controller_lane: Lane::Standard,
+                relevant_bytes: 100,
+                relevant_capacity: 100,
+            }],
+            &[],
+        );
+        assert_eq!(q.standard, 44, "priority-only variant must not move c_standard");
     }
 
     #[test]
     fn multiplier_floor_holds_at_construction() {
-        // Default settings put multiplier_floor at 16; initial priority
-        // quote is min_fee_a = 44 = standard quote, so the floor
-        // forces priority up to 16 × 44 = 704.
-        let pricing = TwoLanePricing::new(settings(TwoLaneVariant::RbReservedBothDynamic)).unwrap();
-        let q_p = pricing.current_quote(Lane::Priority);
-        let q_s = pricing.current_quote(Lane::Standard);
+        let pricing =
+            TwoLanePricing::new(settings(TwoLaneVariant::RbReservedBothDynamic)).unwrap();
+        let q_p = pricing.cold_start_quote(Lane::Priority);
+        let q_s = pricing.cold_start_quote(Lane::Standard);
         assert_eq!(q_s, 44);
         assert_eq!(q_p, 16 * 44);
     }
 
     #[test]
     fn multiplier_floor_holds_after_standard_moves_up() {
-        // Plan line 312: multiplier-floor invariant after every
-        // controller update, including when c_standard moves.
-        let mut pricing =
+        let pricing =
             TwoLanePricing::new(settings(TwoLaneVariant::RbReservedBothDynamic)).unwrap();
-        // Drive c_standard up: feed a saturated standard EB sample.
-        // RB-reserved both-dynamic emits a standard EB sample, so we
-        // can pass it through update_after_block.
+        let mut q = PerLaneQuote {
+            standard: pricing.cold_start_quote(Lane::Standard),
+            priority: pricing.cold_start_quote(Lane::Priority),
+        };
+        let mut agg = WindowAggregate::ZERO;
         let sample = PricedBlockSample {
             block_kind: BlockKind::EndorserBlock,
             controller_lane: Lane::Standard,
@@ -494,23 +503,24 @@ mod tests {
             relevant_capacity: 100,
         };
         for _ in 0..20 {
-            pricing.update_after_block(&[sample]);
-            let q_s = pricing.current_quote(Lane::Standard);
-            let q_p = pricing.current_quote(Lane::Priority);
-            // Floor: q_p ≥ ceil(16 × q_s / 1) = 16 × q_s.
-            let floor = (16u128 * q_s as u128) as u64;
+            let (nq, na) = pricing.compute_derived_quote(q, agg, &[sample], &[]);
+            let floor = (16u128 * nq.standard as u128) as u64;
             assert!(
-                q_p >= floor,
-                "multiplier-floor violation: q_p={q_p} q_s={q_s} floor={floor}"
+                nq.priority >= floor,
+                "multiplier-floor violation: q_p={} q_s={} floor={}",
+                nq.priority,
+                nq.standard,
+                floor
             );
+            q = nq;
+            agg = na;
         }
     }
 
     #[test]
     fn rb_reserved_only_emits_priority_sample_for_rb() {
-        // Plan line 68 + verification line 313: standard controller
-        // does not see RB samples even when both-dynamic.
-        let pricing = TwoLanePricing::new(settings(TwoLaneVariant::RbReservedBothDynamic)).unwrap();
+        let pricing =
+            TwoLanePricing::new(settings(TwoLaneVariant::RbReservedBothDynamic)).unwrap();
         let breakdown = BlockLaneBreakdown {
             priority_paying_bytes: 90_000,
             standard_paying_bytes: 0,
@@ -525,13 +535,10 @@ mod tests {
 
     #[test]
     fn rb_reserved_caps_priority_eb_bytes_at_one_rb() {
-        // Plan line 73: RB-reserved priority controller's EB sample uses
-        // `relevant_bytes = min(priority_paying_bytes, max_block_size)`.
-        // Saturating priority demand cannot push the signal above 1.0.
         let pricing =
             TwoLanePricing::new(settings(TwoLaneVariant::RbReservedPriorityOnly)).unwrap();
         let breakdown = BlockLaneBreakdown {
-            priority_paying_bytes: 1_000_000, // way over one RB-worth
+            priority_paying_bytes: 1_000_000,
             standard_paying_bytes: 5_000_000,
             block_capacity: 12_000_000,
         };
@@ -550,7 +557,8 @@ mod tests {
 
     #[test]
     fn rb_reserved_both_dynamic_eb_emits_two_samples() {
-        let pricing = TwoLanePricing::new(settings(TwoLaneVariant::RbReservedBothDynamic)).unwrap();
+        let pricing =
+            TwoLanePricing::new(settings(TwoLaneVariant::RbReservedBothDynamic)).unwrap();
         let breakdown = BlockLaneBreakdown {
             priority_paying_bytes: 50_000,
             standard_paying_bytes: 5_000_000,
@@ -590,7 +598,8 @@ mod tests {
 
     #[test]
     fn unreserved_both_dynamic_emits_two_samples_for_each_block_kind() {
-        let pricing = TwoLanePricing::new(settings(TwoLaneVariant::UnreservedBothDynamic)).unwrap();
+        let pricing =
+            TwoLanePricing::new(settings(TwoLaneVariant::UnreservedBothDynamic)).unwrap();
         let breakdown = BlockLaneBreakdown {
             priority_paying_bytes: 30_000,
             standard_paying_bytes: 60_000,
@@ -639,40 +648,43 @@ mod tests {
 
     #[test]
     fn rb_reserved_standard_isolation_does_not_move_c_standard_on_priority_rb() {
-        // Plan line 313: a saturated priority-only RB updates
-        // c_priority but does **not** change c_standard or its window.
-        let mut pricing =
+        // Plan line 313: a saturated priority-only RB updates c_priority
+        // but does **not** change c_standard or its window samples.
+        let pricing =
             TwoLanePricing::new(settings(TwoLaneVariant::RbReservedBothDynamic)).unwrap();
-        let q_s_before = pricing.current_quote(Lane::Standard);
-        let standard_window_bytes_before = pricing.standard.window().sum_bytes();
+        let parent_q = PerLaneQuote {
+            standard: pricing.cold_start_quote(Lane::Standard),
+            priority: pricing.cold_start_quote(Lane::Priority),
+        };
         let breakdown = BlockLaneBreakdown {
             priority_paying_bytes: 90_000,
             standard_paying_bytes: 0,
             block_capacity: 90_000,
         };
         let samples = pricing.samples_for_block(BlockKind::RankingBlock, &breakdown);
-        // Confirm sample emission shape first.
         assert_eq!(samples.len(), 1);
         assert_eq!(samples[0].controller_lane, Lane::Priority);
-        // Now apply.
-        pricing.update_after_block(&samples);
-        let q_s_after = pricing.current_quote(Lane::Standard);
-        let standard_window_bytes_after = pricing.standard.window().sum_bytes();
+        let (q, new_agg) =
+            pricing.compute_derived_quote(parent_q, WindowAggregate::ZERO, &samples, &[]);
+        // Standard quote does not move: derived from min_fee_a context + an
+        // empty standard aggregate. After one step at target=0.5, util=0/0
+        // means no signal → returns input parent_q.standard ... but the
+        // controller takes its input through the aggregate. With sum_cap=0
+        // for standard, the step yields parent_q.standard unchanged.
         assert_eq!(
-            q_s_after, q_s_before,
+            q.standard, parent_q.standard,
             "saturated priority-only RB must not move c_standard"
         );
         assert_eq!(
-            standard_window_bytes_after, standard_window_bytes_before,
+            new_agg.standard_sum_bytes, 0,
             "saturated priority-only RB must not feed the standard window"
         );
+        assert_eq!(new_agg.standard_sum_capacity, 0);
     }
 
     #[test]
     fn rejects_zero_denominator_floor() {
         let mut s = settings(TwoLaneVariant::RbReservedBothDynamic);
-        // Multiplier::new rejects denominator==0; bypass via direct
-        // construction to test TwoLaneSettings::validate.
         s.multiplier_floor = Multiplier {
             numerator: 16,
             denominator: 0,
@@ -683,7 +695,33 @@ mod tests {
     #[test]
     fn rejects_floor_below_one() {
         let mut s = settings(TwoLaneVariant::RbReservedBothDynamic);
-        s.multiplier_floor = Multiplier::new(1, 2).unwrap(); // 0.5 < 1
+        s.multiplier_floor = Multiplier::new(1, 2).unwrap();
         assert!(TwoLanePricing::new(s).is_err());
+    }
+
+    #[test]
+    fn sibling_rbs_produce_identical_derived_quote() {
+        // Spike 007 §"Slot-battle resolution under chain-derived":
+        // two children of the same parent with identical compute
+        // inputs must produce identical (PerLaneQuote, WindowAggregate).
+        let pricing =
+            TwoLanePricing::new(settings(TwoLaneVariant::RbReservedBothDynamic)).unwrap();
+        let parent_q = PerLaneQuote {
+            standard: pricing.cold_start_quote(Lane::Standard),
+            priority: pricing.cold_start_quote(Lane::Priority),
+        };
+        let parent_agg = WindowAggregate::ZERO;
+        let breakdown = BlockLaneBreakdown {
+            priority_paying_bytes: 50_000,
+            standard_paying_bytes: 5_000_000,
+            block_capacity: 12_000_000,
+        };
+        let samples = pricing.samples_for_block(BlockKind::EndorserBlock, &breakdown);
+        let (a_q, a_agg) =
+            pricing.compute_derived_quote(parent_q, parent_agg, &samples, &[]);
+        let (b_q, b_agg) =
+            pricing.compute_derived_quote(parent_q, parent_agg, &samples, &[]);
+        assert_eq!(a_q, b_q, "sibling derived_quote must be identical");
+        assert_eq!(a_agg, b_agg, "sibling window_aggregate must be identical");
     }
 }

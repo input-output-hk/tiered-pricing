@@ -37,6 +37,13 @@ enum Command {
         /// resumes; a new ID starts a fresh dir.
         #[arg(long)]
         run_id: Option<String>,
+        /// Max concurrent (job, seed) pairs. Default:
+        /// `min(available_parallelism(), 8)`. Each parallel job
+        /// owns its own simulator state, so peak RSS scales
+        /// linearly in N — raise carefully if your topology is large
+        /// or RAM is tight.
+        #[arg(long, short = 'P')]
+        parallelism: Option<usize>,
     },
     /// Print the manifest's per-job status without running.
     Status {
@@ -52,7 +59,31 @@ enum Command {
         suite: PathBuf,
         #[arg(long)]
         run_id: Option<String>,
+        /// Max concurrent (job, seed) pairs. Default:
+        /// `min(available_parallelism(), 8)`. See `Run` for memory
+        /// implications.
+        #[arg(long, short = 'P')]
+        parallelism: Option<usize>,
     },
+}
+
+/// Resolve user-supplied parallelism with the default cap.
+///
+/// `Some(n)` with `n >= 1` is returned as-is; `Some(0)` is treated as
+/// "use the default". The default is `min(available_parallelism(), 8)`
+/// — the cap of 8 keeps peak RSS comfortably under 32 GB on the dev
+/// machine even with a 100-node topology, while saturating most
+/// consumer core counts.
+fn resolve_parallelism(opt: Option<usize>) -> usize {
+    if let Some(n) = opt
+        && n >= 1
+    {
+        return n;
+    }
+    let nproc = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(1);
+    nproc.min(8)
 }
 
 fn main() -> Result<()> {
@@ -67,9 +98,17 @@ fn main() -> Result<()> {
 
     let args = Args::parse();
     match args.command {
-        Command::Run { suite, run_id } => run_suite_with_run_id(&suite, run_id.as_deref()),
+        Command::Run {
+            suite,
+            run_id,
+            parallelism,
+        } => run_suite_with_run_id(&suite, run_id.as_deref(), resolve_parallelism(parallelism)),
         Command::Status { suite, run_id } => print_status(&suite, run_id.as_deref()),
-        Command::Verify { suite, run_id } => verify_suite_with_run_id(&suite, run_id.as_deref()),
+        Command::Verify {
+            suite,
+            run_id,
+            parallelism,
+        } => verify_suite_with_run_id(&suite, run_id.as_deref(), resolve_parallelism(parallelism)),
     }
 }
 

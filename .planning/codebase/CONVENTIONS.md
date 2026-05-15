@@ -1,195 +1,502 @@
 # Coding Conventions
 
-**Analysis Date:** 2026-05-13
+**Analysis Date:** 2026-05-15
 
-## Numeric Representation Contract (HARD RULE)
+This document codifies the conventions and idiomatic patterns used in
+the phase-2 dynamic-pricing simulator (`dynamic-experiment` branch).
+It is prescriptive: future Claude instances writing or modifying code
+in this workspace should follow these rules. The numeric-representation
+contract is load-bearing — violating it flips the determinism golden
+hashes documented in [TESTING.md](TESTING.md).
 
-**Simulation-affecting state must be integer / rational / `u128` / `i128`, never plain `f64`.** This is the strongest rule on the branch. Enforced by the determinism golden hashes — any accidental `f64` entry into a hot path flips a pinned hash.
+## Numeric representation contract — the hard rule
 
-**Storage rules:**
-- `quote_per_byte` is stored as `u64` directly (never derived from an `f64` coefficient at query time). See `sim-rs/sim-core/src/tx_pricing/single_lane.rs` and `sim-rs/sim-core/src/tx_pricing/mod.rs`.
-- The EIP-1559 update rule runs in `u128` rationals (`aggregateUtil = Σ num / Σ den`, `target = (num, den)`, `D` integer, clamped step on `quote_per_byte`). See `sim-rs/sim-core/src/tx_pricing/single_lane.rs` (`step`, `step_with_lane`).
-- Multiplier-floor invariant (`c_priority ≥ multiplier_floor × c_standard`) is enforced on `quote_per_byte` with `u128` intermediates, never on `c` directly. See `sim-rs/sim-core/src/tx_pricing/two_lane.rs`.
-- `CapacityWeightedWindow` is a `u128` ring buffer (`sum_bytes`, `sum_capacity`). See `sim-rs/sim-core/src/tx_pricing/window.rs`.
-- `max_fee_lovelace`, `actual_fee_lovelace`, `refund_lovelace` are all `u64`. See `sim-rs/sim-core/src/sim/mempool_gate.rs`.
-- Lane choice math uses `libm::pow` + `libm::round` into `i128` lovelace before any `>` comparison so it is bit-deterministic on the same architecture. See `sim-rs/sim-core/src/tx_actors.rs`.
+**Simulation-affecting state is integer/rational/u128 or
+bit-reproducible cross-platform math; never plain `f64`.** This is
+the single most important convention on the branch. It is enforced by
+the M2/M3 unit-test golden hashes and the M5 suite-level goldens. Any
+accidental `f64` entry into a hot path flips them.
 
-**`f64` is allowed only in reporting outputs.** `retained_value`, `net_utility`, `retained_value_ratio` and friends in `sim-rs/sim-cli/src/metrics/collector.rs` are computed and stored as `f64`. These never feed back into simulation decisions.
+### Hot-path types (simulation-affecting)
 
-**Carve-out:** `Transaction.urgency: f64` exists on the simulator's core type (`sim-rs/sim-core/src/model.rs`) but is read **only** by the actor lane-choice math which routes it through `libm::pow` + `libm::round` into `i128` lovelace. Never read it from any other simulation-affecting code path. Documented in `sim-rs/CLAUDE.md` "Conventions / gotchas".
+Use these for everything that influences which transaction lands in
+which block:
 
-**Pricing event-stream golden hashes** are over `Event::TXIncluded` and `Event::TXEvictedQuoteDrift` only — exactly the events that determine simulator outcomes. Hashing code in `sim-rs/sim-core/src/sim/tests/m2_two_lane.rs` (`run_seeded_pricing_scenario`, `run_seeded_pricing_scenario_unreserved`) and `sim-rs/sim-cli/src/metrics/collector.rs`.
+| Concern | Type | Example file |
+|---|---|---|
+| `quote_per_byte` | `u64` direct (never derived from f64 coefficient at query time) | `sim-rs/sim-core/src/model.rs` (`PerLaneQuote { standard: u64, priority: u64 }`) |
+| Controller window sums | `u128` integer sums | `sim-rs/sim-core/src/model.rs` (`WindowAggregate`) |
+| Controller arithmetic intermediates | `u128` rationals | `sim-rs/sim-core/src/tx_pricing/single_lane.rs` `compute_eip1559_step` |
+| Fee charging / refunds / `max_fee_lovelace` | `u64` lovelace | `sim-rs/sim-core/src/sim/mempool_gate.rs` |
+| Actor lane-choice expected utility | `i128` lovelace via `libm::round` before comparison | `sim-rs/sim-core/src/tx_actors.rs` `expected_utility_lovelace` |
+| `posted_lane` / `served_lane` | `Lane` enum (no integer width) | `sim-rs/sim-core/src/tx_pricing/mod.rs` |
 
-## No Prior-Art Content Rule
+### Reporting-only f64 (cold paths)
 
-**No `pricing-sim-base` content.** That branch is observable as prior art only — no file, type, or function was moved across. Hard rule from `docs/phase-2/implementation-plan.md`.
+These are computed from the deterministic event stream but **never feed
+back into simulation decisions**:
 
-## Naming Patterns
+- `retained_value`, `net_utility`, `retained_value_ratio` (see
+  `welfare` submodule in `sim-rs/sim-core/src/tx_actors.rs`).
+- `RunSummary` fields like `priority_retained_value_total`,
+  `block_generation_probability`, shock metrics (see
+  `sim-rs/sim-cli/src/metrics/collector.rs`).
+- Time-series ratios in `sim-rs/sim-cli/src/metrics/time_series.rs`.
 
-**Files:** snake_case `.rs` (e.g. `single_lane.rs`, `two_lane.rs`, `mempool_gate.rs`, `tx_actors.rs`, `tx_pricing/`, `m1_smoke.rs`, `m2_two_lane.rs`, `m3_actors.rs`).
+Comment block at top of `sim-rs/sim-core/src/tx_actors.rs` lines 22-23
+makes this split explicit: "`welfare` — f64 reporting-only formulas".
 
-**Types:** PascalCase (`PricingBackend`, `TwoLaneVariant`, `MempoolGate`, `EvictionRecord`, `InclusionCharge`, `LaneSelectionOrder`, `Eip1559Settings`).
+### Bit-deterministic f64 escape hatch
 
-**Functions / methods:** snake_case (`current_quote`, `update_after_block`, `lane_validity_rule`, `samples_for_block`, `try_admit`, `revalidate`, `on_inclusion`, `step_with_lane`).
+When a calculation genuinely needs f64 (e.g. exponential decay for
+retained-value), route it through `libm` for cross-arch bit-stability:
 
-**Constructors:** `new`, `new_*`, or domain-specific builders (`Eip1559Pricing::new`, `BaselinePricing::new`, `TwoLanePricing::new`, `MempoolGate::new`). Constructors that can fail return `anyhow::Result<Self>` (e.g. `Multiplier::new`, `Eip1559Pricing::new`).
-
-**Constants:** SCREAMING_SNAKE_CASE (`MIN_FEE_A`, `MIN_FEE_B`, `RB_BODY_BYTES`, `RB_BODY_MAX`, `EB_REF_MAX`, `MAX_VOLATILITY_AWARE_BLOCKS`, `GOLDEN`).
-
-**Enums and variants:** PascalCase (`Lane::Standard`, `Lane::Priority`, `BlockKind::RankingBlock`, `BlockKind::EndorserBlock`, `LaneValidityRule::None`, `LaneValidityRule::PriorityOnly`, `JobStatus::Pending`/`Running`/`Completed`/`Failed`, `AdmissionRejection::InsufficientMaxFee`).
-
-**Lane vocabulary:** strictly two variants — `Standard` and `Priority`. **No tier vocabulary anywhere on the branch.** Single-lane mechanisms collapse both to `Standard`. See `sim-rs/sim-core/src/tx_pricing/mod.rs` line 27.
-
-## Module / Workspace Layout
-
-**Workspace at `sim-rs/Cargo.toml`** with two members:
-- `sim-rs/sim-core/` (library, edition 2024, rust-version 1.88)
-- `sim-rs/sim-cli/` (library + two binaries: `sim-cli`, `experiment-suite`; edition 2024, rust-version 1.88)
-
-**Module pattern:** prefer `mod.rs`-bearing directories for multi-file submodules (`sim-core/src/tx_pricing/{mod,single_lane,two_lane,window}.rs`, `sim-core/src/sim/{...}.rs` plus `sim-core/src/sim/tests/{mod,linear_leios,m1_smoke,m2_two_lane,m3_actors}.rs`).
-
-**Top-of-file module docs** are mandatory for non-trivial modules — every file in `tx_pricing/`, `sim/mempool_gate.rs`, `tx_actors.rs`, `sim-cli/src/runner.rs`, `sim-cli/src/suite.rs`, `sim-cli/tests/determinism.rs` begins with a `//!` block that pins:
-1. What the module does in one sentence
-2. A pointer to `docs/phase-2/mechanism-design.md` or `implementation-plan.md` for spec/plan provenance
-3. Any numeric-representation invariants the module guarantees
-
-## Serde Conventions
-
-**Casing is mixed by historical accident** — both shapes coexist on disk in persisted artefacts (manifest.json, run_summary.json). Standardising would invalidate every persisted manifest under `sim-rs/output/`, forcing re-runs of all (job, seed) pairs.
-
-**kebab-case for YAML configs and on-disk manifest formats** — use `#[serde(rename_all = "kebab-case")]`:
-- All `Raw*` config types in `sim-rs/sim-core/src/config.rs` (`RawParameters`, `RawTopology`, `RawNode`, `RawPricingConfig`, `RawTwoLaneConfig`, `RawActorProfile`, `RawActorComponent`, `RawLanePolicy`, `RawMaxFeePolicy`, `DistributionConfig`, `LeiosVariant`, etc.)
-- `Lane`, `BlockKind`, `LaneSelectionOrder` enums in `sim-rs/sim-core/src/tx_pricing/mod.rs`
-- `Suite`, `Job`, `JobOverrides` in `sim-rs/sim-cli/src/suite.rs`
-- `Manifest`, `JobEntry`, `JobStatus` in `sim-rs/sim-cli/src/runner.rs`
-
-**Rust snake_case for `RunSummary`** (no `rename_all`) — `sim-rs/sim-cli/src/metrics/collector.rs` (`pricing_event_stream_sha256`, `total_txs_included`, `multiplier_floor_breaches`, etc.). When adding schema fields, **match the surrounding type's existing convention** — do not standardise.
-
-**Tagged enums use `#[serde(tag = "kind", rename_all = "kebab-case")]`** for variant discrimination in YAML:
-- `MaxFeePolicy` in `sim-rs/sim-core/src/tx_actors.rs` line 61 (`tag = "kind"`)
-- `RawLanePolicy`, `RawArrivalRate`, `RawPricingConfig` in `sim-rs/sim-core/src/config.rs`
-- `DistributionConfig` uses `tag = "distribution"` (line 42)
-
-**`#[serde(default)]`** on optional fields in `Manifest`/`JobEntry`/`Suite`/`JobOverrides` and on `RunSummary::pricing_event_stream_sha256` (defaults to empty string for backward compatibility with older runs).
-
-## Error Handling
-
-**`anyhow::Result` is the standard return type** for fallible operations:
-- Constructor validation (`Eip1559Settings::validate`, `TwoLaneSettings::validate`, `MaxFeePolicy::validate`, `Multiplier::new`, `CapacityWeightedWindow::new`, `ActorProfile::validate`, `ActorComponent::validate`)
-- I/O paths in `sim-rs/sim-cli/src/runner.rs` (`Manifest::load_or_init`, `Manifest::save`, `run_suite`, `run_job`, `verify_suite`, `persist_run_summary`, etc.)
-- Suite loading: `Suite::load` in `sim-rs/sim-cli/src/suite.rs`
-
-**Bail with `anyhow::bail!`** for validation failures with a descriptive message:
 ```rust
-// sim-rs/sim-core/src/tx_pricing/single_lane.rs:91
-anyhow::bail!("Eip1559Settings.min_fee_a must be non-zero");
+// sim-rs/sim-core/src/tx_actors.rs lane_choice::expected_utility_lovelace
+let factor = libm::pow(urgency, -latency_blocks);
+let retained_f64 = (value_lovelace as f64) * factor;
+let retained_lov = libm::round(retained_f64) as i128;   // round FIRST, then cast
 ```
-Pattern: `<TypeName>.<field> must <constraint>`. Always print the offending value in the message.
 
-**`.context(...)` for I/O wrapping** — `sim-rs/sim-cli/src/runner.rs` uses `use anyhow::{Context, Result}` and wraps file paths into error context (e.g. when loading suite YAML).
+Rules:
+- Use `libm::pow`, `libm::round`, `libm::exp`, `libm::ceil` — NOT
+  `f64::powf`, `f64::round`, etc. The std library variants are not
+  bit-stable across architectures.
+- Always call `libm::round` (or `libm::ceil`) **before** the integer
+  cast. `as i128` truncates toward zero, biasing positive values
+  downward by up to one lovelace and silently changing the rule the
+  hash is over.
+- `urgency: f64` on `Transaction` is read **only** by the actor
+  lane-choice math (it routes through `libm::pow` + `libm::round`).
+  Never read it from any other simulation-affecting code path.
+- The lane-choice module has a written caveat about `rand_distr`
+  internals using `f64::ln`/`f64::exp` for sampling — this is the
+  only known cross-arch drift source remaining on the branch. See
+  `sim-rs/sim-core/src/tx_actors.rs` lines 28-35.
 
-**Domain enums for non-Result rejection paths** — `AdmissionRejection` in `sim-rs/sim-core/src/sim/mempool_gate.rs` (lines 38-56) is a non-`anyhow` enum because callers (block builder, admission flow) want to pattern-match on the reject reason and convert into events. Pattern: where the caller cares about the reason, define a domain enum; where the caller just propagates, return `anyhow::Result`.
+### Saturating arithmetic everywhere on hot paths
 
-**`Option` for "absent" / "skipped"** — `MempoolGate::on_inclusion` returns `Option<InclusionCharge>` (None means tx not resident, not an error).
+Hot-path u64/u128 arithmetic uses `saturating_add` / `saturating_mul`
+/ `saturating_sub`. Roughly 30+ uses in `sim-rs/sim-core/src/tx_pricing/`
+alone. Examples:
 
-**Saturating / checked arithmetic** on the hot path:
-- `u64::checked_mul`, `checked_add` in `MempoolGate::fee_at` (returns `None` on overflow → maps to `AdmissionRejection::FeeOverflow`)
-- `u128::checked_pow`, `saturating_mul`, `saturating_add` in `worst_case_eip1559_quote` (`sim-rs/sim-core/src/tx_pricing/single_lane.rs` lines 258-285)
+```rust
+// sim-rs/sim-core/src/tx_pricing/window.rs
+agg.standard_sum_bytes = agg
+    .standard_sum_bytes
+    .saturating_add(sample.relevant_bytes as u128);
 
-## Panic Policy
+// sim-rs/sim-core/src/tx_pricing/single_lane.rs compute_eip1559_step
+let num_a = util_num.saturating_mul(target_den);
+let den = util_den.saturating_mul(target_num).saturating_mul(d);
+```
 
-**Panics are reserved for invariant violations the type system cannot express.** Production code in the pricing kernel (`tx_pricing/`, `mempool_gate.rs`, `tx_actors.rs`) does **not** panic — it returns `anyhow::Result` or domain enums.
+Belt-and-braces `debug_assert!(.checked_mul(..).is_some())` is paired
+with saturating ops in places where validation has already ruled out
+overflow — both protect against future regressions:
 
-**Allowed panic sites** (grep `panic!` shows ~12 occurrences in sim-core, none in pricing kernel):
-- `sim-rs/sim-core/src/sim/linear_leios.rs:1421` — "how did we validate this EB without ever seeing it?" (genuinely-unreachable mempool state)
-- `sim-rs/sim-core/src/sim/linear_leios.rs:1812` — "missing a TX in our mempool" (invariant)
-- `sim-rs/sim-core/src/clock/mock.rs` and `sim-rs/sim-core/src/clock/coordinator.rs` — test-harness invariants ("waiter waited twice", "advanced time too far")
-- `sim-rs/sim-core/src/sim/leios.rs:653`, `stracciatella.rs:772` — legacy protocols, voting invariants
-- `sim-rs/sim-core/src/sim/cpu.rs:142,162,165,174,177` — CPU-task-state-machine invariants
+```rust
+// sim-rs/sim-core/src/tx_pricing/single_lane.rs
+debug_assert!(util_num.checked_mul(target_den).is_some());
+// ... then ...
+let num_a = util_num.saturating_mul(target_den);
+```
 
-**`.expect("...")` for "validation has already happened upstream"** — exactly one site in the pricing kernel: `sim-rs/sim-core/src/tx_actors.rs:670` — `Poisson::new(rate).expect("arrival_rate_per_slot validated > 0")` after a finite-rate check on line 665.
+### Ceiling division pattern
 
-**`.unwrap()` in production code is rare.** Common in tests (Result-returning constructors with statically-known good args). Producton callers either `?`-propagate or pattern-match.
+Used in fee rounding (mechanism spec line 175) and the multiplier-floor
+invariant. The idiom:
 
-## Logging
+```rust
+// sim-rs/sim-core/src/tx_pricing/single_lane.rs
+let new_quote = if new_quote_num == 0 {
+    0
+} else {
+    (new_quote_num - 1) / move_den + 1
+};
 
-**Framework:** `tracing` (configured via `tracing-subscriber` with `EnvFilter` in `sim-rs/sim-cli/src/main.rs` and `sim-rs/sim-cli/src/bin/experiment-suite/main.rs`).
+// sim-rs/sim-core/src/tx_pricing/two_lane.rs apply_floor
+let floor = if scaled == 0 {
+    0u128
+} else {
+    (scaled - 1) / den + 1
+};
+```
 
-**Levels in use:** `info!`, `warn!`, `error!`, `trace!`. `debug!` is rare. Convention: prefer `tracing::info!` macro path over imported alias when only one or two call sites exist; import `use tracing::{info, warn};` when used heavily (e.g. `sim-rs/sim-core/src/config.rs`).
+Never use plain `/` for fee rounding without an explicit decision —
+floor vs ceil changes the golden hashes.
 
-**Patterns:**
-- Suite progress: `tracing::info!` in `sim-rs/sim-cli/src/runner.rs` lines 202, 211, 252, 480, 504 — one info line per (job, seed) start/skip/finish.
-- Validation surprises: `tracing::warn!` in `sim-rs/sim-core/src/config.rs:1130` and `sim-rs/sim-cli/src/runner.rs:626,643`.
-- Drop-on-error: `tracing::warn!` in `sim-rs/sim-core/src/events.rs:993` ("tried sending event after aggregator finished").
+## Lane vocabulary — no "tier" anywhere
 
-**Hot-path logging is forbidden.** No `info!`/`warn!`/`trace!` calls inside controller update paths, mempool admission, or any function that runs per-tx or per-block — they would flip determinism hashes only through wall-clock perturbation, but more importantly they violate the "no f64 in simulation-affecting state" rule because `tracing` events carry timestamps. Use `tracing::trace!` only in coarse-grained driver loops (`sim-rs/sim-core/src/sim/driver.rs:142`).
+`Lane` is a two-variant enum at `sim-rs/sim-core/src/tx_pricing/mod.rs`:
 
-## Documentation Style
+```rust
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
+#[serde(rename_all = "kebab-case")]
+pub enum Lane {
+    Standard,
+    Priority,
+}
+```
 
-**Module-level docs** (`//!`) open every non-trivial file with a 5-50-line block. Required content:
-1. One-sentence summary
-2. Pointer to spec / plan (`docs/phase-2/mechanism-design.md`, `docs/phase-2/implementation-plan.md` with line range)
-3. Numeric-representation invariants the module guarantees
-4. Pointer to per-milestone handoff (`docs/phase-2/m{1,2,3,4,5}-handoff.md`) for any decision that was open in the plan
+Single-lane mechanisms collapse both to `Standard`. Two-lane mechanisms
+(four variants in `TwoLaneVariant`) populate both. **There is no tier
+vocabulary on the branch.** Do not introduce types or function names
+that use "tier", "tier-1", "tier-2", "tier-N" — the historical
+`pricing-sim-base` branch's naming is observable as prior art only.
+The hard rule comes from `docs/phase-2/implementation-plan.md`.
 
-Example pattern: `sim-rs/sim-core/src/tx_pricing/single_lane.rs` lines 1-22, `sim-rs/sim-core/src/sim/mempool_gate.rs` lines 1-26.
+Carried on:
+- `Transaction.posted_lane` — the lane the user authorised at submission
+- `Event::TXIncluded.posted_lane` and `.served_lane` — both recorded
+  so refunds can be computed when the served lane differs (RB-reserved
+  EB-below-capacity refunds posted-priority down to standard).
 
-**Function-level docs** (`///`) on every public item in `tx_pricing/`, `tx_actors.rs`, `mempool_gate.rs`. Include the formula or invariant when it isn't obvious from the signature.
+## Pure-function chain-derived computation
 
-**Anchor citations to the spec / plan with line numbers** wherever a decision is non-obvious — e.g. `// implementation-plan.md line 175: "Final quote_per_byte is integer-rounded once per update via ceil ..."` in `sim-rs/sim-core/src/tx_pricing/single_lane.rs:417-422`.
+The `PricingBackend` trait at
+`sim-rs/sim-core/src/tx_pricing/mod.rs` is the architectural seam:
 
-## Trait Pattern
+```rust
+pub trait PricingBackend: Send + Sync {
+    fn compute_derived_quote(
+        &self,
+        parent_quote: crate::model::PerLaneQuote,
+        parent_aggregate: crate::model::WindowAggregate,
+        parent_samples: &[PricedBlockSample],
+        evicted_samples: &[PricedBlockSample],
+    ) -> (crate::model::PerLaneQuote, crate::model::WindowAggregate);
+    // ...
+}
+```
 
-**`PricingBackend` trait** (`sim-rs/sim-core/src/tx_pricing/mod.rs:129`) is the policy seam. Required bound: `Send + Sync`. Default implementations are provided for `lane_validity_rule`, `lane_selection_order`, `min_priority_premium_multiplier`, `samples_for_block`, `worst_case_quote_at` — single-lane backends inherit them; two-lane backends override.
+Rules for any new pricing logic:
+- **No `&mut self` anywhere on `PricingBackend`.** The backend holds
+  no mutable controller state. The struct is a settings carrier; the
+  trait method is a pure function.
+- All four `compute_derived_quote` arguments are owned values or
+  slices. Returns a fresh `(PerLaneQuote, WindowAggregate)`. No side
+  effects.
+- Sibling RBs with identical `(parent_quote, parent_aggregate,
+  parent_samples, evicted_samples)` must produce identical outputs —
+  asserted by `sibling_rbs_produce_identical_derived_quote_pure` in
+  `sim-rs/sim-core/src/sim/tests/m2_two_lane.rs`.
+- The simulator owns block packing and the canonical chain. The
+  backend never sees simulator types; the only seam is `ChainView`
+  (read-only chain walk).
+- Helper free-functions (`compute_eip1559_step`,
+  `worst_case_eip1559_quote`, `aggregate_from_chain`,
+  `update_aggregate`) take explicit inputs rather than reading
+  `&self`. Tests assert purity directly via these free functions.
 
-**Trait-design rule:** the backend never sees simulator types (no `Transaction`, no `Mempool`, no `Block`). The simulator constructs `PricedBlockSample` / `BlockLaneBreakdown` and hands them to the backend. Selection lives in `LinearLeiosNode::select_eb_with_partition` / `sample_from_mempool_lane_aware` in `sim-rs/sim-core/src/sim/linear_leios.rs`.
+## Multiplier-floor invariant — u128 intermediates only
 
-## Imports
+The invariant `c_priority ≥ multiplier_floor × c_standard` is enforced
+on `quote_per_byte` (a `u64`), never on a fractional coefficient `c`.
+The intermediates run in `u128`:
 
-**Standard order:**
-1. `std::` imports first (e.g. `use std::collections::{BTreeMap, HashMap};`)
-2. Blank line
-3. External crates (alphabetical): `anyhow`, `rand`, `rand_chacha`, `serde`, `sha2`, `tokio`, `tracing`, etc.
-4. Blank line
-5. Crate-internal `use crate::{...}` block
+```rust
+// sim-rs/sim-core/src/tx_pricing/two_lane.rs apply_floor
+fn apply_floor(&self, q_standard: u64, q_priority: u64) -> u64 {
+    let num = self.settings.multiplier_floor.numerator as u128;
+    let den = self.settings.multiplier_floor.denominator as u128;
+    let scaled = (q_standard as u128).saturating_mul(num);
+    let floor = if scaled == 0 {
+        0u128
+    } else {
+        (scaled - 1) / den + 1   // ceil division
+    };
+    debug_assert!(floor <= u64::MAX as u128, /* ... */);
+    let floor_u64 = u64::try_from(floor).unwrap_or(u64::MAX);
+    q_priority.max(floor_u64)
+}
+```
 
-Example: `sim-rs/sim-core/src/sim/tests/m1_smoke.rs` lines 21-44, `sim-rs/sim-cli/src/runner.rs` lines 15-40.
+The floor is enforced on the **output** of `compute_derived_quote`,
+not on any persistent state (because under chain-derivation there is
+none). Constructor-time enforcement also raises the priority initial
+quote up to the floor at cold start.
 
-**Re-exports:** crate facades use `pub use` to flatten the public surface. See `sim-rs/sim-core/src/tx_pricing/mod.rs:21-23` re-exporting `BaselinePricing`, `Eip1559Pricing`, `TwoLanePricing`, etc.
+## Serde casing — mixed by historical accident, do not standardise
 
-## Lints / Format
+This is a documented gotcha (CLAUDE.md "Conventions / gotchas"):
 
-**No project-level `rustfmt.toml`, `clippy.toml`, `deny.toml`, or `.cargo/config.toml`** in the repo. Default `rustfmt` and `clippy` apply.
+| Type | Casing | File |
+|---|---|---|
+| YAML config types (`RawPricingConfig`, `RawTwoLaneConfig`, ...) | `#[serde(rename_all = "kebab-case")]` | `sim-rs/sim-core/src/config.rs` |
+| Suite YAML schema (`Suite`, `Job`) | `kebab-case` | `sim-rs/sim-cli/src/suite.rs` |
+| Manifest types (`JobStatus`, `JobEntry`, `Manifest`) | `kebab-case` | `sim-rs/sim-cli/src/runner.rs` |
+| `RunSummary` (run_summary.json) | Rust `snake_case` (no `rename_all`) | `sim-rs/sim-cli/src/metrics/collector.rs` |
 
-**No `#![deny(...)]`, `#![warn(...)]`, or `#![forbid(...)]` crate-level attributes** on `sim-core` or `sim-cli` `lib.rs` files (grep finds zero outside of vendored deps in `target/`).
+**Both shapes coexist on disk in persisted artefacts.** Standardising
+would invalidate every persisted manifest under `sim-rs/output/` and
+force re-runs of all 72 (job, seed) pairs. Not worth the churn.
 
-**Inline `#[allow(unused)]`** is used sparingly for test/mock entry points (e.g. `MockLotteryResults::configure_win` in `sim-rs/sim-core/src/sim/lottery.rs:31`, `LotteryConfig::Mock` line 42, `id_wrapper!` macro in `sim-rs/sim-core/src/model.rs:24`).
+**Rule for new schema additions:** match the surrounding type's
+existing convention. Don't switch a type from one casing to the other.
 
-## Function / Module Design
+## Defensive validation at construction
 
-**Validation at construction, not per-call.** `Eip1559Settings::validate`, `TwoLaneSettings::validate`, `MaxFeePolicy::validate`, `ActorComponent::validate`, `ActorProfile::validate` are called from `*::new` constructors so a successfully-constructed value is unconditionally usable.
+Settings structs validate at construction and bail with `anyhow`
+descriptive errors:
 
-**Multiplier-floor invariant enforcement** lives **inside the controller update path** (`TwoLanePricing::update_after_block` in `sim-rs/sim-core/src/tx_pricing/two_lane.rs`) and is enforced on `quote_per_byte`, not on `c`. Constructor-time enforcement also raises priority's initial quote up to the floor if needed.
+```rust
+// sim-rs/sim-core/src/tx_pricing/single_lane.rs Eip1559Settings::validate
+pub fn validate(&self) -> anyhow::Result<()> {
+    if self.min_fee_a == 0 {
+        anyhow::bail!("Eip1559Settings.min_fee_a must be non-zero");
+    }
+    if self.target_num == 0 || self.target_num >= self.target_den {
+        anyhow::bail!(
+            "Eip1559Settings.target_num/target_den must be a fraction in (0, 1); got {}/{}",
+            self.target_num,
+            self.target_den
+        );
+    }
+    // Bound controller-parameter intermediates so the u128 rationals
+    // can't overflow at runtime for any plausible per-sample bytes value:
+    const MAX_BYTES_PER_SAMPLE_LOG2: u32 = 40;
+    // ...
+    Ok(())
+}
+```
 
-**`MempoolGate` is the sole byte-cap authority** (`sim-rs/sim-core/src/sim/mempool_gate.rs`). It owns admission (`try_admit`), revalidation on quote change (`revalidate`), and inclusion charging (`on_inclusion`). Reject-only on full mempool — no eviction of valid txs to make room. Other layers must consult the gate; they must not duplicate fee/byte logic.
+Pattern: validate aggressively at config-load, then rely on the
+constraint inside the hot path. `TwoLaneSettings::validate` rejects
+zero denominators, multiplier-floor ratios outside `[1, 2^32]`, and
+mismatched `min_fee_a` between priority/standard.
 
-**RB-reduced overlays are full replacements**, not stacked overlays. The runner's `JobOverrides` picks `overrides.protocol` OR `default_protocol`, never both — so the three `parameters/phase-2-sweep/protocol-rb-reduced-{half,third,quarter}.yaml` files duplicate everything from `protocol-base.yaml` and override only the `rb-body-max-size-bytes` knob. **Future additions to `protocol-base.yaml` must be propagated manually to all three RB-reduced overlays.**
+The `Multiplier` constructor pattern is the most-compact form:
 
-## Determinism Invariants
+```rust
+// sim-rs/sim-core/src/tx_pricing/mod.rs
+impl Multiplier {
+    pub fn new(numerator: u64, denominator: u64) -> anyhow::Result<Self> {
+        if denominator == 0 {
+            anyhow::bail!("Multiplier denominator must be non-zero");
+        }
+        Ok(Self { numerator, denominator })
+    }
+}
+```
 
-- **Use `ChaChaRng` seeded with `ChaChaRng::seed_from_u64(...)`** wherever simulation RNG is needed. Never `thread_rng()` in simulation-affecting paths.
-- **Use `BTreeMap` over `HashMap`** for any structure whose iteration order can affect simulation output. `sim-rs/sim-core/src/sim/mempool_gate.rs` uses `BTreeMap<TransactionId, ResidentEntry>` for the resident set so eviction iteration order is deterministic.
-- **Use `libm::pow` + `libm::round`** for cross-platform-stable floating-point intermediates that feed integer comparisons (`sim-rs/sim-core/src/tx_actors.rs` `lane_choice::pick`).
-- **The metrics collector's representative node** is pre-set by `runner::run_job` to the lexicographically smallest node name. The lazy "first-tick wins" fallback in `MetricsCollector::is_representative` (`sim-rs/sim-cli/src/metrics/collector.rs`) is for tests / standalone callers only.
-- **`Event::TXGenerated` carries `slot: u64`** so the metrics collector reads `submit_slot` from the event field, not from a delta-tracking ordering invariant. Do not re-introduce a delta-slot read pattern.
+## Error handling — anyhow throughout
 
-## Test-Only Conventions
+The crate uses `anyhow::Result<T>` for all fallible paths. `bail!` for
+single-line error returns; `.with_context(|| format!("..."))` to
+attach situational context as a chain.
 
-- `#[cfg(test)] mod tests { ... }` inline at the bottom of each module file for tight unit tests against the module's own surface.
-- Cross-module / integration tests live in `sim-rs/sim-core/src/sim/tests/` registered via `sim-rs/sim-core/src/sim/tests/mod.rs`.
-- Suite-level slow tests live in `sim-rs/sim-cli/tests/determinism.rs` and are `#[ignore]`'d by default.
-- Test function names are full English sentences in snake_case (`smoke_run_produces_refunds_and_evictions`, `rejects_when_max_fee_below_quote`, `eip1559_at_target_does_not_move`, `multiplier_floor_holds_after_standard_moves_up`, `high_urgency_actor_picks_priority_lane_under_two_lane`).
+Examples in `sim-rs/sim-cli/src/runner.rs`:
+
+```rust
+let text = std::fs::read_to_string(&summary_path).with_context(|| {
+    format!("reading run_summary at {}", summary_path.display())
+})?;
+
+// Aggregated multi-error pattern (verify_suite_with_run_id):
+let mut combined = anyhow::anyhow!("{} verify task(s) errored", errors.len());
+for e in errors {
+    combined = combined.context(format!("{e:#}"));
+}
+return Err(combined);
+```
+
+- `anyhow` is in both crates' `[dependencies]` (sim-core/Cargo.toml,
+  sim-cli/Cargo.toml).
+- `Result` aliases imported via `use anyhow::{Result, ...}`.
+- Library code surfaces errors up; the runner aggregates and prints
+  via `tracing`.
+
+## Logging — tracing, info/warn/error
+
+Logging uses the `tracing` crate (NOT `log`, NOT `println!`).
+
+```rust
+// sim-rs/sim-cli/src/runner.rs
+tracing::info!("determinism verify ok: {checked} (job, seed) pairs match");
+tracing::warn!(...);
+tracing::error!(...);
+```
+
+Levels:
+- `info!` for normal progress (job start/complete).
+- `warn!` for recoverable oddities (manifest resume, missing fields).
+- `error!` for run failures.
+- `debug!` is reserved for one-off investigation; not in committed
+  hot paths.
+
+Tests and unit modules do not log — they use `assert!` macros and
+`panic!` on construction errors. Initialiser is in `sim-cli`'s main
+binaries (tracing-subscriber feature `env-filter`).
+
+## Module documentation — top-of-file `//!` blocks
+
+Every module starts with a `//!` doc-comment explaining its scope,
+spec/plan references, and the determinism contract. Examples:
+
+- `sim-rs/sim-core/src/tx_pricing/mod.rs` lines 1-21: module purpose,
+  spike 007 reference, "All simulation-affecting state ... f64 never
+  enters this module's hot paths".
+- `sim-rs/sim-core/src/tx_pricing/single_lane.rs` lines 1-34: backend
+  list, update rule in pseudocode, memoisation note.
+- `sim-rs/sim-core/src/sim/mempool_gate.rs` lines 1-26: responsibility
+  list, "All state is `u64`/`u128`; no f64."
+- `sim-rs/sim-core/src/sim/tests/m2_two_lane.rs` lines 1-12: M2
+  scenario-test scope, single-producer rationale.
+
+**When adding a new module, write a module-level doc:**
+- One-sentence purpose.
+- Forward-pointer to `docs/phase-2/mechanism-design.md` or
+  `implementation-plan.md` (line numbers are common).
+- Determinism contract for this module ("All state is ...; f64 never
+  enters ...").
+
+## Inline comments — explain the WHY, especially for hash-load-bearing decisions
+
+The codebase is heavily commented in places where a future reader
+might reasonably try to "simplify" a calculation that's actually
+load-bearing for cross-arch determinism. Examples:
+
+```rust
+// sim-rs/sim-core/src/tx_pricing/single_lane.rs
+// Ceiling division per the spec rounding regime
+// (implementation-plan.md line 175: "Final `quote_per_byte` is
+// integer-rounded once per update via `ceil`"). Floor would let
+// small above-target moves stick at the old quote, e.g.
+// `44 × 1.125 = 49.5 → floor 49` (no movement past 50) where
+// the spec specifies 50.
+
+// sim-rs/sim-core/src/tx_actors.rs lane_choice
+// Pinned rounding rule: round-half-away-from-zero via
+// `libm::round` *before* the integer cast. Rounding here is
+// what determines the rule — once `libm::round` returns,
+// the f64 holds an integer value and `as i128` is a pure
+// type conversion. Without the explicit `libm::round`,
+// `retained_f64 as i128` would truncate toward zero,
+// biasing positive expected_utility values downward by up
+// to one lovelace (and the integer event stream's hash
+// would depend on the chosen rule).
+```
+
+Pattern: when you make a numerical decision that the hash depends on,
+say so in a comment with the concrete worked example.
+
+## Naming patterns
+
+**Files:** `snake_case.rs`. Tests in `sim-core/src/sim/tests/` follow
+the `m{1,2,3}_topic.rs` milestone-tagged convention.
+
+**Types:** `UpperCamelCase` (`PricingBackend`, `WindowAggregate`,
+`PerLaneQuote`, `TwoLaneVariant`). `Raw*` prefix for serde-deserialise
+types that mirror YAML schema (`RawPricingConfig`, `RawEip1559Config`,
+`RawTwoLaneConfig`).
+
+**Functions:** `snake_case`. Pure free functions in `tx_pricing` get
+verb-first names: `compute_eip1559_step`, `worst_case_eip1559_quote`,
+`aggregate_from_chain`, `update_aggregate`, `snapshot_at`,
+`apply_floor`.
+
+**Constants:** `SCREAMING_SNAKE_CASE`. Examples:
+`MAX_BYTES_PER_SAMPLE_LOG2`, `MAX_PROJECTION_BLOCKS`,
+`MULTIPLIER_FLOOR_RATIO_CAP_LOG2`, `RB_BODY_MAX` (in tests).
+
+**Test names:** describe the asserted property, not the steps.
+`baseline_pricing_does_not_drift`, `eip1559_above_target_moves_up_within_step_clamp`,
+`sibling_rbs_produce_identical_derived_quote_pure`,
+`pricing_event_stream_deterministic_across_runs`.
+
+## Import organisation
+
+Standard order observed across the codebase:
+
+```rust
+// 1. std imports
+use std::{collections::BTreeMap, path::PathBuf, sync::Arc};
+
+// 2. external crate imports
+use anyhow::{Context, Result};
+use serde::{Deserialize, Serialize};
+use tokio::sync::mpsc;
+
+// 3. local crate imports (sim_core::, sim_cli::, crate::)
+use sim_core::{config::SimConfiguration, sim::Simulation};
+
+// 4. relative super:: / self:: imports
+use super::{Lane, PricedBlockSample, PricingBackend};
+```
+
+Grouped imports use `{...}` braces. Path aliases are rare — the only
+notable one is `crate::tx_pricing::Lane` re-exported through
+`tx_pricing::mod.rs` `pub use` statements.
+
+## Deterministic container choice
+
+Always use `BTreeMap<K, V>` and `BTreeSet<T>` for collections that
+influence simulation order, persisted artefacts, or test output.
+`HashMap`/`HashSet` are reserved for collections whose iteration order
+is not observable (intermediate scratch, per-tx metadata in the
+collector that gets joined back via key lookup).
+
+Examples:
+- `sim-rs/sim-cli/src/runner.rs` line 73: `Manifest.jobs:
+  BTreeMap<String, BTreeMap<String, JobEntry>>` — keyed by (job_name,
+  seed_string) for stable on-disk order regardless of completion
+  order.
+- `sim-rs/sim-core/src/sim/tests/m2_two_lane.rs` line 204: `BTreeMap`
+  for `updates` because "iteration order is deterministic. Single-node
+  tests today don't strictly need this, but the driver shape will be
+  reused for multi-node M6+ tests".
+- `sim-rs/sim-cli/src/metrics/collector.rs` lines 256-277:
+  `HashMap<TransactionId, TxMeta>` and `HashMap<u32, ComponentSummary>`
+  are OK because they're joined back via direct key lookup; the
+  reporting order is fixed via separate output writers.
+
+## Function design
+
+- Public function signatures take explicit types — no `impl Trait` in
+  parameters except where iterator-style flexibility is needed
+  (`aggregate_from_chain` takes `impl IntoIterator<Item = &'a
+  PricedBlockSample>`).
+- Long u128 expressions are broken across lines with intermediate
+  let-bindings whose names document the math. See
+  `compute_eip1559_step` for an extended example.
+- Helper functions are private (`fn add_one`, `fn sub_one` in
+  `window.rs`) and tested via their public callers.
+
+## Module design — `pub use` re-exports
+
+`mod.rs` files re-export the most-used types and functions so callers
+can `use crate::tx_pricing::{Eip1559Pricing, TwoLaneVariant,
+update_aggregate}` instead of reaching into submodules:
+
+```rust
+// sim-rs/sim-core/src/tx_pricing/mod.rs
+pub mod single_lane;
+pub mod two_lane;
+pub mod window;
+
+pub use single_lane::{BaselinePricing, Eip1559Pricing, Eip1559Settings};
+pub use two_lane::{TwoLanePricing, TwoLaneSettings, TwoLaneVariant};
+pub use window::{aggregate_from_chain, update_aggregate};
+```
+
+`sim-rs/sim-cli/src/metrics/mod.rs` follows the same pattern for
+`MetricsCollector`, `RunSummary`, `comparison`, `diagnostics`,
+`time_series`.
+
+## Avoid
+
+- **No `f64` in hot paths** (covered above).
+- **No `pricing-sim-base` content.** That branch is observable as
+  prior art only; no file, type, or function moved across.
+- **No `println!` / `eprintln!` outside tests and CLI binaries.**
+  Use `tracing::*` macros.
+- **No mutable controller state in `PricingBackend` impls.** Chain-
+  derived is the architecture; per-node accumulators are gone.
+- **No re-introducing a delta-slot read pattern** for `submit_slot` —
+  `Event::TXGenerated.slot: u64` is the source of truth (M4).
+- **No reading `urgency: f64` outside the actor lane-choice math.**
 
 ---
 
-*Convention analysis: 2026-05-13*
+*Convention analysis: 2026-05-15*

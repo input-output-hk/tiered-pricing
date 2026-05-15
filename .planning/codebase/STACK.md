@@ -1,117 +1,222 @@
 # Technology Stack
 
-**Analysis Date:** 2026-05-13
+**Analysis Date:** 2026-05-15
 
 ## Languages
 
 **Primary:**
-- Rust (edition 2024, MSRV 1.88) — entire simulator and CLI. Pinned in `sim-rs/sim-core/Cargo.toml` and `sim-rs/sim-cli/Cargo.toml` via `edition = "2024"` and `rust-version = "1.88"`.
+- Rust (edition 2024) — the entire simulator. MSRV pinned to `rust-version = "1.88"` in both crate manifests (`sim-rs/sim-core/Cargo.toml`, `sim-rs/sim-cli/Cargo.toml`). Edition 2024 enables `let … else` chains and other 2024-only features used throughout (see e.g. `if let Some(n) = opt && n >= 1` in `sim-rs/sim-cli/src/bin/experiment-suite/main.rs`).
 
 **Secondary:**
-- YAML — protocol, topology, demand, pricing, and suite configuration. All inputs live under `sim-rs/parameters/`.
-- Bash — operator scripts under `sim-rs/scripts/` (parallel-suite runner, smoke-test runners, suite progress watcher).
-- Python 3 — topology generator only (`sim-rs/scripts/generate-cip-topology.py`). Not part of the build, not invoked during simulation. Run manually to regenerate `parameters/phase-2-sweep/topology-cip-realistic.yaml`.
-- JSON — manifest persistence (`output/<suite>/manifest.json`) and a `parameters/config.schema.json` JSON-Schema describing the config surface.
+- Python 3 — one-shot topology generators under `sim-rs/scripts/` (`generate-realistic-100-topology.py`, `generate-cip-topology.py`). Not part of the build; produces the committed `parameters/phase-2-sweep/topology-*.yaml` artefacts.
+- Bash — orchestration shell scripts under `sim-rs/scripts/` (`run-parallel-suites.sh`, `run-m6-full-sweep-100.sh`, smoke wrappers).
 
 ## Runtime
 
 **Environment:**
-- Tokio async runtime, multi-threaded scheduler. `sim-cli` enables the `"full"` Tokio feature set (`sim-rs/sim-cli/Cargo.toml:39`); `sim-core` enables only `"macros"` and adds `"rt"` for tests (`sim-rs/sim-core/Cargo.toml:20-28`).
-- Single OS process per simulator run; the `experiment-suite` driver loops sequentially over `(job, seed)` pairs and shells out parallelism via `scripts/run-parallel-suites.sh` (one suite per child process).
+- Native binary, no managed runtime. Built locally via `cargo build --release` from `sim-rs/`. Async work is driven by `tokio` with per-thread `current_thread` runtimes (the `Simulation` future contains `Box<dyn Actor>` which is `!Send`; see `sim-rs/sim-cli/src/runner.rs:240`).
 
 **Package Manager:**
-- Cargo (Rust 1.88 toolchain).
-- Lockfile: `sim-rs/Cargo.lock` is committed (2,217 lines). A second `Cargo.lock` exists at the repo root for the upstream-main remnants but the working build runs from `sim-rs/`.
+- Cargo (Rust toolchain). Lockfile: `sim-rs/Cargo.lock` (version 4, committed).
 
 ## Frameworks
 
-**Core:**
-- `tokio` 1.47 — async runtime for simulator tasks, channels (`mpsc`, `oneshot`), and `JoinSet`-based fan-out. Used in `sim-rs/sim-core/src/sim.rs` to drive node tasks and in `sim-rs/sim-cli/src/main.rs` for the event monitor.
-- `tokio-util` 0.7 — `CancellationToken` for graceful shutdown on ctrl+c (`sim-rs/sim-cli/src/main.rs:117`).
-- `futures` 0.3 + `async-stream` 0.3 — stream combinators inside `sim-core`.
+**Workspace layout:**
 
-**CLI / Config:**
-- `clap` 4 (derive feature) — argparse for both `sim-cli` (`sim-rs/sim-cli/src/main.rs:39-57`) and `experiment-suite` (`sim-rs/sim-cli/src/bin/experiment-suite/main.rs:20-56`).
-- `figment` 0.10 (yaml + toml features) — layered config merging. `sim-cli` merges the embedded `parameters/config.default.yaml` with caller-supplied overlays; `runner.rs` uses the same approach to stack protocol → demand → pricing YAMLs per job (`sim-rs/sim-cli/src/runner.rs:23-26`).
-- `serde` 1 (derive) + `serde_yaml` 0.9 + `serde_json` 1 + `toml` 0.9 — YAML/JSON/TOML (de)serialisation throughout.
-- `ctrlc` 3 — SIGINT trap so a running simulation flushes metrics before exit.
+The workspace is declared at `sim-rs/Cargo.toml` with two members:
+
+| Member | Path | Role |
+|---|---|---|
+| `sim-core` | `sim-rs/sim-core/` | Protocol + pricing kernel library |
+| `sim-cli`  | `sim-rs/sim-cli/`  | Driver library + binaries (`sim-cli`, `experiment-suite`) |
+
+Both crates are versioned `1.4.0` in lockstep.
+
+**Binaries (declared in `sim-rs/sim-cli/Cargo.toml`):**
+
+| Binary | Path | Purpose |
+|---|---|---|
+| `sim-cli` | `sim-rs/sim-cli/src/main.rs` | Legacy single-run driver (loads `parameters/topology.default.yaml` + a YAML overlay list, runs one simulation, writes a JSON/CBOR/gzip event trace). |
+| `experiment-suite` | `sim-rs/sim-cli/src/bin/experiment-suite/main.rs` | Phase-2 suite runner with `run | status | verify` subcommands. The primary phase-2 tool. |
+| `gen-test-data` | `sim-rs/sim-cli/src/bin/gen-test-data/main.rs` | Synthetic topology generator (legacy, pre-phase-2). |
 
 **Testing:**
-- Built-in `cargo test` framework. No external runner (no nextest, no proptest). Test files live next to source under `sim-rs/sim-core/src/sim/tests/` and as one integration test at `sim-rs/sim-cli/tests/determinism.rs`.
-- `tempfile` 3 (dev-dep, sim-cli) — temp dirs for runner tests.
-- `sha2` 0.10 + `hex` 0.4 (dev-deps, sim-core; runtime, sim-cli) — pricing-event-stream SHA256 golden hashes. Used in `sim-rs/sim-core/src/sim/tests/m2_two_lane.rs:21` and the suite-level goldens checker.
+- Built-in `cargo test` harness. No third-party test framework.
+- Determinism goldens at three layers:
+  - Unit-test goldens: `sim-rs/sim-core/src/sim/tests/m2_two_lane.rs`, `m3_actors.rs` — pinned SHA-256 constants in source.
+  - Verify subcommand: `experiment-suite verify <suite.yaml>` re-runs every `Completed` (job, seed) and asserts the freshly-computed `pricing_event_stream.sha256` equals the persisted on-disk value.
+  - Suite-level goldens: `sim-rs/sim-cli/tests/determinism.rs`, `#[ignore]`'d by default; goldens committed at `sim-rs/parameters/phase-2-sweep/suites/.goldens/<suite>.sha256`.
 
-**Build / Dev:**
-- `vergen-gitcl` 1 — emits the current git SHA at build time into the CLI version string (`sim-rs/sim-cli/build.rs`). Both binaries embed it via `concat!(env!("CARGO_PKG_VERSION"), "-", env!("VERGEN_GIT_SHA"))`.
+**Build/Dev:**
+- `vergen-gitcl` (build-dependency) — at compile time embeds the git SHA via `sim-rs/sim-cli/build.rs`, surfaced as `env!("VERGEN_GIT_SHA")` in `--version` output of `sim-cli` and `experiment-suite`.
 
 ## Key Dependencies
 
-**Pricing kernel math (must be deterministic, no f64 in hot paths):**
-- `libm` 0.2 — bit-reproducible `pow`/`round` for the actor utility-maximising lane choice (`sim-rs/sim-core/src/tx_actors.rs`). Picked specifically because Rust's stdlib `f64::powf`/`round` route through libm but with platform-dependent ABI; using the crate directly fixes the implementation.
-- `num-traits` 0.2 — generic integer trait bounds inside the `CapacityWeightedWindow` and EIP-1559 update.
-- `priority-queue` 2 — mempool ordering by fee.
-- `dashmap` 6 — concurrent maps in the network coordinator.
+**Async runtime / concurrency:**
+- `tokio = "1"` (features `macros` in `sim-core`, `full` in `sim-cli`) — async runtime. Used for the simulator event loop, channels (`mpsc::unbounded_channel`), and the per-job per-thread `current_thread` runtimes in the suite runner.
+- `tokio-util = "0.7"` — `CancellationToken` for cooperative shutdown on SIGINT.
+- `futures = "0.3"` — `BoxFuture` plumbing for the `Actor` trait (`sim-rs/sim-core/src/sim.rs:4`).
+- `async-stream = "0.3"` (in `sim-core`) — stream construction helpers.
 
-**RNG (deterministic):**
-- `rand` 0.9 — RNG trait surface.
-- `rand_chacha` 0.9 — `ChaCha20Rng` seeded per (job, seed); the only RNG used in simulation-affecting paths.
-- `rand_distr` 0.5 — `Exp`, `LogNormal`, `Normal`, `Poisson` distributions for arrival rates, tx sizes, and value sampling.
+**Networking simulation:**
+- `netsim-async` (git, `input-output-hk/ce-netsim`, rev `9d1e26c`) — IOG's network simulator, used inside `sim-core` for message-passing and `ClockCoordinator` (`sim-rs/sim-core/src/clock.rs:10`, `sim-rs/sim-core/src/network.rs:4`). Both `sim-core` and `sim-cli` pin the same revision.
+- `netsim-core` (git, same repo and revision, in `sim-cli`) — `geo::Location` and `latency_between_locations` for the test-data generator's geographic latency model (`sim-rs/sim-cli/src/bin/gen-test-data/strategy/utils.rs:6`).
 
-**Network simulation (transitive Cardano infra):**
-- `netsim-async` and `netsim-core` 0.1 — IO-Hong-Kong's `ce-netsim` library, pinned to git rev `9d1e26c` of `https://github.com/input-output-hk/ce-netsim`. Provides the in-process network coordinator (bandwidth, latency, geo-aware link simulation) that sits beneath the protocol simulator. `netsim-core` also exposes `geo::Location` + `latency_between_locations` used by the `gen-test-data` topology generator (`sim-rs/sim-cli/src/bin/gen-test-data/strategy/utils.rs:6`).
+**RNG (determinism-critical):**
+- `rand = "0.9"` — RNG traits.
+- `rand_chacha = "0.9"` — `ChaCha20Rng` / `ChaChaRng` is the only RNG used for simulation state. All per-task RNGs are seeded from `ChaChaRng::seed_from_u64(config.seed)` in `sim-rs/sim-core/src/sim.rs:178`. Plain `rand::ThreadRng` is never used in simulation-affecting code.
+- `rand_distr = "0.5"` — distribution sampling (used by `sim-core/src/probability.rs`, `tx_actors.rs`, etc).
 
-**Metrics / serialisation (reporting-only, plain f64 OK):**
-- `chrono` 0.4 (serde feature) — UTC timestamps in the manifest (`sim-rs/sim-cli/src/runner.rs:22`).
-- `statrs` 0.18 — Beta/CDF distributions used by the topology generator only.
-- `average` 0.16 — `Variance` accumulator in `sim-rs/sim-cli/src/events.rs:7`.
-- `async-compression` 0.4 (tokio + gzip) — gzip-stream the legacy event sink for sized output.
-- `minicbor-serde` 0.6 (alloc) — CBOR stream output for the legacy event sink (alternative to JSON).
-- `itertools` 0.14, `pretty-bytes-rust` 0.3, `hex` 0.4 — utility crates in metrics formatting.
-- `anyhow` 1 — error propagation across the workspace.
+**Bit-deterministic math:**
+- `libm = "0.2"` — software-implemented `pow`, `round`, `exp`, `ceil`, `sqrt`. Substituted for the hardware-dependent `f64` methods anywhere a value crosses into simulation-affecting state (e.g. the actor lane-choice math, `sim-rs/sim-core/src/tx_actors.rs:378–389`, where `libm::pow` and `libm::round` route an `f64` into `i128` lovelace before comparison). The cross-arch determinism contract relies on this.
+- `num-traits = "0.2"` — integer trait helpers.
 
-**Logging:**
-- `tracing` 0.1 — structured logging spans/events throughout.
-- `tracing-subscriber` 0.3 (env-filter) — `RUST_LOG`-compatible env filter, default `INFO`. Wired in both `sim-rs/sim-cli/src/main.rs:108-115` and `sim-rs/sim-cli/src/bin/experiment-suite/main.rs:59-66`.
+**Serialization:**
+- `serde = "1"` (features `derive`) — derive-based serialization across both crates.
+- `serde_yaml = "0.9"` — YAML parsing for every config file (`Suite::load`, `RawTopology` parse, `RawParameters` extraction).
+- `serde_json = "1"` (in `sim-cli`) — `manifest.json`, `run_summary.json`, JSONL event traces.
+- `figment = "0.10"` (features `yaml`, `toml`) — config layering. `Figment::new().merge(Yaml::string(...)).merge(Yaml::file_exact(...))` composes the suite's config overlay stack in `sim-rs/sim-cli/src/runner.rs:840`. File-extension dispatch in `merge_layer` (`runner.rs:798`) accepts `.toml` and `.yaml`/`.yml` overlays.
+- `toml = "0.9"` (in `sim-cli`) — TOML support for figment.
+- `minicbor-serde = "0.6"` (features `alloc`) — CBOR encoding for trace events when `--output *.cbor` (`sim-rs/sim-cli/src/events.rs:770`).
+- `async-compression = "0.4"` (features `tokio`, `gzip`) — `GzipEncoder` for `.jsonl.gz` / `.cbor.gz` trace outputs (`sim-rs/sim-cli/src/events.rs:5`).
+
+**Hashing (determinism contract):**
+- `sha2 = "0.10"` — `Sha256` digest of the pricing event stream. Incremental hashing of `TXIncluded` + `TXEvictedQuoteDrift` events in `sim-rs/sim-cli/src/metrics/collector.rs:272`; persisted as `pricing_event_stream.sha256` per (job, seed). Same digest used in M2/M3 unit-test goldens (`sim-rs/sim-core/src/sim/tests/m2_two_lane.rs:21`).
+- `hex = "0.4"` — hex-encoding for digest output (`hex::encode(hasher.finalize())`).
+
+**Data structures / utilities:**
+- `dashmap = "6"` — concurrent hashmap (used internally by `sim-core` for per-node state).
+- `priority-queue = "2"` — used by the simulator scheduler.
+- `anyhow = "1"` — error type for application code (both crates).
+- `chrono = "0.4"` (features `serde`) — UTC timestamps in `manifest.json` (`started_at_utc`, `completed_at_utc`).
+- `itertools = "0.14"` — iterator combinators in `sim-cli`.
+- `ctrlc = "3"` — SIGINT handler for the legacy `sim-cli` binary.
+- `pretty-bytes-rust = "0.3"` — human-readable byte formatting in legacy event monitor.
+
+**CLI:**
+- `clap = "4"` (features `derive`) — `Args` derives in `sim-rs/sim-cli/src/main.rs:39` and `sim-rs/sim-cli/src/bin/experiment-suite/main.rs:20`.
+
+**Logging / observability:**
+- `tracing = "0.1"` — structured logging across both crates.
+- `tracing-subscriber = "0.3"` (features `env-filter`) — initialised in both binaries' `main` (`fmt_layer().compact().without_time()` + `EnvFilter` from `RUST_LOG`).
+
+**Statistics:**
+- `statrs = "0.18"` — `Beta` and `ContinuousCDF` for the test-data generator's latency-distribution model (`sim-rs/sim-cli/src/bin/gen-test-data/strategy/utils.rs:9`).
+- `average = "0.16"` — `Variance` for live message-rate aggregation in the legacy event monitor (`sim-rs/sim-cli/src/events.rs:6`).
+
+**Dev-only:**
+- `tempfile = "3"` (sim-cli dev-dep) — per-test scratch dirs in `sim-rs/sim-cli/tests/determinism.rs` and `parallel_runner.rs`.
+- `hex`, `serde_yaml`, `sha2`, `tokio = { rt }` are dev-deps of `sim-core` for the M2/M3 test fixtures.
+
+**No `criterion`, `proptest`, `quickcheck`, or external HTTP/database clients.** The simulator is a pure pre-compute: it ingests YAML, runs an in-process discrete-event simulation, and writes flat files. No live network I/O, no async HTTP client, no DB driver.
 
 ## Configuration
 
-**Build-time env vars (read by build.rs):**
-- `VERGEN_GIT_SHA` — emitted by `vergen-gitcl`, baked into `--version` output. Not user-set.
+**Environment:**
+- `RUST_LOG` — tracing-subscriber `EnvFilter` directive; default level `INFO`.
+- `UPDATE_GOLDENS=1` — flips `sim-rs/sim-cli/tests/determinism.rs` from "assert against golden" to "write fresh hash to disk" mode (used after intentional simulator changes; see `CLAUDE.md` "Running the suites").
+- `M6_RUN_ID` — read by `sim-rs/scripts/run-parallel-suites.sh` to share a batch identifier across concurrent suites (default: UTC `YYYYMMDD-HHMMSS`).
+- `CARGO_PKG_VERSION`, `VERGEN_GIT_SHA` — compile-time env vars consumed by the `--version` strings; populated by cargo and `sim-rs/sim-cli/build.rs` respectively.
 
-**Runtime env vars (read by the CLI):**
-- `RUST_LOG` — `tracing-subscriber` env filter directive. Defaults to `INFO` if unset.
-- `UPDATE_GOLDENS=1` — test-only switch that rewrites `sim-rs/parameters/phase-2-sweep/suites/.goldens/*` instead of asserting equality (`sim-rs/sim-cli/tests/determinism.rs:127`).
-- `M6_RUN_ID` — operator script convention (`sim-rs/scripts/run-parallel-suites.sh`) for sharing a batch identifier across parallel suite invocations. Passed through to the binary as `--run-id`.
-
-**Config files (YAML, layered):**
-- `sim-rs/parameters/config.default.yaml` — protocol baseline (slot, RB, EB, IB, vote, certificate settings). Embedded with `include_str!` for binary-self-sufficiency.
-- `sim-rs/parameters/topology.default.yaml` — fallback topology embedded via `include_str!` (`sim-rs/sim-cli/src/main.rs:37`).
-- `sim-rs/parameters/phase-2-sweep/protocol-base.yaml` — phase-2 overlay with `min_fee_a`/`min_fee_b`, RB cadence, vote calibration. Three RB-reduced variants (`protocol-rb-reduced-{half,third,quarter}.yaml`) are full replacements, not stacked overlays — see CLAUDE.md "Conventions / gotchas".
-- `sim-rs/parameters/phase-2-sweep/demand/*.yaml` — actor profiles (5 of them: `paper_like_{realistic,moderate,congested,mispriced}.yaml`, `sundaeswap_moderate.yaml`).
-- `sim-rs/parameters/phase-2-sweep/pricing/*.yaml` — 19 pricing-mechanism configs (1 baseline flat-fee, 7 EIP-1559 controller variants, 11 two-lane variants).
-- `sim-rs/parameters/phase-2-sweep/suites/*.yaml` — 19 suite manifests (M4-M6 phase-2 sweep) listing `(default protocol, default demand, jobs[*].pricing)` tuples plus seeds.
-- `sim-rs/parameters/config.schema.json` — JSON Schema describing the YAML config surface (linked via `yaml-language-server` header comment in `config.default.yaml`).
+No `.env` file; no runtime secrets; no API keys anywhere in the codebase.
 
 **Build:**
-- `sim-rs/Cargo.toml` — workspace manifest. Two members (`sim-cli`, `sim-core`), resolver 2, `profile.release.debug = true`.
-- `sim-rs/sim-cli/build.rs` — emits the git-SHA build-info.
-- No `rust-toolchain.toml` / `rust-toolchain` file. Toolchain is pinned only via `rust-version = "1.88"` in each crate's `Cargo.toml` (rejected at compile time, not via rustup-auto-install).
+- `sim-rs/Cargo.toml` — workspace root; `resolver = "2"`; `[profile.release]` keeps `debug = true` so flamegraphs / `perf` symbolicate against release binaries.
+- `sim-rs/sim-cli/build.rs` — emits `cargo:rustc-env=VERGEN_GIT_SHA=…` via `vergen-gitcl`.
 
 ## Platform Requirements
 
 **Development:**
-- Rust 1.88+ with edition 2024 support.
-- `cargo` reachable in `PATH`.
-- A `git` checkout (the `vergen-gitcl` build script shells out to `git rev-parse`); building outside a git working tree fails the build script.
-- For topology generation only: Python 3 (the `generate-cip-topology.py` script).
+- Rust toolchain ≥ 1.88 (matches the `rust-version` MSRV).
+- x86_64 / glibc Linux is the reference architecture for the pinned golden hashes (see `CLAUDE.md` "Determinism is intra-arch"). The math layer (libm + u128 rationals + integer arithmetic) is bit-stable across architectures by construction, but cross-arch CI verification is not yet built.
+- Memory: peak RSS scales linearly in `--parallelism`; the default cap of 8 stays under 32 GB with the 100-node topology.
+- Python 3 with `pyyaml` (and Koios API reachability) is needed only to regenerate `topology-realistic-100.yaml` — not part of the build path; the YAML is a checked-in artefact.
 
 **Production:**
-- Linux x86_64 / glibc is the development and golden-hash reference. CLAUDE.md "Determinism scope" notes determinism is asserted **intra-architecture**; cross-arch CI is not built.
-- No deployment target other than the local CLI binaries. The simulator writes artefacts under `output/` and exits — no daemon, no server.
+- Not applicable. This is an offline simulator; outputs are flat files for analysis, not a deployed service.
 
-**Disk:**
-- Each suite run writes `time_series.csv`, `diagnostics.log`, `pricing_event_stream.{events,sha256}`, and the per-suite `metrics_comparison.txt` under `output/phase-2/<suite>-<run-id>/`. The `.gitignore` excludes `output/`, `target/`, `flamegraph.svg`, `perf.data*`, `.docker/`, and `*.tar`.
+## Build & Test Commands
+
+All commands assume `pwd = sim-rs/`.
+
+```sh
+# Build the release binaries.
+cargo build --release
+
+# Standard test cycle (excludes the slow #[ignore]'d determinism goldens).
+cargo test --workspace
+
+# Slow suite-level determinism goldens (~1.5s in --release, 7 suites).
+cargo test --release -- --ignored determinism
+
+# Regenerate the suite goldens after an intentional simulator change.
+UPDATE_GOLDENS=1 cargo test --release -- --ignored determinism
+
+# Run a phase-2 suite end-to-end (resumable).
+cargo run --release --bin experiment-suite -- run \
+    parameters/phase-2-sweep/suites/phase-2-eip1559-robustness.yaml
+
+# Verify determinism on a previously-run suite.
+cargo run --release --bin experiment-suite -- verify \
+    parameters/phase-2-sweep/suites/phase-2-eip1559-robustness.yaml
+
+# Inspect manifest status.
+cargo run --release --bin experiment-suite -- status \
+    parameters/phase-2-sweep/suites/phase-2-eip1559-robustness.yaml
+```
+
+## Parameters / YAML Configuration System
+
+The simulator is configured by a layered stack of YAML overlays composed at runtime via `figment` (`sim-rs/sim-cli/src/runner.rs:840`). For each (job, seed) pair the runner merges, in order:
+
+1. **Embedded base** — `parameters/config.default.yaml`, compiled into the binary via `include_str!` (`sim-rs/sim-cli/src/runner.rs:840-842`). Provides every field with a sensible default; shared with the upstream Haskell simulator.
+2. **Protocol overlay** — `parameters/phase-2-sweep/protocol-base.yaml` (or one of `protocol-rb-reduced-{half,third,quarter}.yaml` for the M4 RB-scarcity suite). Sets phase-2-specific protocol knobs (min-fee-a/b, mempool cap, RB-generation probability, vote-generation parameters, CIP-0164 Table 7 stage lengths).
+3. **Demand overlay** — `parameters/phase-2-sweep/demand/<profile>.yaml`. Declares the actor `components:` block: per-component arrival rate (phased), size/value/half-life log-normal distributions, max-fee policy.
+4. **Pricing overlay** — `parameters/phase-2-sweep/pricing/<config>.yaml`. Picks the `pricing.kind` (`baseline` | `eip1559` | `two-lane`) and its controller parameters (initial quote, target ratio, max-change-denominator, window length, multiplier floor, lane selection order).
+
+The suite YAML itself (`Suite` struct, `sim-rs/sim-cli/src/suite.rs:17`) declares:
+
+- `suite-name`, `output-dir`
+- `seeds: [u64]`
+- `default-slots`, `default-topology`, `default-protocol`, `default-demand`
+- `jobs: [{ name, pricing, overrides? }]`
+- Optional per-job `overrides` for `slots`, `seeds`, `demand`, `topology`, `protocol` (replacement, not stacked — see `CLAUDE.md` "RB-reduced overlays are full replacements").
+
+**Topology** is a separate YAML (`RawTopology`, `sim-rs/sim-core/src/config.rs:466`), loaded directly via `serde_yaml::from_str` (`sim-rs/sim-cli/src/runner.rs:828`) — it's not part of the figment stack because `Topology` validation happens before merging.
+
+Format detection in `merge_layer` (`sim-rs/sim-cli/src/runner.rs:798`) accepts `.yaml`/`.yml` (default) and `.toml`; all phase-2 overlays are YAML.
+
+Serde rename casing is mixed by historical accident: YAML configs and `Manifest`/`JobEntry` use `kebab-case` via `#[serde(rename_all = "kebab-case")]`; `RunSummary` uses Rust `snake_case`. See `CLAUDE.md` "Conventions / gotchas" for the migration rationale (standardising would invalidate every persisted on-disk artefact).
+
+The parameters directory tree:
+
+```
+sim-rs/parameters/
+├── config.default.yaml             # embedded base (compile-time include_str!)
+├── config.schema.json              # JSON-schema for editor autocomplete
+├── topology.default.yaml           # legacy multi-region topology (still used by sim-cli's default)
+├── linear.yaml, full.yaml, ...     # legacy linear-leios / full-leios overlays
+└── phase-2-sweep/                  # all phase-2 configs
+    ├── protocol-base.yaml
+    ├── protocol-rb-reduced-{half,third,quarter}.yaml
+    ├── topology-single-producer.yaml
+    ├── topology-realistic-100.yaml         # default since 2026-05-13
+    ├── topology-cip-realistic.yaml         # 600-pool CIP-0164 baseline
+    ├── demand/
+    │   ├── paper_like_{light,moderate,congested,realistic,mispriced}.yaml
+    │   └── sundaeswap_moderate.yaml
+    ├── pricing/                            # 19 controller-tuning YAMLs
+    │   ├── baseline_flat_fee.yaml
+    │   ├── eip1559_d{4,8,16}_target{0.25,0.5,0.75}_window{16,32,64}.yaml
+    │   └── two_lane_*_{x4,x8,x16}.yaml
+    ├── suites/                             # 21 suite YAMLs
+    │   ├── phase-2-{eip1559-*,priority-only-*,two-lane-*,rb-scarcity,urgency-inversion}.yaml
+    │   ├── phase-2-{congested,moderate,realistic,sundaeswap}-*.yaml
+    │   ├── *.README.md
+    │   └── .goldens/<suite>.sha256         # the M5 pinned hashes
+    └── experiments/                        # legacy single-run experiment configs
+```
 
 ---
 
-*Stack analysis: 2026-05-13*
+*Stack analysis: 2026-05-15*

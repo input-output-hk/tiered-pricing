@@ -1,312 +1,400 @@
 # Codebase Concerns
 
-**Analysis Date:** 2026-05-13
-**Resolution annotations added:** 2026-05-14
+**Analysis Date:** [2026-05-15]
 
-## 2026-05-14 resolution summary
+This document catalogues active concerns on the `dynamic-experiment`
+branch of `arc-tiered-pricing` (phase-2 dynamic-pricing simulator).
+The authoritative review-tracker is `.planning/REVIEW.md` (Fix
+Status table); concerns below reflect that tracker plus operational
+gaps in the build/test/run regime as of 2026-05-15.
 
-The original audit (2026-05-13) predates two changes that closed
-several entries below. Each affected entry is preserved as-written
-for historical context and annotated inline with an **Update
-2026-05-14** note pointing at the resolving artifact. The structural
-changes:
-
-- **Topology pivot (2026-05-13):** suites switched from
-  `topology-single-producer.yaml` (N=1) to
-  `topology-realistic-100.yaml` (N=100, mass-stratified mainnet
-  curve via spike 006). Entries below that frame phase-2 as
-  single-producer (the *Pricing state has no rollback...*
-  Fragile-Areas entry, the *Single-producer topology covers 7 of 7
-  current phase-2 suites* Scaling-Limits entry, the
-  *Slot-battle / multi-producer pricing-state divergence*
-  Test-Coverage-Gaps entry) describe the pre-pivot baseline.
-- **Chain-derived controller refactor (2026-05-14):** the
-  node-local mutable `Eip1559Pricing.quote_per_byte` +
-  `CapacityWeightedWindow` accumulator was replaced by a
-  chain-derived design where every `LinearRankingBlock` carries
-  `derived_quote: PerLaneQuote` and `window_aggregate:
-  WindowAggregate` as pure functions of canonical predecessors.
-  This eliminates WR-1 (controller contamination on slot-battle
-  reorg) by construction. Mechanism Family B (EIP-1559-faithful,
-  1 step per canonical block) committed for publication via
-  [`../family-b-decision-2026-05-14.md`](../family-b-decision-2026-05-14.md).
-  See also [`../REVIEW.md`](../REVIEW.md) Fix Status table —
-  WR-1 row reads RESOLVED 2026-05-14.
-
-Resolved 2026-05-14:
-- *Pricing state has no rollback on fork / slot-battle* (Fragile
-  Areas) — superseded by chain-derived design.
-- *Single-producer topology covers 7 of 7 current phase-2 suites*
-  (Scaling Limits) — superseded by `topology-realistic-100.yaml`
-  pivot.
-- *Slot-battle / multi-producer pricing-state divergence* (Test
-  Coverage Gaps) — superseded by chain-derived design (the
-  divergence pathway no longer exists; what remains is the
-  representative-node aggregation question, which is orthogonal).
-
-Still pending (not resolved by today's changes):
-- *Cross-architecture determinism is asserted intra-arch only*
-  (Fragile Areas) — still true; chain-derived computation is
-  bit-stable across architectures by construction, but the wider
-  simulator inherits `f64` from `main` in non-pricing paths. CR-1's
-  `f64::sqrt` resolution closes one specific instance; cross-arch
-  CI build pipeline remains infrastructure work outside phase-2's
-  code scope.
-- WR-2 (gate-reject info loss → `AdmissionRejected` event design),
-  WR-7 (`ActorComponent` reallocation perf refactor) — both
-  deferred from REVIEW.md by explicit decision, tracked as F3 / F4
-  in REVIEW.md's "Follow-on work" section.
-- All other Tech Debt, Security Considerations, Performance
-  Bottlenecks, Missing Critical Features, and Test Coverage Gaps
-  not annotated below — unchanged by today's pass.
+**Headline status update:** WR-1 (pricing-state contamination on
+slot-battle reorg) is **RESOLVED 2026-05-14** by the chain-derived
+(Family B, EIP-1559-faithful) refactor — there is no longer any
+node-local mutable controller state for orphan blocks to
+contaminate. See [Resolved concerns](#resolved-concerns-for-context)
+at the end of this document for the audit trail.
 
 ## Tech Debt
 
-**RB-reduced protocol overlays are full replacements, not stacked:**
-- Issue: `JobOverrides` picks `overrides.protocol` OR `default_protocol`, never both. The three RB-reduced overlay YAMLs each duplicate the entire `protocol-base.yaml` content just to override `rb-body-max-size-bytes`.
-- Files: `sim-rs/parameters/phase-2-sweep/protocol-base.yaml` (105 lines), `sim-rs/parameters/phase-2-sweep/protocol-rb-reduced-half.yaml` (37 lines), `sim-rs/parameters/phase-2-sweep/protocol-rb-reduced-third.yaml` (27 lines), `sim-rs/parameters/phase-2-sweep/protocol-rb-reduced-quarter.yaml` (27 lines), `sim-rs/sim-cli/src/runner.rs` (`JobOverrides`, `run_job` ~lines 426-430, 523-534).
-- Impact: Any future addition to `protocol-base.yaml` must be propagated manually to all three overlays or the RB-scarcity suite silently diverges from baseline. M4 already hit this once — the first iteration of the overlays were one-line "diffs" and the runs produced zero events because the overlay replaced the phase-2 mechanics.
-- Fix approach: Extend `JobOverrides` with a `protocol_overlay: Vec<PathBuf>` for additive stacking, parse each overlay as a partial YAML, and merge with `serde_yaml::Value` before deserialising the final `RawLinearLeiosConfig`. Deferred enhancement flagged in CLAUDE.md §Conventions and m5-handoff.md §5.
+### Mixed serde casing across persisted artefacts (low priority)
 
-**Mixed serde casing across persisted JSON artefacts:**
-- Issue: `Manifest`/`JobEntry`/suite YAML schemas use `#[serde(rename_all = "kebab-case")]`, but `RunSummary` uses Rust snake_case (no `rename_all`). Both shapes coexist on disk under `sim-rs/output/`.
-- Files: `sim-rs/sim-cli/src/runner.rs` (Manifest/JobEntry kebab-case), `sim-rs/sim-cli/src/metrics/collector.rs` (RunSummary snake_case), `sim-rs/sim-cli/src/suite.rs` (Suite YAML schema).
-- Impact: Future schema additions must match the surrounding type's existing convention; mixing introduces subtle deserialisation failures. Auditing a file requires remembering which side of the divide it's on.
-- Fix approach: Standardising would invalidate every persisted manifest under `sim-rs/output/`, forcing re-runs of all (job, seed) pairs. Not worth the churn for M5. Document only — already done in CLAUDE.md §Conventions.
+- Issue: YAML configs and the runner's `Manifest` / `JobEntry` use
+  `#[serde(rename_all = "kebab-case")]`; `RunSummary` uses Rust
+  snake_case (no `rename_all`). Both shapes coexist on disk in
+  persisted artefacts under `sim-rs/output/`.
+- Files: `sim-rs/sim-cli/src/runner.rs:45,54,68`,
+  `sim-rs/sim-cli/src/suite.rs:16,29,38`,
+  `sim-rs/sim-cli/src/metrics/collector.rs` (RunSummary).
+- Impact: Confusing inconsistency for readers of the persisted JSON.
+  Standardising would invalidate every persisted manifest under
+  `sim-rs/output/` and force re-runs of all 72 (job, seed) pairs
+  pinned by the M5 goldens.
+- Fix approach: Defer. Future schema additions should match the
+  surrounding type's existing convention. Listed in
+  `CLAUDE.md §Conventions / gotchas` as an explicit "not worth the
+  churn for M5" decision.
 
-**Calibration choices baked into YAMLs (not invariants):**
-- Issue: The simulator picks concrete defaults for spec-open questions. Each is observable as a knob in the YAMLs and a hard-coded magic number elsewhere.
+### RB-reduced overlays are full replacements, not stacked overlays
+
+- Issue: `protocol-rb-reduced-{half,third,quarter}.yaml` duplicate
+  every field of `protocol-base.yaml` and override only
+  `rb-body-max-size-bytes`. The runner's `JobOverrides` picks
+  `overrides.protocol` OR `default_protocol`, never both.
 - Files:
-  - Window length 32 (length 1 for RB-reserved priority): `sim-rs/parameters/phase-2-sweep/pricing/*.yaml` `window-length` field; `sim-rs/sim-core/src/tx_pricing/window.rs`; `sim-rs/sim-core/src/tx_pricing/single_lane.rs`, `two_lane.rs`.
-  - `rb-generation-probability: 0.05` + `default-slots: 1000` + `stake: 100000`: `sim-rs/parameters/phase-2-sweep/protocol-base.yaml`, `topology-single-producer.yaml`, all `suites/*.yaml`. These together clear the 13-slot endorsement window (`linear_leios.rs:707-716`) and the VRF stake-quantization truncation (`sim-rs/sim-core/src/sim/lottery.rs:7-10`).
-  - `multiplier_floor = 4` (in `phase-2-rb-scarcity` and `phase-2-urgency-inversion`, vs spec default 16): `sim-rs/parameters/phase-2-sweep/suites/phase-2-rb-scarcity.yaml`, `phase-2-urgency-inversion.yaml`.
-  - Mempool cap = `2 × eb_referenced_txs_max_size_bytes`: `sim-rs/parameters/phase-2-sweep/protocol-base.yaml` `mempool-max-total-size-bytes`.
-  - Default `max_fee_policy = ScaledOverLaneQuote { numerator: 4, denominator: 1 }`: hard-coded in actor defaults `sim-rs/sim-core/src/tx_actors.rs`.
-- Impact: Re-calibrating any of these flips suite goldens; an externally-deployed pricing config would have to be re-validated. The spec leaves these open, so they are calibration choices, not bugs — but they need to surface in the CIP / external write-up so a deployment-side sweep knows what to revisit.
-- Fix approach: Surface in CIP §Reproducibility. Document re-calibration cost per-knob (already done in CLAUDE.md §Calibration choices). For the multiplier floor, considering authoring an additional suite at `x16` to span both calibrations.
+  `sim-rs/parameters/phase-2-sweep/protocol-base.yaml`,
+  `sim-rs/parameters/phase-2-sweep/protocol-rb-reduced-half.yaml`,
+  `sim-rs/parameters/phase-2-sweep/protocol-rb-reduced-third.yaml`,
+  `sim-rs/parameters/phase-2-sweep/protocol-rb-reduced-quarter.yaml`,
+  `sim-rs/sim-cli/src/runner.rs` (`JobOverrides`).
+- Impact: **Any future addition to `protocol-base.yaml` must be
+  manually propagated to all three RB-reduced overlays.** Easy to
+  forget; would cause the rb-scarcity suite goldens to silently
+  diverge from `protocol-base.yaml` semantics.
+- Fix approach: Extend `JobOverrides` with stacked
+  `protocol_overlay: Vec<PathBuf>` semantics. Deferred enhancement;
+  documented in `CLAUDE.md §Conventions / gotchas`.
 
-**Phase-2 size targets exceeded for sim-core total (informational):**
-- Issue: CLAUDE.md §"Size sanity check" projected `sim-core/src/` at ~10k lines (rebuild-only) and the simulator total at ~12k lines. Actual: 16,305 / 21,104.
-- Files: `sim-rs/sim-core/src/sim/linear_leios.rs` (2,749 lines), `sim-rs/sim-core/src/sim/leios.rs` (1,833), `sim-rs/sim-core/src/config.rs` (1,309), `sim-rs/sim-core/src/sim/stracciatella.rs` (1,234), `sim-rs/sim-core/src/events.rs` (1,046).
-- Impact: The pricing kernel (`sim-rs/sim-core/src/tx_pricing/`, 1,437 lines) and metrics (`sim-rs/sim-cli/src/metrics/`, 1,205 lines) came in well under target — the overrun is in the upstream `main` simulator code (slot lottery, propagation, voting, legacy protocol arms like `leios.rs` and `stracciatella.rs`) which phase-2 builds on top of without rewriting. Not phase-2 surface.
-- Fix approach: Not a phase-2 line item. A future cleanup could prune `leios.rs` (1,833 lines) and `stracciatella.rs` (1,234 lines) — neither is the simulated protocol for phase-2 (only `linear_leios.rs` is).
+### WR-7: `ActorComponent` reallocation on the hot path
 
-**Two `// TODO: freshest first` markers in EB request relay:**
-- Issue: When relaying EB announcements, the node always requests from the *first* peer that announced it (under `RelayStrategy::RequestFromFirst`). The freshness-first selection comment marker is unaddressed.
-- Files: `sim-rs/sim-core/src/sim/linear_leios.rs:1134`, `sim-rs/sim-core/src/sim/linear_leios.rs:1282`, and the same pattern in `sim-rs/sim-core/src/sim/stracciatella.rs:405`.
-- Impact: Inherited from upstream `main`. Does not affect pricing-state determinism; affects propagation timing only.
-- Fix approach: Outside phase-2 scope. Inherits from `main`.
+- Issue: `run_actors_for_slot` clones `ActorComponent` data into
+  `ComponentInputs` per slot, then rebuilds a temporary
+  `ActorComponent` for sampling — 4 components × 1000 slots × 100
+  nodes ≈ 400k short-lived allocations per run.
+- Files:
+  `sim-rs/sim-core/src/sim/linear_leios.rs:2268-2429`.
+- Impact: Cumulative perf cost (worst in larger-topology suites).
+  Also a clarity issue — the actor lane-choice math has two
+  materialisations of the same struct, obscuring the f64 →
+  `libm::round` → i128 pipeline.
+- Fix approach: Refactor `ActorComponent`'s sampling helpers to take
+  fields by reference; pass `&ActorComponent` directly from
+  `actor_state.profile.components`. **Deferred** per REVIEW.md F4
+  (out of v1 scope, ~50–100 lines touching lane-choice math,
+  needs careful human review).
 
-**Legacy `TransactionProducer` / non-actor path coexists with `ActorComponent`:**
-- Issue: The codebase carries two transaction-generation paths: the legacy `RealTransactionConfig` / `TransactionProducer` (from `main`) and the phase-2 `ActorComponent`. `TXGenerated` events default `urgency_component_index = 0`, `value_lovelace = 0`, `urgency = 1.0` for legacy txs.
-- Files: `sim-rs/sim-core/src/events.rs:119-138` (default-serde fields for legacy backward-compat), `sim-rs/sim-core/src/sim/tx.rs:24,52`, `sim-rs/sim-core/src/config.rs:763,800,813,1237,1246`, `sim-rs/sim-core/src/tx_actors.rs:108` (`MaxFeeContext::unused()`).
-- Impact: Welfare metrics for legacy txs collapse to `retained_value = 0`, `net_utility = -fee` (documented in `metrics/collector.rs:353-358`). Surface-area cost: tests must remember which path they're exercising, default values lurk in every `TXGenerated`. Not a bug — but a deferred consolidation.
-- Fix approach: Drop the legacy `TransactionProducer` path once no phase-2 (or pre-phase-2) test depends on it. Audit `sim-rs/sim-core/src/sim/tests/m1_smoke.rs`, `sim-rs/sim-core/src/sim/tests/linear_leios.rs:151`.
+### WR-2: gate-reject vs mempool-reject collapsed into a single bool
+
+- Issue: `try_add_tx_to_mempool` returns `false` for both
+  `gate.try_admit(...).is_err()` and `mempool.try_insert(...) ==
+  false`. The gate's rich `AdmissionRejection` enum
+  (`InsufficientMaxFee`, `ByteCapExceeded`, `FeeOverflow`) is
+  thrown away.
+- Files: `sim-rs/sim-core/src/sim/linear_leios.rs:1728-1751`,
+  `sim-rs/sim-core/src/sim/mempool_gate.rs:36-50` (rejection enum).
+- Impact: Metrics layer cannot distinguish "fee budget exceeded"
+  from "byte cap exceeded" rejections. Important for interpreting
+  the current sustained-overload calibration regime (~97-99%
+  rejection rates per `docs/phase-2/calibration-fix-postmortem.md`).
+- Fix approach: Propagate `AdmissionRejection` upward; emit an
+  `AdmissionRejected { reason }` event (backwards-compatible
+  addition). **Deferred** per REVIEW.md F3 — non-trivial
+  public-API change with potential golden impact; needs a design
+  pass before code.
+
+### Legacy protocols in `sim-core/src/sim/` (informational, not a defect)
+
+- Files: `sim-rs/sim-core/src/sim/leios.rs` (1833 lines),
+  `sim-rs/sim-core/src/sim/stracciatella.rs` (1234 lines),
+  `sim-rs/sim-core/src/sim/tx.rs` (143 lines).
+- Status: Untouched by phase-2 except for minor signature changes
+  (e.g. `slot` added to `track_transaction_generated` calls, pinned
+  to 0 for the non-actor paths). Dormant under the phase-2 actor
+  profile — `TransactionProducer` in `tx.rs` is silenced when the
+  actor profile is set.
+- Impact: Adds ~3,200 lines to `sim-core/` that phase-2 does not
+  exercise. Inflates the size budget reported in `CLAUDE.md §Size
+  sanity check`. The `HashMap<NodeId, NodeState>` iterated by
+  `tx.rs:82-86` is pre-existing on `main` and would be a
+  determinism risk if reactivated, but is dead under phase-2.
+- Fix approach: None planned — keeping the upstream Leios variants
+  preserves the rebuild-on-top-of-`main` contract from
+  `docs/phase-2/implementation-plan.md`. Informational only.
 
 ## Known Bugs
 
-No known active bugs. The historical post-M5 calibration bug (`rb-generation-probability: 1.0` + linear-Leios 13-slot endorsement window → EBs never landed on chain) was fixed by dropping to `0.05` and raising stake to `100000` to survive VRF quantisation. See `docs/phase-2/calibration-fix-postmortem.md` for the full account.
+### TODOs in legacy & current code paths (low priority)
+
+- `sim-rs/sim-core/src/sim/linear_leios.rs:713` — "TODO: should
+  send to producers instead (make configurable)" on the
+  RB-fallback gossip path. Mirrors the legacy comment in
+  `sim-rs/sim-core/src/sim/stracciatella.rs:405`.
+- `sim-rs/sim-core/src/sim/linear_leios.rs:1219,1367` — "TODO:
+  freshest first" on tx-fetch ordering. Affects gossip throughput
+  modelling, not pricing correctness.
+- Impact: No simulation-output correctness implications; cosmetic
+  / future-work markers.
+- Fix approach: Address opportunistically; not blocking.
+
+### Mempool-gate cooperation invariants (mitigated; informational)
+
+- Issue: The mempool's internal "queue for later promotion" branch
+  is dead code under the gate-is-sole-byte-cap-authority
+  invariant, but its existence means a future config knob (soft
+  vs hard cap) could silently reintroduce a path where txs land in
+  the active mempool without gate state.
+- Files: `sim-rs/sim-core/src/sim/linear_leios.rs:2553-2694`.
+- Status: WR-3 **applied 2026-05-13** —
+  `debug_assert_eq!(mempool_max_size_bytes, gate.max_total_size_bytes)`
+  in `LinearLeiosNode::new`, plus
+  `debug_assert!(self.queue.len() <= self.mempool_count)` invariant
+  in `Mempool::try_insert`. Listed here only as a fragile-area
+  reminder for future code touching the mempool layer.
 
 ## Security Considerations
 
-**Honest-producer-only simulation; no attacker validation of EB-partition activation:**
-- Risk: The `partition_activated` bit is stored on `LinearEndorserBlock` as an honest-producer *claim*, not derivable from the EB body content. A future attacker model could test inconsistency between the claim and the body.
-- Files: `sim-rs/sim-core/src/model.rs:281` (`/// an honest-producer claim. Future attacker models in M4/M5 may`), `sim-rs/sim-core/src/sim/linear_leios.rs` `select_eb_with_partition`.
-- Current mitigation: None — phase-2 suites are all honest-producer.
-- Recommendations: A future phase-3 attacker suite would need to validate `partition_activated` against the body (or move the trigger to a body-derivable invariant). Flagged in m3-handoff.md, carried in m5-handoff.md §Known limitations #2.
+### `partition_activated` is a producer claim, not a body-derivable property
 
-**Withheld-tx attacker model coexists but skips pricing admission:**
-- Risk: When `behaviours.withhold_txs = true`, attacker EBs and txs land in `self.txs` directly without going through `MempoolGate::try_admit`, defaulting `max_fee_lovelace = u64::MAX`.
-- Files: `sim-rs/sim-core/src/sim/linear_leios/attackers.rs`, `sim-rs/sim-core/src/sim/linear_leios.rs:1464-1526`, `sim-rs/sim-core/src/config.rs:881-935`.
-- Current mitigation: No phase-2 suite enables `late-tx` / `late-eb` attackers. The path is dormant.
-- Recommendations: Flagged in m1-handoff.md §"Withheld-tx attack scenarios". Pricing-state interaction with attacker txs is not modelled and would need explicit handling before a phase-3 attacker-vs-pricing suite is authored.
+- File: `sim-rs/sim-core/src/sim/linear_leios.rs`
+  (`select_eb_with_partition`, `LinearEndorserBlock.partition_activated`).
+- Risk: Phase-2 simulates honest producers only. A dishonest
+  producer could set `partition_activated` to either value
+  regardless of the actual mempool state, manipulating which
+  posted-priority txs get refunded down to standard fee.
+- Current mitigation: Honest-producer assumption inherent in the
+  M3 design choice to store `partition_activated` on the EB
+  header (endorsers/producers agree by construction).
+- Recommendations: A published-attacker-model write-up (CIP) would
+  need to either (a) move the trigger to a body-derivable
+  invariant, or (b) explicitly model "honest producer" as a
+  security assumption. Cross-cutting observation #5 in
+  `.planning/REVIEW.md`.
 
 ## Performance Bottlenecks
 
-**Suite-level determinism goldens are `#[ignore]`'d to keep `cargo test` fast:**
-- Problem: Each baseline run is ~200ms in release; the 7 of them total ~1.5s wall-time. Adding them to default `cargo test` would slow inner-loop test cycles.
-- Files: `sim-rs/sim-cli/tests/determinism.rs` (every test is `#[ignore]`'d).
-- Cause: Real simulation cost (200 slots × single producer × all event types).
-- Improvement path: None needed — the on-demand invocation `cargo test --release -- --ignored determinism` is documented in CLAUDE.md and the test file's doc-comment. Note: m5-handoff.md §Gotchas #1 explicitly warns to run determinism tests in `--release` (test profile times out).
+### Peak RSS scales linearly in `--parallelism` for `experiment-suite`
 
-**Mempool overflow dominates over quote-drift eviction under the corrected calibration:**
-- Problem: With ~150 KB/slot demand against a 32 MB mempool cap (`2 × eb_referenced_txs_max_size_bytes`) and ~5% RB cadence, the mempool saturates within ~250 slots. Beyond that, new-arrival admission rejections dominate over quote-drift evictions; inclusion rates land at ~1–3%.
-- Files: `sim-rs/sim-core/src/sim/mempool_gate.rs` `try_admit` (no eviction of valid txs to make room — reject-only), `sim-rs/parameters/phase-2-sweep/protocol-base.yaml` `mempool-max-total-size-bytes`.
-- Cause: Sustained-overload regime by construction — the corrected calibration is sized so the controller is the bottleneck, but mempool cap is hit first.
-- Improvement path: Document whether sustained-overload is the right regime for the CIP write-up. Either raise the mempool cap (changes goldens), lower per-slot demand in the demand YAMLs, or accept the regime. Flagged in `docs/phase-2/calibration-fix-postmortem.md` §"Open follow-ups".
+- Files: `sim-rs/sim-cli/src/runner.rs` (parallel job dispatch);
+  `sim-rs/sim-cli/src/bin/experiment-suite/main.rs`.
+- Problem: `experiment-suite run` and `experiment-suite verify`
+  run (job, seed) pairs concurrently. Default cap is
+  `min(available_parallelism(), 8)`; each parallel job owns its
+  own simulator state (config, topology, mempool, metrics
+  collector) and runs inside its own OS thread + per-thread
+  `current_thread` tokio runtime.
+- Cause: `Simulation` contains `Box<dyn Actor>` which isn't
+  `Send`, forcing per-thread runtimes; each thread holds a full
+  copy of the 100-node topology + actor + mempool state for the
+  duration of its job.
+- Impact: With the default `topology-realistic-100.yaml` and 8
+  parallel jobs, peak RSS stays comfortably under 32 GB on the
+  dev machine but is the practical cap on home-machine runs.
+  Stacking with `scripts/run-parallel-suites.sh` (parallelises
+  *across* suites) multiplies the total: total tokio worker
+  threads ≈ cross-suite K × intra-suite P. Easy to OOM if both
+  knobs are raised without measurement.
+- Improvement path: Document `--parallelism N` (`-P N`) usage in
+  per-machine README guidance. For larger topologies, lower the
+  intra-suite cap explicitly. A future optimisation pass on the
+  hot allocations identified in WR-7 would reduce per-job
+  baseline RSS but is deferred.
+
+### WR-7 cumulative allocation cost (see Tech Debt above)
+
+- ~400k short-lived `ComponentInputs` / `ActorComponent`
+  allocations per run with 4 components × 1000 slots × 100 nodes.
+  No fix yet; deferred to v2.
 
 ## Fragile Areas
 
-**Pricing state has no rollback on fork / slot-battle (long-standing M1 limitation):**
-- Files: `sim-rs/sim-core/src/sim/linear_leios.rs:2018-2029` (`apply_priced_block` code comment), `sim-rs/sim-core/src/sim/linear_leios.rs:1948-1952` (the `apply_eb_priced_block` cousin), `sim-rs/sim-core/src/sim/linear_leios.rs` `finish_validating_rb_header`.
-- Why fragile: `apply_priced_block` mutates `pricing` and `gate` immediately at `publish_rb`. Slot-battle replacement (lower VRF wins) at `finish_validating_rb_header` removes the losing block from `praos.blocks`, but does *not* undo: (a) the controller update, (b) the gate `on_inclusion` removals, (c) the `TXIncluded` events the losing block triggered. The mechanism spec at `mechanism-design.md:115` treats `c` as ledger state, so canonical-chain reasoning requires rollback-and-replay.
-- Safe modification: Single-producer suites (current 7 phase-2 suites) cannot trigger slot battles by construction. M6 introduces the multi-producer CIP-0164 topology (`topology-cip-realistic.yaml`, 600 pools); under that, slot battles will fire and the rollback gap matters.
-- Test coverage: Zero for slot-battle scenarios. m6-implementation-plan.md §"slot_battles_count" adds a metric to *quantify* the impact, not to fix the underlying gap.
-- Fix approach: Snapshot the controller state + gate state at every `publish_rb`, allow `finish_validating_rb_header` to re-apply samples for the canonical chain after restoring the snapshot. Flagged across all five handoffs (m1 through m5) — never moved.
-- **Update 2026-05-14:** RESOLVED via the chain-derived controller
-  refactor (spike 007 ADOPT verdict). The accumulator described
-  above no longer exists — `Eip1559Pricing`/`TwoLanePricing` are
-  stateless policies, and every `LinearRankingBlock` carries its
-  own `derived_quote: PerLaneQuote` + `window_aggregate:
-  WindowAggregate` computed as pure functions of canonical
-  predecessors. Slot-battle-losing blocks are discarded along with
-  their `derived_quote`, so there is nothing to roll back. The
-  WR-1 row in [`../REVIEW.md`](../REVIEW.md) Fix Status table
-  reads RESOLVED 2026-05-14, citing
-  [`../family-b-decision-2026-05-14.md`](../family-b-decision-2026-05-14.md)
-  for the mechanism choice (EIP-1559-faithful Family B) and
-  [`../mechanism-welfare-impact-2026-05-14.md`](../mechanism-welfare-impact-2026-05-14.md)
-  for the empirical re-validation. File line references in the
-  original entry above (`apply_priced_block` at `linear_leios.rs:2018`,
-  `apply_eb_priced_block` at `:1948`) refer to the pre-refactor
-  state and no longer match the current code.
+### Determinism is intra-architecture only; cross-arch CI pipeline unbuilt
 
-**`PricingTick` is per-node; metrics use a single representative:**
-- Files: `sim-rs/sim-core/src/sim/linear_leios.rs` `emit_pricing_tick`, `sim-rs/sim-cli/src/metrics/collector.rs:251` (`representative_node: Option<String>`), `sim-rs/sim-cli/src/metrics/collector.rs:333` (`set_representative_node`).
-- Why fragile: M5 made the representative *deterministic* (lexicographically smallest node name, pre-set by the runner) rather than first-tick-wins. But the *other nodes are dropped* property still holds — for any multi-producer suite with diverging per-node pricing state, the time-series under-reports cross-node disagreement.
-- Safe modification: For single-producer suites this is moot (all nodes converge). For M6's multi-producer topology, the collector either needs aggregation (mean? min? max?) or to surface per-node series.
-- Test coverage: `representative_node_lazy_fallback_picks_first_arrived`, `representative_node_pinning_overrides_first_arrival`, `out_of_order_events_do_not_roll_slot_backwards` in `sim-rs/sim-cli/src/metrics/collector.rs::tests` (M5 additions). No multi-producer divergence test.
-- Fix approach: M6 adds `slot_battles_count` and `orphaned_pricing_samples` as quantification metrics. Full cross-node aggregation deferred to phase-3 or M7+.
+- Files: `sim-rs/sim-cli/tests/determinism.rs` (suite-level
+  goldens runner), `sim-rs/parameters/phase-2-sweep/suites/.goldens/`
+  (7 pinned hash files), `sim-rs/sim-core/src/sim/tests/m2_two_lane.rs`
+  and `sim-rs/sim-core/src/sim/tests/m3_actors.rs` (unit-test
+  goldens with constants pinned in source).
+- Why fragile: Determinism is asserted on three levels (unit-test
+  goldens, `experiment-suite verify`, suite-level
+  `--release -- --ignored determinism`) but all three pin
+  **intra-arch**. The development machine is x86_64 / glibc; no
+  second-architecture build pipeline exists to detect
+  cross-platform divergence.
+- Reproducibility properties of the pricing kernel: the chain-
+  derived controller computation is bit-stable across architectures
+  by construction (u128 rationals, `libm::pow`, `libm::round`,
+  `libm::exp` throughout). Pricing-state-affecting math is
+  integer/u128 / rational, with no plain `f64` in
+  simulation-affecting paths in the pricing kernel itself.
+- Cross-arch gaps inherited from upstream `main`: see "Historical
+  f64 inheritance" below.
+- Safe modification: Maintain the integer/rational discipline in
+  any new pricing-kernel code; route any new f64 → integer
+  conversion through `libm::round` → i128 before any compare.
+- Fix approach: A second-arch build pipeline (e.g. aarch64) +
+  CI job that reruns the suite-level goldens. Flagged in the
+  Family B follow-on work list and the m5 handoff. Infrastructure
+  work outside phase-2's code scope; not yet scheduled.
 
-**Cross-architecture determinism is asserted intra-arch only:**
-- Files: `sim-rs/sim-cli/tests/determinism.rs`, `sim-rs/parameters/phase-2-sweep/suites/.goldens/`, `sim-rs/sim-core/src/sim/tests/m2_two_lane.rs`, `sim-rs/sim-core/src/sim/tests/m3_actors.rs`.
-- Why fragile: The underlying math (`libm::pow`/`libm::round`, u128 rationals, integer arithmetic) is bit-stable across architectures, but the simulator inherits `f64` from `main` in non-pricing code paths — slot lottery (`sim-rs/sim-core/src/sim/lottery.rs:7-12`), distribution sampling (`sim-rs/sim-core/src/probability.rs`), config-derived fractions (`sim-rs/sim-core/src/config.rs:1149`), CPU multiplier (`sim-rs/sim-core/src/sim/cpu.rs:27`). These have not been hardened for cross-arch determinism.
-- Safe modification: Pinned hashes reproduce on x86_64/glibc only. A second-arch build pipeline is required to detect regressions.
-- Test coverage: Single-arch CI only.
-- Fix approach: Infrastructure work outside phase-2's code scope. Flagged in `docs/phase-2/m5-handoff.md` §1 closure addendum. CIP write-up should surface this as a known reproducibility limitation.
+### Historical f64 inheritance from upstream non-pricing code paths
 
-**Goldens regeneration is one-shot and irreversible:**
-- Files: `sim-rs/sim-cli/tests/determinism.rs` (`UPDATE_GOLDENS=1` writes goldens instead of asserting), `sim-rs/parameters/phase-2-sweep/suites/.goldens/*.sha256` (7 files).
-- Why fragile: `UPDATE_GOLDENS=1` flips every committed golden in one shot. A change that intentionally flips one golden would obscure the others in the same diff.
-- Safe modification: Always run `cargo test --release -- --ignored determinism` *without* `UPDATE_GOLDENS` first to identify which goldens change; only then regenerate. Bump the goldens tag (`m5-goldens-v2`, etc.) after regeneration so prior state is recoverable.
-- Test coverage: The regeneration itself is not tested for selectivity.
-- Fix approach: Per-suite `UPDATE_GOLDENS=<suite>` would be a minor ergonomic improvement. Flagged in `docs/phase-2/m5-handoff.md` §Gotchas #2.
+- Files: `sim-rs/sim-core/src/sim/lottery.rs:7-12,49`
+  (`compute_target_vrf_stake`, `vrf_probabilities`,
+  `Lottery::run`), `sim-rs/sim-core/src/sim/linear_leios.rs:428-441`
+  (the `endorsement_window_priced_blocks` 2-sigma Poisson bound —
+  noted in CR-1, doc-comment correctly flags that `f64::sqrt` is
+  not mandated bit-exact across IEEE-754 implementations), various
+  distribution-sampling paths in `sim/driver.rs`, `sim/slot.rs`.
+- Why fragile: These code paths predate the phase-2 rebuild and
+  feed simulation-affecting decisions (slot lottery, RB header
+  diffusion, propagation timing). They are covered by the
+  intra-arch suite goldens but have not been hardened for
+  cross-arch determinism.
+- Impact: The pricing kernel's bit-stability guarantee does not
+  extend end-to-end. Cross-arch divergence in (e.g.) the slot
+  lottery would change which producer wins which slot, cascading
+  into different `Transaction` IDs and different `derived_quote`
+  trajectories.
+- Safe modification: Treat the existing intra-arch goldens as
+  the only reproducibility floor when modifying upstream code
+  paths. Do **not** introduce new f64 into phase-2 pricing or
+  mempool code (the CLAUDE.md hard rule).
+- Fix approach: Replace `f64::sqrt` with `libm::sqrt` or switch
+  to integer Newton's-method sqrt in
+  `endorsement_window_priced_blocks` (CR-1 fix sketch in
+  `.planning/REVIEW.md`). The wider lottery / propagation paths
+  remain f64 and would need a coordinated hardening pass. Listed
+  as "Optional: explicit cross-architecture determinism CI" in
+  `.planning/family-b-decision-2026-05-14.md §Follow-on work`.
 
-**EB-validation-at-endorsement refuses entire endorsement on any stale tx:**
-- Files: `sim-rs/sim-core/src/sim/linear_leios.rs` `eb_endorsement_valid` (~lines 727+ inside `try_generate_rb`).
-- Why fragile: If any tx in the candidate EB has `posted_fee > max_fee_lovelace` at the producer's current posted-lane quote, the producer refuses to endorse — dropping the entire endorsement, shipping the RB unendorsed. M2 chose this over mutating already-gossiped EB bodies, which is cleaner but blunt: one stale tx blocks the whole EB's service.
-- Safe modification: Confirm the suite-level inclusion rate impact. Under sustained-overload (~1-3% inclusion) the loss of a few EB endorsements may be amplifying mempool saturation.
-- Test coverage: `sim-rs/sim-core/src/sim/tests/m2_two_lane.rs:738+` exercises the refusal in single-tx scenarios. No suite-level coverage for cumulative endorsement-refusal rates.
-- Fix approach: Document the cumulative endorsement-refusal rate in `diagnostics.log` as a calibration health metric.
+### `MetricsCollector::is_representative` lazy fallback
 
-**`incomplete_onchain_ebs` coordinates two distinct semantics:**
-- Files: `sim-rs/sim-core/src/sim/linear_leios.rs:297-298,750,1088,1215,1412`.
-- Why fragile: The `HashSet<EndorserBlockId>` is used for both (a) "we endorsed this EB but don't have the body validated" (existing main behaviour) and (b) "I, as a node, owe the priced-block sample for this EB once it validates" (M1 addition). Any future change to insertion/removal timing must audit both paths.
-- Safe modification: `apply_priced_block` only emits the EB sample if `get_validated_eb` returns `Some`; otherwise `finish_validating_eb` emits it later. If the timing of `incomplete_onchain_ebs` insertion/removal changes, audit both paths.
-- Test coverage: Indirect — M2 scenario tests exercise the deferred-EB-sample path but don't isolate the two semantics.
-- Fix approach: Split into two collections with distinct names. Flagged in m1-handoff.md §"`incomplete_onchain_ebs` coordination".
+- File: `sim-rs/sim-cli/src/metrics/collector.rs:577-585`.
+- Status: WR-6 **applied 2026-05-13** —
+  `debug_assert!(self.representative_node.is_some(), ...)` added;
+  lazy-fallback split into release-only test + debug-only
+  `#[should_panic]` test that locks the assertion in. Listed
+  here only to flag the latent regression risk if the runner's
+  pre-pin call (`runner.rs:581-583`) is ever deleted in a
+  refactor.
 
-**`urgency: f64` on `Transaction` is a hot-path landmine:**
-- Files: `sim-rs/sim-core/src/model.rs` (`urgency: f64` field on `Transaction`), `sim-rs/sim-core/src/tx_actors.rs` (lane-choice math).
-- Why fragile: `urgency` is read **only** by the actor lane-choice math, which routes it through `libm::pow` + `libm::round` into `i128` lovelace before comparison. Reading it from any other simulation-affecting code path would re-introduce `f64` into the determinism contract and quietly flip cross-arch hashes.
-- Safe modification: When touching anything that holds a `Transaction`, do not read `tx.urgency` directly. Re-route through the actor lane-choice helpers.
-- Test coverage: The `f64`-in-hot-path injection would be caught by the suite-level goldens, but only on the dev arch. Cross-arch CI does not exist.
-- Fix approach: Move `urgency` off `Transaction` and into actor-local state. Or wrap in a newtype with documented "do not read me from sim-affecting code" semantics. Document-only flagged in CLAUDE.md §Conventions.
+### `Eip1559Pricing::step` saturating u128 ops in release builds
 
-## Scaling Limits
-
-**Mempool cap = 32 MB (`2 × eb_referenced_txs_max_size_bytes`):**
-- Current capacity: 32 MB total mempool bytes, no per-lane sub-cap.
-- Limit: At ~150 KB/slot demand + ~5% RB cadence (corrected calibration), the mempool saturates within ~250 slots and admission rejections dominate over quote-drift evictions.
-- Scaling path: Raise `mempool-max-total-size-bytes` in `protocol-base.yaml` (changes goldens), or reduce per-slot demand in the demand YAMLs.
-
-**Single-producer topology covers 7 of 7 current phase-2 suites:**
-- Current capacity: N=1 producer (`topology-single-producer.yaml`).
-- Limit: Slot battles cannot fire; multi-mempool dynamics, per-node pricing-state divergence, and gossip-driven `LatencyEstimator` divergence are all moot. M6 introduces the CIP-0164 600-pool topology (`topology-cip-realistic.yaml`) to surface these.
-- Scaling path: M6 (in progress per `docs/phase-2/m6-implementation-plan.md`).
-- **Update 2026-05-14:** Superseded by the 2026-05-13 topology
-  pivot. Phase-2 suites now reference
-  `topology-realistic-100.yaml` (100 nodes, mass-stratified mainnet
-  curve, multi-producer), so the "N=1 / slot battles cannot fire"
-  framing above no longer applies. Slot-battle-driven controller
-  contamination (WR-1) is closed *by design* via the chain-derived
-  refactor — see the *Pricing state has no rollback...* entry
-  above for the resolution chain. The representative-node
-  aggregation question (next entry) remains open for multi-producer
-  suites; only the rollback fragility is resolved.
-
-**13-slot linear-Leios endorsement window:**
-- Current capacity: `header_diffusion_time × 3 + linear_vote_stage_length + linear_diffuse_stage_length = 13 slots` enforced at `sim-rs/sim-core/src/sim/linear_leios.rs:707-716`.
-- Limit: `expected_RB_gap > 13` is required or endorsement never fires. The current calibration (`rb-generation-probability: 0.05` → ~20-slot gap) holds with margin. Raising rb-prob without lowering the stage lengths re-creates the post-M5 calibration bug.
-- Scaling path: Future calibration could reduce `linear_vote_stage_length` and `linear_diffuse_stage_length` to 0 (with single-producer + `vote_threshold = 1`, votes are immediate) to recover the high-cadence regime without the bug. Trade-off: less realistic Cardano timing. Flagged in `docs/phase-2/calibration-fix-postmortem.md` §"Open follow-ups".
-
-## Dependencies at Risk
-
-No external dependency risks identified. The pricing kernel relies only on `libm` (for bit-stable `pow`/`round`) and core Rust; the upstream `main` simulator pulls in `tokio`, `serde`, `rand`/`rand_chacha`, all standard Rust ecosystem.
-
-## Missing Critical Features
-
-**Anti-standard cap under FIFO fallback is not implemented:**
-- Problem: The mechanism spec mandates an anti-standard cap when `LaneSelectionOrder::Fifo` is active. The simulator carries no `max_standard_block_fraction` knob and `priority_first` selection is hard-wired in the current 7 phase-2 suites.
-- Blocks: Any future FIFO-based experiment. Identified in `docs/phase-2/mechanism-design.md:312` as the single residual divergence from the spec's methodology table after M5's 8 → 1 reduction.
-- Files: `sim-rs/sim-core/src/tx_pricing/mod.rs` `lane_selection_order`, `sim-rs/sim-core/src/sim/linear_leios.rs` `sample_from_mempool_lane_aware`.
-
-**Fork-resolution metric for multi-producer suites (in-progress, M6):**
-- Problem: With the multi-producer topology arriving in M6, `slot_battles_count` and `orphaned_pricing_samples` need to be observable for the welfare write-up to be honest about cross-node noise.
-- Blocks: M6 welfare comparison.
-- Files: To be added per `docs/phase-2/m6-implementation-plan.md` — new `Event::LinearPricingSampleApplied`, `RunSummary` fields, collector accumulator.
-
-**Cross-architecture CI build pipeline:**
-- Problem: Determinism is asserted intra-arch (x86_64 / glibc) only.
-- Blocks: External reproducibility claims in the CIP.
-- Files: CI infrastructure outside the repo (GitHub Actions or equivalent). Flagged in m5-handoff.md §Phase-2 closure addendum item 1.
+- File: `sim-rs/sim-core/src/tx_pricing/single_lane.rs:189-199`.
+- Status: WR-4 **applied 2026-05-13** — `Eip1559Settings::validate`
+  now requires
+  `window_length × target_num × max_change_denominator ≤ 2^23`,
+  keeping the u128 intermediates safe for per-sample bytes up to
+  2^40. `saturating_mul`s left in as belt-and-braces. Listed
+  here as a fragile-area reminder.
 
 ## Test Coverage Gaps
 
-**Cross-architecture goldens:**
-- What's not tested: Whether the M2/M3 unit-test goldens and the 7 suite-level baseline goldens reproduce bit-identically on aarch64, RISC-V, or non-glibc x86_64.
-- Files: `sim-rs/sim-core/src/sim/tests/m2_two_lane.rs`, `sim-rs/sim-core/src/sim/tests/m3_actors.rs`, `sim-rs/parameters/phase-2-sweep/suites/.goldens/`.
-- Risk: A non-pricing `f64` code path (probability sampling, slot lottery, CPU multiplier) could silently produce different hashes on a different arch, invalidating reproducibility claims.
-- Priority: Medium. Phase-2's hot paths are integer/rational; the risk is in inherited `main` code.
+### 12 demand-regime suites are goldens-unpinned
 
-**Slot-battle / multi-producer pricing-state divergence:**
-- What's not tested: All 7 phase-2 suites are single-producer. The fork-rollback gap and the representative-node aggregation gap are moot but real.
-- Files: `sim-rs/parameters/phase-2-sweep/suites/*.yaml` (all reference `topology-single-producer.yaml`).
-- Risk: M6's multi-producer topology will surface the gaps simultaneously; without dedicated unit tests, regressions could land via the goldens silently.
-- Priority: High once M6 lands.
-- **Update 2026-05-14:** Partially resolved. The
-  **fork-rollback gap** is closed by the chain-derived
-  controller refactor — orphan blocks carry their own
-  `derived_quote` which is discarded with the block, so there is
-  no controller divergence to detect. The
-  **representative-node aggregation gap** remains: for
-  multi-producer suites the metrics collector still emits a
-  single-node `PricingTick` series (lex-smallest node), which
-  under-reports cross-node disagreement when nodes diverge for
-  reasons orthogonal to slot battles (gossip latency,
-  per-node `LatencyEstimator` state). The chain-derived design
-  makes the canonical-chain `derived_quote` agree across nodes,
-  but per-node *gate state* (admission rejections, evictions)
-  can still differ. Phase-2 suites now reference
-  `topology-realistic-100.yaml`, not `topology-single-producer.yaml`
-  — the file-list line above is therefore historical. Tracked
-  separately for any phase-3 / multi-producer welfare-comparison
-  work.
+- Files: The 7 pinned suites are
+  `sim-rs/parameters/phase-2-sweep/suites/phase-2-{eip1559-robustness,eip1559-smoothing,priority-only-rb-reserved,priority-only-unreserved,two-lane-both-dynamic,rb-scarcity,urgency-inversion}.yaml`
+  (each with a corresponding `.sha256` under `.goldens/`). The 12
+  unpinned suites are the demand-regime suites under
+  `paper_like_*` and `sundaeswap_*` profiles:
+  `sim-rs/parameters/phase-2-sweep/suites/phase-2-{congested,moderate,realistic,sundaeswap}-{singlelane,priority-only,both-dynamic}.yaml`.
+- What's not pinned: Suite-level golden hashes for the 12
+  demand-regime suites. The 7 mechanism-characterisation suites
+  pinned by M5 still cover all four pricing variants
+  (single-lane, RB-reserved, un-reserved, both-dynamic).
+- Risk: Per-suite event-stream determinism for the demand-regime
+  suites can only be checked via `experiment-suite verify`
+  against persisted `RunSummary.pricing_event_stream.sha256`
+  values, not against externally-pinned `.goldens/` files. A
+  regression that flips event-stream hashes between two `verify`
+  invocations (without re-running `run`) would be detected; a
+  regression that affects only freshly-run suites' welfare
+  numbers without flipping pricing event hashes would not be
+  surfaced by the goldens regime.
+- Priority: Medium. Mitigated by the integer/rational discipline
+  in the pricing kernel and by the 7 pinned mechanism suites
+  exercising every pricing-backend code path.
+- Fix approach: Add the 12 demand-regime suites to
+  `sim-rs/sim-cli/tests/determinism.rs` and regenerate via
+  `UPDATE_GOLDENS=1 cargo test --release -- --ignored
+  determinism`. Cost is one full re-run of those suites
+  (incremental — the runner is resumable).
 
-**EB partition activation under real demand:**
-- What's not tested: The EB priority partition trigger (saturation OR "≥1 valid unselected tx but none fits residual bytes"). With ~150 KB/slot demand vs a 16 MB EB body, the EB never reaches capacity, so the partition's binary trigger never fires.
-- Files: `sim-rs/sim-core/src/sim/linear_leios.rs` `select_eb_with_partition`. Test coverage in `sim-rs/sim-core/src/sim/tests/m2_two_lane.rs`, `m3_actors.rs` exercises the trigger via constructed scenarios but not via real-demand suites.
-- Risk: Conclusions about "the EB partition delivers one RB-worth of guaranteed priority service under saturation" rest on spec-faithfulness, not direct measurement. Flagged in `docs/phase-2/calibration-fix-postmortem.md` §"Open follow-ups" item 1.
-- Priority: Medium. A higher-demand or smaller-EB suite could exercise this.
+### Property-based test for EIP-1559-faithful cadence
 
-**Mempool admission edge cases:**
-- What's not tested: The reject-only-on-full-mempool behaviour is exercised in `sim-rs/sim-core/src/sim/mempool_gate.rs::tests` (~6 unit tests). No suite-level test verifies the cumulative rejection-vs-eviction breakdown matches the calibration intent.
-- Files: `sim-rs/sim-core/src/sim/mempool_gate.rs:336-444`.
-- Risk: Under the corrected calibration, ~97-99% of demand is rejected at admission. Whether that's the right regime is a calibration question; a regression that flipped admission to drop-then-evict semantics would be caught by the goldens but not by unit tests.
-- Priority: Low.
+- Status: REVIEW.md F2 **OPEN**. One regression test
+  (`admission_uses_post_step_quote_at_chain_tip` in
+  `sim-rs/sim-core/src/sim/mempool_gate.rs::tests`) was added
+  during bug-1 fix.
+- What's not tested: A property test asserting "the controller
+  steps exactly N times over a canonical chain of length N", or
+  equivalently "deferred-EB validation fires zero controller
+  steps". Would lock in the Family B commitment against future
+  regressions.
+- Priority: Medium. The commitment is enforced by the
+  chain-derived implementation pattern (no node-local
+  accumulator exists), but a property test would prevent a
+  future "convenience" refactor from silently reintroducing the
+  2-step behaviour.
 
-**Attacker model interaction with pricing:**
-- What's not tested: `behaviours.withhold_txs = true` bypasses `MempoolGate::try_admit` entirely. Pricing-state interaction with attacker txs (`max_fee_lovelace = u64::MAX` default) is not modelled.
-- Files: `sim-rs/sim-core/src/sim/linear_leios/attackers.rs`, `sim-rs/sim-core/src/sim/linear_leios.rs:1464-1526`.
-- Risk: No current suite enables late-tx/late-eb attackers. The path is dormant. Flagged in m1-handoff.md.
-- Priority: Low (dormant).
+### Required Family B re-run of all 19 phase-2 suites
 
-**Reachability of the multiplier-floor enforcement edge cases:**
-- What's not tested: Constructor-time enforcement (`TwoLanePricing::new` raises priority's initial quote up to the floor if needed) is unit-tested in `sim-rs/sim-core/src/tx_pricing/two_lane.rs::tests`. Post-update enforcement on `quote_per_byte` with u128 intermediates is unit-tested. No suite directly drives a controller into the floor-bound regime to verify suite-level behaviour.
-- Files: `sim-rs/sim-core/src/tx_pricing/two_lane.rs:185-210` (floor enforcement).
-- Risk: Goldens would catch a regression, but only on the dev arch.
-- Priority: Low.
+- Status: REVIEW.md F1 **OPEN**. The 33-job sundaeswap smoke is
+  sufficient for the Family B decision and welfare-impact
+  characterisation
+  (`.planning/mechanism-welfare-impact-2026-05-14.md`), but
+  suite-level publication numbers should come from the full
+  sweep × 3 seeds.
+- Cost: Hours per full sweep × 3 seeds. The runner is resumable;
+  only chain-derived runs need to be (re-)generated.
+- Priority: High for publication-grade numbers; not blocking
+  for the M5 / Family B docs cascade.
+
+## Resolved concerns (for context)
+
+### WR-1: pricing-state contamination on slot-battle reorg — RESOLVED 2026-05-14
+
+- Files (historical, for archaeology):
+  `sim-rs/sim-core/src/sim/linear_leios.rs:1068-1091`
+  (`finish_validating_rb_header`) — was the site where the losing
+  block was removed from `praos.blocks` and its certified EB
+  dropped from `incomplete_onchain_ebs`, but the controller
+  update and gate `on_inclusion` removals were not rolled back.
+- Rationale for resolution: The chain-derived refactor (spike
+  007 ADOPT, applied 2026-05-14) replaced node-local mutable
+  controller state with pure-function-of-chain semantics. Every
+  `LinearRankingBlock` carries `derived_quote: PerLaneQuote` as
+  a pure function of `parent.derived_quote` +
+  `parent.window_aggregate` + samples in canonical predecessors.
+  Sibling-block orphans from slot battles are discarded with the
+  block; they carry their own `derived_quote` which is
+  discarded along with the block, so no residual controller
+  mutation enters the canonical chain. By construction the
+  contamination cannot occur.
+- Audit trail: `.planning/REVIEW.md §Fix Status` (WR-1 row),
+  `.planning/family-b-decision-2026-05-14.md` (publication-
+  committed mechanism choice),
+  `.planning/mechanism-welfare-impact-2026-05-14.md` (empirical
+  welfare-impact characterisation across 33 sundaeswap-smoke
+  jobs), `.planning/spikes/007-chain-derived-controller/README.md`
+  (ADOPT verdict, design spec),
+  `.planning/chain-derived-controller-PLAN.md` (implementation
+  deltas).
+- Single-lane EIP-1559 welfare drop under chain-derivation:
+  Family B caused single-lane median welfare to fall by ~2
+  orders of magnitude in the 33-job smoke (with 2 sign flips
+  at `d4_t50_w32` and `d8_t25_w32`). This is **not a bug** —
+  it is a more honest characterisation of single-lane EIP-1559's
+  narrower welfare regime under faithful one-step-per-canonical-block
+  cadence. The two-lane un-reserved arms (which carry the
+  publication's headline claims) remain mechanism-robust
+  (median |Δ%| ≤ 17%, no sign flips). See
+  `.planning/mechanism-welfare-impact-2026-05-14.md §Recommendation`.
+
+### Calibration bug (rb-prob 1.0 → 0.05) — RESOLVED
+
+- File (historical): `sim-rs/parameters/phase-2-sweep/protocol-base.yaml`
+  (was `rb-generation-probability: 1.0`, now `0.05`);
+  `sim-rs/parameters/phase-2-sweep/topology-single-producer.yaml`
+  (was `stake: 1`, now `100000`).
+- Rationale: `rb-prob: 1.0` produced 1-slot RB gaps which never
+  cleared the linear-Leios 13-slot endorsement window, silently
+  preventing EBs from ever landing on chain. Cardano-realistic
+  cadence (`rb-prob: 0.05`, ~20-slot gaps) clears the window and
+  exercises the full RB+EB endorsement path. The
+  `multiplier_floor = 4` calibration choice survives independently
+  of this fix; see `docs/phase-2/calibration-fix-postmortem.md`.
 
 ---
 
-*Concerns audit: 2026-05-13*
+*Concerns audit: 2026-05-15*

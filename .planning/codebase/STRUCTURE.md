@@ -1,360 +1,346 @@
 # Codebase Structure
 
-**Analysis Date:** 2026-05-13
+**Analysis Date:** 2026-05-15
 
 ## Directory Layout
 
 ```
 arc-tiered-pricing/
-├── CLAUDE.md                              # Project-level context (read first)
-├── README.md                              # Top-level pointer
+├── CLAUDE.md                              # Project instructions / handoff
+├── README.md                              # Upstream Leios README
 ├── docs/
-│   ├── phase-1/                           # Upstream Leios docs (not phase-2)
-│   └── phase-2/                           # The active design + handoffs
-│       ├── mechanism-design.md            # The phase-2 spec
-│       ├── implementation-plan.md         # The rebuild plan
-│       ├── m{1..5}-handoff.md             # Per-milestone delta notes
-│       ├── m6-implementation-plan.md      # M6 multi-node migration plan
-│       ├── calibration-fix-postmortem.md  # rb-prob=1.0 bug post-mortem
-│       └── CPS-0023/                      # CIP-0023 reference material
-├── .planning/
-│   └── codebase/                          # GSD codebase-map outputs (this dir)
-└── sim-rs/                                # The Rust workspace (cargo root)
-    ├── Cargo.toml                         # Workspace manifest (members: sim-core, sim-cli)
+│   └── phase-2/                           # Spec + plan + per-milestone deltas
+│       ├── mechanism-design.md
+│       ├── implementation-plan.md
+│       ├── m{1,2,3,4,5}-handoff.md
+│       └── calibration-fix-postmortem.md
+├── .planning/                             # Decision memos, spike notes, codebase docs
+│   ├── family-b-decision-2026-05-14.md    # Authoritative Family B decision
+│   ├── REVIEW.md                          # Review-finding dispositions
+│   ├── codebase/                          # (this directory)
+│   └── spikes/                            # spike artefacts (006-curve-design, etc.)
+└── sim-rs/                                # The Rust workspace
+    ├── Cargo.toml                         # 2-crate workspace
     ├── Cargo.lock
-    ├── CHANGELOG.md
-    ├── IMPLEMENTATION.md                  # Upstream simulator notes
-    ├── README.md
-    ├── convert.jq                         # Legacy event-log helper
-    ├── txn_diffusion.sh                   # Legacy diffusion plotter
-    ├── implementations/                   # Reference simulator impls (legacy)
-    ├── output/                            # Per-suite artefact dirs (git-ignored)
-    ├── parameters/                        # YAML configs (committed)
-    │   ├── config.default.yaml
-    │   ├── config.schema.json
-    │   ├── linear.yaml                    # Base linear-Leios config
-    │   ├── linear-with-tx-references.yaml
-    │   ├── topology.default.yaml          # Multi-node default topology
-    │   ├── 10x.yaml | 100x.yaml | 1000x.yaml
-    │   ├── full.yaml | no-ibs.yaml | late-eb-attack.yaml | tx-references.yaml
-    │   └── phase-2-sweep/                 # All phase-2 configs
-    │       ├── protocol-base.yaml         # Phase-2 protocol baseline
-    │       ├── protocol-rb-reduced-{half,third,quarter}.yaml  # RB-scarcity overlays
-    │       ├── topology-single-producer.yaml
-    │       ├── topology-cip-realistic.yaml
-    │       ├── demand/                    # Actor profiles
-    │       ├── pricing/                   # 13 controller-tuning YAMLs
-    │       ├── experiments/               # CIP-topology generation tooling
-    │       └── suites/                    # 21 suite YAMLs (M3 + M4 + smoke)
-    │           ├── phase-2-*.yaml         # Phase-2 suites (M3/M4)
-    │           ├── phase-2-{rb-scarcity,urgency-inversion}.README.md
-    │           └── .goldens/              # Suite-level SHA256 baselines
-    ├── scripts/                           # Shell wrappers for bulk runs
-    │   ├── run-parallel-suites.sh         # Top-level batch runner
-    │   ├── run-m6-{full-sweep-100,variance}.sh
-    │   ├── run-smoke-*.sh                 # Smoke regressions
-    │   ├── watch-suite-progress.sh
-    │   └── generate-cip-topology.py
-    ├── target/                            # Cargo build output (git-ignored)
-    ├── test_data/                         # Legacy test fixtures
-    ├── sim-core/                          # Crate: protocol + pricing kernel
+    ├── sim-core/                          # Protocol + pricing kernel
     │   ├── Cargo.toml
     │   └── src/
-    │       ├── lib.rs                     # Re-exports the 7 modules
-    │       ├── model.rs                   # Transaction, Block, EB, RB, ledger types
-    │       ├── config.rs                  # RawParameters, SimConfiguration, all serde
-    │       ├── events.rs                  # Event enum + EventTracker
-    │       ├── probability.rs             # FloatDistribution wrapper
-    │       ├── tx_actors.rs               # Demand-side actor model
-    │       ├── clock.rs / clock/          # Virtual clock + coordinator
+    │       ├── lib.rs                     # `pub mod {clock, config, events, model, sim, tx_actors, tx_pricing, probability}`
+    │       ├── model.rs                   # Transaction, Block, LinearRankingBlock, PerLaneQuote, WindowAggregate
+    │       ├── config.rs                  # RawParameters/SimConfiguration, all Raw* deserialisation
+    │       ├── events.rs                  # Event enum + EventTracker emitters
+    │       ├── probability.rs             # FloatDistribution helpers
+    │       ├── tx_actors.rs               # ActorComponent/Profile, MaxFeePolicy, lane_choice, welfare, LatencyEstimator
+    │       ├── tx_pricing/                # The phase-2 pricing kernel (chain-derived)
+    │       │   ├── mod.rs                 # PricingBackend trait, ChainView trait, Lane, samples
+    │       │   ├── window.rs              # aggregate_from_chain + update_aggregate (pure)
+    │       │   ├── single_lane.rs         # BaselinePricing + Eip1559Pricing
+    │       │   └── two_lane.rs            # TwoLanePricing + 4 TwoLaneVariant arms
+    │       ├── clock/                     # Discrete-event clock
     │       │   ├── coordinator.rs
-    │       │   ├── mock.rs                # Mock clock for tests
+    │       │   ├── mock.rs
     │       │   └── timestamp.rs
-    │       ├── network.rs / network/      # netsim-async wrapper
+    │       ├── clock.rs                   # re-exports
+    │       ├── network/                   # netsim-async wrapper
     │       │   ├── connection.rs
     │       │   └── coordinator.rs
-    │       ├── tx_pricing/                # The phase-2 pricing kernel
-    │       │   ├── mod.rs                 # PricingBackend trait, Lane, samples
-    │       │   ├── window.rs              # CapacityWeightedWindow
-    │       │   ├── single_lane.rs         # Baseline + Eip1559
-    │       │   └── two_lane.rs            # TwoLanePricing + 4 variants
-    │       └── sim.rs / sim/              # Simulation orchestration
-    │           ├── driver.rs              # NodeDriver<N> event loop
-    │           ├── cpu.rs                 # CPU task queue + subtasks
-    │           ├── slot.rs                # SlotWitness
-    │           ├── tx.rs                  # TransactionProducer
-    │           ├── lottery.rs             # VRF stake probabilities
-    │           ├── mempool_gate.rs        # Admission/eviction/charging
-    │           ├── linear_leios.rs        # The phase-2 NodeImpl
+    │       ├── network.rs                 # re-exports
+    │       ├── sim.rs                     # Simulation + NodeImpl trait + NetworkWrapper
+    │       └── sim/
+    │           ├── linear_leios.rs        # THE phase-2 protocol (3,113 lines)
     │           ├── linear_leios/
-    │           │   └── attackers.rs       # EB-withholding attacker hook
-    │           ├── leios.rs               # Legacy short-Leios NodeImpl
-    │           ├── stracciatella.rs       # Legacy full-without-IBs NodeImpl
-    │           └── tests/                 # M1-M3 deterministic scenarios
+    │           │   └── attackers.rs       # EB-withholding attacker hooks
+    │           ├── mempool_gate.rs        # Admission/revalidation/inclusion charging
+    │           ├── lottery.rs             # VRF lottery helpers
+    │           ├── cpu.rs                 # CPU-task accounting
+    │           ├── driver.rs              # NodeDriver — runs a NodeImpl in an actor loop
+    │           ├── slot.rs                # SlotWitness
+    │           ├── tx.rs                  # TransactionProducer (legacy non-actor path)
+    │           ├── leios.rs               # Legacy full-Leios protocol (not phase-2-relevant)
+    │           ├── stracciatella.rs       # Legacy variant (not phase-2-relevant)
+    │           └── tests/                 # M1/M2/M3 deterministic scenario tests
+    │               ├── mod.rs
     │               ├── m1_smoke.rs
     │               ├── m2_two_lane.rs
     │               ├── m3_actors.rs
-    │               ├── linear_leios.rs
-    │               └── mod.rs
-    └── sim-cli/                           # Crate: driver + metrics + binaries
-        ├── Cargo.toml
-        ├── build.rs                       # vergen git-SHA stamping
-        ├── test_data/
-        │   └── distribution.toml
-        ├── src/
-        │   ├── lib.rs                     # Re-exports metrics/runner/suite
-        │   ├── main.rs                    # Legacy `sim-cli` single-run bin
-        │   ├── runner.rs                  # Manifest, run_suite, run_job, verify
-        │   ├── suite.rs                   # Suite YAML schema
-        │   ├── events.rs                  # Legacy event monitor (single-run)
-        │   ├── events/
-        │   │   ├── aggregate.rs
-        │   │   └── liveness.rs
-        │   ├── metrics/                   # Phase-2 welfare layer
-        │   │   ├── mod.rs
-        │   │   ├── collector.rs           # MetricsCollector + RunSummary
-        │   │   ├── time_series.rs         # CSV writer
-        │   │   ├── diagnostics.rs         # Diagnostics log writer
-        │   │   └── comparison.rs          # Per-suite metrics_comparison.txt
-        │   └── bin/
-        │       ├── experiment-suite/
-        │       │   └── main.rs            # `experiment-suite run|status|verify`
-        │       └── gen-test-data/
-        │           ├── main.rs
-        │           ├── strategy.rs
-        │           └── strategy/
-        │               ├── globe.rs
-        │               ├── organic.rs
-        │               ├── random_graph.rs
-        │               ├── simplified.rs
-        │               └── utils.rs
-        └── tests/
-            └── determinism.rs             # M5 suite-level goldens (`#[ignore]`'d)
+    │               └── linear_leios.rs
+    ├── sim-cli/                           # Phase-2 driver + metrics
+    │   ├── Cargo.toml
+    │   ├── src/
+    │   │   ├── lib.rs                     # re-exports (runner, suite, metrics, events)
+    │   │   ├── main.rs                    # legacy single-run `sim-cli` binary
+    │   │   ├── runner.rs                  # Manifest, run_suite, run_job, verify_suite
+    │   │   ├── suite.rs                   # Suite YAML schema (Suite/Job/JobOverrides)
+    │   │   ├── events.rs                  # legacy event sink
+    │   │   ├── events/
+    │   │   │   ├── aggregate.rs
+    │   │   │   └── liveness.rs
+    │   │   ├── metrics/                   # Welfare metrics layer
+    │   │   │   ├── mod.rs
+    │   │   │   ├── collector.rs           # MetricsCollector, RunSummary, ComponentSummary
+    │   │   │   ├── comparison.rs          # metrics_comparison.txt writer
+    │   │   │   ├── diagnostics.rs         # diagnostics.log writer
+    │   │   │   └── time_series.rs         # time_series.csv writer
+    │   │   └── bin/
+    │   │       ├── experiment-suite/
+    │   │       │   └── main.rs            # `experiment-suite {run|status|verify}` CLI
+    │   │       └── gen-test-data/         # test-data generator (legacy)
+    │   ├── parameters/                    # embedded defaults (e.g. config.default.yaml)
+    │   └── tests/
+    │       ├── determinism.rs             # M5 suite-level golden hashes
+    │       └── parallel_runner.rs         # parallel-execution invariants
+    ├── parameters/
+    │   ├── phase-2-sweep/                 # ALL phase-2 configs
+    │   │   ├── protocol-base.yaml
+    │   │   ├── protocol-rb-reduced-half.yaml
+    │   │   ├── protocol-rb-reduced-third.yaml
+    │   │   ├── protocol-rb-reduced-quarter.yaml
+    │   │   ├── topology-single-producer.yaml
+    │   │   ├── topology-realistic-100.yaml          # mainnet-snapshot mass-stratified (DEFAULT)
+    │   │   ├── topology-cip-realistic.yaml
+    │   │   ├── demand/
+    │   │   │   ├── paper_like_congested.yaml
+    │   │   │   ├── paper_like_mispriced.yaml
+    │   │   │   ├── paper_like_moderate.yaml
+    │   │   │   ├── paper_like_realistic.yaml
+    │   │   │   └── sundaeswap_moderate.yaml
+    │   │   ├── pricing/                              # 19 controller-tuning YAMLs
+    │   │   │   ├── baseline_flat_fee.yaml
+    │   │   │   ├── eip1559_d{4,8,16}_target{0.25,0.5,0.75}_window{16,32,64}.yaml
+    │   │   │   ├── two_lane_priority_only_static_x{4,8,16}.yaml
+    │   │   │   ├── two_lane_priority_only_unreserved_x{4,8,16}.yaml
+    │   │   │   ├── two_lane_both_dynamic_partitioned_x{4,16}.yaml
+    │   │   │   └── two_lane_both_dynamic_unreserved_x{4,16}.yaml
+    │   │   ├── suites/                              # 19 phase-2 suite YAMLs
+    │   │   │   ├── phase-2-eip1559-robustness.yaml          ┐
+    │   │   │   ├── phase-2-eip1559-smoothing.yaml            │
+    │   │   │   ├── phase-2-priority-only-rb-reserved.yaml    │
+    │   │   │   ├── phase-2-priority-only-unreserved.yaml     │ 7 M3/M4 suites
+    │   │   │   ├── phase-2-two-lane-both-dynamic.yaml        │ pinned by M5
+    │   │   │   ├── phase-2-rb-scarcity.yaml                  │ suite goldens
+    │   │   │   ├── phase-2-urgency-inversion.yaml           ┘
+    │   │   │   ├── phase-2-{congested,moderate,realistic}-{singlelane,priority-only,both-dynamic}.yaml
+    │   │   │   ├── phase-2-sundaeswap-{singlelane,priority-only,both-dynamic}.yaml
+    │   │   │   ├── phase-2-rb-scarcity.README.md
+    │   │   │   ├── phase-2-urgency-inversion.README.md
+    │   │   │   └── .goldens/
+    │   │   │       ├── phase-2-eip1559-robustness.sha256
+    │   │   │       ├── phase-2-eip1559-smoothing.sha256
+    │   │   │       ├── phase-2-priority-only-rb-reserved.sha256
+    │   │   │       ├── phase-2-priority-only-unreserved.sha256
+    │   │   │       ├── phase-2-two-lane-both-dynamic.sha256
+    │   │   │       ├── phase-2-rb-scarcity.sha256
+    │   │   │       └── phase-2-urgency-inversion.sha256
+    │   │   └── experiments/                          # (currently empty)
+    │   ├── topology.default.yaml                     # upstream default topology
+    │   └── … (other upstream parameter files)
+    ├── scripts/                                       # helper scripts
+    ├── output/                                        # per-run artefacts (gitignored)
+    ├── target/                                        # cargo build output (gitignored)
+    └── test_data/
 ```
 
 ## Directory Purposes
 
-**`docs/phase-2/`:**
-- Purpose: All phase-2 design + implementation notes. The mechanism spec, the rebuild plan, and per-milestone deltas live here.
-- Contains: Markdown only — no code, no configs.
-- Key files: `mechanism-design.md` (spec), `implementation-plan.md` (rebuild plan), `m{1..5}-handoff.md` (deltas), `calibration-fix-postmortem.md`.
-
-**`sim-rs/`:**
-- Purpose: Cargo workspace root. All Rust code, all configs, all scripts live under here. The "working directory" for all `cargo` / `experiment-suite` commands.
-- Contains: Two crates (`sim-core`, `sim-cli`), parameters, scripts, output.
-- Key files: `Cargo.toml` (workspace manifest), `parameters/phase-2-sweep/protocol-base.yaml`.
-
 **`sim-rs/sim-core/`:**
-- Purpose: The pure protocol-and-pricing kernel. No CLI, no I/O beyond what `tokio` and `netsim-async` need internally. Imported by `sim-cli`.
-- Contains: `lib.rs` + 7 modules (`model`, `config`, `events`, `probability`, `tx_actors`, `tx_pricing`, `sim`, `clock`, `network`).
-- Key files: `src/tx_pricing/mod.rs` (trait), `src/sim/linear_leios.rs` (protocol), `src/sim/mempool_gate.rs` (admission), `src/tx_actors.rs` (demand).
+- Purpose: protocol model + pricing kernel. No driver, no CLI, no metrics.
+- Contains: types (`model.rs`), config deserialisation (`config.rs`), event tagged-enum (`events.rs`), the linear-Leios protocol (`sim/linear_leios.rs`), the pricing kernel (`tx_pricing/`), the actor model (`tx_actors.rs`), mempool gate (`sim/mempool_gate.rs`), clock + network plumbing.
+- Key files: `tx_pricing/mod.rs` (PricingBackend trait), `sim/linear_leios.rs` (the only phase-2-relevant protocol), `sim/mempool_gate.rs` (admission authority), `model.rs` (`LinearRankingBlock`, `PerLaneQuote`, `WindowAggregate`).
 
 **`sim-rs/sim-core/src/tx_pricing/`:**
-- Purpose: Policy-only fee controller(s). No simulator types reach this module.
-- Contains: 4 files totalling ~1,440 lines.
-- Key files: `mod.rs` (`PricingBackend` trait, `Lane`, `PricedBlockSample`, `BlockLaneBreakdown`, `Multiplier`), `window.rs` (`CapacityWeightedWindow`), `single_lane.rs` (`BaselinePricing` + `Eip1559Pricing`), `two_lane.rs` (`TwoLanePricing` + 4 `TwoLaneVariant` arms).
+- Purpose: the chain-derived pricing kernel.
+- Contains: trait surface (`mod.rs`), window aggregation (`window.rs`), single-lane backends (`single_lane.rs`), two-lane backends (`two_lane.rs`).
+- Key files: `mod.rs` (`PricingBackend`, `ChainView`, `Lane`, `BlockKind`, `PricedBlockSample`, `BlockLaneBreakdown`, `Multiplier`, `LaneValidityRule`, `LaneSelectionOrder`, `PricingSnapshot`, `snapshot_at`).
 
 **`sim-rs/sim-core/src/sim/`:**
-- Purpose: Simulation orchestration + per-variant `NodeImpl`s.
-- Contains: One file per protocol variant + shared driver/cpu/slot/tx/lottery + `mempool_gate.rs` + `tests/`.
-- Key files: `linear_leios.rs` (~2,750 lines — the only phase-2 protocol), `mempool_gate.rs` (admission/eviction/charging), `driver.rs` (per-node event loop), `tx.rs` (TransactionProducer + actor sampling), `lottery.rs` (VRF stake).
+- Purpose: protocol-simulation implementations.
+- Contains: linear-Leios (`linear_leios.rs`, the only phase-2-relevant impl), legacy variants (`leios.rs`, `stracciatella.rs`), the mempool gate, the lottery, the slot witness, the legacy tx producer, CPU accounting, the node-driver loop.
+- Key files: `linear_leios.rs`, `mempool_gate.rs`. The `tests/` subdirectory holds M1/M2/M3 deterministic scenario tests.
 
 **`sim-rs/sim-cli/`:**
-- Purpose: CLI binaries + welfare-metrics layer + suite runner. Where all f64 reporting lives.
-- Contains: `lib.rs` (re-exports) + `runner.rs` + `suite.rs` + `metrics/` + two binaries (`experiment-suite`, `gen-test-data`) + legacy `main.rs`.
-- Key files: `src/runner.rs` (resumable batch runner), `src/metrics/collector.rs` (event consumer), `src/bin/experiment-suite/main.rs` (CLI).
+- Purpose: the driver + metrics + binaries. Builds on top of `sim-core`.
+- Contains: `Suite` schema (`suite.rs`), the parallel runner (`runner.rs`), the metrics collector + writers (`metrics/`), legacy event sinks (`events.rs`, `events/`), the `experiment-suite` binary (`bin/experiment-suite/main.rs`), the legacy single-run `sim-cli` binary (`main.rs`).
+- Key files: `runner.rs`, `suite.rs`, `metrics/collector.rs`, `bin/experiment-suite/main.rs`.
+
+**`sim-rs/sim-cli/src/metrics/`:**
+- Purpose: f64 reporting layer over the integer event stream.
+- Contains: `MetricsCollector` (`collector.rs`), `time_series.csv` writer (`time_series.rs`), `metrics_comparison.txt` writer (`comparison.rs`), `diagnostics.log` writer (`diagnostics.rs`).
+- Key files: `collector.rs` — the entire ingestion pipeline and run-summary types.
 
 **`sim-rs/parameters/phase-2-sweep/`:**
-- Purpose: All phase-2 YAML configs (protocols, topologies, demand profiles, pricing TOMLs, suite definitions).
-- Contains: Top-level protocols + topologies, plus `demand/`, `pricing/`, `suites/` subdirs.
-- Key files: `protocol-base.yaml` (baseline), `topology-single-producer.yaml` (one-node), `suites/phase-2-*.yaml` (7 phase-2 suites + smoke variants).
+- Purpose: all phase-2 configuration. Layered overlays for the YAML-figment composition in `run_job`.
+- Contains: protocol overlays (`protocol-base.yaml` + 3 RB-reduced variants), topology files, demand-profile YAMLs, pricing-tuning YAMLs, suite YAMLs, suite READMEs, and the goldens.
+- Key files: `protocol-base.yaml` (the phase-2 protocol baseline), `topology-realistic-100.yaml` (the suite default since 2026-05-13), `suites/.goldens/<suite>.sha256` (M5 suite-level goldens).
 
-**`sim-rs/parameters/phase-2-sweep/suites/.goldens/`:**
-- Purpose: One SHA-256 per phase-2 suite, asserted by `sim-cli/tests/determinism.rs` against re-runs of the canonical (job, seed=1) baseline.
-- Contains: 7 `.sha256` files (one per phase-2 suite).
-- Key files: `phase-2-{eip1559-robustness,eip1559-smoothing,priority-only-rb-reserved,priority-only-unreserved,two-lane-both-dynamic,rb-scarcity,urgency-inversion}.sha256`.
+**`docs/phase-2/`:**
+- Purpose: the spec + the implementation plan + per-milestone handoff notes.
+- Contains: `mechanism-design.md` (the spec), `implementation-plan.md` (the rebuild plan), `m{1,2,3,4,5}-handoff.md`, `calibration-fix-postmortem.md`.
 
-**`sim-rs/scripts/`:**
-- Purpose: Shell wrappers for parallel suite execution, smoke runs, watch helpers.
-- Contains: `run-parallel-suites.sh` (top-level), per-suite smoke scripts, `watch-suite-progress.sh`, `generate-cip-topology.py`.
-- Key files: `run-parallel-suites.sh` (the canonical batch entry point; generates one `run_id` per invocation and passes it to all spawned suites).
+**`.planning/`:**
+- Purpose: in-flight decision memos, spike artefacts, review dispositions, codebase docs.
+- Contains: `family-b-decision-2026-05-14.md` (authoritative chain-derived adoption memo), `REVIEW.md` (review-finding fix-status table), `spikes/` (spike notes), `codebase/` (this directory), various `*-PLAN.md` and `*-investigation.md` working files.
 
-**`sim-rs/output/`:**
-- Purpose: Per-suite output dirs (git-ignored). Each suite run writes a tree of `<job>/<seed>/{run_summary.json, pricing_event_stream.sha256, time_series.csv, diagnostics.log}` plus the suite-level `manifest.json` and `metrics_comparison.txt`.
-- Contains: Live run artefacts. Not committed.
-
-**`sim-rs/sim-cli/tests/`:**
-- Purpose: Cross-crate integration tests, including the slow `#[ignore]`'d determinism goldens.
-- Contains: `determinism.rs`.
-
-**`sim-rs/sim-core/src/sim/tests/`:**
-- Purpose: Deterministic scenario tests pinned by per-milestone golden constants. M1 smoke, M2 two-lane, M3 actors, plus linear-Leios-specific tests.
-- Contains: `m1_smoke.rs`, `m2_two_lane.rs`, `m3_actors.rs`, `linear_leios.rs`, `mod.rs`.
+**`sim-rs/output/`** (gitignored):
+- Per-run artefacts: `<output_dir>/<job_name>/<seed>/{time_series.csv, diagnostics.log, run_summary.json, pricing_event_stream.sha256}` plus `<output_dir>/{manifest.json, metrics_comparison.txt}`.
 
 ## Key File Locations
 
 **Entry Points:**
-- `sim-rs/sim-cli/src/bin/experiment-suite/main.rs`: Phase-2 suite-runner CLI (`run`/`status`/`verify`).
-- `sim-rs/sim-cli/src/main.rs`: Legacy single-run `sim-cli` binary (pre-phase-2 default-run).
-- `sim-rs/sim-cli/src/bin/gen-test-data/main.rs`: Topology-generation utility.
-- `sim-rs/sim-core/src/sim.rs` (`Simulation::new` / `run`): Library entry point used by the runner.
-- `sim-rs/sim-core/src/sim/driver.rs` (`NodeDriver::run`): Per-node async task entry.
+- `sim-rs/sim-cli/src/bin/experiment-suite/main.rs`: the phase-2 driver — `experiment-suite {run|status|verify} <suite.yaml> [--run-id ID] [--parallelism N]`.
+- `sim-rs/sim-cli/src/main.rs`: legacy single-run `sim-cli` binary (predates the suite runner).
 
 **Configuration:**
-- `sim-rs/Cargo.toml`: Workspace manifest.
-- `sim-rs/sim-core/Cargo.toml`, `sim-rs/sim-cli/Cargo.toml`: Crate manifests.
-- `sim-rs/parameters/phase-2-sweep/protocol-base.yaml`: Phase-2 protocol baseline (`min-fee-a`, `min-fee-b`, `rb-generation-probability`, `vote-*`, `linear-*-stage-length-slots`, etc.).
-- `sim-rs/parameters/phase-2-sweep/protocol-rb-reduced-{half,third,quarter}.yaml`: RB-scarcity full replacements.
-- `sim-rs/parameters/phase-2-sweep/topology-single-producer.yaml`, `topology-cip-realistic.yaml`: Topology overlays.
-- `sim-rs/parameters/topology.default.yaml`: Default multi-node topology.
-- `sim-rs/parameters/phase-2-sweep/demand/*.yaml`: Actor profiles (paper_like_*, sundaeswap_moderate).
-- `sim-rs/parameters/phase-2-sweep/pricing/*.yaml`: Controller settings (eip1559_*, two_lane_*).
-- `sim-rs/parameters/phase-2-sweep/suites/*.yaml`: Suite definitions (M3/M4 + smoke).
+- `sim-rs/sim-cli/parameters/config.default.yaml`: embedded base config layered first by `run_job`.
+- `sim-rs/parameters/phase-2-sweep/protocol-base.yaml`: phase-2 protocol baseline (mempool cap, max block size, lottery params, cpu times, sizes, EB validation thresholds).
+- `sim-rs/parameters/phase-2-sweep/protocol-rb-reduced-{half,third,quarter}.yaml`: full replacements that override only `rb-body-max-size-bytes`.
+- `sim-rs/parameters/phase-2-sweep/topology-realistic-100.yaml`: 100-node mass-stratified mainnet curve (suite default since 2026-05-13).
+- `sim-rs/parameters/phase-2-sweep/topology-single-producer.yaml`: 1-node testing topology used by `sim-cli/tests/determinism.rs`.
+- `sim-rs/parameters/phase-2-sweep/demand/*.yaml`: actor profiles (`ActorProfile` YAML).
+- `sim-rs/parameters/phase-2-sweep/pricing/*.yaml`: per-controller tunings (single-lane EIP-1559 settings or two-lane `{variant, priority, standard, multiplier_floor}`).
 
 **Core Logic:**
-- `sim-rs/sim-core/src/tx_pricing/mod.rs`: `PricingBackend` trait, `Lane`, `PricedBlockSample`, `BlockLaneBreakdown`, `Multiplier`, `LaneValidityRule`, `LaneSelectionOrder`.
-- `sim-rs/sim-core/src/tx_pricing/window.rs`: `CapacityWeightedWindow` (u128 ring, Σbytes/Σcapacity).
-- `sim-rs/sim-core/src/tx_pricing/single_lane.rs`: `BaselinePricing`, `Eip1559Pricing`, `Eip1559Settings`.
-- `sim-rs/sim-core/src/tx_pricing/two_lane.rs`: `TwoLanePricing`, `TwoLaneSettings`, `TwoLaneVariant` (4 arms).
-- `sim-rs/sim-core/src/sim/mempool_gate.rs`: `MempoolGate`, `AdmissionRejection`, `EvictionRecord`, `InclusionCharge`.
-- `sim-rs/sim-core/src/sim/linear_leios.rs`: `LinearLeiosNode`, `Mempool`, `select_eb_with_partition`, `eb_endorsement_valid`, `sample_from_mempool_lane_aware`, `breakdown_for`.
-- `sim-rs/sim-core/src/tx_actors.rs`: `ActorComponent`, `ActorProfile`, `MaxFeePolicy` (`ScaledOverLaneQuote`, `VolatilityAware`), `LanePolicy`, `LatencyEstimator`, `welfare` module.
-- `sim-rs/sim-core/src/model.rs`: `Transaction`, `Block`, `LinearRankingBlock`, `LinearEndorserBlock`, id wrappers.
-- `sim-rs/sim-core/src/events.rs`: `Event` enum, `EventTracker`, `Node` wrapper.
-- `sim-rs/sim-core/src/config.rs`: `RawParameters`, `RawTopology`, `Topology`, `SimConfiguration`, `NodeConfiguration`, all serde structs (kebab-case).
-- `sim-rs/sim-cli/src/runner.rs`: `Manifest`, `JobEntry`, `run_suite`, `run_job`, `verify_suite`, figment config composition.
-- `sim-rs/sim-cli/src/suite.rs`: `Suite`, `Job`, `JobOverrides`.
-- `sim-rs/sim-cli/src/metrics/collector.rs`: `MetricsCollector`, `ComponentSummary`, `RunSummary`, SHA-256 hashing.
+- `sim-rs/sim-core/src/tx_pricing/mod.rs`: `PricingBackend` and `ChainView` traits — the only seam between protocol simulator and pricing kernel.
+- `sim-rs/sim-core/src/tx_pricing/single_lane.rs`: `BaselinePricing`, `Eip1559Pricing`, `compute_eip1559_step`, `worst_case_eip1559_quote`.
+- `sim-rs/sim-core/src/tx_pricing/two_lane.rs`: `TwoLanePricing`, `TwoLaneVariant`, `TwoLaneSettings`, `apply_floor`.
+- `sim-rs/sim-core/src/tx_pricing/window.rs`: `aggregate_from_chain`, `update_aggregate`.
+- `sim-rs/sim-core/src/sim/linear_leios.rs`: protocol state machine; chain-derived production path (`try_generate_rb`, `compute_chain_derived_quote_for_child_of`, `publish_rb`, `samples_for_rb`, `prune_block_samples`, `revalidate_against_new_tip`); EB endorsement validation (`eb_endorsement_valid`); EB partition decision (`select_eb_with_partition`); served-lane assignment (`assign_served_lanes`); `impl ChainView for LinearLeiosNode`.
+- `sim-rs/sim-core/src/sim/mempool_gate.rs`: `MempoolGate::{try_admit, revalidate, on_inclusion, remove_silent, fee_at}`.
+- `sim-rs/sim-core/src/tx_actors.rs`: `ActorComponent`, `ActorProfile`, `MaxFeePolicy`, `LanePolicy`, `lane_choice::pick`, `welfare`, `LatencyEstimator`.
+- `sim-rs/sim-core/src/model.rs`: `Transaction`, `LinearRankingBlock` (carries `derived_quote: PerLaneQuote` + `window_aggregate: WindowAggregate`), `LinearEndorserBlock` (carries `partition_activated: bool`).
+- `sim-rs/sim-core/src/events.rs`: `Event` enum (`TXIncluded`, `TXEvictedQuoteDrift`, `PricingTick`, `TXGenerated`, `LinearPricingSampleApplied`, …) + `EventTracker`.
+- `sim-rs/sim-cli/src/runner.rs`: `Suite` loading, `Manifest` + `JobEntry` lifecycle, parallel worker pool, `run_job`, `verify_suite_with_run_id`.
+- `sim-rs/sim-cli/src/metrics/collector.rs`: `MetricsCollector::ingest`, `RunSummary`, `ComponentSummary`, `TimeSeriesRow`, SHA256 over pricing events.
 
 **Testing:**
-- `sim-rs/sim-core/src/sim/tests/m1_smoke.rs`: M1 baseline smoke.
-- `sim-rs/sim-core/src/sim/tests/m2_two_lane.rs`: M2 two-lane goldens (pinned constants).
-- `sim-rs/sim-core/src/sim/tests/m3_actors.rs`: M3 actor-model goldens.
-- `sim-rs/sim-core/src/sim/tests/linear_leios.rs`: Protocol-level tests.
-- `sim-rs/sim-cli/tests/determinism.rs`: M5 suite-level SHA-256 goldens (`#[ignore]`'d).
-
-**Documentation:**
-- `CLAUDE.md`: Project-level context (read first by any agent).
-- `docs/phase-2/mechanism-design.md`: The spec.
-- `docs/phase-2/implementation-plan.md`: The rebuild plan.
-- `docs/phase-2/m{1..5}-handoff.md`: Per-milestone delta notes.
-- `docs/phase-2/calibration-fix-postmortem.md`: rb-prob=1.0 bug post-mortem.
-- `sim-rs/parameters/phase-2-sweep/suites/phase-2-rb-scarcity.README.md`, `phase-2-urgency-inversion.README.md`: M4 suite framing.
+- `sim-rs/sim-core/src/sim/tests/m1_smoke.rs`: M1 smoke (single-lane baseline).
+- `sim-rs/sim-core/src/sim/tests/m2_two_lane.rs`: M2 two-lane scenario tests + intra-arch event-stream goldens (constants pinned in source).
+- `sim-rs/sim-core/src/sim/tests/m3_actors.rs`: M3 actor-model scenario tests + intra-arch event-stream goldens.
+- `sim-rs/sim-core/src/sim/tests/linear_leios.rs`: legacy linear-Leios protocol tests.
+- `sim-rs/sim-cli/tests/determinism.rs`: M5 suite-level golden hashes (`#[ignore]`'d by default; run via `cargo test --release -- --ignored determinism`).
+- `sim-rs/sim-cli/tests/parallel_runner.rs`: parallel-execution invariants for the suite runner.
 
 ## Naming Conventions
 
-**Files (Rust):**
-- snake_case (`mempool_gate.rs`, `linear_leios.rs`, `tx_pricing/mod.rs`, `time_series.rs`).
-- Per-milestone test files prefixed `m<N>_` (`m1_smoke.rs`, `m2_two_lane.rs`, `m3_actors.rs`).
-- Binary entry: `main.rs` under `src/bin/<binary-name>/`.
-
-**Files (configs):**
-- Top-level configs: kebab-case (`protocol-base.yaml`, `topology-single-producer.yaml`, `topology-cip-realistic.yaml`).
-- Suite YAMLs: `phase-2-<topic>.yaml` (e.g. `phase-2-eip1559-robustness.yaml`).
-- Suite READMEs: `<suite-name>.README.md` next to the YAML.
-- Pricing tuning files: `<mechanism>_<knobs>.yaml` with underscores (`eip1559_d8_target0.5_window32.yaml`, `two_lane_priority_only_static_x16.yaml`).
-- Demand profiles: `paper_like_<regime>.yaml`, `sundaeswap_<regime>.yaml`.
-- Smoke shell scripts: `run-smoke-<scope>.sh`.
-- Golden artefacts: `<suite-name>.sha256` under `.goldens/`.
+**Files:**
+- Rust modules: snake_case (`linear_leios.rs`, `mempool_gate.rs`, `tx_pricing/mod.rs`, `tx_actors.rs`).
+- Test files: `m<N>_<name>.rs` or `<protocol>.rs` under `src/sim/tests/`.
+- YAML configs: kebab-case for protocol/topology/suite files (`protocol-base.yaml`, `topology-realistic-100.yaml`, `phase-2-eip1559-robustness.yaml`); snake_case for pricing/demand tunings (`eip1559_d8_target0.5_window32.yaml`, `paper_like_congested.yaml`).
+- Suite READMEs: `<suite>.README.md` colocated with the YAML.
+- Golden files: `<suite>.sha256` under `suites/.goldens/`.
 
 **Directories:**
-- kebab-case under `sim-rs/parameters/` (`phase-2-sweep/`, `phase-2-sweep/suites/`, `phase-2-sweep/pricing/`).
-- snake_case under `sim-rs/sim-core/src/` and `sim-rs/sim-cli/src/` (`tx_pricing/`, `bin/experiment-suite/`).
-- Cargo binaries live in `src/bin/<bin-name>/` (note the trailing directory, with `main.rs` inside) when they pull in helper modules; single-file binaries use `src/bin/<bin-name>.rs`.
+- All-lowercase, kebab-case for parameter directories (`phase-2-sweep/`, `parameters/`).
+- Crate names: kebab-case (`sim-core`, `sim-cli`).
 
-**Rust types/functions:**
-- `PascalCase` for types/traits/enums (`PricingBackend`, `MempoolGate`, `TwoLaneVariant`).
-- `snake_case` for functions/modules/fields (`current_quote`, `update_after_block`, `sample_from_mempool_lane_aware`).
-- `SCREAMING_SNAKE_CASE` for consts (`RUN_SUMMARY_FILE`, `MAX_VOLATILITY_AWARE_BLOCKS`).
+**Functions:**
+- Rust functions: snake_case (`compute_derived_quote`, `try_generate_rb`, `aggregate_from_chain`).
+- Test functions: snake_case describing the assertion (`rb_reserved_skips_standard_fee_tx_in_rb_body`, `sibling_rbs_produce_identical_derived_quote`).
 
-**Serde casing:**
-- Most YAML-facing types: `#[serde(rename_all = "kebab-case")]` (`RawParameters`, `Suite`, `Job`, `JobOverrides`, `Manifest`, `JobEntry`, `Lane`, `BlockKind`, `LaneSelectionOrder`).
-- `RunSummary` (`sim-cli/src/metrics/collector.rs`): no `rename_all`; Rust snake_case appears on disk. Heterogeneous by historical accident — match the surrounding type's convention when adding fields.
-- Tagged enum variants use `tag = "kind"` or `tag = "type"` + kebab-case for variant names (`Event`, `MaxFeePolicy`, `DistributionConfig`).
+**Types:**
+- PascalCase (`PricingBackend`, `LinearRankingBlock`, `WindowAggregate`, `TwoLaneVariant`, `Lane`, `MempoolGate`).
+- Type-level wrappers: PascalCase (`BlockId`, `TransactionId`, `EndorserBlockId`).
+
+**Serde conventions:**
+- `Suite` / `Manifest` / `JobEntry` / `Job` / `JobOverrides`: kebab-case via `#[serde(rename_all = "kebab-case")]`.
+- `RunSummary` / `ComponentSummary`: snake_case (no `rename_all`, idiomatic Rust field names).
+- `Event` enum variants: PascalCase tag with `#[serde(tag = "type")]` (`events.rs:80`).
+- `Lane`, `BlockKind`, `LaneSelectionOrder`, `JobStatus`: kebab-case (e.g. `"standard"`, `"priority"`, `"ranking-block"`).
 
 ## Where to Add New Code
 
-**New pricing controller (single- or multi-lane):**
-- Implementation: new file under `sim-rs/sim-core/src/tx_pricing/` (e.g. `three_lane.rs`). Re-export from `sim-rs/sim-core/src/tx_pricing/mod.rs`.
-- Wire into `PricingBackend`: implement the trait; ensure all state is `u64`/`u128`/integer-rational (no f64 in hot paths).
-- Config plumbing: extend `PricingConfig` in `sim-rs/sim-core/src/config.rs` with a new variant; add validation; add a pricing YAML under `sim-rs/parameters/phase-2-sweep/pricing/`.
-- Tests: add a `m<N>_<topic>.rs` scenario under `sim-rs/sim-core/src/sim/tests/` and register it in `mod.rs`.
+**New pricing backend variant or controller arm:**
+- Implementation: `sim-rs/sim-core/src/tx_pricing/<single_lane.rs|two_lane.rs|new_module.rs>`.
+- Re-export in: `sim-rs/sim-core/src/tx_pricing/mod.rs:22-30` (`pub use ...`).
+- Config plumbing: `sim-rs/sim-core/src/config.rs` (add a `PricingConfig::*` variant + `RawPricingConfig` arm).
+- Wire-up in protocol: `sim-rs/sim-core/src/sim/linear_leios.rs:484` (the `match sim_config.pricing_config()` block at `LinearLeiosNode::new`).
+- Unit tests: in the new backend module (follow `tx_pricing/single_lane.rs:403`'s `#[cfg(test)] mod tests`).
+- Integration test: `sim-rs/sim-core/src/sim/tests/m<N>_<name>.rs`.
+- Pricing YAML: `sim-rs/parameters/phase-2-sweep/pricing/<descriptor>.yaml`.
+- Suite YAML (if a new mechanism category): `sim-rs/parameters/phase-2-sweep/suites/<phase-2-…>.yaml` (+ `<…>.README.md` if framing departs from the spec) (+ `<…>.sha256` golden via `UPDATE_GOLDENS=1`).
 
-**New protocol variant (alongside `linear`):**
-- Implementation: new file under `sim-rs/sim-core/src/sim/` (e.g. `<variant>.rs`) implementing `NodeImpl`.
-- Wire into `Simulation::new` (`sim-rs/sim-core/src/sim.rs`): add a `LeiosVariant::<New>` arm and corresponding `NetworkWrapper` / `NodeListWrapper` enum members.
-- Config: extend `LeiosVariant` in `sim-rs/sim-core/src/config.rs`.
-- Tests: scenario file under `sim-rs/sim-core/src/sim/tests/`.
+**New `Event` variant:**
+- Definition: `sim-rs/sim-core/src/events.rs:80` (add to the `Event` enum).
+- Emitter: `EventTracker::track_*` method (`sim-rs/sim-core/src/events.rs:411+`).
+- Call sites: protocol code in `sim-rs/sim-core/src/sim/linear_leios.rs`.
+- Collector: `sim-rs/sim-cli/src/metrics/collector.rs::ingest` (`collector.rs:343`).
+- If it affects pricing semantics: also update the SHA256 stream in `collector.rs::ingest_pricing_event` (search for `pricing_event_stream_sha256` updates).
+- Hash regeneration: `UPDATE_GOLDENS=1 cargo test --release -- --ignored determinism` + commit + tag.
 
-**New metrics column / welfare term:**
-- Implementation: extend `ComponentSummary` or `TimeSeriesRow` in `sim-rs/sim-cli/src/metrics/collector.rs`. f64 is OK here — this is the reporting layer.
-- Writer: extend `time_series::write_row` (`sim-rs/sim-cli/src/metrics/time_series.rs`) and/or `comparison::write_suite` (`sim-rs/sim-cli/src/metrics/comparison.rs`).
-- Critically: do NOT let the new field feed back into simulation decisions; the f64 prohibition is enforced by the golden hashes.
+**New mempool / gate behaviour:**
+- Implementation: `sim-rs/sim-core/src/sim/mempool_gate.rs` for fee-validity / byte-cap concerns; the UTxO-conflict `Mempool` lives in `sim-rs/sim-core/src/sim/linear_leios.rs:2905` and is not phase-2's primary surface.
+- Unit tests: `mempool_gate.rs` has a comprehensive `#[cfg(test)] mod tests` block (`mempool_gate.rs:293`) — add alongside.
+- Invariant: `MempoolGate.config.max_total_size_bytes == Mempool.max_size_bytes` must hold (enforced by `debug_assert_eq!` in `linear_leios.rs:479`).
 
-**New actor `MaxFeePolicy` or `LanePolicy` variant:**
-- Implementation: add variant in `MaxFeePolicy` / `LanePolicy` (`sim-rs/sim-core/src/tx_actors.rs`); extend `MaxFeePolicy::validate` and `MaxFeePolicy::compute`.
-- Config: serde-tagged variant uses `#[serde(tag = "kind", rename_all = "kebab-case")]` — the variant name on disk is kebab-case.
-- Tests: extend `m3_actors.rs`.
+**New actor profile or `MaxFeePolicy` arm:**
+- Implementation: `sim-rs/sim-core/src/tx_actors.rs` (extend `MaxFeePolicy` or `LanePolicy` enum).
+- Config: `sim-rs/sim-core/src/config.rs::RawActorProfile`.
+- Demand YAML: `sim-rs/parameters/phase-2-sweep/demand/<descriptor>.yaml`.
+- Unit tests: `sim-rs/sim-core/src/sim/tests/m3_actors.rs`.
 
-**New suite (sweep over existing mechanism):**
-- Implementation: new YAML under `sim-rs/parameters/phase-2-sweep/suites/phase-2-<topic>.yaml`.
-- Schema: `suite-name`, `output-dir`, `seeds`, `default-slots`, `default-topology`, `default-protocol`, `default-demand`, `jobs[]` (each with `name` + `pricing` + optional `overrides`).
-- Golden: after the first canonical run, capture the (job 0, seed 1) hash and write it to `.goldens/<suite-name>.sha256`. Register the new suite in `sim-rs/sim-cli/tests/determinism.rs` if you want it gate-tested.
-- README: if the suite's framing isn't self-evident, add `<suite-name>.README.md` next to the YAML.
+**New suite:**
+- Suite YAML: `sim-rs/parameters/phase-2-sweep/suites/<phase-2-…>.yaml` (keys: `suite-name`, `output-dir`, `seeds`, `default-{slots,topology,protocol,demand}`, `jobs: [{name, pricing, overrides?}]`).
+- Optional README: `sim-rs/parameters/phase-2-sweep/suites/<phase-2-…>.README.md` (colocated).
+- M5 golden: `sim-rs/parameters/phase-2-sweep/suites/.goldens/<phase-2-…>.sha256` + matching `#[test] #[ignore] fn determinism_<…>()` in `sim-rs/sim-cli/tests/determinism.rs:189-228`.
 
-**New event variant:**
-- Implementation: add to `Event` enum in `sim-rs/sim-core/src/events.rs`. Use `#[serde(tag = "type")]` + kebab-case for the variant tag.
-- Emit from the producing node in `sim-rs/sim-core/src/sim/linear_leios.rs` via `EventTracker::send`.
-- Consume in `sim-rs/sim-cli/src/metrics/collector.rs` if the event affects metrics.
-- Hashing: only `TXIncluded` and `TXEvictedQuoteDrift` feed the pricing-event-stream SHA-256 (see `MetricsCollector::ingest`). Adding a new event there flips every golden.
+**New scenario test:**
+- Determinism-pinned scenario: `sim-rs/sim-core/src/sim/tests/m<N>_<name>.rs` (follow `m2_two_lane.rs` / `m3_actors.rs` shape: build a `SimConfiguration` with `topology-single-producer.yaml`-equivalent, drive the node manually, drain events, hash, assert against a `const EXPECTED_SHA: &str = "..."`).
+- Pricing unit test: `#[cfg(test)] mod tests` inside the backend module.
+- Suite-level integration: a new `phase-2-<…>.yaml` + golden (above).
 
-**New CLI subcommand for `experiment-suite`:**
-- Implementation: extend the `Command` enum in `sim-rs/sim-cli/src/bin/experiment-suite/main.rs` and dispatch in `main`.
-- Library glue: add a `pub fn <subcommand>_suite_with_run_id` in `sim-rs/sim-cli/src/runner.rs`.
-
-**Shared helpers / utilities:**
-- Pricing math helpers: `sim-rs/sim-core/src/tx_pricing/mod.rs` or a sibling file under `tx_pricing/`.
-- Actor math helpers: `sim-rs/sim-core/src/tx_actors.rs` (note `ceil_div_u128` already lives there).
-- Probability/distribution: `sim-rs/sim-core/src/probability.rs`.
-- Metrics aggregation: `sim-rs/sim-cli/src/metrics/`.
+**New runner / metric / report:**
+- Metric: `sim-rs/sim-cli/src/metrics/collector.rs` (add field to `RunSummary`/`ComponentSummary` + ingestion in `ingest`); writer: `sim-rs/sim-cli/src/metrics/{comparison.rs,diagnostics.rs,time_series.rs}` as appropriate.
+- Runner subcommand: `sim-rs/sim-cli/src/bin/experiment-suite/main.rs::Command` + a new function in `sim-rs/sim-cli/src/runner.rs`.
 
 ## Special Directories
 
-**`sim-rs/target/`:**
-- Purpose: Cargo build output (debug + release).
-- Generated: Yes (`cargo build`).
-- Committed: No (git-ignored).
+**`.planning/`:**
+- Purpose: working memos, spike artefacts, decision records, review dispositions.
+- Generated: No (hand-authored).
+- Committed: Yes (memos and decisions are first-class artefacts).
+- Subdirectory: `.planning/codebase/` (this directory) — auto-generated codebase maps; `.planning/spikes/` — per-spike notes.
 
 **`sim-rs/output/`:**
-- Purpose: Per-suite run artefacts. Tree shape: `output/phase-2/<suite-name>/<job-name>/<seed>/{run_summary.json, pricing_event_stream.sha256, time_series.csv, diagnostics.log}` plus `<suite-name>/{manifest.json, metrics_comparison.txt}`.
-- Generated: Yes (by `experiment-suite run`).
-- Committed: No (git-ignored).
+- Purpose: per-run artefacts written by `experiment-suite`.
+- Generated: Yes (by the runner).
+- Committed: No (gitignored).
+- Contents per (job, seed): `time_series.csv`, `diagnostics.log`, `run_summary.json`, `pricing_event_stream.sha256`. Per suite: `manifest.json`, `metrics_comparison.txt`.
+
+**`sim-rs/target/`:**
+- Purpose: cargo build output.
+- Generated: Yes.
+- Committed: No (gitignored).
 
 **`sim-rs/parameters/phase-2-sweep/suites/.goldens/`:**
-- Purpose: Committed SHA-256 baselines, one per phase-2 suite. Asserted by `sim-cli/tests/determinism.rs` against the canonical (job 0, seed 1) baseline.
-- Generated: Yes (regenerable via `UPDATE_GOLDENS=1 cargo test --release -- --ignored determinism`).
-- Committed: **Yes** — flipping a golden is an intentional act tracked by git (and typically tagged).
+- Purpose: pinned suite-level pricing-event-stream SHA256 hashes (one per M3/M4 suite).
+- Generated: Yes (via `UPDATE_GOLDENS=1 cargo test --release -- --ignored determinism`).
+- Committed: Yes — these are the determinism contract.
+- Regeneration ritual: change simulator → run `UPDATE_GOLDENS=1 ...` → `git add parameters/phase-2-sweep/suites/.goldens && git commit -m "M5 goldens regenerated after <reason>" && git tag -a m5-goldens-<n>`.
 
-**`sim-rs/test_data/`, `sim-rs/sim-cli/test_data/`:**
-- Purpose: Legacy/static fixtures (e.g. `distribution.toml`).
+**`sim-rs/sim-cli/parameters/`:**
+- Purpose: holds the embedded `config.default.yaml` consumed at runtime via `include_str!` (`sim-cli/src/runner.rs:841`).
 - Generated: No.
 - Committed: Yes.
 
-**`sim-rs/implementations/`:**
-- Purpose: Reference simulator implementations carried over from upstream — not phase-2 code.
-- Generated: No.
-- Committed: Yes (legacy).
+**`sim-rs/test_data/`:**
+- Purpose: legacy test fixtures.
+- Committed: Yes.
 
-**`sim-rs/sim-rs/`:**
-- Purpose: Leftover sub-tree (contains `output/`, `parameters/`, `sim-cli/`). Vestigial — the canonical workspace root is `sim-rs/` one level up.
-- Generated: No.
-- Committed: Yes (legacy; don't add new files here).
+## The 7 Phase-2 Mechanism Suites (M5-Pinned)
 
-**`.planning/codebase/`:**
-- Purpose: GSD codebase-map outputs (this document + ARCHITECTURE.md and any others).
-- Generated: Yes (by the codebase-mapper agent).
-- Committed: At the operator's discretion.
+These seven suites have suite-level goldens under `sim-rs/parameters/phase-2-sweep/suites/.goldens/`:
+
+| Suite YAML | Question | Goldens |
+|---|---|---|
+| `phase-2-eip1559-robustness.yaml` | Single-lane EIP-1559 across `D` (4, 8, 16) and `target` (0.25, 0.5, 0.75) | `phase-2-eip1559-robustness.sha256` |
+| `phase-2-eip1559-smoothing.yaml` | Single-lane EIP-1559 window-length sweep (16, 32, 64) | `phase-2-eip1559-smoothing.sha256` |
+| `phase-2-priority-only-rb-reserved.yaml` | RB-reserved priority-only-static-standard × ×4 / ×8 / ×16 multiplier floor | `phase-2-priority-only-rb-reserved.sha256` |
+| `phase-2-priority-only-unreserved.yaml` | Un-reserved priority-only premium × same multiplier sweep | `phase-2-priority-only-unreserved.sha256` |
+| `phase-2-two-lane-both-dynamic.yaml` | Both-dynamic in partitioned and un-partitioned forms | `phase-2-two-lane-both-dynamic.sha256` |
+| `phase-2-rb-scarcity.yaml` | RB-capacity scarcity restated as a two-lane experiment | `phase-2-rb-scarcity.sha256` |
+| `phase-2-urgency-inversion.yaml` | Urgency inversion under mis-priced actors | `phase-2-urgency-inversion.sha256` |
+
+The remaining 12 suites under `sim-rs/parameters/phase-2-sweep/suites/` (`phase-2-{congested,moderate,realistic,sundaeswap}-{singlelane,priority-only,both-dynamic}.yaml`) are demand-regime sweeps and are not goldens-pinned.
 
 ---
 
-*Structure analysis: 2026-05-13*
+*Structure analysis: 2026-05-15*

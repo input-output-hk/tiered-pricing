@@ -1,7 +1,7 @@
 ---
 CPS: 23
-Title: Urgency Signaling
-Category: ???
+Title: Urgency Signalling
+Category: Consensus
 Status: Open
 Authors:
   - Will Gould <will.gould@iohk.io>
@@ -13,7 +13,7 @@ License: CC-BY-4.0
 
 ## Abstract
 
-During periods of congestion, high-urgency transactions lose value because they experience delay they cannot avoid. The capability for transactions to signal protocol-recognised urgency to better serve transactions most sensitive to delay could improve overall retained transaction value during congestion.
+During periods of congestion, high-urgency transactions lose value when they cannot obtain timely inclusion. A protocol-recognised urgency signal could help preserve more transaction value during congestion, especially for transactions whose value is highly delay-sensitive.
 
 Candidate solutions should be evaluated by how they handle prioritising high-urgency transactions, and by how they affect ordinary and low-urgency users during sustained congestion.
 
@@ -22,21 +22,21 @@ Candidate solutions should be evaluated by how they handle prioritising high-urg
 
 Cardano does not currently provide a protocol-enforced way for a user or application to signal transaction priority.
 
-Many transactions are time-sensitive: their value to the submitter depends on timely inclusion. A liquidation that lands several slots late may fail to recover the full loan value. An oracle update delayed behind unrelated traffic leaves a stale price on-chain. A loan collateral top-up submitted before a margin call but confirmed after it is worthless. In each case, delay destroys value that would have been captured had the transaction been included promptly.
+Many transactions are time-sensitive: their value to the submitter depends on timely inclusion. A liquidation that lands several slots late may fail to recover the full loan value. An oracle update delayed behind unrelated traffic leaves a stale price on-chain. A loan collateral top-up submitted before a margin call but confirmed after it is worthless. In each case, delay destroys value that timely inclusion could have preserved.
 
-During congestion, these transactions compete for block space on equal terms with traffic that has no particular time sensitivity. The protocol treats all transactions identically (with respect to protocol-enforced urgency or priority ordering): there is no way for a transaction to express that it is urgent, and no mechanism for block producers to commit to honouring such a signal. Urgent and non-urgent transactions queue together, and inclusion order is determined by factors opaque to the submitter.
+During congestion, these transactions compete for block space on equal terms with traffic that has no particular time sensitivity. The protocol treats all valid transactions alike with respect to urgency: there is no way for a transaction to express that it is urgent, and no mechanism for block producers to commit to honouring such a signal. Urgent and non-urgent transactions queue together, and inclusion order is determined by factors opaque to the submitter.
 
-The cost is borne across the ecosystem. Users and protocols lose value to avoidable delay. Block producers leave welfare on the table by not capturing the urgency requirements users would express if they could. And the absence of a legitimate priority channel creates pressure toward off-chain arrangements that undermine the permissionless properties of the network.
+Users and protocols lose value to avoidable delay. Block producers leave value uncaptured because users cannot express how much timely inclusion is worth to them. Additionally, the absence of a legitimate priority channel creates pressure toward off-chain arrangements that undermine the permissionless properties of the network.
 
 ## Use Cases
 
-1. **Liquidations and collateral auctions**
+1. **Liquidations**
 
    **Scenario:** A lending protocol needs to liquidate an unsafe position before collateral value moves further.
 
-   **Example:** A liquidation transaction lands several slots late during unrelated minting congestion.
+   **Example:** A liquidation transaction is delayed during unrelated minting congestion and is included only after the liquidation opportunity has degraded.
 
-   **Who loses today:** Depositors, LPs, protocol backstops, and sometimes borrowers if auctions become disorderly.
+   **Who loses today:** Depositors, liquidity providers, and any reserve, insurance, or backstop mechanism that absorbs losses.
 
 2. **Oracle updates**
 
@@ -52,20 +52,20 @@ The cost is borne across the ecosystem. Users and protocols lose value to avoida
 
    **Example:** The user submits a corrective transaction in time, but it is delayed behind unrelated congestion.
 
-   **Who loses today:** Borrowers who attempted to act, and protocols that want orderly risk management rather than avoidable liquidations.
+   **Who loses today:** Borrowers who attempted to act, and protocols that benefit when users can manage risk before liquidation becomes necessary.
 
 4. **Deadline-sensitive user transactions**
 
-   **Scenario:** A user needs inclusion before a known deadline, such as an auction close, mint window, claim period, or liquidation threshold.
+   **Scenario:** A user needs inclusion before a known deadline, such as a mint window, claim period, protocol deadline, or liquidation threshold.
 
    **Example:** The transaction is valid and submitted before the deadline but confirms too late.
 
-   **Who loses today:** Users who cannot express that deadline sensitivity in a protocol-recognized way.
+   **Who loses today:** Users who cannot express that deadline sensitivity in a protocol-recognised way.
 
 
 ## Goals
 
-1. **Reduce value destroyed by avoidable delay.** A mechanism should exist by which urgent transactions, which would have lost value if queued behind traffic with no time sensitivity, can significantly improve retained value.
+1. **Reduce value destroyed by avoidable delay.** Urgent transactions should have a way to avoid value-destroying delay when competing with traffic that has no time sensitivity.
 
 From stakeholder interviews during Buidler Fest #3, hosted by Carlos Lopez De Lara:
 
@@ -75,17 +75,17 @@ From stakeholder interviews during Buidler Fest #3, hosted by Carlos Lopez De La
 
 ## Constraints
 
-Candidate solutions must also satisfy:
+1. **Automatable semantics.** The urgency signal must be encodable in smart contract logic and readable by automated systems, not just manually configured.
 
-1. **Multi-input awareness.** Complex DeFi transactions spend multiple UTxOs atomically. A contested UTxO mechanism scoped to single-UTxO contention covers only a limited subset of real lending liquidation scenarios.
-
-2. **Bot-composable semantics.** The priority signal must be encodable in smart contract logic and readable by automated systems, not just manually configured.
+2. **Censorship resistance.** Candidate solutions should preserve censorship resistance and must evaluate whether urgency signalling creates new opportunities for selective exclusion or preferential treatment.
 
 ## Non-Goals
 
 Guaranteed inclusion of every urgent transaction
 
 Guaranteed retention of value for urgent transactions
+
+Elimination of congestion
 
 Any specific pricing mechanism
 
@@ -95,7 +95,7 @@ From stakeholder interviews at Buidler Fest #3:
 
 * Fee pre-escalation: Transactions can overpay fees, but with no protocol-enforced prioritisation for overpaying transactions
 
-Tried. Produced modest improvement in moderate congestion. Fails under systemic congestion because SPOs are not committed to sort by fee. Bidding is also calibrated blind; there is no standardized mempool signal to know where you stand.
+Tried. Produced modest improvement in moderate congestion. Fails under systemic congestion because SPOs are not committed to sort by fee. Bidding is also calibrated blind; there is no standardised mempool signal to know where you stand.
 
 * Multi-relay submission: Where the node is connected to multiple SPO relays to increase the likelihood that the transaction reaches the next block producer quickly
 
@@ -103,14 +103,14 @@ Deployed as standard infrastructure. Improves latency-to-mempool, not confirmati
 
 * Private SPO arrangements: 
 
-Explored and rejected. Even agreements with major SPOs yield next-block probability insufficient for liquidations. More importantly, this produces a worse outcome than a formal mechanism: an opaque, permissioned, off-chain priority market accessible only to well-capitalized incumbents.
+Explored and rejected. Even agreements with major SPOs yield next-block probability insufficient for liquidations. More importantly, this produces a worse outcome than a formal mechanism: an opaque, permissioned, off-chain priority market accessible only to well-capitalised incumbents.
 
 
 ## Open Questions
 
 How can whatever protocol-level commitments are decided upon be enforced or incentivised?
 
-How should changing fees be effectively transmitted?
+How should updated fee or priority quotes be propagated?
 
 How does priority interact with the Leios block structure?
 
@@ -118,9 +118,9 @@ Can we achieve our goals without starving low-urgency users of block space (espe
 
 How can we retain fee quote validity across repricing intervals?
 
-Is it problematic to leak urgency information?
+What information is leaked when a transaction signals urgency?
 
-Is there an MEV implication here? If so, how significant?
+What MEV opportunities are created or amplified by public urgency signals?
 
 ## Copyright
 

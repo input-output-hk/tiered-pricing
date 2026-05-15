@@ -10,43 +10,43 @@
 
 This register is the single source of truth for unresolved realism risks affecting the CIP. Per-claim trust ratings live in `docs/phase-2/coverage-check.md` (Phase 2). Calibration-provenance triples `(value, source, date-retrieved)` live in the refreshed `docs/phase-2/cardano-realism-audit.md` (Phase 4). Spike READMEs in `.planning/spikes/` are the resolved-or-disclosed audit trail; this register cites them as evidence sources but does not re-express their verdicts.
 
-This file is the Phase 1 inventory skeleton. Descriptive fields (`Description`, `Evidence-for`, `Evidence-against`) are populated in full; judgement fields (`Verdict`, `Scope-of-resolution`, `EXP / Resolution`, `Disclosure-paragraph`) carry `TBD plan 02` placeholders that Plan 01-02 finalises. Plan 01-02 may grep for `TBD plan 02` to find every site requiring judgement work.
+This file is the Phase 1 v1 register. All 24 RSK-NN entries carry final verdicts (LIVE / DORMANT / MITIGATED / DISCLOSED), populated scope-of-resolution fields, EXP-NN cross-references (with TEST-NN traceability where applicable), and disclosure-paragraphs. Disclosure-paragraphs are load-bearing for DISCLOSED entries (CIP-pasteable, engineering-report voice, abbreviations expanded on first use); LIVE entries carry either a fallback disclosure-paragraph (for entries whose test verdict may land as DISCLOSED) or a forward-pointer to Phase 4 / DOC-03 anchor-or-disclose work.
 
 The Inter-Quartile Range (IQR) is used as the canonical seed-noise band throughout: a finding is treated as inside seed noise iff its magnitude is below the IQR of the corresponding cell across seeds. The Paired Seed Evaluation (PSE) methodology — comparing two mechanism variants on the same seed to isolate the mechanism effect — is the foundation of Phase 3's Bias-corrected and accelerated (BCa) bootstrap confidence intervals on welfare deltas.
 
 ## Index
 
-| RSK | Title | Category (initial) |
-|-----|-------|--------------------|
-| RSK-pool-count | Pool-count sensitivity above 100 pools | external |
-| RSK-single-seed-precision | Single-seed welfare claims at publication precision | conclusion, construct |
-| RSK-un-anchored-controller-knobs | Four un-anchored controller knobs (window-length, two multiplier-floors, lane-signal-source) | external, construct |
-| RSK-substrate-scope | Inherited substrate scope (`f64` in non-pricing paths, propagation fidelity, utility-maximising actor model) | external, construct |
-| RSK-fee-as-maxFee-envelope | Fee-field semantic reinterpretation as maxFee envelope; refund-CIP dependency | construct |
-| RSK-mempool-cap-magnitude | Mempool absolute byte cap 133× mainnet (24 MB vs ~180 KB); rule matches | external |
-| RSK-max-fee-policy-default | Default actor `max_fee_policy = {4, 1}` is a forecast about wallet behaviour, not an anchor | construct |
-| RSK-calibration-stale-stake-snapshot | Epoch-582 stake snapshot freshness over publication horizon | external |
-| RSK-demand-mix-bit-calibration | Q1 2026 mainnet demand mix order-of-magnitude correct, not bit-calibrated | external |
-| RSK-demand-non-stationarity | Finer-than-2-hour demand patterns (diurnal, NFT drops, governance deadlines) not modelled | external |
-| RSK-target-inclusion-blocks-default | `target_inclusion_blocks` defaults are mechanism-induced, not mainnet-anchored | construct |
-| RSK-partition-activated-honest-producer | `partition_activated` is a producer claim, not body-derivable; byzantine-producer risk | external |
-| RSK-leios-spec-pre-deployment | Linear-Leios spec knobs not cross-checkable to deployed mainnet (CIP-0164 is pre-deployment) | external |
-| RSK-multiplier-floor-4-suite-coverage | Two suites condition exclusively on `multiplier_floor = 4` | construct, external |
-| RSK-three-seed-statistical-power | Three-seed suite default cannot license tight 95% confidence intervals | conclusion |
-| RSK-unresolved-suite-claims | Four UNRESOLVED suite verdicts pending output read | conclusion |
-| RSK-standard-user-fee-drift-exposure | Both-dynamic standard-lane drift exposure under realistic / spike demand | external, construct |
-| RSK-cross-arch-determinism | Determinism intra-architecture only; cross-architecture not proven (CR-1 `f64::sqrt` residual) | conclusion |
-| RSK-admission-rejection-attribution | Gate-reject vs mempool-reject collapsed into one bool; eviction-cause attribution gap | internal |
-| RSK-menu-collapse-to-advocacy | Welfare-only evidence collapses 4-way menu into single-option recommendation | conclusion |
-| RSK-steady-state-run-length | 2000-slot run length not verified to be steady-state for every menu item | internal, conclusion |
-| RSK-hash-diversity-policy | Hash-diversity sanity check policy (strict vs soft gate) unresolved | conclusion |
-| RSK-welfare-as-f64-reporting | Welfare aggregates reported as `f64`; precision boundary not surfaced | conclusion |
-| RSK-sundaeswap-demand-staleness | SundaeSwap January 2022 launch profile is a 4-year-old retail spike, not steady-state | external |
+| RSK | Title | Category | Verdict | EXP / Resolution |
+|-----|-------|----------|---------|------------------|
+| RSK-pool-count | Pool-count sensitivity above 100 pools | external | LIVE | EXP-pool-number (→ TEST-05) |
+| RSK-single-seed-precision | Single-seed welfare claims at publication precision | conclusion, construct | LIVE | EXP-sign-flip-variance (→ TEST-03); EXP-canonical-variance (→ TEST-04) |
+| RSK-un-anchored-controller-knobs | Four un-anchored controller knobs (window-length, two multiplier-floors, lane-signal-source) | external, construct | LIVE | EXP-window-length-anchor (Phase 4 / DOC-03 anchor-or-disclose); EXP-multiplier-floor-4-anchor (Phase 4 / DOC-03); EXP-multiplier-floor-16-anchor (Phase 4 / DOC-03); EXP-lane-signal-source-anchor (Phase 4 / DOC-03) |
+| RSK-substrate-scope | Inherited substrate scope (`f64` in non-pricing paths, propagation fidelity, utility-maximising actor model) | external, construct | LIVE | Disclosed (no EXP — substrate out-of-scope per PROJECT.md); disclosure-paragraph drafted below for Phase 4 / DOC-01 flip to DISCLOSED |
+| RSK-fee-as-maxFee-envelope | Fee-field semantic reinterpretation as maxFee envelope; refund-CIP dependency | construct | DISCLOSED | DISCLOSED — see disclosure-paragraph below |
+| RSK-mempool-cap-magnitude | Mempool absolute byte cap 133× mainnet (24 MB vs ~180 KB); rule matches | external | DISCLOSED | DISCLOSED — see disclosure-paragraph below |
+| RSK-max-fee-policy-default | Default actor `max_fee_policy = {4, 1}` is a forecast about wallet behaviour, not an anchor | construct | DISCLOSED | DISCLOSED — see disclosure-paragraph below |
+| RSK-calibration-stale-stake-snapshot | Epoch-582 stake snapshot freshness over publication horizon | external | LIVE | EXP-pool-number (→ TEST-05) — overlap; if MITIGATED via TEST-05 across 100/150 pools, freshness is bounded for the same-order-of-magnitude regime |
+| RSK-demand-mix-bit-calibration | Q1 2026 mainnet demand mix order-of-magnitude correct, not bit-calibrated | external | DISCLOSED | DISCLOSED — see disclosure-paragraph below |
+| RSK-demand-non-stationarity | Finer-than-2-hour demand patterns (diurnal, NFT drops, governance deadlines) not modelled | external | DISCLOSED | DISCLOSED — see disclosure-paragraph below |
+| RSK-target-inclusion-blocks-default | `target_inclusion_blocks` defaults are mechanism-induced, not mainnet-anchored | construct | DISCLOSED | DISCLOSED — see disclosure-paragraph below |
+| RSK-partition-activated-honest-producer | `partition_activated` is a producer claim, not body-derivable; byzantine-producer risk | external | DISCLOSED | DISCLOSED — see disclosure-paragraph below |
+| RSK-leios-spec-pre-deployment | Linear-Leios spec knobs not cross-checkable to deployed mainnet (CIP-0164 is pre-deployment) | external | DISCLOSED | DISCLOSED — see disclosure-paragraph below |
+| RSK-multiplier-floor-4-suite-coverage | Two suites condition exclusively on `multiplier_floor = 4` | construct, external | LIVE | EXP-multiplier-floor-16-companion-run (→ TEST-07a) |
+| RSK-three-seed-statistical-power | Three-seed suite default cannot license tight 95% confidence intervals | conclusion | LIVE | EXP-canonical-variance (→ TEST-04); overlap with EXP-sign-flip-variance (→ TEST-03) |
+| RSK-unresolved-suite-claims | Four UNRESOLVED suite verdicts pending output read | conclusion | LIVE | EXP-unresolved-output-read (Phase 2 coverage-check pass, not a cheap test; cross-reference REQ-COV-06) |
+| RSK-standard-user-fee-drift-exposure | Both-dynamic standard-lane drift exposure under realistic / spike demand | external, construct | LIVE | EXP-unresolved-output-read (overlap with RSK-unresolved-suite-claims); if drift unbounded after output-read, escalate to disclosure |
+| RSK-cross-arch-determinism | Determinism intra-architecture only; cross-architecture not proven (CR-1 `f64::sqrt` residual) | conclusion | DISCLOSED | DISCLOSED — see disclosure-paragraph below |
+| RSK-admission-rejection-attribution | Gate-reject vs mempool-reject collapsed into one bool; eviction-cause attribution gap | internal | DISCLOSED | DISCLOSED — see disclosure-paragraph below |
+| RSK-menu-collapse-to-advocacy | Welfare-only evidence collapses 4-way menu into single-option recommendation | conclusion | LIVE | EXP-coverage-non-welfare-columns (Phase 2 coverage-check design; cross-reference REQ-COV-03) |
+| RSK-steady-state-run-length | 2000-slot run length not verified to be steady-state for every menu item | internal, conclusion | LIVE | EXP-run-length (→ TEST-06) |
+| RSK-hash-diversity-policy | Hash-diversity sanity check policy (strict vs soft gate) unresolved | conclusion | LIVE | EXP-hash-diversity-policy-decision (Phase 3 COV-05 policy gate; cross-reference REQ-COV-05) |
+| RSK-welfare-as-f64-reporting | Welfare aggregates reported as `f64`; precision boundary not surfaced | conclusion | DISCLOSED | DISCLOSED — see disclosure-paragraph below |
+| RSK-sundaeswap-demand-staleness | SundaeSwap January 2022 launch profile is a 4-year-old retail spike, not steady-state | external | DISCLOSED | DISCLOSED — see disclosure-paragraph below |
 
 ## RSK-pool-count: Pool-count sensitivity above 100 pools
 
 **Category:** external
-**Verdict:** TBD plan 02 (default LIVE if ambiguous)
+**Verdict:** LIVE
 **Description:** The default phase-2 topology (`topology-realistic-100.yaml`) is a mass-stratified 100-node downsample of the Cardano mainnet (epoch 582) ~3,000 stake-pool-operator (SPO) population. Welfare conclusions derived at 100 pools may not transfer to deployed-mainnet pool counts, and the Cardano Improvement Proposal (CIP) drafted from this evidence base may be challenged by a reviewer asking "does this welfare claim replicate at 600 pools (CIP-0164 calibration) or at ~3,000 pools (current mainnet)?". The prototype-pattern cheap test in PROJECT.md Active item 2 (pool-number sensitivity smoke at 100 vs 150 pools across `sundaeswap_moderate` plus the four `paper_like_*` variants) is the canonical method to bound this risk; the failure-mode hypothesis is that Δ% on welfare metrics falls inside the seed-Inter-Quartile-Range (seed-IQR) of the same job at 100 pools.
 **Evidence-for:**
 - `.planning/research/PITFALLS.md` §"CRIT-5: Calibration-stale parameters cited as current" — calibration-drift framing, with pool-count sensitivity as the prototype cheap test
@@ -58,12 +58,12 @@ The Inter-Quartile Range (IQR) is used as the canonical seed-noise band througho
 - `.planning/spikes/006-curve-design/README.md` — the mass-stratified curve preserves Nakamoto coefficient (35) and top-stake share (1.97%); not a uniform downsample
 **Scope-of-resolution:** Δ% < seed-IQR (Inter-Quartile Range) of same job at 100 pools establishes MITIGATED.
 **EXP / Resolution:** EXP-pool-number (→ TEST-05)
-**Disclosure-paragraph:** TBD plan 02
+**Disclosure-paragraph:** *(draft fallback; load-bearing only if TEST-05 lands at LIVE or DISCLOSED rather than MITIGATED)* The evidence base in this Cardano Improvement Proposal (CIP) is generated from a simulator topology of 100 stake-pool-operator (SPO) nodes whose stake distribution is a mass-stratified downsample of the Cardano mainnet snapshot at epoch 582 (retrieved 2026-05-14), with summary statistics close to mainnet (top-1 stake share 1.97%, Nakamoto coefficient 35, Gini 0.253). Pool-number sensitivity is exercised between 100 and 150 pools on the same mass-stratified curve and on five demand profiles (`sundaeswap_moderate` plus four `paper_like_*` variants); welfare findings are stable across that range within the seed-Inter-Quartile-Range (IQR) noise floor. The CIP-0164 600-pool migration regime and the present-day approximate-3,000-pool mainnet regime are out of scope for this evidence base. Welfare claims should be treated as applying within the 100-150 pool same-order-of-magnitude regime exercised; extrapolation to larger pool counts is disclosed as future work pending a follow-on at the 600-pool or mainnet pool counts.
 
 ## RSK-single-seed-precision: Single-seed welfare claims at publication precision
 
 **Category:** conclusion, construct
-**Verdict:** TBD plan 02 (default LIVE if ambiguous)
+**Verdict:** LIVE
 **Description:** The 33-job sundaeswap smoke run that drove the Family B mechanism commitment used seed=1 only. Four cells in that smoke run produced welfare sign-flips between accumulator and chain-derived: `d4_t50_w32` and `d8_t25_w32` under single-lane Ethereum Improvement Proposal 1559 (EIP-1559), and `x4_rb_quarter` under both the `priority-only-rb-reserved` and `partitioned-both-dynamic` arms (4 cells total). Each sits close to zero in absolute welfare and could plausibly invert at a different seed. A reviewer asking "what is the 95% confidence interval (CI) on this sign-flip?" gets no answer today. Phase 3's Paired Seed Evaluation (PSE) with Bias-corrected and accelerated (BCa) bootstrap intervals is the canonical resolution path; the broader 19-suite × 3-seed sweep cannot license tight CIs either, and PSE re-runs at N ≥ 10 seeds on the flip cells (and the canonical menu-item welfare cells) are the smallest set of additional runs that turn the welfare narrative into a publishable claim.
 **Evidence-for:**
 - `.planning/research/PITFALLS.md` §"CRIT-1: Single-seed welfare claims at publication-grade precision"
@@ -73,14 +73,14 @@ The Inter-Quartile Range (IQR) is used as the canonical seed-noise band througho
 **Evidence-against:**
 - `.planning/mechanism-welfare-impact-2026-05-14.md` §TL;DR — the headline two-lane un-reserved arms preserve qualitative claim under Family B with median |Δ%| ≤ 17% and zero sign-flips, suggesting the mechanism-robust subset of the menu does not depend on the flip cells
 - `docs/phase-2/validity-threats.md` §"Trust framework" — three seeds is "enough to detect qualitative-direction flips" for ordering claims that do not depend on the four flip cells
-**Scope-of-resolution:** TBD plan 02
+**Scope-of-resolution:** We test the four sign-flip cells (`d4_t50_w32`, `d8_t25_w32`, `x4_rb_quarter` under `priority-only-rb-reserved`, `x4_rb_quarter` under `partitioned-both-dynamic`) plus the five canonical menu-item welfare cells across N = 15–20 seeds (per TEST-02 wall-clock scoping; fallback N = 10) using Paired Seed Evaluation (PSE) and Bias-corrected and accelerated (BCa) bootstrap 95% confidence intervals on welfare deltas. We expect each flip cell to land in one of three buckets: (a) sign-coherent across seeds with confidence interval not crossing zero — risk MITIGATED for that cell; (b) sign-coherent but confidence interval crosses zero — risk MITIGATED only for the qualitative ordering, weak on magnitude; (c) sign-incoherent across seeds — risk LIVE, cell flagged WEAK in the coverage check. The five canonical cells follow the same template at N = 10. The risk is MITIGATED in aggregate iff every flip cell lands in bucket (a) or (b) and every canonical cell is sign-coherent at N = 10; the risk remains LIVE for any cell landing in bucket (c).
 **EXP / Resolution:** EXP-sign-flip-variance (→ TEST-03); EXP-canonical-variance (→ TEST-04)
-**Disclosure-paragraph:** TBD plan 02
+**Disclosure-paragraph:** *(draft fallback; load-bearing only for cells whose multi-seed variance bands do not resolve via Paired Seed Evaluation (PSE))* Welfare claims at near-zero absolute magnitude are reported with their 95% Bias-corrected and accelerated (BCa) bootstrap confidence intervals on paired welfare deltas under Paired Seed Evaluation (PSE), computed across N = 15-20 seeds for sign-flip cells and N = 10 for canonical menu-item cells. Cells whose confidence interval crosses zero are reported as ordering-level claims (sign-coherence and median welfare delta) rather than as magnitude-level claims with confidence intervals; the coverage check flags such cells as WEAK rather than BACKED. Reviewers should interpret near-zero welfare deltas as ordering-level findings unless the cell's confidence interval is explicitly reported and bounded away from zero.
 
 ## RSK-un-anchored-controller-knobs: Four un-anchored controller knobs (window-length, two multiplier-floors, lane-signal-source)
 
 **Category:** external, construct
-**Verdict:** TBD plan 02 (default LIVE if ambiguous)
+**Verdict:** LIVE
 **Description:** Four phase-2 controller knobs have no deployed-system anchor and must each either find an external citation or carry an explicit Cardano Improvement Proposal (CIP) disclosure paragraph of the form "we chose X; alternative Y exists; we did not exercise Y; the qualitative finding is conditional on X":
 
 1. **Window length 32** for capacity-varying signals (single-lane Ethereum Improvement Proposal 1559 (EIP-1559), both-dynamic standard, un-reserved priority). The audit notes this is "a round-number choice, not an empirical anchor"; the `phase-2-eip1559-smoothing` suite sweeps {16, 32, 64} for sensitivity but does not bracket the unwindowed Ethereum-equivalent `window = 1` or an over-smoothed `128`.
@@ -99,14 +99,14 @@ This umbrella entry covers all four sub-points because they share a single resol
 - `docs/phase-2/cardano-realism-audit.md` §"What lines up with mainnet" — the EIP-1559 *core* parameters (`D = 8`, `target = 0.5`, per-priced-block update cadence) match Ethereum mainnet bit-exact, bounding the un-anchored scope to non-core knobs
 - `docs/phase-2/cardano-realism-audit.md` disclosure-item 2 — the priority-only suites sweep multiplier-floor at {4, 8, 16} and the both-dynamic suite sweeps {4, 16}, so phase-2 findings are reported *across* the floor sweep at five of seven suites
 - External literature candidates for Phase 4 search: Liu et al. Conference on Computer and Communications Security (CCS) 2022, Reijsbergen et al. Advances in Financial Technologies (AFT) 2021 — Ethereum window-length and step-size data may anchor window=32 if comparable
-**Scope-of-resolution:** TBD plan 02
-**EXP / Resolution:** EXP-window-length-anchor; EXP-multiplier-floor-4-anchor; EXP-multiplier-floor-16-anchor; EXP-lane-signal-source-anchor (all TBD plan 02 — also see DOC-03)
-**Disclosure-paragraph:** TBD plan 02
+**Scope-of-resolution:** A two-hour literature search at Phase 4 / DOC-03 open determines, for each of the four knobs independently, whether an external published anchor exists (preferred forms: peer-reviewed empirical study of Ethereum EIP-1559 window-length / step-size dynamics; mainnet-deployed parameter table for a comparable controller; cited rationale in a Cardano CIP or in Ethereum Improvement Proposal (EIP) precedent). For each knob the verdict is: ANCHORED iff a published anchor is found and cited verbatim in the refreshed audit; DISCLOSED iff no anchor is found and a "conditional on X" disclosure-paragraph is written into the relevant `disclosure-paragraph` field of this entry. The four sub-knobs are resolved independently — three ANCHORED + one DISCLOSED is an acceptable terminal state, but the umbrella verdict cannot land MITIGATED unless every sub-knob lands ANCHORED. The umbrella verdict lands MITIGATED iff all four sub-knobs land ANCHORED; otherwise the umbrella verdict lands DISCLOSED with sub-knob granularity in the disclosure-paragraphs.
+**EXP / Resolution:** EXP-window-length-anchor (Phase 4 / DOC-03 anchor-or-disclose); EXP-multiplier-floor-4-anchor (Phase 4 / DOC-03 anchor-or-disclose); EXP-multiplier-floor-16-anchor (Phase 4 / DOC-03 anchor-or-disclose); EXP-lane-signal-source-anchor (Phase 4 / DOC-03 anchor-or-disclose)
+**Disclosure-paragraph:** *(draft fallback; per-knob load-bearing only for sub-knobs that find no external anchor at Phase 4 / DOC-03 open)* This Cardano Improvement Proposal (CIP) uses four pricing-controller calibration values whose anchors against deployed-system data are partial or absent; welfare findings are conditional on each value being interpreted as a starting-point choice rather than an optimised parameter. (a) **Window length 32 blocks for capacity-varying signals** (single-lane Ethereum Improvement Proposal 1559 (EIP-1559), both-dynamic standard, un-reserved priority): a round-number choice from the EIP-1559 calibration tradition rather than an empirically anchored value. The `phase-2-eip1559-smoothing` suite sweeps {16, 32, 64} for sensitivity; un-windowed (`window = 1`) and over-smoothed (`window = 128`) regimes are not exercised. Qualitative findings are conditional on window-length 32; alternative smoothing windows were not tested. (b) **Multiplier floor 4** in `phase-2-rb-scarcity` and `phase-2-urgency-inversion`: a calibration accommodation chosen to surface controller drift at moderate priority demand; not an economic claim. The spec default 16 is also exercised in five of seven goldens-pinned suites, but not as a like-for-like companion in the two suites that condition on 4. (c) **Multiplier floor 16** (the spec default): no empirical anchor in `mechanism-design.md` and no comparable Ethereum second-lane multiplier; chosen because it produces sufficient priority-lane segregation for the anti-bribery property. Welfare findings depend on this segregation being preserved at the deployed-system value. (d) **Lane-signal-source choices**: un-reserved priority defaults to `priority_paying_bytes / total_block_capacity` (option 1 of three open candidates in the spec); both-dynamic standard defaults to `standard_paying_bytes / eb_referenced_txs_max_size_bytes` over endorser blocks (EBs), with no standard sample on ranking-block-reserved (RB-reserved) blocks. Welfare findings are conditional on these signal-source choices; alternative signal sources (notional priority share; delay-gap signal; equal-weight EB+RB sampling) were not exercised. A literature search at the time of CIP publication did not surface published empirical anchors for these four knobs (candidate sources: Liu et al. Conference on Computer and Communications Security (CCS) 2022, Reijsbergen et al. Advances in Financial Technologies (AFT) 2021 for Ethereum window-length / step-size data; Ethereum Foundation calibration notes; deployed-network parameter tables for comparable controllers). Reviewers should treat the four values as starting-point choices that future work can revisit with deployed-system telemetry.
 
 ## RSK-substrate-scope: Inherited substrate scope (`f64` in non-pricing paths, propagation fidelity, utility-maximising actor model)
 
 **Category:** external, construct
-**Verdict:** TBD plan 02 (default LIVE if ambiguous)
+**Verdict:** LIVE
 **Description:** The phase-2 work hardens the pricing kernel and mempool gate to integer/rational/u128 discipline but inherits the upstream Leios simulator substrate, which carries three categories of unresolved realism limitation that the Cardano Improvement Proposal (CIP) must disclose explicitly:
 
 (a) **Upstream `f64` in non-pricing hot paths** — slot lottery (`sim-rs/sim-core/src/sim/lottery.rs`), propagation timing (`sim/driver.rs`, `sim/slot.rs`), distribution sampling, and the residual `f64::sqrt` site in `endorsement_window_priced_blocks` (review finding CR-1) put a small but nonzero asterisk on cross-architecture reproducibility. Intra-architecture determinism on x86_64 / glibc is pinned by goldens; cross-arch is not yet proven.
@@ -128,14 +128,14 @@ The three sub-points share a single mitigation path (none — they are inherited
 - `CLAUDE.md` §"Determinism scope" — intra-arch determinism is asserted with pinned golden hashes at three layers (unit-test goldens, `experiment-suite verify`, suite-level goldens), so reproducibility on x86_64 / glibc is robust
 - `.planning/REVIEW.md` §"Cross-cutting observations" item 1 — the integer/rational discipline is "honoured pervasively in the pricing kernel and mempool gate"; the substrate scope is bounded to non-pricing paths
 - `docs/phase-2/cardano-realism-audit.md` §"Topology and actor model" disclosure-item 3 — Cardano's extended unspent-transaction-output (eUTxO) model is structurally Maximum Extractable Value (MEV)-resistant by construction (no global mempool), so the utility-maximising actor model is "mainnet-faithful in shape" for the non-adversarial regime
-**Scope-of-resolution:** TBD plan 02
-**EXP / Resolution:** TBD plan 02 (likely disclose-only; no cheap test resolves an inherited-substrate limitation)
-**Disclosure-paragraph:** TBD plan 02
+**Scope-of-resolution:** DISCLOSED — see disclosure-paragraph below. The three sub-points are inherited substrate, out-of-scope for re-audit per PROJECT.md Out of Scope items 2 (adversarial / strategic-bidder modelling) and 3 (re-auditing upstream Leios simulator code paths) and PROJECT.md Out of Scope (cross-architecture continuous integration). No cheap test resolves an inherited-substrate limitation; the disclosure-paragraph below is the resolution path. v1 verdict is LIVE because Phase 4 / DOC-01 is what folds the disclosure-paragraph into the refreshed audit and flips this entry's terminal verdict to DISCLOSED.
+**EXP / Resolution:** Disclosed (no EXP — substrate out-of-scope per PROJECT.md); disclosure-paragraph drafted below for Phase 4 / DOC-01 flip to DISCLOSED
+**Disclosure-paragraph:** *(load-bearing; pastes verbatim into the Cardano Improvement Proposal (CIP)'s Limitations section once Phase 4 / DOC-01 lands)* The Cardano Improvement Proposal (CIP)'s evidence base is generated by a Rust simulator that inherits three categories of substrate limitation from the upstream Leios reference implementation, each disclosed here as a scope boundary rather than a tested-and-resolved property. **(a) Floating-point arithmetic in non-pricing code paths.** The pricing kernel itself (admission, eviction, fee charging, controller coefficient, mempool tracking, multiplier-floor invariant, actor lane choice) is implemented in integer / rational / 128-bit unsigned (`u128`) arithmetic for bit-stability; however, the upstream non-pricing substrate (slot lottery, propagation timing, distribution sampling, plus a residual `f64::sqrt` site in `endorsement_window_priced_blocks`) retains `f64` floating-point arithmetic. Reproducibility is asserted intra-architecturally against pinned golden hashes on x86_64 / glibc (the reference build environment), via three layers: unit-test goldens in `sim-rs/sim-core/src/sim/tests/`, the `experiment-suite verify` subcommand, and suite-level goldens in `sim-rs/parameters/phase-2-sweep/suites/.goldens/`. Cross-architecture continuous integration (CI) verification (e.g. Advanced RISC Machine (ARM) builds, alternative C standard libraries) is disclosed as deferred future work. **(b) Propagation-model fidelity.** The simulator's network propagation is round-trip-time-driven across a 100-node topology with real-world-derived latencies (geographically distributed pools, varying round-trip times); it is not validated against packet-level Cardano mainnet network traces. Welfare claims are conditional on the simulator's propagation regime; the deployed-system propagation regime may shift welfare magnitudes without changing the qualitative menu-item orderings. **(c) Utility-maximising actor model.** The actor model is utility-maximising across multiple urgency-tagged demand components; it does not model strategic-bidder regimes including bribery, side contracts, Maximum Extractable Value (MEV) strategies, or sustained controller gaming. The Chung and Shi Symposium on Discrete Algorithms (SODA) 2023 impossibility result for joint user-incentive-compatibility, miner-incentive-compatibility, and side-contract-proofness in transaction-fee mechanisms is the standard formal frame; adversarial regimes are disclosed as future work outside this evidence base. Cardano's extended unspent-transaction-output (eUTxO) model is structurally MEV-resistant by construction (no global mempool), bounding the practical relevance of this gap for the non-adversarial regime but not eliminating it.
 
 ## RSK-fee-as-maxFee-envelope: Fee-field semantic reinterpretation as maxFee envelope; refund-CIP dependency
 
 **Category:** construct
-**Verdict:** TBD plan 02 (default LIVE if ambiguous)
+**Verdict:** DISCLOSED
 **Description:** Phase-2 reinterprets the existing Cardano transaction `fee` field as a `max_fee_lovelace` envelope: at admission the wallet posts a maximum fee; at inclusion the (possibly-lower) current quote is charged and the gap is refunded. Deployed mainnet today has no maxFee envelope and no refund path — wallets ship the exact deterministic fee via `cardano-serialization-lib`. The refund path depends on Polina's separate fee-change-return CIP being adopted; the phase-2 welfare conclusions assume this refund mechanism exists. This is a hard external dependency, not a soft one, and is the single most user-visible mechanism-level deviation from the world Cardano users have today.
 **Evidence-for:**
 - `docs/phase-2/cardano-realism-audit.md` §"Fee structure and mempool sizing" disclosure-item 1 — full framing as mechanism-level change, not calibration drift
@@ -145,14 +145,14 @@ The three sub-points share a single mitigation path (none — they are inherited
 **Evidence-against:**
 - `docs/phase-2/cardano-realism-audit.md` §"What lines up with mainnet" — the fee *floor* (`min-fee-a = 44`, `min-fee-b = 155381`) is bit-equal to Conway-era mainnet; the deviation is in the *envelope semantics*, not the floor itself
 - `docs/phase-2/cardano-realism-audit.md` "Defensible because" rationale — the welfare claims explicitly assume the refund mechanism exists; the spec is transparent about the reinterpretation
-**Scope-of-resolution:** TBD plan 02
-**EXP / Resolution:** TBD plan 02 (likely DISCLOSED — no cheap test resolves a separate-CIP dependency)
-**Disclosure-paragraph:** TBD plan 02
+**Scope-of-resolution:** DISCLOSED — see disclosure-paragraph below. The fee-as-maxFee envelope is a mechanism-level deviation from deployed Cardano mainnet (which has no maxFee envelope, no refund path, and ships exact deterministic fees via `cardano-serialization-lib`). The refund mechanism is a hard external dependency on a separate Cardano Improvement Proposal (Polina's fee-change-return CIP) that is out of scope for this milestone. No cheap test resolves a separate-CIP dependency; the resolution is explicit Cardano Improvement Proposal (CIP) disclosure naming the dependency as a hard prerequisite for the welfare conclusions.
+**EXP / Resolution:** DISCLOSED — see disclosure-paragraph below
+**Disclosure-paragraph:** This Cardano Improvement Proposal (CIP) reinterprets the existing Cardano transaction `fee` field as a `max_fee_lovelace` envelope: at admission a wallet posts a maximum fee; at inclusion the (possibly-lower) current quote is charged and the gap is refunded to the wallet. Deployed Cardano mainnet today has no maxFee envelope and no refund path — mainnet wallets ship the exact deterministic fee via `cardano-serialization-lib`. The phase-2 welfare conclusions assume a separate Cardano Improvement Proposal (CIP) for fee-change return (in flight at the time of writing) is adopted. This is a hard external dependency: without the fee-change-return CIP, the maxFee envelope cannot be realised on deployed mainnet, and the phase-2 welfare claims are conditional on that prerequisite. The fee *floor* (`min-fee-a`, `min-fee-b`) is preserved bit-equal to Conway-era mainnet; the change is in the envelope semantics, not in the floor.
 
 ## RSK-mempool-cap-magnitude: Mempool absolute byte cap 133× mainnet (24 MB vs ~180 KB); rule matches
 
 **Category:** external
-**Verdict:** TBD plan 02 (default LIVE if ambiguous)
+**Verdict:** DISCLOSED
 **Description:** The phase-2 mempool default absolute byte cap is 24 megabytes (MB) — 133× larger than Cardano mainnet's current ~180 kilobytes (KB). The cap *rule* matches mainnet exactly (`2 × one-bearer-block-bytes` with reject-on-full overflow), but the absolute number is a downstream consequence of CIP-0164's 12 MB endorser-block (EB) target replacing Praos's 90 KB ranking-block (RB) as the bearer block. A reviewer familiar with mainnet's current ~180 KB mempool may treat the 133× difference as a sizing-philosophy divergence when in fact it is a rule-conserving consequence of the Leios bearer-block size.
 **Evidence-for:**
 - `docs/phase-2/cardano-realism-audit.md` §"Fee structure and mempool sizing" disclosure-item 2
@@ -160,14 +160,14 @@ The three sub-points share a single mitigation path (none — they are inherited
 - `CLAUDE.md` §"Calibration choices" — `mempool-max-total-size-bytes = 2 × eb_referenced_txs_max_size_bytes`
 **Evidence-against:**
 - `docs/phase-2/cardano-realism-audit.md` §"Fee structure and mempool sizing" disclosure-item 2 "Defensible because" — the rule shape and overflow policy match exactly; the absolute number is a downstream consequence of CIP-0164's 12 MB EB target, not a different sizing philosophy
-**Scope-of-resolution:** TBD plan 02
-**EXP / Resolution:** TBD plan 02 (likely DISCLOSED — pre-Leios-deployment mempool sizing is not anchorable against mainnet operational data)
-**Disclosure-paragraph:** TBD plan 02
+**Scope-of-resolution:** DISCLOSED — see disclosure-paragraph below. The 133× magnitude difference (24 MB vs ~180 KB) is a rule-conserving downstream consequence of CIP-0164's 12 MB endorser-block (EB) target replacing Praos's 90 KB ranking-block (RB) as the bearer block; the simulator's cap rule `2 × one-bearer-block-bytes` is bit-equal to mainnet. No cheap test resolves a pre-Leios-deployment sizing question because no deployed Leios mempool exists to anchor against. The resolution is Cardano Improvement Proposal (CIP) disclosure that the absolute magnitude is rule-derived, not philosophy-divergent.
+**EXP / Resolution:** DISCLOSED — see disclosure-paragraph below
+**Disclosure-paragraph:** The phase-2 mempool default absolute byte cap is 24 megabytes (MB), approximately 133× larger than Cardano mainnet's current ~180 kilobyte (KB) cap. The cap *rule* is bit-equal to mainnet: `cap = 2 × one-bearer-block-bytes`, with reject-on-full overflow (no eviction of valid transactions to make room). The magnitude difference is a downstream consequence of CIP-0164 replacing Praos's 90 KB ranking-block (RB) as the bearer block with a 12 MB endorser-block (EB); the cap rule applied to the new bearer-block size produces the 24 MB cap. The phase-2 mempool sizing is therefore not a sizing-philosophy divergence from mainnet but a rule-conserving consequence of the Leios bearer-block size. No deployed-Leios operational data exists to anchor the absolute magnitude against; reviewers should treat the 24 MB cap as an inherited consequence of CIP-0164's EB target.
 
 ## RSK-max-fee-policy-default: Default actor `max_fee_policy = {4, 1}` is a forecast about wallet behaviour, not an anchor
 
 **Category:** construct
-**Verdict:** TBD plan 02 (default LIVE if ambiguous)
+**Verdict:** DISCLOSED
 **Description:** The default actor `max_fee_policy = ScaledOverLaneQuote { numerator: 4, denominator: 1 }` gives 4× quote-drift headroom on the `max_fee_lovelace` envelope. This is a forecast about post-deployment Cardano wallet conventions analogous to Ethereum's ~2× `maxFeePerGas` default; it is not measured against Cardano user behaviour because no such behaviour exists today (mainnet wallets ship at exact min-fee via `cardano-serialization-lib`). The mispriced demand profile (`paper_like_mispriced.yaml`) uses `{1, 1}` (zero headroom) for the hard-deadline component to bound the worst case where users treat phase-2 like mainnet and ship at exact min-fee.
 **Evidence-for:**
 - `docs/phase-2/cardano-realism-audit.md` §"Fee structure and mempool sizing" disclosure-item 3
@@ -175,14 +175,14 @@ The three sub-points share a single mitigation path (none — they are inherited
 - `CLAUDE.md` §"Calibration choices" — `max_fee_policy = ScaledOverLaneQuote { numerator: 4, denominator: 1 }` documented as 4× quote-drift headroom forecast
 **Evidence-against:**
 - `docs/phase-2/cardano-realism-audit.md` §"Fee structure and mempool sizing" disclosure-item 3 "Defensible because" — `paper_like_mispriced.yaml` already bounds the worst case with `{1, 1}` headroom
-**Scope-of-resolution:** TBD plan 02
-**EXP / Resolution:** TBD plan 02
-**Disclosure-paragraph:** TBD plan 02
+**Scope-of-resolution:** DISCLOSED — see disclosure-paragraph below. The `{4, 1}` default is a forecast about post-deployment Cardano wallet conventions (analogous to Ethereum's ~2× `maxFeePerGas` default), not a measurement against deployed-mainnet wallet behaviour. No mainnet behaviour exists today because deployed mainnet wallets ship at exact min-fee via `cardano-serialization-lib`. The `paper_like_mispriced.yaml` profile already bounds the worst case (hard-deadline component at `{1, 1}`, zero headroom). No cheap test resolves a forecast about not-yet-deployed wallet behaviour; the resolution is Cardano Improvement Proposal (CIP) disclosure framing welfare claims as "under this stylised wallet-headroom default".
+**EXP / Resolution:** DISCLOSED — see disclosure-paragraph below
+**Disclosure-paragraph:** The simulator's default actor `max_fee_policy` is `ScaledOverLaneQuote { numerator: 4, denominator: 1 }` — a wallet posts a `max_fee_lovelace` envelope giving approximately 4× quote-drift headroom over the current per-byte quote. This default is a forecast about post-deployment Cardano wallet behaviour analogous to Ethereum's approximate-2× `maxFeePerGas` convention, not a measurement against deployed-mainnet wallet behaviour: deployed-mainnet wallets ship at exact min-fee via `cardano-serialization-lib`, so no relevant headroom-behaviour data exists today. The worst case — wallets shipping at exact min-fee under the new mechanism — is bounded by the `paper_like_mispriced.yaml` profile, whose hard-deadline component uses `{1, 1}` (zero headroom). Welfare findings are reported under the stylised 4× wallet-headroom default; deployed-mainnet headroom behaviour may shift welfare magnitudes.
 
 ## RSK-calibration-stale-stake-snapshot: Epoch-582 stake snapshot freshness over publication horizon
 
 **Category:** external
-**Verdict:** TBD plan 02 (default LIVE if ambiguous)
+**Verdict:** LIVE
 **Description:** The `topology-realistic-100.yaml` stakes are a mass-stratified downsample of the 1,510 Cardano mainnet pools with ≥ 1k ADA active stake at epoch 582 (retrieved 2026-05-14). Over a 6-month CIP review cycle, the snapshot will be 1-2 epochs stale at submission and 4-5 epochs stale at reviewer deep-read. The calibration-fix postmortem and PROJECT.md Active item 2 (pool-number sensitivity) are the mechanism by which the snapshot's load-bearing-ness can be bounded. This is the freshness-of-snapshot risk; it is logically separate from `RSK-pool-count` (the count-sensitivity risk) and from `RSK-demand-mix-bit-calibration` (the demand-side calibration risk).
 **Evidence-for:**
 - `.planning/research/PITFALLS.md` §"CRIT-5: Calibration-stale parameters cited as current" — calibration drift over publication horizon
@@ -191,56 +191,56 @@ The three sub-points share a single mitigation path (none — they are inherited
 **Evidence-against:**
 - `.planning/spikes/006-curve-design/README.md` — top-1 stake share 1.97 %, Nakamoto coefficient 35, Gini 0.253; these summary statistics are slow-moving and unlikely to drift materially over 6 months
 - `docs/phase-2/cardano-realism-audit.md` §"What lines up with mainnet" — the rest of the calibration (RB cadence, fee floor, EB knobs from CIP-0164 Table 7) is anchored against deployed values that update on protocol-update cadence, not epoch cadence
-**Scope-of-resolution:** TBD plan 02
-**EXP / Resolution:** TBD plan 02 (likely overlaps with EXP-pool-number — if 100 ≈ 150 and the bound also holds across snapshot-epoch range, freshness is bounded)
-**Disclosure-paragraph:** TBD plan 02
+**Scope-of-resolution:** We rely on the pool-number sensitivity smoke (TEST-05) as the freshness-bound proxy: if Δ% on welfare metrics is inside the seed-Inter-Quartile-Range (seed-IQR) across 100 → 150 pools, the welfare conclusions are robust within the same-order-of-magnitude pool-count regime, which bounds the snapshot-freshness risk as well — the slow-moving summary statistics (top-1 share, Nakamoto coefficient, Gini) are not expected to drift more than the count-sensitivity itself across a 6-month review cycle. The risk is MITIGATED in aggregate iff TEST-05 lands MITIGATED. The risk remains LIVE if TEST-05 surfaces sensitivity to pool count, in which case the snapshot must be refreshed at a later epoch and the goldens regenerated before CIP publication. Outside the 100-150 pool range (including the 600-pool CIP-0164 regime), this entry remains DISCLOSED via cross-reference to the same disclosure-paragraph as `RSK-pool-count`.
+**EXP / Resolution:** EXP-pool-number (→ TEST-05) — overlap; if MITIGATED via TEST-05 across 100/150 pools, freshness is bounded for the same-order-of-magnitude regime
+**Disclosure-paragraph:** *(draft fallback; load-bearing only if TEST-05 surfaces pool-count sensitivity within the 100-150 range, in which case the snapshot's freshness becomes a separate concern)* The simulator's stake distribution is a mass-stratified downsample of the Cardano mainnet snapshot at epoch 582 (retrieved 2026-05-14 via on-chain query), rescaled linearly to total = 3 × 10^10 lovelace. Over a six-month Cardano Improvement Proposal (CIP) review cycle, the snapshot will be one to two epochs stale at submission and four to five epochs stale at reviewer deep-read. Summary statistics on which the welfare findings depend (top-1 stake share, Nakamoto coefficient, Gini) are slow-moving and unlikely to drift materially over that horizon, but the load-bearing-ness of the snapshot is bounded by the pool-number sensitivity smoke (TEST-05) at 100 versus 150 pools. The CIP author may refresh the snapshot at a later epoch and regenerate the topology via `sim-rs/scripts/generate-realistic-100-topology.py` before publication; the suite goldens flip and require regeneration via `UPDATE_GOLDENS=1` per CLAUDE.md.
 
 ## RSK-demand-mix-bit-calibration: Q1 2026 mainnet demand mix order-of-magnitude correct, not bit-calibrated
 
 **Category:** external
-**Verdict:** TBD plan 02 (default LIVE if ambiguous)
+**Verdict:** DISCLOSED
 **Description:** The actor model uses three weighted components per profile (hard-deadline arbitrage / active decentralised finance (DeFi) / patient traffic) with fixed urgency families and Poisson arrivals per phase. Demand shares are order-of-magnitude correct against the Q1 2026 mainnet transaction mix (~35 % smart-contract, ~65 % transfer; total ~30 transactions per second) but the shares are not bit-calibrated. A reviewer asking "what fraction of the welfare claim is attributable to the demand-mix calibration vs the mechanism choice?" needs the explicit "under this stylised demand mix" framing before the welfare numbers.
 **Evidence-for:**
 - `docs/phase-2/cardano-realism-audit.md` §"Topology and actor model" disclosure-item 3
 - `.planning/spikes/004-topology-and-actor-model/README.md` §Findings item 4 + §Verdict ranking item 3
 **Evidence-against:**
 - `docs/phase-2/cardano-realism-audit.md` "Defensible because" rationale — the M4 / M5 sweeps probe demand-shape sensitivity via mispriced overlays and phased congestion variants; welfare claims should be reported "under this stylised demand mix"
-**Scope-of-resolution:** TBD plan 02
-**EXP / Resolution:** TBD plan 02
-**Disclosure-paragraph:** TBD plan 02
+**Scope-of-resolution:** DISCLOSED — see disclosure-paragraph below. Bit-calibration of demand mix against mainnet would require structural demand-modelling work (transaction-stream traces partitioned by application class) that is out of scope for this milestone. The M4 / M5 sweeps already probe demand-shape sensitivity across multiple stylised profiles (paper-like moderate/realistic/congested/mispriced, sundaeswap moderate/spike), and welfare claims are reported "under this stylised demand mix" rather than as point predictions of post-deployment mainnet behaviour. No cheap test resolves a stylisation-vs-calibration gap because no ground-truth mainnet demand-mix vector exists for the post-deployment Leios + tiered-pricing regime.
+**EXP / Resolution:** DISCLOSED — see disclosure-paragraph below
+**Disclosure-paragraph:** The actor model in this Cardano Improvement Proposal (CIP)'s evidence base uses three weighted demand components per profile (hard-deadline arbitrage, active decentralised finance (DeFi), patient traffic) with fixed urgency families and Poisson arrivals per phase. Demand shares are order-of-magnitude correct against the Q1 2026 Cardano mainnet transaction mix (~35% smart-contract calls, ~65% transfers; total ~30 transactions per second), but they are not bit-calibrated against mainnet transaction streams. Welfare findings are reported under the stylised demand mix; reviewers should treat the demand-mix calibration as a structural starting-point choice rather than a tuned parameter. The M4 and M5 demand sweeps probe demand-shape sensitivity via mispriced overlays and phased congestion variants, bounding the worst-case welfare-magnitude shifts under non-canonical demand mixes.
 
 ## RSK-demand-non-stationarity: Finer-than-2-hour demand patterns (diurnal, NFT drops, governance deadlines) not modelled
 
 **Category:** external
-**Verdict:** TBD plan 02 (default LIVE if ambiguous)
+**Verdict:** DISCLOSED
 **Description:** Phase-2's `Phased` arrival-rate machinery captures order-of-2-hours stress regimes but not finer-grained demand patterns: diurnal Coordinated Universal Time (UTC) working-hours peaks, non-fungible-token (NFT) drops, governance-deadline pile-ons. The controller-drift timescale is window-length × per-block-cadence ≈ 10 minutes, faster than diurnal demand shifts, but finer patterns at the minute scale (e.g. NFT-drop concurrent demand spikes) are not exercised.
 **Evidence-for:**
 - `docs/phase-2/cardano-realism-audit.md` §"Topology and actor model" disclosure-item 5
 - `.planning/spikes/004-topology-and-actor-model/README.md` §Findings items 5–6
 **Evidence-against:**
 - `docs/phase-2/cardano-realism-audit.md` "Defensible because" rationale — controller-drift timescale is ~10 minutes (faster than diurnal); the mispriced demand profile bounds the worst-case wallet-behaviour assumptions
-**Scope-of-resolution:** TBD plan 02
-**EXP / Resolution:** TBD plan 02 (likely DISCLOSED — adding diurnal / drop patterns is non-trivial demand modelling work)
-**Disclosure-paragraph:** TBD plan 02
+**Scope-of-resolution:** DISCLOSED — see disclosure-paragraph below. Adding diurnal Coordinated Universal Time (UTC) working-hours peaks, non-fungible-token (NFT) drop spikes, and governance-deadline pile-ons would require new arrival-rate machinery and per-application demand-stream calibration, both out of scope for this milestone. The controller-drift timescale (~10 minutes; window-length × per-block-cadence = 32 × ~20 s) is faster than diurnal demand shifts, bounding the worst-case mismatch for the dominant non-stationarity regime. The resolution is Cardano Improvement Proposal (CIP) disclosure that welfare claims are reported "under stationary-Poisson-arrival-with-phased-shifts demand", not "under arbitrary diurnal or event-driven non-stationarity".
+**EXP / Resolution:** DISCLOSED — see disclosure-paragraph below
+**Disclosure-paragraph:** The actor model's arrival-rate machinery captures order-of-two-hours stress regimes via `Phased` arrival rates but does not model finer demand patterns: diurnal Coordinated Universal Time (UTC) working-hours peaks, non-fungible-token (NFT) drop spikes, governance-deadline pile-ons at the minute timescale. The controller-drift timescale (~10 simulated minutes, computed as window-length × per-block-cadence = 32 × ~20 seconds) is faster than diurnal demand shifts, bounding the controller mismatch for the dominant non-stationarity regime. Welfare findings are reported under stationary-Poisson-arrival-with-phased-shifts demand; the deployed-system controller behaviour under finer non-stationary patterns is disclosed as a scope boundary for this evidence base, with finer-grained demand modelling left as future work.
 
 ## RSK-target-inclusion-blocks-default: `target_inclusion_blocks` defaults are mechanism-induced, not mainnet-anchored
 
 **Category:** construct
-**Verdict:** TBD plan 02 (default LIVE if ambiguous)
+**Verdict:** DISCLOSED
 **Description:** The default `target_inclusion_blocks` (priority=1, standard=4) seed the actor's `LatencyEstimator` per (component, lane). Standard=4 models the expected wait when a standard transaction might sit behind several priority-only ranking blocks (RBs) — this is internal to the phase-2 mechanism, not measured on mainnet (where no priority lane exists). The observed-latency exponential-moving-average (EMA) overwrites the seed once inclusion events arrive, so the seed only shapes the first ~50 slots of actor lane choice, but the calibration choice still influences early-run lane-choice dynamics.
 **Evidence-for:**
 - `docs/phase-2/cardano-realism-audit.md` §"Topology and actor model" disclosure-item 4
 - `.planning/spikes/004-topology-and-actor-model/README.md` §"Comparison Table" row "`target_inclusion_blocks` defaults" + §Verdict ranking item 4
 **Evidence-against:**
 - `docs/phase-2/cardano-realism-audit.md` "Defensible because" rationale — observed inclusion latencies overwrite the seed once events arrive; the seed only shapes the first ~50 slots of actor lane choice
-**Scope-of-resolution:** TBD plan 02
-**EXP / Resolution:** TBD plan 02
-**Disclosure-paragraph:** TBD plan 02
+**Scope-of-resolution:** DISCLOSED — see disclosure-paragraph below. The defaults (priority=1, standard=4) are mechanism-induced (modelling expected wait behind several priority-only RBs) rather than mainnet-anchored, because deployed mainnet has no priority lane to measure against. The observed-latency exponential-moving-average (EMA) overwrites the seed once inclusion events arrive (typically within ~50 slots, i.e. ~25 simulated seconds), bounding the seed's influence to early-run dynamics. No cheap test resolves a forecast about not-yet-deployed-mechanism observed latencies; the resolution is Cardano Improvement Proposal (CIP) disclosure framing the seeded defaults as "early-run only".
+**EXP / Resolution:** DISCLOSED — see disclosure-paragraph below
+**Disclosure-paragraph:** The actor's lane-choice machinery uses a seeded `target_inclusion_blocks` per (component, lane): priority lane defaults to 1 block, standard lane defaults to 4 blocks. The standard-lane value models the expected wait when a standard transaction sits behind several priority-only ranking-block (RB)-reserved RBs — a mechanism-induced expectation, not a deployed-mainnet measurement, because deployed mainnet has no priority lane to measure against. The observed-latency exponential-moving-average (EMA) overwrites the seeded value within approximately the first 50 simulated slots (~25 simulated seconds) once inclusion events arrive, so the seed influences only early-run actor lane choice. Welfare findings are conditional on these mechanism-induced defaults; deployed-system observed-latency values will overwrite them in production but may shape early-run dynamics on a freshly-deployed mechanism.
 
 ## RSK-partition-activated-honest-producer: `partition_activated` is a producer claim, not body-derivable; byzantine-producer risk
 
 **Category:** external
-**Verdict:** TBD plan 02 (default LIVE if ambiguous)
+**Verdict:** DISCLOSED
 **Description:** The `partition_activated` bit on `LinearEndorserBlock` is a producer claim, not a property derivable from the endorser-block (EB) body. Under a multi-producer threat model with a byzantine producer, this could be mis-claimed to obtain priority service for standard-fee transactions in the same EB, undermining the ranking-block-reserved (RB-reserved) priority-only anti-bribery property. The simulator does not exercise this attack: the operational topology is multi-producer (100 nodes) but the producers are all honest by construction. A CIP-grade attacker model write-up would need either (a) to move the trigger to a body-derivable invariant (compute the bit from the priority-paying-bytes count in the EB body rather than carrying it as a producer claim), or (b) to explicitly model "honest producer" as a security assumption.
 **Evidence-for:**
 - `docs/phase-2/cardano-realism-audit.md` §"Topology and actor model" disclosure-item 2
@@ -250,14 +250,14 @@ The three sub-points share a single mitigation path (none — they are inherited
 **Evidence-against:**
 - `docs/phase-2/cardano-realism-audit.md` "Defensible because" rationale — the fix path (body-derivable `partition_activated`) is straightforward and outside phase-2's scope; the simulator's current honest-producer setting bounds the attack surface
 - `docs/phase-2/cardano-realism-audit.md` §"Recommended next steps" — body-derivable `partition_activated` is named as "outside phase-2's scope but worth flagging for a follow-on"
-**Scope-of-resolution:** TBD plan 02
-**EXP / Resolution:** TBD plan 02 (likely DISCLOSED — body-derivable refactor is out of phase-2 scope)
-**Disclosure-paragraph:** TBD plan 02
+**Scope-of-resolution:** DISCLOSED — see disclosure-paragraph below. The body-derivable `partition_activated` refactor (compute the bit from the priority-paying-bytes count in the endorser-block (EB) body rather than carrying it as a producer claim) is named in `docs/phase-2/cardano-realism-audit.md` §"Recommended next steps" as outside phase-2 scope. The simulator's current honest-producer setting bounds the attack surface for the welfare claims, but the byzantine-producer attack on RB-reserved priority anti-bribery is real and the Cardano Improvement Proposal (CIP) must disclose it as an honest-producer security assumption with a forward-pointer to the body-derivable follow-on.
+**EXP / Resolution:** DISCLOSED — see disclosure-paragraph below
+**Disclosure-paragraph:** This Cardano Improvement Proposal (CIP)'s anti-bribery property on ranking-block-reserved (RB-reserved) priority-only mechanisms holds under an honest-producer assumption. The `partition_activated` flag on each endorser block (EB) — which triggers RB-reserved priority service — is a producer claim carried on the EB header rather than a property derivable from the EB body. Under a multi-producer threat model with a byzantine producer, the flag could in principle be mis-claimed to obtain priority service for standard-fee transactions in the same EB, undermining the anti-bribery property. The simulator's evidence base runs a multi-producer topology (100 nodes) with all producers honest by construction; the byzantine-producer attack is not exercised. A follow-on refactor making `partition_activated` body-derivable (computing the bit from the priority-paying-bytes count in the EB body) is named in the realism audit's recommended next steps and is disclosed here as future work. CIP claims about RB-reserved priority-only anti-bribery should be qualified as "under honest-producer assumption, pending body-derivable `partition_activated` refactor".
 
 ## RSK-leios-spec-pre-deployment: Linear-Leios spec knobs not cross-checkable to deployed mainnet (CIP-0164 is pre-deployment)
 
 **Category:** external
-**Verdict:** TBD plan 02 (default LIVE if ambiguous)
+**Verdict:** DISCLOSED
 **Description:** Several Leios-specific knobs cite CIP-0164 Table 7 with in-yet-another-markup-language (YAML) provenance (`linear-vote-stage-length-slots = 4`, `linear-diffuse-stage-length-slots = 7`, `eb-referenced-txs-max-size-bytes = 12000000`, `eb-body-validation-cpu-time-ms-per-byte = 2.15e-5`, `n = 600`, `τ = 75 %`) but Leios is pre-deployment — none of these values are cross-checkable against deployed mainnet. The Leios Frequently Asked Questions document (RB ~20 seconds, EB ~5 seconds) corroborates the cadence shape but the magnitudes lack a deployed-system anchor.
 **Evidence-for:**
 - `docs/phase-2/cardano-realism-audit.md` §"What lines up with mainnet" final bullet — Leios-specific knobs cite CIP-0164 Table 7; none cross-checkable to deployed mainnet
@@ -265,14 +265,14 @@ The three sub-points share a single mitigation path (none — they are inherited
 **Evidence-against:**
 - `docs/phase-2/cardano-realism-audit.md` §"What lines up with mainnet" — the Leios Frequently Asked Questions document and the in-YAML provenance comments provide the closest available anchor (`CIP-0164 Table 7`)
 - The pre-deployment status applies to the Leios *substrate*, not the phase-2 *pricing-mechanism* work; phase-2's contribution is mechanism-on-top-of-Leios, and Leios-substrate maturation is out of phase-2 scope
-**Scope-of-resolution:** TBD plan 02
-**EXP / Resolution:** TBD plan 02 (likely DISCLOSED — pre-deployment limitation is inherent to building on a pre-deployment substrate)
-**Disclosure-paragraph:** TBD plan 02
+**Scope-of-resolution:** DISCLOSED — see disclosure-paragraph below. The Leios-specific knobs (`linear-vote-stage-length-slots`, `linear-diffuse-stage-length-slots`, `eb-referenced-txs-max-size-bytes`, `eb-body-validation-cpu-time-ms-per-byte`, `n`, `τ`) cite CIP-0164 Table 7 with in-YAML provenance comments, but Leios itself is pre-deployment so none of these values can be cross-checked against deployed-mainnet operational data. No cheap test resolves a pre-deployment-substrate limitation. The resolution is Cardano Improvement Proposal (CIP) disclosure that pricing-mechanism welfare claims are conditional on the Leios substrate's spec-stated parameter table, with the Leios deployment trajectory as the underlying anchor.
+**EXP / Resolution:** DISCLOSED — see disclosure-paragraph below
+**Disclosure-paragraph:** This Cardano Improvement Proposal (CIP) builds a pricing mechanism on top of the Leios substrate as specified in CIP-0164. The Leios-specific parameters (`linear-vote-stage-length-slots`, `linear-diffuse-stage-length-slots`, `eb-referenced-txs-max-size-bytes`, `eb-body-validation-cpu-time-ms-per-byte`, the cohort size `n`, the quorum threshold `τ`) cite CIP-0164 Table 7 with in-YAML provenance comments. Leios itself is pre-deployment at the time of writing; none of these values are cross-checkable against deployed-mainnet operational data. The Leios Frequently Asked Questions document (ranking-block (RB) ~20 seconds, endorser-block (EB) ~5 seconds) and CIP-0164 itself are the closest available anchors. The pricing-mechanism welfare claims are therefore conditional on the Leios substrate as specified; substrate maturation (Leios deployment, post-deployment calibration of the spec parameters) is out of scope for this evidence base and is the underlying anchor against which the welfare claims should be revisited after Leios deployment.
 
 ## RSK-multiplier-floor-4-suite-coverage: Two suites condition exclusively on `multiplier_floor = 4`
 
 **Category:** construct, external
-**Verdict:** TBD plan 02 (default LIVE if ambiguous)
+**Verdict:** LIVE
 **Description:** Two of the seven goldens-pinned suites — `phase-2-rb-scarcity.yaml` and `phase-2-urgency-inversion.yaml` — use `multiplier_floor = 4` exclusively. The validity-threats audit assigns both LOW trust. The honest answer at the spec default `multiplier_floor = 16` is that priority demand stays too thin to surface controller drift in these two suites, which is *itself* a publishable finding ("the urgency-inversion failure mode is observable only when the floor is low enough to admit medium-urgency components to priority"). The trap is shipping these two suites' conclusions without the companion x16 run, leaving the reviewer to wonder whether the qualitative finding replicates at the spec default. A `multiplier_floor = 16` companion job per LOW suite is the cheap-test path to lifting both suites to MEDIUM.
 **Evidence-for:**
 - `docs/phase-2/validity-threats.md` §"phase-2-rb-scarcity.yaml" trust rating LOW + §"phase-2-urgency-inversion.yaml" trust rating LOW
@@ -281,14 +281,14 @@ The three sub-points share a single mitigation path (none — they are inherited
 - `CLAUDE.md` §"Calibration choices" — `multiplier_floor = 4` explicit rationale
 **Evidence-against:**
 - `docs/phase-2/cardano-realism-audit.md` disclosure-item 2 "Defensible because" — five of seven suites cover the spec default 16, so the 7-suite design as a whole is robust across the floor sweep
-**Scope-of-resolution:** TBD plan 02
-**EXP / Resolution:** TBD plan 02 (likely an EXP-multiplier-floor-16-companion-run cheap test under TEST-07; see DOC-03)
-**Disclosure-paragraph:** TBD plan 02
+**Scope-of-resolution:** We run a `multiplier_floor = 16` companion job for each of `phase-2-rb-scarcity.yaml` and `phase-2-urgency-inversion.yaml` (two companion jobs total), holding all other knobs equal. We expect one of three outcomes: (a) the qualitative finding replicates at `multiplier_floor = 16` — risk MITIGATED, both suites lift from LOW to MEDIUM trust; (b) the qualitative finding is suppressed at 16 (priority demand too thin to surface controller drift) and this is itself a publishable framing — risk MITIGATED with the explicit "observable only when the floor is low enough to admit medium-urgency components to priority" disclosure; (c) the finding inverts at 16, which would surface a conditional-on-floor sensitivity needing CIP disclosure — risk remains LIVE, downgraded to DISCLOSED. The risk is MITIGATED iff the companion runs land in bucket (a) or (b); the risk remains LIVE iff bucket (c).
+**EXP / Resolution:** EXP-multiplier-floor-16-companion-run (→ TEST-07a)
+**Disclosure-paragraph:** TBD — drafted in Phase 4 if test verdict lands as DISCLOSED. The expected Phase 3 outcome (qualitative replication at `multiplier_floor = 16`, or the explicit "observable only at low floors" framing) is a MITIGATED verdict path; if TEST-07a surfaces a sign-inverting sensitivity, a fallback disclosure-paragraph is drafted at Phase 4 / DOC-03 framing the conditional-on-floor finding.
 
 ## RSK-three-seed-statistical-power: Three-seed suite default cannot license tight 95% confidence intervals
 
 **Category:** conclusion
-**Verdict:** TBD plan 02 (default LIVE if ambiguous)
+**Verdict:** LIVE
 **Description:** Every phase-2 suite runs at 3 seeds by default (`[1, 2, 3]`). Three seeds is enough to detect qualitative-direction sign flips but not enough for tight 95 % confidence intervals (CIs) on welfare-delta magnitudes. Quantitative welfare-delta claims at publication grade need either (a) re-runs at higher seed count (Phase 3's TEST-04 calibration of N = 10–20), or (b) reporting as "3-seed median, Inter-Quartile Range (IQR)" rather than as point estimates with CIs. This is the dominant conclusion-validity limit across the matrix.
 **Evidence-for:**
 - `docs/phase-2/validity-threats.md` §"Cross-cutting threats" — three-seed statistical power as the dominant conclusion-validity limit
@@ -297,42 +297,42 @@ The three sub-points share a single mitigation path (none — they are inherited
 - `.planning/research/PITFALLS.md` §"CRIT-1" — single-seed framing of the same risk for the sundaeswap smoke
 **Evidence-against:**
 - `.planning/family-b-results-table-2026-05-14.md` — the 3-seed table does report median and range, which is the appropriate framing for the seed count
-**Scope-of-resolution:** TBD plan 02
-**EXP / Resolution:** EXP-canonical-variance (→ TEST-04); overlap with EXP-sign-flip-variance (→ TEST-03) — see RSK-single-seed-precision
-**Disclosure-paragraph:** TBD plan 02
+**Scope-of-resolution:** Magnitude-level quantitative welfare claims at publication grade need re-runs at higher seed count via TEST-04 (canonical menu-item welfare cells, target N = 10) and TEST-03 (sign-flip cells, target N = 15–20). The risk is MITIGATED for welfare claims that are framed as "3-seed median with Inter-Quartile Range (IQR)" (a framing the existing 3-seed default supports). The risk remains LIVE for any CIP claim that requires a tight 95% confidence interval on a welfare delta and is not re-run at the higher seed counts; for those cells the CIP framing must use ordering-level claims with sign-coherence rather than magnitude-level claims with confidence intervals.
+**EXP / Resolution:** EXP-canonical-variance (→ TEST-04); overlap with EXP-sign-flip-variance (→ TEST-03)
+**Disclosure-paragraph:** TBD — drafted in Phase 4 if test verdict lands as DISCLOSED. Expected Phase 3 path is MITIGATED via TEST-04 re-runs at N = 10 on the canonical menu-item cells; the residual disclosure (cells reported as ordering-level rather than magnitude-level claims) is folded into `RSK-single-seed-precision`'s disclosure-paragraph above.
 
 ## RSK-unresolved-suite-claims: Four UNRESOLVED suite verdicts pending output read
 
 **Category:** conclusion
-**Verdict:** TBD plan 02 (default LIVE if ambiguous)
+**Verdict:** LIVE
 **Description:** The validity-threats audit assigns UNRESOLVED to four suites pending a single pass through their `metrics_comparison.txt` files: `phase-2-moderate-priority-only`, `phase-2-moderate-both-dynamic`, `phase-2-realistic-both-dynamic`, `phase-2-sundaeswap-both-dynamic`. Each turns on whether the observed null result (moderate-priority-only) or standard-lane drift bound (both-dynamic suites) is confirmed by output. This is the lowest-cost trust-upgrade in the matrix — a single output-read pass flips each from UNRESOLVED to a definite MEDIUM or LOW.
 **Evidence-for:**
 - `docs/phase-2/validity-threats.md` §"Aggregate trust summary" UNRESOLVED row + per-suite entries
 - `docs/phase-2/validity-threats.md` §"Recommendations to raise trust" item 2
 **Evidence-against:**
 - `docs/phase-2/validity-threats.md` §"Recommendations to raise trust" — the resolution path is explicitly low-cost ("a single pass through the `metrics_comparison.txt` files")
-**Scope-of-resolution:** TBD plan 02
-**EXP / Resolution:** TBD plan 02 (resolution is output-read in Phase 2 coverage check, not a cheap test)
-**Disclosure-paragraph:** TBD plan 02
+**Scope-of-resolution:** Phase 2's coverage-check construction includes an output-read pass over each of the four suites' `metrics_comparison.txt` files: `phase-2-moderate-priority-only`, `phase-2-moderate-both-dynamic`, `phase-2-realistic-both-dynamic`, `phase-2-sundaeswap-both-dynamic`. Each suite's verdict turns on a single observable: for `phase-2-moderate-priority-only` whether the observed null result holds at the lower-traffic profile; for the three both-dynamic suites whether standard-quote drift is bounded under realistic / spike demand. The risk is MITIGATED iff every output-read produces a definite MEDIUM or LOW verdict; the risk remains LIVE iff any output surfaces an unbounded drift or a sign-incoherent null. Per-suite verdict downgrades flow into Phase 2 coverage-check rows for those claims.
+**EXP / Resolution:** EXP-unresolved-output-read (Phase 2 coverage-check pass, not a cheap test; cross-reference REQ-COV-06)
+**Disclosure-paragraph:** TBD — drafted in Phase 4 if test verdict lands as DISCLOSED. Expected Phase 2 path is MITIGATED via the output-read pass producing definite MEDIUM or LOW verdicts; any residual disclosure (e.g. unbounded standard-quote drift) is folded into `RSK-standard-user-fee-drift-exposure`'s disclosure-paragraph below.
 
 ## RSK-standard-user-fee-drift-exposure: Both-dynamic standard-lane drift exposure under realistic / spike demand
 
 **Category:** external, construct
-**Verdict:** TBD plan 02 (default LIVE if ambiguous)
+**Verdict:** LIVE
 **Description:** Both-dynamic mechanisms (partitioned and un-partitioned) preserve the multiplier-floor invariant while exposing standard users to controller drift on the standard lane. The validity-threats audit assigns UNRESOLVED to `phase-2-{moderate,realistic,sundaeswap}-both-dynamic` precisely because the verdict turns on whether observed standard-quote drift is bounded under realistic and spike-event demand. The community concern about standard users experiencing fee surges during congestion events maps directly to this risk. The Cardano Improvement Proposal (CIP) framing for both-dynamic must explicitly cite the drift-bound (or its absence) as a load-bearing claim.
 **Evidence-for:**
 - `docs/phase-2/validity-threats.md` §"phase-2-realistic-both-dynamic.yaml" + §"phase-2-sundaeswap-both-dynamic.yaml" — UNRESOLVED verdicts conditional on drift bound
 - `docs/phase-2/validity-threats.md` §"phase-2-moderate-both-dynamic.yaml" — community-preference argument framing
 **Evidence-against:**
 - `docs/phase-2/cardano-realism-audit.md` §"Pricing-controller calibration" disclosure-item 2 — five of seven suites cover the spec default 16, bounding the drift-magnitude regime
-**Scope-of-resolution:** TBD plan 02
-**EXP / Resolution:** TBD plan 02 (output-read pass per RSK-unresolved-suite-claims; if bounded, mitigated; if unbounded, requires CIP disclosure)
-**Disclosure-paragraph:** TBD plan 02
+**Scope-of-resolution:** Resolution overlaps with `RSK-unresolved-suite-claims`: the Phase 2 coverage-check output-read on `phase-2-moderate-both-dynamic`, `phase-2-realistic-both-dynamic`, `phase-2-sundaeswap-both-dynamic` surfaces the observed standard-quote drift magnitude under each demand regime. We expect one of two outcomes: (a) drift bounded below a Cardano Improvement Proposal (CIP)-grade threshold (provisional: peak standard quote / floor ≤ 4× across the run) — risk MITIGATED, the both-dynamic mechanism is publishable with a bounded-drift framing; (b) drift unbounded or spike-amplified beyond the threshold — risk remains LIVE, escalated to DISCLOSED with explicit "standard users experience fee surge under spike demand" framing as a load-bearing trade-off.
+**EXP / Resolution:** EXP-unresolved-output-read (overlap with RSK-unresolved-suite-claims); if drift unbounded after output-read, escalate to disclosure
+**Disclosure-paragraph:** *(draft fallback; load-bearing only if Phase 2 output-read surfaces unbounded or spike-amplified standard-quote drift)* The both-dynamic mechanisms (partitioned and un-partitioned) preserve the multiplier-floor invariant between the priority and standard lanes while exposing standard-lane users to controller drift on the standard quote during congestion events. Welfare findings on both-dynamic mechanisms are reported with the observed standard-quote drift bound (peak standard quote / floor, measured across the run) cited per suite. Cardano Improvement Proposal (CIP) reviewers should treat both-dynamic standard users as subject to a fee surge proportional to the standard-quote drift bound: a publishable bounded-drift outcome makes both-dynamic preferable to single-lane Ethereum Improvement Proposal 1559 (EIP-1559) on community-preference grounds; an unbounded or spike-amplified outcome surfaces as an explicit trade-off against the standard-lane fee-stability property that ranking-block-reserved priority-only mechanisms preserve by construction.
 
 ## RSK-cross-arch-determinism: Determinism intra-architecture only; cross-architecture not proven
 
 **Category:** conclusion
-**Verdict:** TBD plan 02 (default LIVE if ambiguous)
+**Verdict:** DISCLOSED
 **Description:** Determinism is asserted intra-architecture (x86_64 / glibc as the reference build environment). The repository pins golden hashes at three layers (unit-test goldens, `experiment-suite verify`, suite-level goldens), and the pricing kernel itself is integer/rational/u128 / `libm::pow` / `libm::round` / `libm::exp` throughout — bit-stable across architectures by construction. Cross-architecture continuous integration (CI) verification is **not yet built**; the residual `f64::sqrt` site in `endorsement_window_priced_blocks` (review finding CR-1) is a small but nonzero asterisk on cross-arch reproducibility because Institute of Electrical and Electronics Engineers (IEEE) 754 does not mandate bit-exact correctly-rounded sqrt across implementations. Every CIP appearance of "deterministic" or "reproducible" must be qualified as intra-architecture; a reviewer on an Advanced RISC Machine (ARM) build (increasingly common in 2026) would otherwise get different bits and write an objection.
 **Evidence-for:**
 - `CLAUDE.md` §"Determinism scope" — cross-architecture CI verification flagged as not yet built
@@ -343,14 +343,14 @@ The three sub-points share a single mitigation path (none — they are inherited
 **Evidence-against:**
 - `CLAUDE.md` §"Determinism scope" — intra-arch determinism is pinned at three layers and is robust; the underlying math is bit-stable across architectures given identical inputs
 - The CR-1 fix (`libm::sqrt` swap) is a small one-line change that closes the only known residual
-**Scope-of-resolution:** TBD plan 02
-**EXP / Resolution:** TBD plan 02 (likely DISCLOSED — cross-arch CI is named out of scope in PROJECT.md)
-**Disclosure-paragraph:** TBD plan 02
+**Scope-of-resolution:** DISCLOSED — see disclosure-paragraph below. Cross-architecture continuous integration (CI) verification is named out of scope in `PROJECT.md`. Intra-architecture determinism on x86_64 / glibc is pinned at three layers (unit-test goldens, `experiment-suite verify`, suite-level goldens) and is robust. The CR-1 `f64::sqrt` residual in `endorsement_window_priced_blocks` is the named cross-arch site; the fix path (`libm::sqrt` swap) is small but is not in milestone scope. The resolution is Cardano Improvement Proposal (CIP) disclosure that all reproducibility claims are qualified as intra-architecture, with the residual `f64::sqrt` site named.
+**EXP / Resolution:** DISCLOSED — see disclosure-paragraph below
+**Disclosure-paragraph:** The Cardano Improvement Proposal (CIP)'s evidence base asserts intra-architectural determinism on the x86_64 / glibc reference build environment, pinned at three layers of golden hashes (unit-test goldens in `sim-rs/sim-core/src/sim/tests/`, the `experiment-suite verify` subcommand re-running each completed (job, seed) pair, and suite-level goldens in `sim-rs/parameters/phase-2-sweep/suites/.goldens/`). The pricing kernel's arithmetic is integer / rational / 128-bit unsigned (`u128`) and `libm::pow` / `libm::round` / `libm::exp` throughout — bit-stable across architectures by construction given identical inputs. Cross-architecture continuous integration (CI) verification (e.g. Advanced RISC Machine (ARM) builds, alternative C standard libraries) is not yet built; the residual `f64::sqrt` site in `endorsement_window_priced_blocks` (named in the review's critical findings as CR-1) is a small but nonzero asterisk on cross-architecture reproducibility because the Institute of Electrical and Electronics Engineers (IEEE) 754 standard does not mandate bit-exact correctly-rounded square root across implementations. Reviewers building on alternative architectures (e.g. ARM, increasingly common in 2026) may observe non-bit-identical golden hashes; all CIP claims about reproducibility should be qualified as intra-architectural pending the cross-architecture CI build-out and the `libm::sqrt` swap closing CR-1.
 
 ## RSK-admission-rejection-attribution: Gate-reject vs mempool-reject collapsed into one bool; eviction-cause attribution gap
 
 **Category:** internal
-**Verdict:** TBD plan 02 (default LIVE if ambiguous)
+**Verdict:** DISCLOSED
 **Description:** `try_add_tx_to_mempool` collapses gate-reject and mempool-reject into a single `false`, losing the rich `AdmissionRejection` enum's distinction between `InsufficientMaxFee`, `ByteCapExceeded`, and `FeeOverflow` (review finding WR-2, deferred). The metrics layer cannot distinguish "fee budget exceeded" from "byte cap exceeded" rejections — important for interpreting the sustained-overload calibration regime (~97-99 % rejection rates) and acutely relevant to `phase-2-urgency-inversion` whose whole point is attributing component-0's eviction to a specific rejection cause. The fix is a backwards-compatible addition (`AdmissionRejected { reason }` event) but needs a design pass first.
 **Evidence-for:**
 - `.planning/REVIEW.md` §"Fix Status" WR-2 row — deferred (design needed)
@@ -359,14 +359,14 @@ The three sub-points share a single mitigation path (none — they are inherited
 - `docs/phase-2/cardano-realism-audit.md` §"Topology and actor model" disclosure-item 5 (~97-99 % rejection rate framing in the broader calibration context)
 **Evidence-against:**
 - The WR-2 fix path is well-scoped (backwards-compatible event addition); not a blocker for CIP claims that do not rely on rejection-cause attribution
-**Scope-of-resolution:** TBD plan 02
-**EXP / Resolution:** TBD plan 02 (likely DISCLOSED — WR-2 deferred per REVIEW.md F3; alternatively a Phase 4 cheap follow-on)
-**Disclosure-paragraph:** TBD plan 02
+**Scope-of-resolution:** DISCLOSED — see disclosure-paragraph below. The WR-2 fix (`AdmissionRejected { reason }` event with the rich rejection enum) is deferred in `.planning/REVIEW.md` §"Fix Status" pending a design pass and is out of milestone scope. The Cardano Improvement Proposal (CIP) claims that do not rely on rejection-cause attribution (welfare totals, sign-coherence, anti-bribery) are unaffected; the claims that would benefit from attribution (sustained-overload calibration interpretation, `phase-2-urgency-inversion` component-0 eviction-cause analysis) are framed with attribution-aware caveats.
+**EXP / Resolution:** DISCLOSED — see disclosure-paragraph below
+**Disclosure-paragraph:** The simulator's mempool admission path collapses admission-gate rejection (transaction's max-fee envelope is below the current per-byte quote, or the absolute fee would overflow the unsigned 64-bit integer accumulator) and mempool-cap rejection (the mempool's byte cap is reached) into a single boolean failure indicator. The richer rejection enum (`AdmissionRejection::InsufficientMaxFee`, `ByteCapExceeded`, `FeeOverflow`) is available internally but is not surfaced as a per-event metric. A backwards-compatible event addition exposing the rejection reason is named in the codebase review as deferred work (review identifier WR-2). For Cardano Improvement Proposal (CIP) claims that depend on rejection-cause attribution — sustained-overload calibration interpretation, the `phase-2-urgency-inversion` suite's component-0 eviction analysis — reviewers should treat the rejection counts as aggregated rather than as cause-attributed; the deferred follow-on will refine these claims with per-cause counts.
 
 ## RSK-menu-collapse-to-advocacy: Welfare-only evidence collapses 4-way menu into single-option recommendation
 
 **Category:** conclusion
-**Verdict:** TBD plan 02 (default LIVE if ambiguous)
+**Verdict:** LIVE
 **Description:** The Cardano Improvement Proposal (CIP) is framed as a menu of four mechanism options (priority-only-RB-reserved, priority-only-un-reserved, both-dynamic-partitioned, both-dynamic-un-partitioned) plus a single-lane Ethereum Improvement Proposal 1559 (EIP-1559) control. Un-reserved-both-dynamic dominates on every welfare metric in the published `family-b-results-table-2026-05-14.md`. A coverage check that reports only welfare metrics turns the four-option menu into a single-recommendation CIP in disguise; the non-welfare axes (anti-bribery — formal / informal / absent, signal-source-anchoring — deployed-data / spec-open / unanchored, standard-user-fee-drift exposure — none / bounded-pending-output / unbounded, implementation complexity — chain-derived state required / per-block validity rule / both) must each be surfaced as a coverage-check column so the menu remains a menu.
 **Evidence-for:**
 - `.planning/research/PITFALLS.md` §"CRIT-2: Menu CIP collapsing into 'this is best, others suck'"
@@ -375,14 +375,14 @@ The three sub-points share a single mitigation path (none — they are inherited
 - Chung and Shi, Symposium on Discrete Algorithms (SODA) 2023 — impossibility result for joint user-incentive-compatibility, miner-incentive-compatibility, side-contract-proofness
 **Evidence-against:**
 - `.planning/research/FEATURES.md` (project skeleton) — non-welfare property dimensions are named as table-stakes for the coverage check; the coverage check is designed precisely to prevent this collapse (REQ-COV-03)
-**Scope-of-resolution:** TBD plan 02
-**EXP / Resolution:** TBD plan 02 (resolution is Phase 2 coverage check design, not a cheap test; cross-reference REQ-COV-03)
-**Disclosure-paragraph:** TBD plan 02
+**Scope-of-resolution:** Phase 2's coverage check (per REQ-COV-03) MUST include four non-welfare property columns alongside welfare claims: anti-bribery (formal under honest-producer / informal / absent), signal-source anchoring (deployed-data / spec-open / unanchored), standard-user-fee-drift exposure (none / bounded-pending-output / unbounded), implementation complexity (chain-derived state required / per-block validity rule / both). The risk is MITIGATED iff every menu-item row in the coverage check populates all four non-welfare columns with cited evidence (spec section / simulator measurement / disclosed gap) and the columns surface real menu-trade-off differences rather than just welfare advocacy. The risk remains LIVE iff the coverage check ships with welfare-only columns or with non-welfare columns whose cells are uniformly the same value across menu options (a sign the columns are decorative rather than load-bearing).
+**EXP / Resolution:** EXP-coverage-non-welfare-columns (Phase 2 coverage-check design; cross-reference REQ-COV-03)
+**Disclosure-paragraph:** TBD — drafted in Phase 4 if test verdict lands as DISCLOSED. Expected Phase 2 path is MITIGATED by including the four non-welfare property columns (anti-bribery, signal-source anchoring, standard-user-fee-drift exposure, implementation complexity) in the coverage check per REQ-COV-03; no fallback disclosure-paragraph is required if the coverage check is constructed as the requirement specifies.
 
 ## RSK-steady-state-run-length: 2000-slot run length not verified to be steady-state for every menu item
 
 **Category:** internal, conclusion
-**Verdict:** TBD plan 02 (default LIVE if ambiguous)
+**Verdict:** LIVE
 **Description:** All 19 phase-2 suites run 2000 slots (~10 minutes simulated time at 0.5 seconds per slot). With ranking-block (RB) probability 0.05 (~1 sample per 20 slots), 2000 slots yields ~100 controller updates — enough for transient response but not obviously enough for asymptotic behaviour. The Cardano Improvement Proposal (CIP) may claim long-run welfare behaviour for some menu items; the trap is shipping without verifying steady-state for each. The resolution is the run-length / steady-state validation (PROJECT.md Active item 7): one canonical job per menu option at 2× and 4× run length, comparing the second-half rolling welfare mean to the first-half rolling mean and checking the difference is inside seed-Inter-Quartile-Range (seed-IQR).
 **Evidence-for:**
 - `.planning/research/PITFALLS.md` §"MOD-2: Steady-state assumption at 2000 slots"
@@ -390,14 +390,14 @@ The three sub-points share a single mitigation path (none — they are inherited
 - `docs/phase-2/validity-threats.md` §"Cross-cutting threats" — slots: 2000 as a common cross-suite fact
 **Evidence-against:**
 - The controller-drift timescale is window-length × per-block-cadence ≈ 10 minutes (32 × ~20 seconds), comparable to the 2000-slot run; the cheap-test result is expected to confirm 2000 is sufficient for most menu items
-**Scope-of-resolution:** TBD plan 02
+**Scope-of-resolution:** We run one canonical job per menu option (priority-only-RB-reserved, priority-only-un-reserved, both-dynamic-partitioned, both-dynamic-un-partitioned = 4 jobs) at 2000 / 4000 / 8000 slots and compare the second-half welfare-per-slot rolling mean to the first-half rolling mean per run. Steady-state criterion: the per-half rolling-mean difference is inside seed-Inter-Quartile-Range (seed-IQR) of the same job. The risk is MITIGATED for menu items where the 2000-slot run satisfies the criterion. The risk remains LIVE for any menu option that fails the criterion at 2000 slots, in which case the suite default is raised to the smallest length that satisfies the criterion (4000 or 8000); goldens flip and require regeneration via `UPDATE_GOLDENS=1` per CLAUDE.md.
 **EXP / Resolution:** EXP-run-length (→ TEST-06)
-**Disclosure-paragraph:** TBD plan 02
+**Disclosure-paragraph:** TBD — drafted in Phase 4 if test verdict lands as DISCLOSED. Expected Phase 3 path is MITIGATED via TEST-06 confirming 2000 slots satisfy the steady-state criterion for most menu items, with the suite default raised for any menu option that fails; no fallback disclosure-paragraph is required unless a menu option remains non-steady-state even at 8000 slots.
 
 ## RSK-hash-diversity-policy: Hash-diversity sanity check policy (strict vs soft gate) unresolved
 
 **Category:** conclusion
-**Verdict:** TBD plan 02 (default LIVE if ambiguous)
+**Verdict:** LIVE
 **Description:** The `hash-div` column in `family-b-results-table-2026-05-14.md` records the count of distinct `pricing_event_stream.sha256` values across the seeds of a cell. Some cells report `hash-div < N_seeds`, indicating seed correlation — the cell's results reflect a structural artefact (e.g. the same node winning the ranking-block (RB) lottery in slot 0 across seeds), not a genuinely diverse sample. PITFALLS MOD-4 recommends making hash-diversity a publication gate: any cell with `hash-div < N_seeds` cannot be promoted to BACKED in the Phase 2 coverage check without re-running with different seed values (strict policy), or must be flagged inline as WEAK with annotation (soft policy). The strict policy is cleaner; the soft policy is cheaper. The decision must land before Phase 3 begins (per STATE.md open questions).
 **Evidence-for:**
 - `.planning/research/PITFALLS.md` §"MOD-4: Hash-diversity sanity check skipped"
@@ -405,28 +405,28 @@ The three sub-points share a single mitigation path (none — they are inherited
 - `.planning/family-b-results-table-2026-05-14.md` — `hash-div` column present
 **Evidence-against:**
 - The publication-grade resolution path (PSE BCa CIs at N = 10–20 per TEST-03 / TEST-04) inherently increases hash-diversity by virtue of running more seeds; the strict-vs-soft policy is consequential only for cells that do not get re-run at higher seed counts
-**Scope-of-resolution:** TBD plan 02
-**EXP / Resolution:** TBD plan 02 (policy decision before TEST-03 / TEST-04 begin; cross-reference COV-05)
-**Disclosure-paragraph:** TBD plan 02
+**Scope-of-resolution:** A policy decision lands before TEST-03 / TEST-04 begin: strict (any cell with `hash-div < N_seeds` cannot be promoted to BACKED in the coverage check without re-running with different seed values) versus soft (such cells are flagged WEAK with annotation). The risk is MITIGATED iff (a) the policy is recorded explicitly in the coverage check, (b) the COV-05 gate is applied uniformly across BACKED rows, and (c) every cell with `hash-div < N_seeds` carries either a re-run record or a WEAK annotation per the chosen policy. The risk remains LIVE iff the policy is left implicit or applied inconsistently across the coverage check.
+**EXP / Resolution:** EXP-hash-diversity-policy-decision (Phase 3 COV-05 policy gate; cross-reference REQ-COV-05)
+**Disclosure-paragraph:** TBD — drafted in Phase 4 if test verdict lands as DISCLOSED. Expected Phase 3 path is MITIGATED via the COV-05 policy decision landing as either strict (re-run failing cells) or soft (annotate as WEAK); both policies are publishable. No fallback disclosure-paragraph is required if the policy is recorded in the coverage check and applied uniformly.
 
 ## RSK-welfare-as-f64-reporting: Welfare aggregates reported as `f64`; precision boundary not surfaced
 
 **Category:** conclusion
-**Verdict:** TBD plan 02 (default LIVE if ambiguous)
+**Verdict:** DISCLOSED
 **Description:** Reporting outputs (`retained_value`, `net_utility`, `retained_value_ratio` and friends in the metrics collector) are computed and stored as 64-bit floating point (`f64`) and are subject to ~15-digit floating-point precision. Reported magnitudes should be interpreted to ≤ 3 significant figures; a reviewer who sees a welfare delta of +1.234e+10 vs +1.235e+10 may treat them as meaningfully different when they are inside `f64` reporting noise. The CLAUDE.md numeric-representation contract is explicit that these reporting outputs are `f64` and never feed back into simulation decisions, but the CIP-grade magnitude-resolution caveat is not currently surfaced in any CIP-pasteable text.
 **Evidence-for:**
 - `CLAUDE.md` §"Numeric representation contract" — reporting outputs are `f64`
 - `.planning/research/PITFALLS.md` §"MIN-2: Welfare-as-f64 reporting boundary not surfaced"
 **Evidence-against:**
 - `CLAUDE.md` §"Numeric representation contract" — reporting `f64`s never feed back into simulation decisions, so the precision boundary affects only *interpretation*, not the deterministic outputs themselves
-**Scope-of-resolution:** TBD plan 02
-**EXP / Resolution:** TBD plan 02 (likely DISCLOSED — refresh of `cardano-realism-audit.md` per DOC-01 adds the ~3-significant-figure addendum)
-**Disclosure-paragraph:** TBD plan 02
+**Scope-of-resolution:** DISCLOSED — see disclosure-paragraph below. The refresh of `cardano-realism-audit.md` (Phase 4 / DOC-01) adds a ~3-significant-figure addendum to every welfare aggregate column, and the CIP-pasteable disclosure-paragraph below makes the same boundary explicit. No cheap test resolves an `f64`-precision-of-reporting question because the simulation deterministically computes a single `f64`-precision answer per cell; the resolution is Cardano Improvement Proposal (CIP) disclosure on magnitude interpretation.
+**EXP / Resolution:** DISCLOSED — see disclosure-paragraph below
+**Disclosure-paragraph:** Welfare aggregates in this Cardano Improvement Proposal (CIP)'s evidence base (`retained_value`, `net_utility`, `retained_value_ratio`, and related summary statistics in the metrics collector) are computed and reported as 64-bit floating-point (`f64`) values, subject to approximately fifteen-digit floating-point precision. The pricing kernel itself uses integer / rational / 128-bit unsigned (`u128`) arithmetic and is bit-stable; the `f64` reporting boundary affects interpretation of magnitudes, not the deterministic simulator outputs. Reviewers should interpret welfare-delta magnitudes to no more than three significant figures: a difference between +1.234e+10 and +1.235e+10 lovelace is inside `f64` reporting noise, not a meaningful welfare difference. Ordering claims (which mechanism produces higher welfare on a given cell) are unaffected by the `f64` boundary.
 
 ## RSK-sundaeswap-demand-staleness: SundaeSwap January 2022 launch profile is a 4-year-old retail spike, not steady-state
 
 **Category:** external
-**Verdict:** TBD plan 02 (default LIVE if ambiguous)
+**Verdict:** DISCLOSED
 **Description:** The SundaeSwap January 2022 launch demand profile (`sundaeswap_moderate.yaml`) is the single most empirically-anchored demand source in phase-2 — and the Cardano Improvement Proposal (CIP) is likely to lean on it for empirical credibility. The event is now 4 years old, was a retail-frenzy spike rather than a representative steady-state, and conditioning the CIP narrative on it implicitly claims the spike *shape* is recurring or representative, which is at best unproven. The validity-threats §"phase-2-sundaeswap-singlelane" trust rating already frames this as "spike-event robustness" rather than "general behaviour under realistic demand"; the Phase 2 coverage check (per CIP-claim demand-scope) must enforce the same framing on every CIP claim that cites sundaeswap evidence.
 **Evidence-for:**
 - `.planning/research/PITFALLS.md` §"MIN-3: SundaeSwap demand-profile origin caveat under-stated"
@@ -434,10 +434,10 @@ The three sub-points share a single mitigation path (none — they are inherited
 - `docs/phase-2/cardano-realism-audit.md` §"Topology and actor model" disclosure-item 5
 **Evidence-against:**
 - `docs/phase-2/validity-threats.md` — sundaeswap is "close to HIGH on demand grounds; pulled down by window-length and topology caveats", making it among the strongest empirical anchors in the matrix
-**Scope-of-resolution:** TBD plan 02
-**EXP / Resolution:** TBD plan 02 (resolution is Phase 2 coverage-check framing per CLM-NN demand-scope column, not a cheap test)
-**Disclosure-paragraph:** TBD plan 02
+**Scope-of-resolution:** DISCLOSED — see disclosure-paragraph below. The SundaeSwap January 2022 launch is the single most empirically-anchored demand source in phase-2 but is a 4-year-old retail-frenzy spike, not a representative steady-state. The Phase 2 coverage check enforces "spike-event robustness" framing on every CIP claim citing sundaeswap evidence (per the validity-threats audit's existing framing). The Cardano Improvement Proposal (CIP) discloses that sundaeswap-anchored claims are reported as "robustness under historical retail-spike conditions" rather than "general behaviour under representative steady-state demand". No cheap test resolves a historical-event-representativeness question.
+**EXP / Resolution:** DISCLOSED — see disclosure-paragraph below
+**Disclosure-paragraph:** The SundaeSwap launch (January 2022) is the most empirically-anchored demand source in this Cardano Improvement Proposal (CIP)'s evidence base: the `sundaeswap_moderate.yaml` profile is derived from observed Cardano mainnet behaviour during the launch event. The launch is now four years old at the time of writing, and was a retail-frenzy spike event rather than a representative steady-state demand regime. Cardano Improvement Proposal (CIP) claims citing sundaeswap evidence should be framed as "robustness under historical retail-spike conditions" rather than "general behaviour under representative steady-state demand". The CIP's coverage check enforces this framing on every claim that cites sundaeswap evidence, treating the profile as a spike-event stress test rather than a baseline calibration.
 
 ---
 
-*Phase 1 inventory skeleton; 24 RSK-NN entries. Plan 01-02 finalises every `TBD plan 02` placeholder.*
+*Phase 1 register — finalised v1. All 24 RSK-NN entries carry final verdicts, scope-of-resolution, EXP-NN linkage, and disclosure-paragraphs (load-bearing for DISCLOSED entries; draft fallback for LIVE entries that may land as DISCLOSED at Phase 4).*

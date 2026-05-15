@@ -19,15 +19,15 @@ The convention `RSK-*` / `EXP-*` / `CLM-*` for in-artefact identifiers comes fro
 
 ### Realism-risks register
 
-- [ ] **REG-01** — A single `docs/phase-2/realism-risks-register.md` exists, indexing every realism risk surfaced by `cardano-realism-audit.md`, `validity-threats.md`, `.planning/codebase/CONCERNS.md`, `.planning/REVIEW.md`, `mechanism-welfare-impact-2026-05-14.md`, and the seven spike READMEs. De-duplicated. Each entry has a stable `RSK-NN` identifier, never renumbered.
+- [x] **REG-01** — A single `docs/phase-2/realism-risks-register.md` exists, indexing every realism risk surfaced by `cardano-realism-audit.md`, `validity-threats.md`, `.planning/codebase/CONCERNS.md`, `.planning/REVIEW.md`, `mechanism-welfare-impact-2026-05-14.md`, and the seven spike READMEs. De-duplicated. Each entry has a stable `RSK-NN` identifier, never renumbered.
 
-- [ ] **REG-02** — Every `RSK-NN` entry has the required fields populated: `id`, `title`, `category` (Wohlin four-fold: construct / internal / external / conclusion), `description`, `evidence-for`, `evidence-against`, `scope-of-resolution` (the explicit hypothesis the verdict must establish or refute), `verdict` (LIVE / DORMANT / MITIGATED / DISCLOSED), `disclosure-paragraph` (CIP-pasteable prose if verdict is DISCLOSED).
+- [x] **REG-02** — Every `RSK-NN` entry has the required fields populated: `id`, `title`, `category` (Wohlin four-fold: construct / internal / external / conclusion), `description`, `evidence-for`, `evidence-against`, `scope-of-resolution` (the explicit hypothesis the verdict must establish or refute), `verdict` (LIVE / DORMANT / MITIGATED / DISCLOSED), `disclosure-paragraph` (CIP-pasteable prose if verdict is DISCLOSED).
 
-- [ ] **REG-03** — Each LIVE `RSK-NN` entry is paired with at least one `EXP-NN` identifier — a placeholder for the targeted cheap test that will move it toward MITIGATED or DISCLOSED. `EXP-NN` rows do not need to be runnable yet; just named, scoped, and linked to their `RSK-NN`.
+- [x] **REG-03** — Each LIVE `RSK-NN` entry is paired with at least one `EXP-NN` identifier — a placeholder for the targeted cheap test that will move it toward MITIGATED or DISCLOSED. `EXP-NN` rows do not need to be runnable yet; just named, scoped, and linked to their `RSK-NN`.
 
-- [ ] **REG-04** — The register includes the four already-named LIVE entries from research: pool-count sensitivity (CRIT-5 mitigation track), single-seed precision (CRIT-1 mitigation track), un-anchored controller knobs window=32 / multiplier-floor 4 / multiplier-floor 16 / lane-signal-source (CRIT-3 anchor-or-disclose track), substrate scope (CRIT-4 disclose-only track).
+- [x] **REG-04** — The register includes the four already-named LIVE entries from research: pool-count sensitivity (CRIT-5 mitigation track), single-seed precision (CRIT-1 mitigation track), un-anchored controller knobs window=32 / multiplier-floor 4 / multiplier-floor 16 / lane-signal-source (CRIT-3 anchor-or-disclose track), substrate scope (CRIT-4 disclose-only track).
 
-- [ ] **REG-05** — `RSK-pool-count` carries the locked `scope-of-resolution`: "Δ% < seed-IQR of same job at 100 pools establishes MITIGATED" — the threshold decision is in the register before the test runs, not after, per PITFALLS MOD-5.
+- [x] **REG-05** — `RSK-pool-count` carries the locked `scope-of-resolution`: "Δ% < seed-IQR of same job at 100 pools establishes MITIGATED" — the threshold decision is in the register before the test runs, not after, per PITFALLS MOD-5.
 
 ### Coverage check
 
@@ -83,11 +83,11 @@ Each v1 requirement is mapped to exactly one phase in ROADMAP.md. Coverage: 25/2
 
 | REQ-ID | Phase | Status |
 |--------|-------|--------|
-| REG-01 | Phase 1: Register Inventory | Pending |
-| REG-02 | Phase 1: Register Inventory | Pending |
-| REG-03 | Phase 1: Register Inventory | Pending |
-| REG-04 | Phase 1: Register Inventory | Pending |
-| REG-05 | Phase 1: Register Inventory | Pending |
+| REG-01 | Phase 1: Register Inventory | Complete (2026-05-15) |
+| REG-02 | Phase 1: Register Inventory | Complete (2026-05-15) |
+| REG-03 | Phase 1: Register Inventory | Complete (2026-05-15) |
+| REG-04 | Phase 1: Register Inventory | Complete (2026-05-15) |
+| REG-05 | Phase 1: Register Inventory | Complete (2026-05-15) |
 | COV-01 | Phase 2: Coverage Check Skeleton | Pending |
 | COV-02 | Phase 2: Coverage Check Skeleton | Pending |
 | COV-03 | Phase 2: Coverage Check Skeleton | Pending |
@@ -137,4 +137,8 @@ None for v1. Phase-2-milestone-internal deferrals (per PROJECT.md Out of Scope) 
 
 ---
 
-*Last updated: 2026-05-15 after roadmap creation (traceability table populated)*
+*Last updated: 2026-05-15 after Phase 1 plan 02 completion (all 5 REG-NN requirements marked complete; register v1 finalised)*
+
+**Phase 1 plan 02 surfaced one new TEST sub-requirement:**
+
+- **TEST-07a** — `EXP-multiplier-floor-16-companion-run`: companion `multiplier_floor = 16` jobs for `phase-2-rb-scarcity.yaml` and `phase-2-urgency-inversion.yaml` (two jobs total), holding all other knobs equal to the existing `multiplier_floor = 4` runs. Verdict: MITIGATED iff the qualitative finding replicates at 16 (or the "observable only when floor is low enough to admit medium-urgency components to priority" framing is explicit); LIVE → DISCLOSED if the finding inverts at 16. Maps to Phase 3.

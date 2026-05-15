@@ -14,7 +14,7 @@ Granularity: standard. Five phases, 25 v1 requirements, 100% coverage.
 - Integer phases (1, 2, 3, 4, 5): planned milestone work
 - Decimal phases (e.g. 2.1): urgent insertions (marked with INSERTED)
 
-- [ ] **Phase 1: Register Inventory** - Build the realism-risks register that disciplines every downstream test
+- [x] **Phase 1: Register Inventory** - Build the realism-risks register that disciplines every downstream test (completed 2026-05-15)
 - [ ] **Phase 2: Coverage Check Skeleton** - Map menu-item trade-off claims to backing simulator jobs, surface gaps
 - [ ] **Phase 3: Targeted Cheap Tests** - Resolve Live risks via paired-bootstrap variance bands, pool-number sensitivity, run-length validation
 - [ ] **Phase 4: Refresh and Anchor** - Refresh authoritative audit documents and anchor or disclose the four un-anchored controller knobs
@@ -35,10 +35,10 @@ Granularity: standard. Five phases, 25 v1 requirements, 100% coverage.
 **Plans:** 2 plans
 Plans:
 **Wave 1**
-- [ ] 01-01-PLAN.md — Inventory pass and register skeleton: cluster ~20–30 thematic RSK-NN entries from the six source documents and seven spike READMEs, populate descriptive fields, mark judgement fields TBD plan 02
+- [x] 01-01-PLAN.md — Inventory pass and register skeleton: cluster ~20–30 thematic RSK-NN entries from the six source documents and seven spike READMEs, populate descriptive fields, mark judgement fields TBD plan 02 (completed 2026-05-15)
 
 **Wave 2** *(blocked on Wave 1 completion)*
-- [ ] 01-02-PLAN.md — Finalise verdicts, scope-of-resolution, EXP-NN cross-references, and CIP-pasteable disclosure-paragraphs; verify register consistency
+- [x] 01-02-PLAN.md — Finalise verdicts, scope-of-resolution, EXP-NN cross-references, and CIP-pasteable disclosure-paragraphs; verify register consistency (completed 2026-05-15)
 
 ### Phase 2: Coverage Check Skeleton
 **Goal**: A coverage check exists that maps every menu-item trade-off claim the Cardano Improvement Proposal (CIP) will make to a specific backing simulator job, including non-welfare property columns that keep the menu a menu, with gaps surfaced as `UNBACKED` rows that prioritise Phase 3 work.
@@ -94,7 +94,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Register Inventory | 0/2 | Not started | - |
+| 1. Register Inventory | 2/2 | Complete | 2026-05-15 |
 | 2. Coverage Check Skeleton | 0/TBD | Not started | - |
 | 3. Targeted Cheap Tests | 0/TBD | Not started | - |
 | 4. Refresh and Anchor | 0/TBD | Not started | - |

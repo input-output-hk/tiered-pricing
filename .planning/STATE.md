@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Phase 1 context gathered
-last_updated: "2026-05-15T12:13:38.287Z"
-last_activity: 2026-05-15 -- Phase 1 execution started
+stopped_at: Phase 1 plan 02 completed; Phase 1 complete
+last_updated: "2026-05-15T13:30:00.000Z"
+last_activity: 2026-05-15 -- Phase 1 plan 02 completed (realism-risks register v1 finalised)
 progress:
   total_phases: 5
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 2
-  completed_plans: 0
-  percent: 0
+  completed_plans: 2
+  percent: 20
 ---
 
 # Project State
@@ -25,31 +25,31 @@ See: .planning/PROJECT.md (updated 2026-05-15)
 
 ## Current Position
 
-Phase: 1 (Register Inventory) — EXECUTING
-Plan: 1 of 2
-Status: Executing Phase 1
-Last activity: 2026-05-15 -- Phase 1 execution started
+Phase: 1 (Register Inventory) — COMPLETE
+Plan: 2 of 2 completed
+Status: Phase 1 complete; ready to begin Phase 2 (Coverage Check Skeleton)
+Last activity: 2026-05-15 -- Phase 1 plan 02 completed (realism-risks register v1 finalised)
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [██░░░░░░░░] 20%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 0
-- Average duration: —
-- Total execution time: —
+- Total plans completed: 2
+- Average duration: ~30 min
+- Total execution time: ~1 hour
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| — | — | — | — |
+| 1. Register Inventory | 2 | ~1h | ~30 min |
 
 **Recent Trend:**
 
-- Last 5 plans: —
-- Trend: —
+- Last 5 plans: 01-01 (~30 min), 01-02 (~30 min)
+- Trend: stable execution duration; both plans documentation-only
 
 *Updated after each plan completion*
 
@@ -66,6 +66,10 @@ Recent decisions affecting current work:
 - Milestone init: EIP-1559 demoted from menu to control-only, per research-stakeholder request
 - Milestone init: 600-pool CIP-0164 migration superseded by the cheaper sensitivity test; M6 plan stays in tree as contingency
 - 2026-05-14: Family B (chain-derived EIP-1559-faithful controller) committed for publication
+- Phase 1 / plan 02: register v1 verdict distribution = 12 LIVE + 12 DISCLOSED (no DORMANT, no MITIGATED in v1); MITIGATED reserved until Phase 3 test results land
+- Phase 1 / plan 02: substrate-scope verdict is LIVE-going-to-DISCLOSED (Phase 4 / DOC-01 flips it after the disclosure-paragraph folds into the refreshed audit)
+- Phase 1 / plan 02: three new EXP-NN slugs surfaced — EXP-unresolved-output-read (Phase 2 / COV-06), EXP-coverage-non-welfare-columns (Phase 2 / COV-03), EXP-hash-diversity-policy-decision (Phase 3 / COV-05); none requires a new TEST-NN sub-requirement
+- Phase 1 / plan 02: one new TEST sub-requirement surfaced — TEST-07a (EXP-multiplier-floor-16-companion-run) for Phase 3
 
 ### Pending Todos
 
@@ -94,6 +98,6 @@ Items acknowledged and carried forward from previous milestone close (see PROJEC
 
 ## Session Continuity
 
-Last session: 2026-05-15T11:24:35.407Z
-Stopped at: Phase 1 context gathered
-Resume file: .planning/phases/01-register-inventory/01-CONTEXT.md
+Last session: 2026-05-15T13:30:00.000Z
+Stopped at: Phase 1 complete (plans 01-01 and 01-02 done); ready to begin Phase 2 (Coverage Check Skeleton)
+Resume file: .planning/phases/01-register-inventory/01-02-SUMMARY.md (final phase artefact); Phase 2 begins with context-gathering for `docs/phase-2/coverage-check.md`

@@ -1,51 +1,58 @@
 #!/usr/bin/env python3
 """
-Phase-2 100-node mainnet-faithful topology generator (one-shot).
+Phase-2/3 mainnet-faithful topology generator.
 
-Output: parameters/phase-2-sweep/topology-realistic-100.yaml
+Two modes, selected at the command line:
 
-Method (spike 006, Option 1 — mass-stratified downsample):
-  1. Query the Cardano mainnet on-chain pool_list view
-     (active_stake>0 order=active_stake.desc) via the public
-     on-chain API at https://api.koios.rest/... — two pages of
-     1,000 rows, stable secondary sort by pool_id_bech32.asc,
-     deduplicate.
-  2. Filter to active_stake >= 1_000_000_000 lovelace (>= 1k ADA) —
-     this is mainnet's "active body" of 1,510 pools (per spike 006,
-     epoch 582 snapshot).
-  3. Sort descending by active_stake. Build cumulative-mass array.
-     For i in [0, 100), pick the rank whose cumulative stake crosses
-     (i + 0.5) / 100 * total_mass via bisect.
-  4. Sort the 100 sampled stakes descending. Rescale linearly to
-     total = 3 * 10^10 lovelace (matches topology-cip-realistic.yaml).
-     Pin the residual onto the smallest pool to make sum exact.
-  5. Load topology.default.yaml (100 nodes node-0..node-99). Replace
-     each node's `stake:` field. Assign stakes in descending order:
-     node-0 receives the largest, node-99 the smallest. Mirrors
-     topology-cip-realistic.yaml's pool-000-largest convention.
-  6. Add tx-generation-weight: 1 to node-0 (the largest-stake node).
-  7. Confirm min(stake) * 0.05 >= 100 (lottery-quantization check).
+  python3 scripts/generate-realistic-100-topology.py
+      → emit parameters/phase-2-sweep/topology-realistic-150.yaml
+        (default — extends the committed 100-pool YAML to 150 nodes
+        via mass-stratified resampling + Gaussian-jittered template clones)
 
-Run from sim-rs/:
-  python3 scripts/generate-realistic-100-topology.py \\
-      > parameters/phase-2-sweep/topology-realistic-100.yaml
+  python3 scripts/generate-realistic-100-topology.py --regenerate-100
+      → fetch a fresh Koios snapshot and re-emit topology-realistic-100.yaml
+        to stdout. WARNING: hits a live API; produces a topology that may
+        drift from the committed epoch-582 snapshot. Run only when
+        explicitly re-pinning the M5 goldens.
 
-The generator is deterministic given the same on-chain snapshot. The
-bisect-on-cumsum sampling rule is closed-form (no RNG). Re-running
-at a later epoch yields a *different* topology because the mainnet
-on-chain state has drifted; date-stamp the YAML header accordingly.
+The default path (150-node emission) is deterministic and reproducible
+from in-tree data alone — it reads the committed topology-realistic-100.yaml
+as the canonical witness of the epoch-582 mainnet distribution and never
+calls Koios. Re-running with the same arguments produces a bit-identical
+topology-realistic-150.yaml.
 
-**The committed YAML is canonical**; this generator is committed
-alongside as the source of truth for the topology shape but the YAML
-is what the simulator reads. Treat the YAML as a checked-in artifact,
-not a build product.
+Design (Phase-3 / TEST-05 prerequisite, CONTEXT.md D-28..D-30):
+  1. Read topology-realistic-100.yaml's 100 stakes as the "body"
+     (mass-stratified downsample of the 1,510-pool mainnet body at
+     epoch 582; carries the empirical distribution shape).
+  2. Mass-stratified-downsample that 100-element body to 150 buckets
+     via cumulative-sum bisect ( (i + 0.5) / 150 * total_mass ).
+  3. Rescale linearly to total = 3e10 lovelace; pin residual onto
+     the smallest pool. Lottery-quantization assert at the end.
+  4. node-0..node-99: copy structure from the committed YAML, override
+     `stake:` with the rescaled value for rank i.
+  5. node-100..node-149: pick a random template node from node-0..node-99
+     (uniform over the 100 base nodes, seeded by jitter_seed + i),
+     deepcopy its location + producers + bandwidth, perturb each
+     producer's latency-ms by a Gaussian factor with mean=1.0,
+     SD=jitter_sd_pct/100. Drop tx-generation-weight on extras.
+  6. YAML emission with header documenting jitter seed/SD, recipe,
+     epoch-582 snapshot reference, lottery-quantization margin.
+
+Per-extra determinism: each i in [100, 150) uses random.Random(
+jitter_seed + i) so the jittered values are reproducible even if the
+order of iteration changes.
 """
 
+import argparse
+import copy
 import json
+import random
 import sys
 import urllib.request
 from bisect import bisect_left
 from datetime import date
+from pathlib import Path
 
 import yaml
 
@@ -59,10 +66,10 @@ KOIOS_EPOCH_INFO = (
     "?_include_next_epoch=false&limit=1"
 )
 BODY_FLOOR_LOVELACE = 1_000_000_000  # 1k ADA
-N_NODES = 100
 TOTAL_STAKE = 30_000_000_000  # 3e10 lovelace, matches cip-realistic
 RB_GENERATION_PROBABILITY = 0.05
 LOTTERY_FLOOR = 100  # stake * rb-prob must be >= 100 to avoid u64 trunc to 0
+SNAPSHOT_EPOCH = 582  # epoch-582 mainnet snapshot, retrieved 2026-05-14
 
 
 def fetch_json(url: str) -> list:
@@ -87,7 +94,11 @@ def pull_koios_snapshot() -> tuple[list[int], int, int]:
             seen.add(r["pool_id_bech32"])
             rows.append(r)
 
-    body = [int(r["active_stake"]) for r in rows if int(r["active_stake"]) >= BODY_FLOOR_LOVELACE]
+    body = [
+        int(r["active_stake"])
+        for r in rows
+        if int(r["active_stake"]) >= BODY_FLOOR_LOVELACE
+    ]
     body.sort(reverse=True)
     return body, epoch_no, total_active
 
@@ -97,7 +108,6 @@ def mass_stratified_downsample(stakes_desc: list[int], n_buckets: int) -> list[i
     (i + 0.5) / n_buckets * total_mass, for i in [0, n_buckets).
     Returns sampled stakes sorted descending."""
     total = sum(stakes_desc)
-    # Build cumulative-mass array over the descending-sorted body.
     cum = []
     running = 0
     for s in stakes_desc:
@@ -124,31 +134,165 @@ def rescale_to_total(stakes_desc: list[int], target_total: int) -> list[int]:
     return rescaled
 
 
-def main() -> None:
-    body, epoch_no, total_active = pull_koios_snapshot()
+def jitter_clone(
+    template: dict, stake: int, jitter_seed: int, jitter_sd_pct: float
+) -> dict:
+    """Deepcopy `template`, set its stake, perturb each producer's
+    latency-ms by a Gaussian factor (mean=1.0, SD=jitter_sd_pct/100).
+    Determinism: a separate random.Random(jitter_seed) instance per
+    extra so iteration order doesn't matter."""
+    rng = random.Random(jitter_seed)
+    new_node = copy.deepcopy(template)
+    new_node["stake"] = stake
+    new_node.pop("tx-generation-weight", None)  # only node-0 generates txs
+    if "producers" in new_node:
+        for prod_attrs in new_node["producers"].values():
+            if "latency-ms" in prod_attrs:
+                factor = rng.gauss(1.0, jitter_sd_pct / 100.0)
+                # Floor at 0.1 ms so a degenerate negative-factor draw can't yield
+                # a non-physical latency. SD=7% makes this practically unreachable.
+                prod_attrs["latency-ms"] = max(0.1, float(prod_attrs["latency-ms"]) * factor)
+    return new_node
 
-    sampled = mass_stratified_downsample(body, N_NODES)
+
+def emit_150_from_committed_100(
+    base_path: Path,
+    out_path: Path,
+    jitter_seed: int = 582,
+    jitter_sd_pct: float = 7.0,
+) -> None:
+    """Read base_path (topology-realistic-100.yaml), extend to 150 nodes
+    via mass-stratified resampling + Gaussian-jittered template clones,
+    write out_path."""
+    with open(base_path) as fh:
+        base = yaml.safe_load(fh)
+    base_nodes = base["nodes"]
+    base_names = sorted(base_nodes.keys(), key=lambda n: int(n.split("-")[1]))
+    assert len(base_names) == 100, f"expected 100 base nodes, got {len(base_names)}"
+    base_stakes_desc = sorted(
+        (base_nodes[n]["stake"] for n in base_names), reverse=True
+    )
+
+    # Mass-stratified downsample the 100-element body to 150 buckets.
+    sampled = mass_stratified_downsample(base_stakes_desc, 150)
     stakes = rescale_to_total(sampled, TOTAL_STAKE)
-    assert len(stakes) == N_NODES
+    assert stakes == sorted(stakes, reverse=True)
+
+    # node-0..node-99: keep template structure, override stake by rank.
+    new_nodes: dict = {}
+    for i, name in enumerate(base_names):
+        node = copy.deepcopy(base_nodes[name])
+        node["stake"] = stakes[i]
+        new_nodes[name] = node
+
+    # node-100..node-149: jitter-clone from a uniformly-sampled base template.
+    master_rng = random.Random(jitter_seed)
+    for i in range(50):
+        idx = 100 + i
+        new_name = f"node-{idx}"
+        template_name = master_rng.choice(base_names)
+        template = base_nodes[template_name]
+        new_nodes[new_name] = jitter_clone(
+            template,
+            stake=stakes[idx],
+            jitter_seed=jitter_seed + idx,
+            jitter_sd_pct=jitter_sd_pct,
+        )
+
+    assert len(new_nodes) == 150
+    min_stake = min(stakes)
+    lottery_margin = min_stake * RB_GENERATION_PROBABILITY
+    assert lottery_margin >= LOTTERY_FLOOR, (
+        f"lottery-quantization fail at N=150: min_stake={min_stake} "
+        f"* rb_prob={RB_GENERATION_PROBABILITY} = {lottery_margin:.1f} < {LOTTERY_FLOOR}"
+    )
+
+    cumulative = 0
+    nak = 0
+    for s in stakes:
+        cumulative += s
+        nak += 1
+        if cumulative >= TOTAL_STAKE / 2:
+            break
+    top1_share = stakes[0] * 100.0 / TOTAL_STAKE
+
+    header = (
+        "# Phase-3 150-node mainnet-faithful topology (extension of the 100-node\n"
+        "# Option 1 mass-stratified topology from spike 006).\n"
+        "#\n"
+        "# Generated by sim-rs/scripts/generate-realistic-100-topology.py from\n"
+        "# parameters/phase-2-sweep/topology-realistic-100.yaml (the canonical\n"
+        f"# witness of the Cardano mainnet on-chain snapshot at epoch {SNAPSHOT_EPOCH},\n"
+        "# retrieved 2026-05-14).\n"
+        "#\n"
+        "# This generator runs without network access — it reads the committed\n"
+        "# 100-node YAML as input. The mass-stratified downsample at N=150\n"
+        "# treats the 100 base stakes as the body distribution. Reproducible\n"
+        "# bit-for-bit on re-run given the same base file and CLI arguments.\n"
+        "#\n"
+        "# Reproduction recipe:\n"
+        "#   python3 sim-rs/scripts/generate-realistic-100-topology.py\n"
+        "#       --jitter-seed 582 --jitter-sd-pct 7.0\n"
+        "#       --base parameters/phase-2-sweep/topology-realistic-100.yaml\n"
+        "#       --out  parameters/phase-2-sweep/topology-realistic-150.yaml\n"
+        "#\n"
+        f"# Snapshot:           epoch-{SNAPSHOT_EPOCH} (mainnet, retrieved 2026-05-14)\n"
+        f"# Total stake:        {TOTAL_STAKE} lovelace (matches topology-realistic-100.yaml)\n"
+        f"# Per-pool average:   {TOTAL_STAKE // 150} lovelace (3e10/150; drops from 3e10/100 by design — CONTEXT.md D-30)\n"
+        f"# Top-1 share:        {top1_share:.2f}%\n"
+        f"# Nakamoto coefficient: {nak} (50% of distribution total)\n"
+        f"# Min stake:          {min_stake} lovelace\n"
+        f"# Lottery-quant check: min * rb-prob ({RB_GENERATION_PROBABILITY}) = {lottery_margin:.0f} (>= {LOTTERY_FLOOR}, passes)\n"
+        "#\n"
+        "# Extras methodology (node-100..node-149 are template-cloned + Gaussian-perturbed):\n"
+        f"#   - jitter_seed:       582 (= epoch number)\n"
+        f"#   - jitter_sd_pct:     7.0% (midpoint of CONTEXT.md D-29's ±5-10% range)\n"
+        "#   - per-extra random.Random(jitter_seed + i) instance for determinism\n"
+        "#   - latency-ms perturbed by Gaussian(mean=1.0, SD=0.07), floored at 0.1 ms\n"
+        "#   - location, bandwidth-bytes-per-second, producer set: copied verbatim\n"
+        "#     from a uniformly-sampled base template node (no jitter on these)\n"
+        "#   - tx-generation-weight dropped on extras (only node-0 generates txs)\n"
+        "#\n"
+        "# DO NOT HAND-EDIT. This YAML is reproducible from the recipe above; the\n"
+        "# generator is the source of truth. See CONTEXT.md D-28/D-29/D-30 for\n"
+        "# the design rationale and CLAUDE.md Calibration choices for operational\n"
+        "# implications. The 150-node topology is the TEST-05 input (pool-number\n"
+        "# sensitivity test). Phase-3 suites are NOT goldens-pinned, so re-running\n"
+        "# this generator does not invalidate M5 suite goldens.\n"
+    )
+
+    out = dict(base)
+    out["nodes"] = new_nodes
+    with open(out_path, "w") as fh:
+        fh.write(header)
+        yaml.safe_dump(out, fh, sort_keys=True, default_flow_style=False)
+
+
+def regenerate_100_from_koios() -> None:
+    """Original Phase-2 100-node generator. Fetches Koios live and writes
+    to stdout. Preserved for completeness; re-running this AT A LATER
+    EPOCH drifts away from the committed topology-realistic-100.yaml
+    and requires a full M5 goldens re-pinning. Cardano Improvement
+    Proposal (CIP) evidence work in Phase-3 uses the committed 100-node
+    YAML as-is.
+    """
+    body, epoch_no, total_active = pull_koios_snapshot()
+    sampled = mass_stratified_downsample(body, 100)
+    stakes = rescale_to_total(sampled, TOTAL_STAKE)
+    assert len(stakes) == 100
     assert stakes == sorted(stakes, reverse=True)
     assert stakes[-1] * RB_GENERATION_PROBABILITY >= LOTTERY_FLOOR, (
         f"smallest stake {stakes[-1]} truncates target_vrf_stake below {LOTTERY_FLOOR}"
     )
 
-    # Load the canonical topology.default.yaml structure.
     with open("parameters/topology.default.yaml", "r") as fh:
         topo = yaml.safe_load(fh)
 
     node_names = sorted(topo["nodes"].keys(), key=lambda n: int(n.split("-")[1]))
-    assert len(node_names) == N_NODES
-    # node-0 receives the largest stake (stakes[0]); node-99 the smallest.
+    assert len(node_names) == 100
     for i, name in enumerate(node_names):
         topo["nodes"][name]["stake"] = stakes[i]
 
-    # Tx-generation source: node-0 (the largest stake), mirroring
-    # topology-cip-realistic.yaml's "largest stake is the source"
-    # convention. Only added if topology.default.yaml doesn't already
-    # carry one or more tx-generation-weight fields.
     already_has_txgen = any(
         "tx-generation-weight" in n for n in topo["nodes"].values()
     )
@@ -207,6 +351,54 @@ def main() -> None:
         sort_keys=True,
         default_flow_style=False,
     )
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Mainnet-faithful topology generator (100 or 150 nodes)."
+    )
+    parser.add_argument(
+        "--regenerate-100",
+        action="store_true",
+        help="Hit Koios live and re-emit topology-realistic-100.yaml to stdout. "
+        "Drifts from the committed epoch-582 snapshot; requires M5 goldens re-pinning.",
+    )
+    parser.add_argument(
+        "--base",
+        type=Path,
+        default=Path("parameters/phase-2-sweep/topology-realistic-100.yaml"),
+        help="Path to the committed 100-node topology YAML (input to 150-node generation).",
+    )
+    parser.add_argument(
+        "--out",
+        type=Path,
+        default=Path("parameters/phase-2-sweep/topology-realistic-150.yaml"),
+        help="Output path for the 150-node topology YAML.",
+    )
+    parser.add_argument(
+        "--jitter-seed",
+        type=int,
+        default=582,
+        help="Master RNG seed for the 50 extras (default: 582 = snapshot epoch).",
+    )
+    parser.add_argument(
+        "--jitter-sd-pct",
+        type=float,
+        default=7.0,
+        help="Standard deviation of per-producer latency-ms Gaussian factor, in percent (default: 7.0).",
+    )
+    args = parser.parse_args()
+
+    if args.regenerate_100:
+        regenerate_100_from_koios()
+    else:
+        emit_150_from_committed_100(
+            base_path=args.base,
+            out_path=args.out,
+            jitter_seed=args.jitter_seed,
+            jitter_sd_pct=args.jitter_sd_pct,
+        )
+        print(f"Wrote {args.out}", file=sys.stderr)
 
 
 if __name__ == "__main__":

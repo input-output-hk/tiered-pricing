@@ -20,6 +20,8 @@
 pub mod collector;
 pub mod comparison;
 pub mod diagnostics;
+pub mod paired_bootstrap;
 pub mod time_series;
 
 pub use collector::{ComponentSummary, MetricsCollector, RunSummary};
+pub use paired_bootstrap::{CiResult, DeltaSummary, paired_bca_ci, paired_delta_summary};

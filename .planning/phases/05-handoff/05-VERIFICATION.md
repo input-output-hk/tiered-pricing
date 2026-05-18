@@ -20,13 +20,13 @@ This verification record audits the Phase 5 close-state against the three ROADMA
 
 ## Success Criteria — Goal-Backward Verification
 
-### Criterion 1 (HAND-01): docs/phase-2/cip-author-summary.md exists with paste targets, CLM citations, pinned references
+### Criterion 1 (HAND-01): cip-evidence/cip-author-summary.md exists with paste targets, CLM citations, pinned references
 
 **Verdict:** PASS.
 
 **Evidence:**
 
-- File exists at `docs/phase-2/cip-author-summary.md` (258 lines).
+- File exists at `cip-evidence/cip-author-summary.md` (258 lines).
 - Five `## CIP Section: …` subsections present (Methodology, Calibration, Trust matrix, Evidence, Limitations).
 - Paste-target table at top with one row per CIP section + Inline/Reference treatment column.
 - Six headline CIP claims in §"Headline CIP claim list", each with backing CLM-NN row(s) and Bias-corrected and accelerated (BCa) 95% Confidence Interval (CI) numerics.
@@ -38,15 +38,15 @@ This verification record audits the Phase 5 close-state against the three ROADMA
 **Automated check (from Plan 05-03 verify command):**
 
 ```
-$ wc -l docs/phase-2/cip-author-summary.md
+$ wc -l cip-evidence/cip-author-summary.md
 258                                                                  # within 250-550 tolerance
-$ grep -cF 'CIP Section:' docs/phase-2/cip-author-summary.md
+$ grep -cF 'CIP Section:' cip-evidence/cip-author-summary.md
 5                                                                    # five CIP sections present
-$ grep -cE '^> \*\*Headline Claim' docs/phase-2/cip-author-summary.md
+$ grep -cE '^> \*\*Headline Claim' cip-evidence/cip-author-summary.md
 6                                                                    # six headline claims (within 4-8 per D-46)
-$ grep -oE 'CLM-0[5-9]|CLM-1[0-3]' docs/phase-2/cip-author-summary.md | sort -u | wc -l
+$ grep -oE 'CLM-0[5-9]|CLM-1[0-3]' cip-evidence/cip-author-summary.md | sort -u | wc -l
 9                                                                    # CLM-05..13 all cited
-$ grep -cF 'phase-2-cip-evidence-v1' docs/phase-2/cip-author-summary.md
+$ grep -cF 'phase-2-cip-evidence-v1' cip-evidence/cip-author-summary.md
 6                                                                    # tag referenced throughout pinned-references block
 ```
 
@@ -56,8 +56,8 @@ $ grep -cF 'phase-2-cip-evidence-v1' docs/phase-2/cip-author-summary.md
 
 **Evidence:**
 
-- `.planning/phases/05-handoff/verify-consistency.sh` exists (436 lines), bash + grep + awk + sed only, executable, syntactically clean (`bash -n` exit 0).
-- `.planning/phases/05-handoff/05-CONSISTENCY-REPORT.md` exists (202 lines; Plan 05-02 baseline 141 + Plan 05-03 post-summary appendix).
+- `cip-evidence/consistency-audit/verify-consistency.sh` exists (436 lines), bash + grep + awk + sed only, executable, syntactically clean (`bash -n` exit 0).
+- `cip-evidence/consistency-audit/CONSISTENCY-REPORT.md` exists (202 lines; Plan 05-02 baseline 141 + Plan 05-03 post-summary appendix).
 - Final script run reports OVERALL: PASS:
   - Check (i) RSK-NN / CLM-NN / EXP-NN dead-reference scan: 237 references scanned, 0 dead. PASS.
   - Check (ii) backing-job path resolution: 25 (suite, job) pairs checked, all 25 resolved against the suite YAML files' `jobs:` blocks. PASS.
@@ -68,7 +68,7 @@ $ grep -cF 'phase-2-cip-evidence-v1' docs/phase-2/cip-author-summary.md
 **Automated check (from Plan 05-03 verify command + plan acceptance criteria):**
 
 ```
-$ bash .planning/phases/05-handoff/verify-consistency.sh > /tmp/final.out 2>&1; echo "exit: $?"
+$ bash cip-evidence/consistency-audit/verify-consistency.sh > /tmp/final.out 2>&1; echo "exit: $?"
 exit: 0
 $ tail -8 /tmp/final.out
 === SUMMARY ===
@@ -78,7 +78,7 @@ Check (iii) golden-sha256 matches:            PASS
 Check (iv)  markdown link resolution:         PASS
 
 OVERALL: PASS
-$ wc -l .planning/phases/05-handoff/05-CONSISTENCY-REPORT.md
+$ wc -l cip-evidence/consistency-audit/CONSISTENCY-REPORT.md
 202                                                                  # within 150-280 tolerance
 ```
 
@@ -89,8 +89,8 @@ $ wc -l .planning/phases/05-handoff/05-CONSISTENCY-REPORT.md
 **Evidence:**
 
 - The tag `phase-2-cip-evidence-v1` has not yet been applied at this verification's commit (88f84f5…). The user runs the tag per the don't-auto-commit user-memory + CONTEXT.md HAND-03 Claude's-Discretion + Plan 05-03 Task 3 checkpoint.
-- The full step-by-step recipe is at `docs/phase-2/cip-author-summary.md` §"HAND-03 execution note" (seven steps: resolve commit SHA → run `git tag -a` with embedded message draft → confirm tag landed → optional `git push origin` → swap `(tag pending: ...)` placeholder for `Tag applied: …` annotation → re-run `verify-consistency.sh` → append tag-application line to `05-CONSISTENCY-REPORT.md` §"Post-Plan-05-03 verification").
-- The annotated tag-message draft (~12 lines) is embedded verbatim in `docs/phase-2/cip-author-summary.md` §"Tag message draft" and is ready to paste.
+- The full step-by-step recipe is at `cip-evidence/cip-author-summary.md` §"HAND-03 execution note" (seven steps: resolve commit SHA → run `git tag -a` with embedded message draft → confirm tag landed → optional `git push origin` → swap `(tag pending: ...)` placeholder for `Tag applied: …` annotation → re-run `verify-consistency.sh` → append tag-application line to `05-CONSISTENCY-REPORT.md` §"Post-Plan-05-03 verification").
+- The annotated tag-message draft (~12 lines) is embedded verbatim in `cip-evidence/cip-author-summary.md` §"Tag message draft" and is ready to paste.
 
 **Note:** Per the user-memory `feedback_no_commits.md` ("Don't auto-commit — leave staged/unstaged changes for the user to commit themselves; skip commit/tag steps even when plans include them"), this verifier intentionally does not apply the tag. The phase is otherwise complete; the tag application is a single user-action that turns the Phase 5 close state into a citable reference.
 
@@ -104,7 +104,7 @@ $ wc -l .planning/phases/05-handoff/05-CONSISTENCY-REPORT.md
 
 ## Out-of-scope items confirmed deferred
 
-The six explicitly out-of-scope items in `docs/phase-2/cip-author-summary.md` §"What is NOT in this evidence base" remain deferred per `.planning/PROJECT.md` §"Out of Scope":
+The six explicitly out-of-scope items in `cip-evidence/cip-author-summary.md` §"What is NOT in this evidence base" remain deferred per `.planning/PROJECT.md` §"Out of Scope":
 
 1. The Cardano Improvement Proposal (CIP) text itself (CIP author writes the draft).
 2. Adversarial / strategic-bidder modelling (`RSK-substrate-scope` umbrella subsection (c)).

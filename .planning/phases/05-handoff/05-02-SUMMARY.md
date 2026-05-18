@@ -22,11 +22,11 @@ tech-stack:
 
 key-files:
   created:
-    - ".planning/phases/05-handoff/verify-consistency.sh (430 lines; executable; bash -n clean)"
-    - ".planning/phases/05-handoff/05-CONSISTENCY-REPORT.md (141 lines; within 120-180 target)"
+    - "cip-evidence/consistency-audit/verify-consistency.sh (430 lines; executable; bash -n clean)"
+    - "cip-evidence/consistency-audit/CONSISTENCY-REPORT.md (141 lines; within 120-180 target)"
   modified:
-    - "docs/phase-2/realism-risks-register.md (line 5: ImpactAnalysis.md citation reformatted)"
-    - "docs/phase-2/coverage-check.md (line 5: ImpactAnalysis.md citation reformatted)"
+    - "cip-evidence/audit-documents/realism-risks-register.md (line 5: ImpactAnalysis.md citation reformatted)"
+    - "cip-evidence/audit-documents/coverage-check.md (line 5: ImpactAnalysis.md citation reformatted)"
 
 key-decisions:
   - "yq is NOT installed in the dev environment despite the plan's D-52 reference; switched to pure-POSIX `grep -E '^\\s*-\\s*name:'` extraction against the suite YAMLs' jobs: block. This works because the phase-2 suite YAML schema is flat (no nested `name:` keys elsewhere)."
@@ -45,7 +45,7 @@ completed: 2026-05-18
 
 # Phase 5 / Plan 02: Reproducible Consistency Verification — Summary
 
-**A reproducible four-check bash script lands at `.planning/phases/05-handoff/verify-consistency.sh` + a 141-line audit log at `.planning/phases/05-handoff/05-CONSISTENCY-REPORT.md`; OVERALL: PASS after one defect cluster fixed in place.**
+**A reproducible four-check bash script lands at `cip-evidence/consistency-audit/verify-consistency.sh` + a 141-line audit log at `cip-evidence/consistency-audit/CONSISTENCY-REPORT.md`; OVERALL: PASS after one defect cluster fixed in place.**
 
 ## Performance
 
@@ -62,7 +62,7 @@ A pure-POSIX bash script (430 lines) implementing the four D-51 checks against t
 
 - **Check (i): RSK-NN / CLM-NN / EXP-NN dead-reference scan.** Extracts canonical sets from the definition sites (24 RSK-NN from the register's `^## RSK-…` headings; 55 CLM-NN from the coverage-check's `^| CLM-…` table-row anchors; 12 EXP-NN from the register's `EXP-…` tokens) and scans every in-scope document for tokens not in the canonical set. Documentation-metasyntax tokens (`RSK-NN`, `RSK-slug`, `RSK-ids`, `CLM-NN`, `CLM-slug`, `EXP-NN`, `EXP-slug`) are excluded.
 
-- **Check (ii): backing-job path resolution.** Parses 25 `(backing-suite, backing-job)` pairs from `docs/phase-2/coverage-check.md` (table columns 6–7 of each `CLM-` row, skipping `—`), confirms each suite YAML exists, then scans its `jobs:` block (the `^  - name: <slug>` lines) and confirms each job-slug resolves. Uses pure-POSIX `grep -E '^\s*-\s*name:'` instead of `yq` because yq is not installed in the dev environment — the flat-shape phase-2 suite YAML schema makes the pure-bash approach safe.
+- **Check (ii): backing-job path resolution.** Parses 25 `(backing-suite, backing-job)` pairs from `cip-evidence/audit-documents/coverage-check.md` (table columns 6–7 of each `CLM-` row, skipping `—`), confirms each suite YAML exists, then scans its `jobs:` block (the `^  - name: <slug>` lines) and confirms each job-slug resolves. Uses pure-POSIX `grep -E '^\s*-\s*name:'` instead of `yq` because yq is not installed in the dev environment — the flat-shape phase-2 suite YAML schema makes the pure-bash approach safe.
 
 - **Check (iii): golden-sha256 cross-check.** Parses 9 `(backing-suite, truncated-hash)` pairs (column 9 of each CLM row), extracts the leading 12 hex characters, and matches against the seven pinned `.goldens/<suite>.sha256` files. Falls back to scanning all pinned goldens for the legacy-phase-2-seed=1 annotation case where the CLM row's backing-suite is a `phase-3-*` suite but the hash comes from the original phase-2 pinned suite. Non-pinned-suite cells that have no pinned match are marked `EXEMPT (non-pinned suite)` (the two `phase-3-sign-flip-variance` Phase-3-only hashes).
 
@@ -89,20 +89,20 @@ A 141-line markdown report (within CONTEXT.md's 120-180 target) with:
 
 | # | Defect | Document | Fix |
 |---|---|---|---|
-| 1 | `docs/ImpactAnalysis.md` backtick-wrapped as if local path; the file is an upstream Leios precedent in `input-output-hk/ouroboros-leios`, not local | `docs/phase-2/realism-risks-register.md` line 5 | Replaced backtick path with italic proper-name reference: "*ImpactAnalysis.md* document in the input-output-hk/ouroboros-leios repository" |
-| 2 | Same defect, parallel citation | `docs/phase-2/coverage-check.md` line 5 | Same fix: italic upstream-reference framing |
+| 1 | `docs/ImpactAnalysis.md` backtick-wrapped as if local path; the file is an upstream Leios precedent in `input-output-hk/ouroboros-leios`, not local | `cip-evidence/audit-documents/realism-risks-register.md` line 5 | Replaced backtick path with italic proper-name reference: "*ImpactAnalysis.md* document in the input-output-hk/ouroboros-leios repository" |
+| 2 | Same defect, parallel citation | `cip-evidence/audit-documents/coverage-check.md` line 5 | Same fix: italic upstream-reference framing |
 
 Both fixes are small, format-level edits with no semantic change to the cited precedent. After the fixes, `verify-consistency.sh` exits 0 with OVERALL: PASS.
 
 ## Verification
 
 ```
-$ bash -n .planning/phases/05-handoff/verify-consistency.sh
-$ test -x .planning/phases/05-handoff/verify-consistency.sh && echo "executable: yes"
+$ bash -n cip-evidence/consistency-audit/verify-consistency.sh
+$ test -x cip-evidence/consistency-audit/verify-consistency.sh && echo "executable: yes"
 executable: yes
-$ wc -l .planning/phases/05-handoff/verify-consistency.sh
+$ wc -l cip-evidence/consistency-audit/verify-consistency.sh
 430
-$ .planning/phases/05-handoff/verify-consistency.sh > /tmp/v.out 2>&1; echo "exit: $?"
+$ cip-evidence/consistency-audit/verify-consistency.sh > /tmp/v.out 2>&1; echo "exit: $?"
 exit: 0
 $ tail -10 /tmp/v.out
 === SUMMARY ===
@@ -112,7 +112,7 @@ Check (iii) golden-sha256 matches:            PASS
 Check (iv)  markdown link resolution:         PASS
 
 OVERALL: PASS
-$ wc -l .planning/phases/05-handoff/05-CONSISTENCY-REPORT.md
+$ wc -l cip-evidence/consistency-audit/CONSISTENCY-REPORT.md
 141
 ```
 
@@ -120,7 +120,7 @@ All Plan 05-02 success criteria met: script + report on disk; script depends onl
 
 ## Open questions for Plan 05-03
 
-Plan 05-03 re-runs `verify-consistency.sh` after writing `docs/phase-2/cip-author-summary.md` to confirm the OVERALL: PASS verdict still holds with all six in-scope documents present. The current report records the 5-document baseline; Plan 05-03's re-run will append a post-summary numbers section. The current `Open for user review` section reads "None."; Plan 05-03 reviews whether any of the cip-author-summary's cross-references introduce new defects.
+Plan 05-03 re-runs `verify-consistency.sh` after writing `cip-evidence/cip-author-summary.md` to confirm the OVERALL: PASS verdict still holds with all six in-scope documents present. The current report records the 5-document baseline; Plan 05-03's re-run will append a post-summary numbers section. The current `Open for user review` section reads "None."; Plan 05-03 reviews whether any of the cip-author-summary's cross-references introduce new defects.
 
 ## Notes
 

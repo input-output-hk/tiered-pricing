@@ -1,0 +1,3 @@
+
+# verify-consistency.sh per-run cache (regenerated each run)
+cip-evidence/consistency-audit/.cache/

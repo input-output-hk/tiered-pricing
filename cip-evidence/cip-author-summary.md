@@ -2,7 +2,7 @@
 
 **Status:** Post-Phase-5 close; citable git tag `phase-2-cip-evidence-v1` (tag pending: user-applied per Plan 05-03 Task 3 — see §"Pinned references" below).
 **Scope:** Single paste-guide artefact for the Cardano Improvement Proposal (CIP) responding to Cardano Problem Statement (CPS)-0023 ("Urgency Signaling"). Maps each CIP section to its source artefact and the specific paragraphs / rows / values to paste.
-**Identifier convention:** Realism Risk identifier (RSK)-NN identifiers in `docs/phase-2/realism-risks-register.md` (24 entries, all DISCLOSED at Phase 5 close). Claim identifier (CLM)-NN identifiers in `docs/phase-2/coverage-check.md` (55 rows). Experiment identifier (EXP)-NN identifiers in the register's EXP-NN column. All three append-only — never renumbered.
+**Identifier convention:** Realism Risk identifier (RSK)-NN identifiers in `audit-documents/realism-risks-register.md` (24 entries, all DISCLOSED at Phase 5 close). Claim identifier (CLM)-NN identifiers in `audit-documents/coverage-check.md` (55 rows). Experiment identifier (EXP)-NN identifiers in the register's EXP-NN column. All three append-only — never renumbered.
 **Verdict vocabulary:** Register verdicts: LIVE / DORMANT / MITIGATED / DISCLOSED (post-Phase-5: **0 LIVE + 24 DISCLOSED + 0 MITIGATED + 0 DORMANT**). Coverage-check verdicts: BACKED / WEAK / UNBACKED / OUT-OF-SCOPE. The two vocabularies are intentionally distinct.
 
 **Abbreviations on first use** (per `CLAUDE.md` §"Conventions / gotchas"): Cardano Improvement Proposal (CIP), Cardano Problem Statement (CPS), Overview Design-concepts Details (ODD), Realism Risk identifier (RSK), Claim identifier (CLM), Experiment identifier (EXP), Bias-corrected and accelerated (BCa) bootstrap, Confidence Interval (CI), Inter-Quartile Range (IQR), Ranking Block (RB), Endorser Block (EB), Ethereum Improvement Proposal 1559 (EIP-1559), Secure Hash Algorithm 256-bit (SHA-256), Advances in Financial Technologies (AFT), Conference on Computer and Communications Security (CCS), Symposium on Discrete Algorithms (SODA), Maximum Extractable Value (MEV), Uniform Resource Locator (URL), Yet Another Markup Language (YAML), Stake-Pool Operator (SPO), Continuous Integration (CI-pipeline), Institute of Electrical and Electronics Engineers (IEEE), Advanced RISC Machine (ARM), Number of seeds (N).
@@ -21,47 +21,47 @@ The CIP author may freely edit inline content. Reference-only items should be pa
 
 | CIP Section | Source Artefact | Paste Content | Inline / Reference |
 |---|---|---|---|
-| Methodology | `docs/phase-2/methodology-overview.md` | Full document by repo Uniform Resource Locator (URL) — Overview, Design concepts, Details (ODD) seven-element index + per-element prose + worked example tracing `menu_unreserved_priority_only_static_x4` seed=1 through the seven ODD elements | Reference |
-| Calibration | `docs/phase-2/cardano-realism-audit.md` | Seventeen `(value, source, date-retrieved)` triples in §"Topology and actor model", §"Pricing-controller calibration", §"What lines up with mainnet", §"Ranking-block (RB) cadence" | Reference (CIP names specific values; cites the audit by repo URL) |
-| Trust matrix | `docs/phase-2/validity-threats.md` | Aggregate trust matrix — **2 HIGH + 13 MEDIUM + 4 LOW + 0 UNRESOLVED** across 19 per-suite blocks; each block carries `Related RSK:` + `Related CLM:` cross-references | Reference (CIP cites the aggregate + per-suite breakdown by name) |
-| Evidence | `docs/phase-2/coverage-check.md` | Headline CIP claims backed by specific CLM-NN rows (see §"CIP Section: Evidence" §"Headline CIP claim list" below for the row-to-claim mapping); supporting CLM rows referenced by identifier + line range | Mixed — 4–8 headline claims inline; long-tail CLM rows reference-only |
-| Limitations | `docs/phase-2/realism-risks-register.md` | 24 DISCLOSED `disclosure-paragraph` blocks pastable verbatim; substrate-scope umbrella + top-4 paste-order paragraphs inlined below in §"CIP Section: Limitations" §"Limitations paste order"; long-tail paragraphs referenced by RSK-NN identifier + path + line range | Mixed |
+| Methodology | `audit-documents/methodology-overview.md` | Full document by repo Uniform Resource Locator (URL) — Overview, Design concepts, Details (ODD) seven-element index + per-element prose + worked example tracing `menu_unreserved_priority_only_static_x4` seed=1 through the seven ODD elements | Reference |
+| Calibration | `audit-documents/cardano-realism-audit.md` | Seventeen `(value, source, date-retrieved)` triples in §"Topology and actor model", §"Pricing-controller calibration", §"What lines up with mainnet", §"Ranking-block (RB) cadence" | Reference (CIP names specific values; cites the audit by repo URL) |
+| Trust matrix | `audit-documents/validity-threats.md` | Aggregate trust matrix — **2 HIGH + 13 MEDIUM + 4 LOW + 0 UNRESOLVED** across 19 per-suite blocks; each block carries `Related RSK:` + `Related CLM:` cross-references | Reference (CIP cites the aggregate + per-suite breakdown by name) |
+| Evidence | `audit-documents/coverage-check.md` | Headline CIP claims backed by specific CLM-NN rows (see §"CIP Section: Evidence" §"Headline CIP claim list" below for the row-to-claim mapping); supporting CLM rows referenced by identifier + line range | Mixed — 4–8 headline claims inline; long-tail CLM rows reference-only |
+| Limitations | `audit-documents/realism-risks-register.md` | 24 DISCLOSED `disclosure-paragraph` blocks pastable verbatim; substrate-scope umbrella + top-4 paste-order paragraphs inlined below in §"CIP Section: Limitations" §"Limitations paste order"; long-tail paragraphs referenced by RSK-NN identifier + path + line range | Mixed |
 
 ## CIP Section: Methodology
 
-**Source-of-truth:** `docs/phase-2/methodology-overview.md`.
+**Source-of-truth:** `audit-documents/methodology-overview.md`.
 
 **Paste order:** The methodology overview is a one-page Overview, Design concepts, Details (ODD) index with per-element prose and a worked example. The CIP cites it by repo Uniform Resource Locator (URL) rather than pasting content. The CIP's Methodology section should consist of: (a) a one-paragraph reference to the repo URL of `methodology-overview.md`; (b) a one-paragraph high-level summary of the seven ODD elements (Purpose, State variables, Process overview, Design concepts, Initialisation, Input data, Submodels); (c) a one-sentence reference to the worked example tracing the canonical job-seed pair (`menu_unreserved_priority_only_static_x4` seed=1) through the seven elements.
 
 **Why ODD:** the Overview, Design concepts, Details protocol (Grimm et al. 2006/2010, revised 2020) is the standard reporting template for agent-based simulation models in ecology and economics. Adopting ODD for the phase-2 simulator's methodology lets a Cardano Improvement Proposal (CIP) reviewer with simulation-modelling background map the present work onto an established methodology rather than re-deriving the simulator's structure from prose.
 
-**Reference-only:** the full methodology document at `docs/phase-2/methodology-overview.md` (260 lines). The CIP should cite this document by repo URL at the post-`phase-2-cip-evidence-v1`-tag commit.
+**Reference-only:** the full methodology document at `audit-documents/methodology-overview.md` (260 lines). The CIP should cite this document by repo URL at the post-`phase-2-cip-evidence-v1`-tag commit.
 
 ## CIP Section: Calibration
 
-**Source-of-truth:** `docs/phase-2/cardano-realism-audit.md`.
+**Source-of-truth:** `audit-documents/cardano-realism-audit.md`.
 
 **Paste order:** The audit carries seventeen `(value, source, date-retrieved)` triples in §"Topology and actor model" (calibration of the realistic-100 topology against epoch-582 mainnet), §"Pricing-controller calibration" (the four controller knobs: window-length 32 ANCHORED via Reijsbergen / Leonardos / Liu citations; multiplier-floor 4, multiplier-floor 16, lane-signal-source DISCLOSED per Plan 04-01), §"What lines up with mainnet" (the Ethereum Improvement Proposal 1559 (EIP-1559) core parameters that match Ethereum mainnet bit-exact: D=8, target=0.5, per-priced-block update cadence), and §"RB cadence" (ranking-block (RB) cadence calibration). The CIP cites specific calibration values by triple but does not paste the full audit; it links to the audit by repo Uniform Resource Locator (URL) and the §"Recommended disclosure statements" subsection.
 
-**What "anchored" means here:** a calibration value is *anchored* when it cites a deployed-system datum or peer-reviewed academic source. Of the seventeen triples in the audit, the ranking-block (RB) cadence + the EIP-1559 core parameters (D=8, target=0.5, per-priced-block update cadence) + window length 32 are anchored; the multiplier floor 4, multiplier floor 16, and lane-signal-source choices carry "conditional on X" disclosure paragraphs per `RSK-un-anchored-controller-knobs`. The CIP should report the anchored-vs-disclosed boundary explicitly — `docs/phase-2/cardano-realism-audit.md` §"Pricing-controller calibration" is the source-of-truth for which knobs lie on which side of the boundary.
+**What "anchored" means here:** a calibration value is *anchored* when it cites a deployed-system datum or peer-reviewed academic source. Of the seventeen triples in the audit, the ranking-block (RB) cadence + the EIP-1559 core parameters (D=8, target=0.5, per-priced-block update cadence) + window length 32 are anchored; the multiplier floor 4, multiplier floor 16, and lane-signal-source choices carry "conditional on X" disclosure paragraphs per `RSK-un-anchored-controller-knobs`. The CIP should report the anchored-vs-disclosed boundary explicitly — `audit-documents/cardano-realism-audit.md` §"Pricing-controller calibration" is the source-of-truth for which knobs lie on which side of the boundary.
 
-**Reference-only:** the calibration-source-of-truth at `docs/phase-2/cardano-realism-audit.md` (500 lines). The CIP should cite this document by repo URL + name specific values by triple from §"Topology and actor model" and §"Pricing-controller calibration".
+**Reference-only:** the calibration-source-of-truth at `audit-documents/cardano-realism-audit.md` (500 lines). The CIP should cite this document by repo URL + name specific values by triple from §"Topology and actor model" and §"Pricing-controller calibration".
 
 ## CIP Section: Trust matrix
 
-**Source-of-truth:** `docs/phase-2/validity-threats.md`.
+**Source-of-truth:** `audit-documents/validity-threats.md`.
 
 **Paste order:** The validity-threats document carries 19 per-suite trust blocks plus an aggregate summary. The CIP's Trust matrix section should consist of: (a) one paragraph citing the aggregate **2 HIGH + 13 MEDIUM + 4 LOW + 0 UNRESOLVED**; (b) a one-row-per-suite table naming each goldens-pinned suite (the seven canonical suites: `phase-2-eip1559-robustness`, `phase-2-eip1559-smoothing`, `phase-2-priority-only-rb-reserved`, `phase-2-priority-only-unreserved`, `phase-2-rb-scarcity`, `phase-2-two-lane-both-dynamic`, `phase-2-urgency-inversion`) with its trust verdict and one-sentence rationale; (c) a reference to the validity-threats document for the full 19-block per-suite breakdown.
 
-**What "trust" means here:** each suite's trust verdict reflects the conjunction of (i) the demand-profile's empirical anchoring (sundaeswap is the most-anchored, `paper_like_*` profiles are stylised reference loads), (ii) the calibration knobs the suite exercises (multiplier-floor sweep coverage, window-length sweep coverage), (iii) the conclusion-validity bound from the three-seed default, and (iv) any Realism Risk identifier (RSK)-NN entries that scope the suite's findings. The trust framework is documented in `docs/phase-2/validity-threats.md` §"Trust framework". Each per-suite block carries `Related RSK:` + `Related CLM:` cross-references introduced by Plan 04-05; the CIP can derive any suite's load-bearing scope by following those cross-references.
+**What "trust" means here:** each suite's trust verdict reflects the conjunction of (i) the demand-profile's empirical anchoring (sundaeswap is the most-anchored, `paper_like_*` profiles are stylised reference loads), (ii) the calibration knobs the suite exercises (multiplier-floor sweep coverage, window-length sweep coverage), (iii) the conclusion-validity bound from the three-seed default, and (iv) any Realism Risk identifier (RSK)-NN entries that scope the suite's findings. The trust framework is documented in `audit-documents/validity-threats.md` §"Trust framework". Each per-suite block carries `Related RSK:` + `Related CLM:` cross-references introduced by Plan 04-05; the CIP can derive any suite's load-bearing scope by following those cross-references.
 
-**Reference-only:** the trust-matrix-source-of-truth at `docs/phase-2/validity-threats.md` (850 lines). The CIP should cite the aggregate verdict + name suites by slug + reference the per-suite cross-references rather than pasting the full document.
+**Reference-only:** the trust-matrix-source-of-truth at `audit-documents/validity-threats.md` (850 lines). The CIP should cite the aggregate verdict + name suites by slug + reference the per-suite cross-references rather than pasting the full document.
 
 ## CIP Section: Evidence
 
-**Source-of-truth:** `docs/phase-2/coverage-check.md` + the Phase 3 evidence consolidations at `.planning/phases/04-refresh-and-anchor/04-03-phase3-evidence-summary.md` + `.planning/realism-tests/multi-seed-variance/results.md` + `.planning/realism-tests/multiplier-floor-16-companion/results.md` + `.planning/realism-tests/hash-diversity-gate/results.md`.
+**Source-of-truth:** `audit-documents/coverage-check.md` + the Phase 3 evidence consolidations at `.planning/phases/04-refresh-and-anchor/04-03-phase3-evidence-summary.md` + `test-results/multi-seed-variance/results.md` + `test-results/multiplier-floor-16-companion/results.md` + `test-results/hash-diversity-gate/results.md`.
 
-**Paste order:** The CIP's Evidence section should consist of: (a) the headline-claim list (inline below; 6 claims at this writing); (b) a one-paragraph reference to `docs/phase-2/coverage-check.md` for the full 55-row coverage matrix; (c) per-claim citations of the specific CLM-NN rows backing each headline.
+**Paste order:** The CIP's Evidence section should consist of: (a) the headline-claim list (inline below; 6 claims at this writing); (b) a one-paragraph reference to `audit-documents/coverage-check.md` for the full 55-row coverage matrix; (c) per-claim citations of the specific CLM-NN rows backing each headline.
 
 ### Headline CIP claim list
 
@@ -74,7 +74,7 @@ The headline claims below are derived from Phase 3 / Phase 4 evidence per `.plan
 > - **CLM-09** (`both-dynamic-un-partitioned`): BCa 95% CI = `[+5.65e+09, +1.09e+10]`; median Δ = `+7.95e+09`; sign-coherence = `0.90`; distinct-hash = `20/20`; backing-job = `menu_unreserved_both_dynamic_x4` in `sim-rs/parameters/phase-2-sweep/suites/phase-3-canonical-variance.yaml`.
 > - **Paired baseline:** single-lane EIP-1559 control `control_eip1559_d8_t50_w32` (via CLM-05; zero by construction; 20/20 distinct hashes).
 >
-> **Source-of-truth:** `.planning/realism-tests/multi-seed-variance/results.md` §"TEST-04 canonical menu-item variance bands" + `docs/phase-2/coverage-check.md` rows CLM-05, CLM-07, CLM-09.
+> **Source-of-truth:** `test-results/multi-seed-variance/results.md` §"TEST-04 canonical menu-item variance bands" + `audit-documents/coverage-check.md` rows CLM-05, CLM-07, CLM-09.
 
 > **Headline Claim 2:** "Ranking-block-reserved (RB-reserved) two-lane mechanisms underperform single-lane EIP-1559 under the same calibration; this REFUTES the pre-Phase-3 single-seed framing that 'two-lane mechanisms outperform single-lane EIP-1559', which holds only for the un-reserved variants."
 >
@@ -82,22 +82,22 @@ The headline claims below are derived from Phase 3 / Phase 4 evidence per `.plan
 > - **CLM-06** (`priority-only-RB-reserved`): BCa 95% CI = `[-6.02e+09, -1.00e+09]`; median Δ = `-4.15e+09`; sign-coherence = `0.65`; distinct-hash = `20/20`; backing-job = `menu_rb_reserved_priority_only_static_x4` in `sim-rs/parameters/phase-2-sweep/suites/phase-3-canonical-variance.yaml`. (Coverage-check verdict `WEAK` predates Phase 3; the Phase 3 N=20 CI excludes zero — the CIP author should cite the Phase 3 evidence at face value.)
 > - **CLM-08** (`both-dynamic-partitioned`): BCa 95% CI = `[-5.95e+09, -8.87e+08]`; median Δ = `-4.15e+09`; sign-coherence = `0.65`; distinct-hash = `20/20`; backing-job = `menu_rb_reserved_both_dynamic_x4` in `sim-rs/parameters/phase-2-sweep/suites/phase-3-canonical-variance.yaml`. (Same coverage-check-vs-Phase-3 caveat as CLM-06.)
 >
-> **Source-of-truth:** `.planning/realism-tests/multi-seed-variance/results.md` §"TEST-04 canonical menu-item variance bands" + `docs/phase-2/coverage-check.md` rows CLM-06, CLM-08.
+> **Source-of-truth:** `test-results/multi-seed-variance/results.md` §"TEST-04 canonical menu-item variance bands" + `audit-documents/coverage-check.md` rows CLM-06, CLM-08.
 
 > **Headline Claim 3:** "The `multiplier_floor = 4` calibration is regime-dependent: at the spec default `multiplier_floor = 16` the `phase-2-rb-scarcity` welfare finding inverts (`standard dominates welfare; RB scarcity mostly invisible` → `priority captures everything; total welfare collapses 93–98%`) and the `phase-2-urgency-inversion` finding weakly reverses (`mispriced > correctly priced` → `correctly priced > mispriced by ~13%`)."
 >
 > **Backed by:**
-> - The TEST-07a multiplier-floor-16 companion run at Number of seeds (N) = 5 per `.planning/realism-tests/multiplier-floor-16-companion/results.md` produced these per-cell comparisons: `rb_baseline` Δ% = −93%; `rb_reduced_half` Δ% = −96%; `rb_reduced_third` Δ% = −97%; `rb_reduced_quarter` Δ% = −98%; `urgency_mispriced_high_urgency` floor=4 = 3.3e+09 → floor=16 = 5.4e+09 (with `urgency_correctly_priced` rising more, weakly reversing the floor=4 ordering).
-> - **`RSK-multiplier-floor-4-suite-coverage`** disclosure-paragraph (lines ~282–295 in `docs/phase-2/realism-risks-register.md`) is the CIP-pasteable narrative for the regime-dependence finding.
+> - The TEST-07a multiplier-floor-16 companion run at Number of seeds (N) = 5 per `test-results/multiplier-floor-16-companion/results.md` produced these per-cell comparisons: `rb_baseline` Δ% = −93%; `rb_reduced_half` Δ% = −96%; `rb_reduced_third` Δ% = −97%; `rb_reduced_quarter` Δ% = −98%; `urgency_mispriced_high_urgency` floor=4 = 3.3e+09 → floor=16 = 5.4e+09 (with `urgency_correctly_priced` rising more, weakly reversing the floor=4 ordering).
+> - **`RSK-multiplier-floor-4-suite-coverage`** disclosure-paragraph (lines ~282–295 in `audit-documents/realism-risks-register.md`) is the CIP-pasteable narrative for the regime-dependence finding.
 >
-> **Source-of-truth:** `.planning/realism-tests/multiplier-floor-16-companion/results.md` + `docs/phase-2/realism-risks-register.md` §"RSK-multiplier-floor-4-suite-coverage".
+> **Source-of-truth:** `test-results/multiplier-floor-16-companion/results.md` + `audit-documents/realism-risks-register.md` §"RSK-multiplier-floor-4-suite-coverage".
 
 > **Headline Claim 4:** "Partitioned (both-dynamic) and RB-reserved (priority-only-static) mechanisms produce indistinguishable welfare at `sundaeswap_moderate × multiplier_floor = 4`; this cross-arm duplicate-job artefact replicates at Number of seeds (N) = 20 because the standard-lane controller never drifts off the multiplier floor under this calibration."
 >
 > **Backed by:**
 > - **CLM-06** and **CLM-08**: identical median Δ = `-4.15e+09` and overlapping BCa CIs (`[-6.02e+09, -1.00e+09]` vs `[-5.95e+09, -8.87e+08]`) at N=20 seeds. The underlying mechanism — standard controller pinned at the floor → partitioned-both-dynamic collapses to priority-only-static — is the same mechanism that produces the floor=16 cross-cell Secure Hash Algorithm 256-bit (SHA-256) identity observed in TEST-07a between `rb_scarcity_x16_baseline` and `urgency_inversion_x16_correctly_priced`.
 >
-> **Source-of-truth:** `.planning/realism-tests/multi-seed-variance/results.md` §"TEST-04" cross-cell pattern + `.planning/realism-tests/multiplier-floor-16-companion/results.md` §"Cross-cell SHA-256 identity at seeds 1+2".
+> **Source-of-truth:** `test-results/multi-seed-variance/results.md` §"TEST-04" cross-cell pattern + `test-results/multiplier-floor-16-companion/results.md` §"Cross-cell SHA-256 identity at seeds 1+2".
 
 > **Headline Claim 5:** "Single-lane EIP-1559 sign-flip cells (`d4_t50_w32`, `d8_t25_w32`) under the Family B faithful one-step cadence produce statistically significant positive welfare deltas vs the `(d8, t50, w32)` baseline at Number of seeds (N) = 20 seeds."
 >
@@ -106,20 +106,20 @@ The headline claims below are derived from Phase 3 / Phase 4 evidence per `.plan
 > - **CLM-11** (`single-lane-EIP-1559-control`, cell `d8_t25_w32`): BCa 95% CI = `[+4.68e+08, +5.66e+09]`; median Δ = `+7.81e+07`; sign-coherence = `0.55`; distinct-hash = `20/20`.
 > - Companion: the two ranking-block-quarter sign-flip cells (CLM-12, CLM-13; `cell_rb_reserved_x4_rb_quarter` and `cell_partitioned_x4_rb_quarter`) produce real-but-noisy positive medians whose CIs straddle zero and are reported as `WEAK` (ordering-level).
 >
-> **Source-of-truth:** `.planning/realism-tests/multi-seed-variance/results.md` §"TEST-03 sign-flip variance bands" + `docs/phase-2/coverage-check.md` rows CLM-10, CLM-11, CLM-12, CLM-13.
+> **Source-of-truth:** `test-results/multi-seed-variance/results.md` §"TEST-03 sign-flip variance bands" + `audit-documents/coverage-check.md` rows CLM-10, CLM-11, CLM-12, CLM-13.
 
 > **Headline Claim 6:** "The COV-05 hash-diversity gate passes 17 of 17 BACKED-eligible cells at distinct count = Number of seeds (N) cited; no cell was downgraded to WEAK from gate failure."
 >
 > **Backed by:**
-> - Phase 3 hash-diversity-gate report at `.planning/realism-tests/hash-diversity-gate/results.md`: TEST-03 (6 jobs × 20 seeds, all 20/20), TEST-04 (5 jobs × 20 seeds, all 20/20), TEST-07a (6 jobs × 5 seeds, all 5/5). Cross-cell Secure Hash Algorithm 256-bit (SHA-256) identity in TEST-07a is across-cell (does not violate within-cell gate per `RSK-hash-diversity-policy`'s disclosure-paragraph).
+> - Phase 3 hash-diversity-gate report at `test-results/hash-diversity-gate/results.md`: TEST-03 (6 jobs × 20 seeds, all 20/20), TEST-04 (5 jobs × 20 seeds, all 20/20), TEST-07a (6 jobs × 5 seeds, all 5/5). Cross-cell Secure Hash Algorithm 256-bit (SHA-256) identity in TEST-07a is across-cell (does not violate within-cell gate per `RSK-hash-diversity-policy`'s disclosure-paragraph).
 >
-> **Source-of-truth:** `.planning/realism-tests/hash-diversity-gate/results.md` + `docs/phase-2/realism-risks-register.md` §"RSK-hash-diversity-policy".
+> **Source-of-truth:** `test-results/hash-diversity-gate/results.md` + `audit-documents/realism-risks-register.md` §"RSK-hash-diversity-policy".
 
-**Reference-only:** the full 55-row coverage matrix at `docs/phase-2/coverage-check.md`; the long-tail CLM rows beyond CLM-13 (calibration anchors at CLM-24..27, reorg-safety claims at CLM-19..23, anti-bribery rows at the appropriate column positions). The CIP author may add reference-only CLM citations to support specific claims; the headline list above is the load-bearing subset for the CIP's menu-option recommendation.
+**Reference-only:** the full 55-row coverage matrix at `audit-documents/coverage-check.md`; the long-tail CLM rows beyond CLM-13 (calibration anchors at CLM-24..27, reorg-safety claims at CLM-19..23, anti-bribery rows at the appropriate column positions). The CIP author may add reference-only CLM citations to support specific claims; the headline list above is the load-bearing subset for the CIP's menu-option recommendation.
 
 ## CIP Section: Limitations
 
-**Source-of-truth:** `docs/phase-2/realism-risks-register.md` (24 DISCLOSED entries; load-bearing disclosure-paragraphs).
+**Source-of-truth:** `audit-documents/realism-risks-register.md` (24 DISCLOSED entries; load-bearing disclosure-paragraphs).
 
 ### Limitations paste order
 
@@ -149,26 +149,26 @@ The CIP author may paste these entries verbatim from the register or cite them b
 
 | RSK-NN | Title | Source-of-truth |
 |--------|-------|-----------------|
-| RSK-pool-count | Pool-count sensitivity above 100 pools | `docs/phase-2/realism-risks-register.md` lines 47–62 |
-| RSK-single-seed-precision | Single-seed welfare claims at publication precision | `docs/phase-2/realism-risks-register.md` lines 64–79 |
-| RSK-fee-as-maxFee-envelope | Fee-field semantic reinterpretation as maxFee envelope | `docs/phase-2/realism-risks-register.md` lines ~166–190 |
-| RSK-mempool-cap-magnitude | Mempool absolute byte cap 133× mainnet | `docs/phase-2/realism-risks-register.md` lines ~167–190 |
-| RSK-max-fee-policy-default | Default actor `max_fee_policy = {4, 1}` is a forecast about wallet behaviour | `docs/phase-2/realism-risks-register.md` lines ~167–190 |
-| RSK-calibration-stale-stake-snapshot | Epoch-582 stake snapshot freshness | `docs/phase-2/realism-risks-register.md` lines 191–207 |
-| RSK-demand-mix-bit-calibration | Q1 2026 mainnet demand mix order-of-magnitude correct, not bit-calibrated | `docs/phase-2/realism-risks-register.md` lines ~208–230 |
-| RSK-demand-non-stationarity | Finer-than-2-hour demand patterns not modelled | `docs/phase-2/realism-risks-register.md` lines ~231–250 |
-| RSK-target-inclusion-blocks-default | `target_inclusion_blocks` defaults mechanism-induced | `docs/phase-2/realism-risks-register.md` lines ~251–265 |
-| RSK-partition-activated-honest-producer | `partition_activated` is a producer claim, not body-derivable | `docs/phase-2/realism-risks-register.md` lines ~251–265 |
-| RSK-multiplier-floor-4-suite-coverage | Two suites condition exclusively on `multiplier_floor = 4` (regime-dependence at 16) | `docs/phase-2/realism-risks-register.md` lines 282–295 |
-| RSK-three-seed-statistical-power | Three-seed suite default cannot license tight 95% CIs | `docs/phase-2/realism-risks-register.md` lines 297–311 |
-| RSK-unresolved-suite-claims | Four UNRESOLVED suite verdicts resolved via Plan 02-02 output-read pass | `docs/phase-2/realism-risks-register.md` lines 313–325 |
-| RSK-standard-user-fee-drift-exposure | Both-dynamic standard-lane drift bounded by EIP-1559 ±1/D per-block clamp | `docs/phase-2/realism-risks-register.md` lines 327–339 |
-| RSK-admission-rejection-attribution | Gate-reject vs mempool-reject collapsed into one bool (WR-2 deferred) | `docs/phase-2/realism-risks-register.md` lines 359–373 |
-| RSK-menu-collapse-to-advocacy | Welfare-only evidence + 4 non-welfare property columns | `docs/phase-2/realism-risks-register.md` lines 375–389 |
-| RSK-steady-state-run-length | 2000-slot run length partial coverage at 1 of 4 menu arms | `docs/phase-2/realism-risks-register.md` lines 391–404 |
-| RSK-hash-diversity-policy | Hash-diversity strict gate per Phase 2 D-19 + 17/17 BACKED-eligible pass | `docs/phase-2/realism-risks-register.md` lines 406–419 |
-| RSK-welfare-as-f64-reporting | Welfare aggregates reported as `f64`; ≤ 3 significant figures | `docs/phase-2/realism-risks-register.md` lines 421–433 |
-| RSK-sundaeswap-demand-staleness | SundaeSwap January 2022 4-year-old retail spike | `docs/phase-2/realism-risks-register.md` lines 435–448 |
+| RSK-pool-count | Pool-count sensitivity above 100 pools | `audit-documents/realism-risks-register.md` lines 47–62 |
+| RSK-single-seed-precision | Single-seed welfare claims at publication precision | `audit-documents/realism-risks-register.md` lines 64–79 |
+| RSK-fee-as-maxFee-envelope | Fee-field semantic reinterpretation as maxFee envelope | `audit-documents/realism-risks-register.md` lines ~166–190 |
+| RSK-mempool-cap-magnitude | Mempool absolute byte cap 133× mainnet | `audit-documents/realism-risks-register.md` lines ~167–190 |
+| RSK-max-fee-policy-default | Default actor `max_fee_policy = {4, 1}` is a forecast about wallet behaviour | `audit-documents/realism-risks-register.md` lines ~167–190 |
+| RSK-calibration-stale-stake-snapshot | Epoch-582 stake snapshot freshness | `audit-documents/realism-risks-register.md` lines 191–207 |
+| RSK-demand-mix-bit-calibration | Q1 2026 mainnet demand mix order-of-magnitude correct, not bit-calibrated | `audit-documents/realism-risks-register.md` lines ~208–230 |
+| RSK-demand-non-stationarity | Finer-than-2-hour demand patterns not modelled | `audit-documents/realism-risks-register.md` lines ~231–250 |
+| RSK-target-inclusion-blocks-default | `target_inclusion_blocks` defaults mechanism-induced | `audit-documents/realism-risks-register.md` lines ~251–265 |
+| RSK-partition-activated-honest-producer | `partition_activated` is a producer claim, not body-derivable | `audit-documents/realism-risks-register.md` lines ~251–265 |
+| RSK-multiplier-floor-4-suite-coverage | Two suites condition exclusively on `multiplier_floor = 4` (regime-dependence at 16) | `audit-documents/realism-risks-register.md` lines 282–295 |
+| RSK-three-seed-statistical-power | Three-seed suite default cannot license tight 95% CIs | `audit-documents/realism-risks-register.md` lines 297–311 |
+| RSK-unresolved-suite-claims | Four UNRESOLVED suite verdicts resolved via Plan 02-02 output-read pass | `audit-documents/realism-risks-register.md` lines 313–325 |
+| RSK-standard-user-fee-drift-exposure | Both-dynamic standard-lane drift bounded by EIP-1559 ±1/D per-block clamp | `audit-documents/realism-risks-register.md` lines 327–339 |
+| RSK-admission-rejection-attribution | Gate-reject vs mempool-reject collapsed into one bool (WR-2 deferred) | `audit-documents/realism-risks-register.md` lines 359–373 |
+| RSK-menu-collapse-to-advocacy | Welfare-only evidence + 4 non-welfare property columns | `audit-documents/realism-risks-register.md` lines 375–389 |
+| RSK-steady-state-run-length | 2000-slot run length partial coverage at 1 of 4 menu arms | `audit-documents/realism-risks-register.md` lines 391–404 |
+| RSK-hash-diversity-policy | Hash-diversity strict gate per Phase 2 D-19 + 17/17 BACKED-eligible pass | `audit-documents/realism-risks-register.md` lines 406–419 |
+| RSK-welfare-as-f64-reporting | Welfare aggregates reported as `f64`; ≤ 3 significant figures | `audit-documents/realism-risks-register.md` lines 421–433 |
+| RSK-sundaeswap-demand-staleness | SundaeSwap January 2022 4-year-old retail spike | `audit-documents/realism-risks-register.md` lines 435–448 |
 
 ## Pinned references
 
@@ -178,24 +178,24 @@ This block names the citable references that the Cardano Improvement Proposal (C
 
 **Tag name:** `phase-2-cip-evidence-v1`.
 
-**Status:** (tag pending: applied by the user via `git tag -a phase-2-cip-evidence-v1 -m '<see tag message draft below>'` against commit `7f4595ed264e4be46cb007d82ade402f9c54c833` or against the post-Plan-05-03 commit that lands `docs/phase-2/cip-author-summary.md`).
+**Status:** (tag pending: applied by the user via `git tag -a phase-2-cip-evidence-v1 -m '<see tag message draft below>'` against commit `7f4595ed264e4be46cb007d82ade402f9c54c833` or against the post-Plan-05-03 commit that lands `cip-author-summary.md`).
 
 After the user applies the tag, replace the placeholder line above with: "Tag applied: `phase-2-cip-evidence-v1` at commit `<full-40-char-SHA>` on `<date-applied>`." (Plan 05-03 Task 3 covers this swap.)
 
 ### Milestone-close commit
 
-**Commit Secure Hash Algorithm 256-bit (SHA-256):** `7f4595ed264e4be46cb007d82ade402f9c54c833` (the post-Plan-05-02 commit; the post-Plan-05-03 commit landing this file will supersede it). The `phase-2-cip-evidence-v1` tag should reference the post-Plan-05-03 commit Secure Hash Algorithm 256-bit (SHA-256), which the user can resolve via `git rev-parse HEAD` after committing `docs/phase-2/cip-author-summary.md` and before applying the tag.
+**Commit Secure Hash Algorithm 256-bit (SHA-256):** `7f4595ed264e4be46cb007d82ade402f9c54c833` (the post-Plan-05-02 commit; the post-Plan-05-03 commit landing this file will supersede it). The `phase-2-cip-evidence-v1` tag should reference the post-Plan-05-03 commit Secure Hash Algorithm 256-bit (SHA-256), which the user can resolve via `git rev-parse HEAD` after committing `cip-author-summary.md` and before applying the tag.
 
 ### Cardano mainnet stake snapshot reference
 
-**Snapshot:** Cardano mainnet, epoch 582, retrieved 2026-05-14. Per `docs/phase-2/cardano-realism-audit.md` §"Topology and actor model" + `.planning/spikes/006-curve-design/README.md` reproduction recipe (`sim-rs/scripts/generate-realistic-100-topology.py` at the snapshot epoch). The 100-node realistic topology used across all goldens-pinned suites is derived from this snapshot via mass-stratified downsampling (top-1 stake share 1.97%; Nakamoto coefficient 35; Gini 0.253). The CIP cites this snapshot as the topology-source-of-truth.
+**Snapshot:** Cardano mainnet, epoch 582, retrieved 2026-05-14. Per `audit-documents/cardano-realism-audit.md` §"Topology and actor model" + `.planning/spikes/006-curve-design/README.md` reproduction recipe (`sim-rs/scripts/generate-realistic-100-topology.py` at the snapshot epoch). The 100-node realistic topology used across all goldens-pinned suites is derived from this snapshot via mass-stratified downsampling (top-1 stake share 1.97%; Nakamoto coefficient 35; Gini 0.253). The CIP cites this snapshot as the topology-source-of-truth.
 
 ### Consistency audit reproducibility
 
-The consistency of cross-references across the six in-scope documents (the five CIP-cited artefacts plus this summary) was audited by `.planning/phases/05-handoff/verify-consistency.sh` and recorded in `.planning/phases/05-handoff/05-CONSISTENCY-REPORT.md`. Future CIP peer reviewers may re-run the script independently to verify the consistency claims at the tagged commit or at any later commit:
+The consistency of cross-references across the six in-scope documents (the five CIP-cited artefacts plus this summary) was audited by `consistency-audit/verify-consistency.sh` and recorded in `consistency-audit/CONSISTENCY-REPORT.md`. Future CIP peer reviewers may re-run the script independently to verify the consistency claims at the tagged commit or at any later commit:
 
 ```
-bash .planning/phases/05-handoff/verify-consistency.sh
+bash cip-evidence/consistency-audit/verify-consistency.sh
 ```
 
 Expected: exit code 0; OVERALL: PASS across all four checks (Realism Risk identifier (RSK)-NN / Claim identifier (CLM)-NN / Experiment identifier (EXP)-NN dead-reference scan; backing-job path resolution against suite Yet Another Markup Language (YAML) files; golden-sha256 cross-check against the seven `.goldens/<suite>.sha256` files; markdown link + backtick-path resolution).
@@ -210,16 +210,16 @@ phase-2-cip-evidence-v1 — milestone-close tag
 Citable reference for the Cardano Improvement Proposal (CIP)
 responding to CPS-0023 ("Urgency Signaling").
 
-CIP-cited artefacts:
-- docs/phase-2/cardano-realism-audit.md
-- docs/phase-2/validity-threats.md
-- docs/phase-2/realism-risks-register.md (24 DISCLOSED + 0 LIVE)
-- docs/phase-2/coverage-check.md
-- docs/phase-2/methodology-overview.md
-- docs/phase-2/cip-author-summary.md (paste guide)
+CIP-cited artefacts (under cip-evidence/ at this tag):
+- cip-evidence/audit-documents/cardano-realism-audit.md
+- cip-evidence/audit-documents/validity-threats.md
+- cip-evidence/audit-documents/realism-risks-register.md (24 DISCLOSED + 0 LIVE)
+- cip-evidence/audit-documents/coverage-check.md
+- cip-evidence/audit-documents/methodology-overview.md
+- cip-evidence/cip-author-summary.md (paste guide)
 
 Topology snapshot: Cardano mainnet, epoch 582, retrieved 2026-05-14.
-Consistency audit: .planning/phases/05-handoff/05-CONSISTENCY-REPORT.md
+Consistency audit: cip-evidence/consistency-audit/CONSISTENCY-REPORT.md
 ```
 
 ### HAND-03 execution note
@@ -237,8 +237,8 @@ Per the project's don't-auto-commit convention, Plan 05-03 drafts only the tag m
 3. Confirm the tag landed: `git tag --list 'phase-2-cip-evidence-v1' && git show phase-2-cip-evidence-v1 | head -20`.
 4. (Optional) Push the tag for a remote citable reference: `git push origin phase-2-cip-evidence-v1`.
 5. Edit this file's §"Citable git tag" subsection to replace the `(tag pending: ...)` placeholder with the live `Tag applied: ...` annotation.
-6. Re-run `.planning/phases/05-handoff/verify-consistency.sh` once more to confirm the placeholder swap did not introduce any dead references (expected: exit 0; no dead refs).
-7. Append a final line to `.planning/phases/05-handoff/05-CONSISTENCY-REPORT.md` §"Post-Plan-05-03 verification" recording the tag-application date and the post-tag commit Secure Hash Algorithm 256-bit (SHA-256).
+6. Re-run `consistency-audit/verify-consistency.sh` once more to confirm the placeholder swap did not introduce any dead references (expected: exit 0; no dead refs).
+7. Append a final line to `consistency-audit/CONSISTENCY-REPORT.md` §"Post-Plan-05-03 verification" recording the tag-application date and the post-tag commit Secure Hash Algorithm 256-bit (SHA-256).
 
 ## What is NOT in this evidence base
 
@@ -253,6 +253,6 @@ The Cardano Improvement Proposal (CIP) author should treat the items below as **
 
 ## Closing footer
 
-Plan 05-03 closes Phase 5 — the milestone-close phase of the Phase-2 Cardano Improvement Proposal (CIP) Evidence Audit project. The CIP author may now copy from this summary into the CIP draft; the underlying source-of-truth artefacts (`cardano-realism-audit.md`, `validity-threats.md`, `realism-risks-register.md`, `coverage-check.md`, `methodology-overview.md`) are stable at the post-`phase-2-cip-evidence-v1` tag. Subsequent edits to the evidence base require a new tagged version (e.g. `phase-2-cip-evidence-v2`) and a corresponding re-run of `.planning/phases/05-handoff/verify-consistency.sh` to refresh the consistency audit baseline.
+Plan 05-03 closes Phase 5 — the milestone-close phase of the Phase-2 Cardano Improvement Proposal (CIP) Evidence Audit project. The CIP author may now copy from this summary into the CIP draft; the underlying source-of-truth artefacts (`cardano-realism-audit.md`, `validity-threats.md`, `realism-risks-register.md`, `coverage-check.md`, `methodology-overview.md`) are stable at the post-`phase-2-cip-evidence-v1` tag. Subsequent edits to the evidence base require a new tagged version (e.g. `phase-2-cip-evidence-v2`) and a corresponding re-run of `consistency-audit/verify-consistency.sh` to refresh the consistency audit baseline.
 
 See `.planning/phases/05-handoff/05-SUMMARY.md` for the Phase 5 SUMMARY consumed by `gsd-verify-phase`.

@@ -5,7 +5,7 @@ Branch: dynamic-experiment
 Scope: every calibration choice in `parameters/phase-2-sweep/` and every
 modeling assumption in `sim-rs/sim-core/`.
 Evidence: 4 spike READMEs under `.planning/spikes/`, cited inline; Phase 3
-multi-seed evidence under `.planning/realism-tests/`, cited inline.
+multi-seed evidence under `../test-results/`, cited inline.
 Abbreviations on first use: Cardano Improvement Proposal (CIP), Ethereum
 Improvement Proposal 1559 (EIP-1559), ranking block (RB), endorser block
 (EB), Stake Pool Operator (SPO), Bias-corrected and accelerated (BCa)
@@ -48,7 +48,7 @@ DISCLOSED with sub-knob granularity in
 for inherited upstream limitations (`f64` in non-pricing code paths,
 propagation fidelity, utility-maximising actor model) per
 `RSK-substrate-scope` in
-[`docs/phase-2/realism-risks-register.md`](realism-risks-register.md).
+[`realism-risks-register.md`](realism-risks-register.md).
 
 Phase 3 multi-seed evidence (N = 20 seeds, sundaeswap_moderate
 demand, multiplier_floor = 4) establishes the welfare ranking among
@@ -151,13 +151,13 @@ triple.
    (possibly-lower) current quote at inclusion, and refunds the gap
    via Polina's separate fee-change-return CIP. This is a deliberate
    mechanism-level change documented in
-   [`docs/phase-2/mechanism-design.md`](mechanism-design.md) lines
+   [`../../docs/phase-2/mechanism-design.md`](../../docs/phase-2/mechanism-design.md) lines
    39–51 — not a calibration drift — but the refund path is an
    external dependency. **Defensible because** phase-2's welfare
    claims explicitly assume the refund mechanism exists and the spec
    is transparent about the reinterpretation. See
    `RSK-fee-as-maxFee-envelope` in
-   [`docs/phase-2/realism-risks-register.md`](realism-risks-register.md)
+   [`realism-risks-register.md`](realism-risks-register.md)
    for the canonical CIP-pasteable disclosure paragraph.
 
 2. **Mempool absolute byte cap is 133× larger than mainnet.**
@@ -207,11 +207,11 @@ for the per-sub-knob audit trail and rejected-citations list).
    `phase-2-eip1559-smoothing` suite sweeps {16, 32, 64} for
    sensitivity. See `RSK-un-anchored-controller-knobs` sub-knob (a)
    in
-   [`docs/phase-2/realism-risks-register.md`](realism-risks-register.md).
+   [`realism-risks-register.md`](realism-risks-register.md).
 
 2. **Multiplier-floor 4 in two suites — DISCLOSED; regime-dependent
    at floor 16.** TEST-07a (Phase 3,
-   [`.planning/realism-tests/multiplier-floor-16-companion/results.md`](../../.planning/realism-tests/multiplier-floor-16-companion/results.md))
+   [`../test-results/multiplier-floor-16-companion/results.md`](../test-results/multiplier-floor-16-companion/results.md))
    found that at multiplier-floor 16, the `phase-2-rb-scarcity`
    finding inverts ("standard dominates welfare" → "priority captures
    everything; total welfare collapses 93–98%") and the
@@ -266,7 +266,7 @@ lane-signal-source). The umbrella entry verdict for
 `RSK-un-anchored-controller-knobs` flips from LIVE to DISCLOSED
 rather than to MITIGATED because only one of four sub-knobs anchors;
 see
-[`docs/phase-2/realism-risks-register.md`](realism-risks-register.md)
+[`realism-risks-register.md`](realism-risks-register.md)
 `RSK-un-anchored-controller-knobs` for the per-sub-knob disclosure
 paragraph.
 
@@ -362,7 +362,7 @@ The following paragraphs are ready to paste into a "Limitations and
 Modeling Assumptions" section of a phase-2 paper / CIP write-up. Tone
 is rigorous, not defensive. These paragraphs are dual-purpose with
 the per-`RSK-NN` disclosure paragraphs in
-[`docs/phase-2/realism-risks-register.md`](realism-risks-register.md);
+[`realism-risks-register.md`](realism-risks-register.md);
 the audit's paragraphs are engineering-report-voice summaries; the
 register's paragraphs are the per-risk canonical CIP-paste source.
 
@@ -387,7 +387,7 @@ match Ethereum's deployed EIP-1559 exactly; reorg-safety holds by
 construction because every RB carries its own derived quote as a
 pure function of canonical predecessors. Phase 3 multi-seed evidence
 at multiplier-floor 16 (TEST-07a;
-[`.planning/realism-tests/multiplier-floor-16-companion/results.md`](../../.planning/realism-tests/multiplier-floor-16-companion/results.md))
+[`../test-results/multiplier-floor-16-companion/results.md`](../test-results/multiplier-floor-16-companion/results.md))
 establishes that the multiplier-floor 4 calibration in
 `phase-2-rb-scarcity` and `phase-2-urgency-inversion` is regime-
 dependent: at floor 16 the rb-scarcity finding inverts ("standard
@@ -410,7 +410,7 @@ canonical per-sub-knob disclosure paragraphs.
 **On topology.** This phase uses a 100-node mass-stratified mainnet
 stake-curve topology (`topology-realistic-100.yaml`), a downsample of
 the Cardano mainnet snapshot at epoch 582 (retrieved 2026-05-14 per
-[`docs/phase-2/calibration-fix-postmortem.md`](calibration-fix-postmortem.md)).
+[`../../docs/phase-2/calibration-fix-postmortem.md`](../../docs/phase-2/calibration-fix-postmortem.md)).
 Mainnet operates approximately 3,000 stake-pool operators (SPOs);
 pool-count sensitivity within 100-to-150 is bounded by
 `RSK-pool-count`; behaviour at ~3,000 pools is DISCLOSED there;
@@ -444,7 +444,7 @@ bearer block. See `RSK-mempool-cap-magnitude` in the register.
 **On the menu-item welfare distinction.** Phase 3 multi-seed evidence
 (TEST-04 at N=20 seeds, sundaeswap_moderate demand, multiplier_floor =
 4; results at
-[`.planning/realism-tests/multi-seed-variance/results.md`](../../.planning/realism-tests/multi-seed-variance/results.md))
+[`../test-results/multi-seed-variance/results.md`](../test-results/multi-seed-variance/results.md))
 establishes the welfare ranking among the four CIP menu options:
 
 - **Un-reserved menu arms materially outperform single-lane
@@ -466,7 +466,7 @@ establishes the welfare ranking among the four CIP menu options:
   calibration-conditional menu indistinguishability worth disclosing.
 - Phase 3 hash-diversity gate: 17 of 17 BACKED-eligible cells pass
   at distinct-hash count = N. See
-  [`docs/phase-2/coverage-check.md`](coverage-check.md) and
+  [`coverage-check.md`](coverage-check.md) and
   `RSK-single-seed-precision` in the register.
 
 ## Recommended next steps
@@ -484,13 +484,13 @@ establishes the welfare ranking among the four CIP menu options:
 - **Pool-count sensitivity above 100 pools is currently disclose-
   only per `RSK-pool-count`.** A future TEST-05 re-run at 100 versus
   150 pools (recipe in
-  [`.planning/realism-tests/pool-number-sensitivity/results.md`](../../.planning/realism-tests/pool-number-sensitivity/results.md))
+  [`../test-results/pool-number-sensitivity/results.md`](../test-results/pool-number-sensitivity/results.md))
   would replace the disclosure with a MITIGATED verdict if Δ% on
   welfare metrics is within seed-Inter-Quartile Range (IQR).
 - **Run-length / steady-state validation is similarly disclose-only
   per `RSK-steady-state-run-length`.** A future TEST-06 re-run recipe
   is at
-  [`.planning/realism-tests/run-length-steady-state/results.md`](../../.planning/realism-tests/run-length-steady-state/results.md).
+  [`../test-results/run-length-steady-state/results.md`](../test-results/run-length-steady-state/results.md).
 
 ## Evidence
 

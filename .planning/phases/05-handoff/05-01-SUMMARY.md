@@ -21,7 +21,7 @@ tech-stack:
 key-files:
   created: []
   modified:
-    - "docs/phase-2/realism-risks-register.md (6 verdict flips, 6 disclosure-paragraph rewrites, reading-guide preamble + footer)"
+    - "cip-evidence/audit-documents/realism-risks-register.md (6 verdict flips, 6 disclosure-paragraph rewrites, reading-guide preamble + footer)"
 
 key-decisions:
   - "Per D-47 / D-48 / D-49: all six remaining LIVE entries flip to DISCLOSED; no LIVE survives into the CIP"
@@ -45,7 +45,7 @@ completed: 2026-05-18
 ## Performance
 
 - **Tasks:** 2 of 2 completed
-- **Files modified:** 1 (`docs/phase-2/realism-risks-register.md`)
+- **Files modified:** 1 (`cip-evidence/audit-documents/realism-risks-register.md`)
 - **Commits:** 2 (Task 1 + Task 2)
 
 ## Accomplishments
@@ -76,18 +76,18 @@ For each of `RSK-single-seed-precision`, `RSK-three-seed-statistical-power`, `RS
 Plan-level success criteria (all met):
 
 ```
-$ grep -E '^\*\*Verdict:\*\*' docs/phase-2/realism-risks-register.md | sort | uniq -c
+$ grep -E '^\*\*Verdict:\*\*' cip-evidence/audit-documents/realism-risks-register.md | sort | uniq -c
      24 **Verdict:** DISCLOSED
 
-$ awk '/^## Index/,/^## RSK-pool/' docs/phase-2/realism-risks-register.md | grep -oE '\| (LIVE|DISCLOSED|MITIGATED|DORMANT) \|' | sort | uniq -c
+$ awk '/^## Index/,/^## RSK-pool/' cip-evidence/audit-documents/realism-risks-register.md | grep -oE '\| (LIVE|DISCLOSED|MITIGATED|DORMANT) \|' | sort | uniq -c
      24 | DISCLOSED |
 
-$ grep -c '0 LIVE + 24 DISCLOSED' docs/phase-2/realism-risks-register.md
+$ grep -c '0 LIVE + 24 DISCLOSED' cip-evidence/audit-documents/realism-risks-register.md
      2  (reading-guide preamble + footer prose)
 
-$ grep -c 'TBD — drafted in Phase 4' docs/phase-2/realism-risks-register.md
+$ grep -c 'TBD — drafted in Phase 4' cip-evidence/audit-documents/realism-risks-register.md
      0
-$ grep -c '(draft fallback;' docs/phase-2/realism-risks-register.md
+$ grep -c '(draft fallback;' cip-evidence/audit-documents/realism-risks-register.md
      0
 ```
 

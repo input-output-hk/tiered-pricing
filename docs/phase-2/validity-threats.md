@@ -1,144 +1,134 @@
 # Validity threats — phase-2 dynamic-pricing simulator
 
-Date: 2026-05-13
+Date: 2026-05-18
 Branch: dynamic-experiment
 Scope: per-claim trust assessment for all 19 phase-2 suite YAMLs in
 `parameters/phase-2-sweep/suites/`.
 Companion to: [cardano-realism-audit.md](cardano-realism-audit.md),
-[REVIEW.md](../../.planning/REVIEW.md), and the four audit spike READMEs
+[realism-risks-register.md](realism-risks-register.md),
+[coverage-check.md](coverage-check.md),
+[REVIEW.md](../../.planning/REVIEW.md), and the audit spike READMEs
 under [.planning/spikes/](../../.planning/spikes/).
+
+Abbreviations on first use: Cardano Improvement Proposal (CIP),
+Ethereum Improvement Proposal 1559 (EIP-1559), ranking block (RB),
+endorser block (EB), Realism Risk (RSK) identifier in
+[`docs/phase-2/realism-risks-register.md`](realism-risks-register.md),
+claim identifier (CLM) in
+[`docs/phase-2/coverage-check.md`](coverage-check.md), Inter-Quartile
+Range (IQR), Bias-corrected and accelerated (BCa) bootstrap, Maximum
+Extractable Value (MEV), confidence interval (CI), Paired Seed
+Evaluation (PSE).
 
 ## TL;DR
 
-Of 19 suites: **0 HIGH** out-of-the-box, **10 MEDIUM** (defensible
-with the standard audit-disclosure footer plus 1–2 specific caveats),
-**2 LOW** (conclusion depends non-trivially on `multiplier_floor = 4`
-being load-bearing in the design), and **4 UNRESOLVED** (require the
-actual numerical output before a trust verdict is fair). The
-remaining 3 M4 suites group with MEDIUM. The largest single trust gap
-is that **every suite runs on `topology.default.yaml` (100 nodes),
-not the `topology-single-producer.yaml` described in CLAUDE.md and the
-realism audit** — so the audit's single-producer disclosure paragraph
-is backwards relative to the on-disk YAMLs, and WR-1 (no pricing-
-state rollback on slot-battle reorg) is potentially live rather than
-dormant. This needs reconciliation before publication.
+Of the 19 phase-2 suite YAMLs in `parameters/phase-2-sweep/suites/`,
+this document gives a per-suite trust assessment so a CIP author or
+reviewer can drill into a specific suite's evidence and know which
+claims it can fairly license. The operational topology across every
+suite is `topology-realistic-100.yaml` (100 nodes, mass-stratified
+mainnet snapshot at epoch 582 retrieved 2026-05-14, top-1 stake share
+1.97%, Nakamoto coefficient 35, Gini 0.253) per
+[`.planning/spikes/006-curve-design/README.md`](../../.planning/spikes/006-curve-design/README.md);
+all 7 goldens-pinned M3 / M4 suites verify bit-identically against
+that topology under intra-architecture determinism. The pricing
+controller is **Family B** (chain-derived, EIP-1559-faithful, one
+controller step per canonical block) per
+[`.planning/family-b-decision-2026-05-14.md`](../../.planning/family-b-decision-2026-05-14.md);
+the controller's `derived_quote` is materialised on every
+`LinearRankingBlock` as a pure function of canonical predecessors,
+which closes WR-1 (controller contamination on slot-battle reorg) by
+construction — orphan blocks from slot battles carry their own
+`derived_quote` that is discarded with the block, so the canonical
+chain's controller trajectory cannot be contaminated by short forks.
 
-## Resolved 2026-05-13
+Phase 3's targeted cheap tests
+([`.planning/phases/04-refresh-and-anchor/04-03-phase3-evidence-summary.md`](../../.planning/phases/04-refresh-and-anchor/04-03-phase3-evidence-summary.md))
+produced multi-seed evidence at N=20 BCa CIs that materially refines
+the per-suite trust ratings:
 
-> **Topology gap resolved 2026-05-13.** The previous `## TL;DR`
-> warned that suites ran on `topology.default.yaml` while CLAUDE.md
-> and the realism audit described `topology-single-producer.yaml` as
-> the operational topology. As of 2026-05-13 the suites have been
-> switched to `topology-realistic-100.yaml` (a 100-node
-> mass-stratified mainnet curve — see
-> [`.planning/spikes/006-curve-design/README.md`](../../.planning/spikes/006-curve-design/README.md)),
-> CLAUDE.md and the realism audit have been corrected to match, and
-> the M5 suite-level goldens have been regenerated against the new
-> topology. The trust ratings below reflect this corrected state.
-> The recommended next-steps "Reconcile the topology gap" item
-> (§"Recommendations to raise trust" item 1) is therefore closed.
+- **Un-reserved menu arms (priority-only and both-dynamic) materially
+  outperform single-lane EIP-1559** at `multiplier_floor = 4` under
+  `sundaeswap_moderate` demand: priority-only un-reserved Δ
+  retained_value = +6.66e+09 (95% BCa CI [+4.28e+09, +8.49e+09]);
+  both-dynamic un-reserved Δ = +7.95e+09 (CI [+5.65e+09, +1.09e+10]).
+- **RB-reserved menu arms underperform single-lane EIP-1559** under
+  the same calibration: priority-only RB-reserved Δ = −4.15e+09 (CI
+  [−6.02e+09, −1.00e+09]); both-dynamic RB-reserved (partitioned) Δ
+  = −4.15e+09 (CI [−5.95e+09, −8.87e+08]). This REFUTES the
+  pre-Phase-3 single-seed framing that "two-lane mechanisms
+  outperform single-lane EIP-1559" — that framing holds only for the
+  un-reserved variants under this calibration.
+- **`multiplier_floor = 4` is regime-dependent**: at floor=16 the
+  `rb-scarcity` finding inverts (standard-dominates-welfare flips to
+  priority-captures-everything with total welfare dropping 93–98%)
+  and the `urgency-inversion` finding weakly reverses (mispriced >
+  correctly-priced flips to correctly-priced > mispriced by ~13%) per
+  TEST-07a.
+- **Hash-diversity gate**: 17 of 17 BACKED-eligible cells pass the
+  COV-05 strict gate (distinct `pricing_event_stream.sha256` count =
+  N seeds).
 
-## Resolved 2026-05-14
-
-> **WR-1 (controller contamination) AND mechanism-faithfulness both
-> resolved 2026-05-14.** Two distinct concerns landed on the same
-> day; both are now closed.
->
-> 1. **WR-1 — controller contamination.** Spike 007 adopted the
->    chain-derived (EIP-1559-style) pattern as the WR-1 fix. The
->    pricing controller's `derived_quote` is now stored on each
->    `LinearRankingBlock` as a pure function of the parent's
->    `derived_quote` + samples in canonical predecessors. Slot-battle
->    orphan blocks cannot contaminate the canonical chain's
->    controller trajectory by construction (sibling blocks produce
->    identical `derived_quote` from identical parents). The M5
->    suite-level goldens were regenerated against the chain-derived
->    implementation on 2026-05-14; all 7 suites pass deterministically
->    across multiple runs. See
->    `.planning/chain-derived-controller-PLAN.md` for the
->    implementation deltas and
->    `.planning/spikes/007-chain-derived-controller/README.md` for
->    the design rationale.
->
-> 2. **Mechanism-faithfulness — Family B committed.** Post-refactor
->    investigation revealed the pre-2026-05-14 accumulator implementation
->    had been effectively stepping the controller twice per RB-EB
->    pair (separate `apply_priced_block` and `apply_eb_priced_block`
->    calls), diverging from `mechanism-design.md`'s per-block-cadence
->    intent. Chain-derived steps exactly once per canonical block,
->    matching textbook EIP-1559 (and matching the spec). Family B
->    (EIP-1559-faithful, 1-step-per-canonical-block) is committed
->    as the publication mechanism. See
->    `.planning/chain-derived-bug2-investigation.md` (root-cause
->    analysis), `.planning/mechanism-welfare-impact-2026-05-14.md`
->    (33-job welfare impact characterization), and
->    `.planning/family-b-decision-2026-05-14.md` (decision memo).
->
-> Trust-rating impact: the WR-1 disclosure caveat in the per-suite
-> entries below is **no longer active**. Suites that were
-> classified MEDIUM/LOW exclusively because of WR-1 may be upgraded;
-> suites classified MEDIUM/LOW for multiple reasons retain the
-> non-WR-1 components of their rationale. The per-suite WR-1
-> mentions below are preserved as historical context but do not
-> constrain the rating today.
->
-> Per-suite Family B disclosure: four specific (job, mechanism)
-> cells flip welfare sign between accumulator and chain-derived —
-> `eip1559_d4_t50_w32`, `eip1559_d8_t25_w32`,
-> `rb_reserved_x4_rb_quarter`, and `partitioned_x4_rb_quarter`. The
-> welfare claim for these four cells was positive under the
-> pre-2026-05-14 accumulator's 2-step variant; it flips to negative
-> under EIP-1559-faithful chain-derived. The mechanism choice
-> (Family B) is the committed publication mechanism. Suites that
-> include any of these four jobs (`phase-2-eip1559-robustness`,
-> `phase-2-eip1559-smoothing` for `d8_t25_w32`,
-> `phase-2-priority-only-rb-reserved`, `phase-2-two-lane-both-dynamic`,
-> `phase-2-rb-scarcity`, the corresponding demand-regime suites)
-> should report the flip explicitly when the affected cell is in
-> scope.
+Aggregate count (post-refresh): **2 HIGH** (the two un-reserved menu
+arms that Phase 3 directly confirms at N=20), **13 MEDIUM** (defensible
+with the standard footer plus 1–2 specific caveats; includes the four
+formerly-UNRESOLVED suites whose verdicts are now derived from Phase
+2's output-read per
+[`docs/phase-2/coverage-check.md`](coverage-check.md)),
+**4 LOW** (conclusions condition non-trivially on `multiplier_floor =
+4` being load-bearing or on Phase 3 having statistically refuted the
+pre-Phase-3 framing). No suite carries UNRESOLVED today.
 
 ## Family B decision
 
-The Family B commitment (EIP-1559-faithful chain-derived, 1 step per
-canonical block) materially affects publication-grade trust ratings
-across this matrix. Key empirical findings (full data in
-[`.planning/mechanism-welfare-impact-2026-05-14.md`](../../.planning/mechanism-welfare-impact-2026-05-14.md);
-33-job sundaeswap smoke, seed=1):
+The phase-2 publication mechanism is **Family B**: the chain-derived
+pattern that steps `quote_per_byte` exactly once per canonical
+`LinearRankingBlock`, matching EIP-1559's per-block update semantics.
+Every `LinearRankingBlock` carries `derived_quote: PerLaneQuote` as a
+pure function of the parent's `derived_quote` plus samples in
+canonical predecessors, so the controller state lives on the canonical
+chain itself rather than in node-local mutable state. Family B was
+committed for publication 2026-05-14 per
+[`.planning/family-b-decision-2026-05-14.md`](../../.planning/family-b-decision-2026-05-14.md);
+the M5 suite-level goldens were regenerated against the chain-derived
+implementation on that day and all 7 goldens-pinned suites verify
+bit-identically on the development architecture.
 
-- **Top two mechanism arms unchanged.** Un-reserved priority-only
-  and un-reserved both-dynamic preserve qualitative claim under
-  Family B (median |Δ%| ≤ 17%, 0 sign flips). The "two-lane
-  un-reserved outperforms" headline survives.
-- **RB-reserved / partitioned arms strengthen.** Median welfare
-  rises ~30% under Family B (+8.51e+10 → +1.19e+11 across the arm),
-  and these arms jump above single-lane in the mechanism ranking.
-  The "two-lane RB-reserved provides welfare guarantees" claim is
-  *strengthened* by Family B, except at the harshest combined-stress
-  corner (multiplier_floor=4 × RB-reduced-to-quarter), which flips
-  negative.
-- **Single-lane arm weakens.** Median net_utility drops two orders
-  of magnitude under Family B (+9.11e+09 → +1.68e+08); 2/7 EIP-1559
-  jobs flip welfare-negative. The "single-lane EIP-1559 beats
-  flat-fee" claim is fragile under Family B; the "two-lane >
-  single-lane" claim is *strengthened*.
-- **Reactivity (D) effect inverts.** Under the accumulator, low-D
-  (more reactive) EIP-1559 was the second-highest single-lane
-  result; under Family B, low-D is the worst (and flips negative).
-  Publication-grade single-lane sweep summaries should report the
-  D × target sweet spot under Family B explicitly.
+Welfare-impact across mechanisms, sourced from Phase 3 N=20 BCa CIs
+(`.planning/phases/04-refresh-and-anchor/04-03-phase3-evidence-summary.md`)
+which supersedes the earlier N=1 33-job characterisation in
+[`.planning/mechanism-welfare-impact-2026-05-14.md`](../../.planning/mechanism-welfare-impact-2026-05-14.md):
 
-Going-forward trust-rating policy: any suite output produced under
-the post-2026-05-14 chain-derived implementation reflects Family B
-semantics. Suites currently rated MEDIUM/LOW exclusively because of
-WR-1 are upgraded by one level; suites whose conclusions depended
-materially on the 2-step accumulator behavior (the 4 sign-flip cells
-above) drop one level until re-characterized under Family B.
+- **Un-reserved arms (priority-only, both-dynamic)** outperform
+  single-lane EIP-1559 with tight CIs at `multiplier_floor = 4`
+  under `sundaeswap_moderate` demand. Sign-coherence 0.90 across 20
+  seeds.
+- **RB-reserved arms (priority-only, partitioned both-dynamic)**
+  underperform single-lane EIP-1559 by ~4e+09 retained_value under
+  the same calibration. Sign-coherence 0.65 across 20 seeds.
+- **Single-lane EIP-1559 control** is the welfare baseline against
+  which the menu options are compared; the 2/7 single-lane sign-flip
+  cells from the pre-Phase-3 33-job smoke (`d4_t50_w32`,
+  `d8_t25_w32`) resolve welfare-positive at N=20 vs the (d8, t50,
+  w32) baseline (per TEST-03 BACKED) — i.e. the most reactive and
+  the low-target single-lane calibrations outperform the canonical
+  Ethereum-mainnet setting, but the menu-vs-single-lane comparison
+  in TEST-04 uses the canonical baseline.
+- **Sign-flip cells at the harshest combined-stress corner**
+  (`x4_rb_quarter` under priority-only-RB-reserved and partitioned
+  both-dynamic) produce real-but-noisy positive medians whose CIs
+  straddle zero (variance-dominated at N=20); both cells land WEAK
+  per TEST-03.
 
-The full suite-level re-run under chain-derived is recommended (not
-mandated) follow-on compute for publication-grade numbers; the
-33-job smoke is sufficient for the Family B *decision*, but the
-remaining 19 suites × 3 seeds need re-running for publication-grade
-welfare reporting.
+The 4 specific (job, mechanism) cells whose sign flipped between the
+pre-2026-05-14 accumulator and chain-derived Family B —
+`eip1559_d4_t50_w32`, `eip1559_d8_t25_w32`,
+`rb_reserved_x4_rb_quarter`, `partitioned_x4_rb_quarter` — are now
+characterised at N=20: the two single-lane EIP-1559 cells land
+welfare-positive (BACKED); the two RB-quarter cells land
+welfare-indeterminate (WEAK with CI straddling zero). Suites that
+include any of these four jobs should report the Phase 3 N=20
+verdict explicitly in any Family-A-vs-Family-B discussion.
 
 ## Trust framework
 
@@ -146,42 +136,62 @@ Three validity layers, interpreted per-claim:
 
 - **Internal validity (HIGH baseline).** REVIEW.md established the
   pricing kernel, mempool gate, and event-stream hashing are tight.
-  Three deferred findings (WR-1 slot-battle rollback, WR-2 admission-
-  rejection diagnostics, WR-7 actor-component allocation
-  amplification) could affect specific claims.
+  WR-1 (controller contamination on slot-battle reorg) is RESOLVED
+  by Family B's chain-derived design. Two deferred findings (WR-2
+  admission-rejection diagnostics, WR-7 actor-component allocation
+  amplification) remain and may affect specific claims; both are
+  disclosure-only on the register.
 - **External validity (MEDIUM baseline).** The audit
-  ([cardano-realism-audit.md](cardano-realism-audit.md)) identified
-  12 disclosure items across 4 categories. The standard footer
+  ([cardano-realism-audit.md](cardano-realism-audit.md)) identifies
+  disclosure items across four categories (fee field, controller
+  calibration, topology / actor model, demand). The standard footer
   (fee-field reinterpretation, CIP-0164 pre-deployment, refund-CIP
-  dependency) applies universally and is not re-listed inline.
-- **Conclusion-specific validity (NEW here).** Statistical scope
-  (3 seeds, 2000 slots — no tight 95 % CIs reportable), determinism
-  scope (intra-arch only; CR-1 `f64::sqrt` blocks cross-arch
-  reproducibility), and whether the claim's *shape* (sign, ordering)
-  versus *magnitude* (welfare delta) is being asserted.
+  dependency, demand-mix order-of-magnitude calibration) applies
+  universally and is not re-listed inline.
+- **Conclusion-specific validity.** Statistical scope: the unpinned
+  demand-regime suites run at 3 seeds × 2000 slots; Phase 3 promoted
+  the 5 directly-tested canonical cells to N=20 BCa CIs but the
+  remaining 14 suites carry 3-seed evidence. Determinism scope:
+  intra-arch only; cross-arch is not yet proven (RSK-cross-arch-
+  determinism). Whether the claim's *shape* (sign, ordering) versus
+  *magnitude* (welfare delta) is being asserted matters: shape
+  claims are well-supported at 3 seeds for any suite passing the
+  hash-diversity gate; magnitude claims demand the BCa CI evidence.
 
 **4-level scale.**
 
 - **HIGH** — robust against all surfaced threats; publication-ready
-  with the standard footer only.
+  with the standard footer only. Reserved for claims with Phase 3
+  N=20 BCa CI evidence whose CI excludes zero and whose direction
+  matches the suite's prior framing.
 - **MEDIUM** — robust against most threats; 1–2 specific caveats.
 - **LOW** — direction or shape materially sensitive to a disclosure
-  item; recast as exploratory or pair with sensitivity sweep.
-- **UNRESOLVED** — cannot be fairly rated without the suite output
-  or a follow-on run. Flagged with what resolves it.
+  item; recast as exploratory or pair with sensitivity sweep. Now
+  also applies to suites whose pre-Phase-3 framing was statistically
+  refuted by Phase 3 (the RB-reserved underperform finding at
+  TEST-04).
+- **UNRESOLVED** — historically used for suites awaiting output read.
+  **No suite carries UNRESOLVED in this refresh**: the four
+  previously-UNRESOLVED non-pinned suites have refreshed verdicts
+  derived from Phase 2's output-read pass (Plan 02-02; see
+  [`docs/phase-2/coverage-check.md`](coverage-check.md) CLM-39,
+  CLM-40, CLM-46, CLM-48 and adjacent rows) which promoted UNBACKED
+  to WEAK across the relevant rows.
 
 **Common cross-suite facts** (true of all 19 unless noted):
 
-- Seeds: `[1, 2, 3]` — three seeds; enough for qualitative-direction
-  flips but not for tight 95 % CIs.
+- Seeds: `[1, 2, 3]` for the 12 unpinned demand-regime suites and the
+  3 / 4 / 5 jobs in the M3 / M4 goldens-pinned suites — enough for
+  qualitative-direction flips but not tight 95% CIs. The 5 canonical
+  Phase 3 cells (TEST-03 sign-flip + TEST-04 canonical menu-item)
+  run at N=20 with BCa CIs.
 - Slots: 2000 (~10 min simulated time at 0.5 s/slot).
-- Topology: **`parameters/topology.default.yaml`** — 100 nodes with
-  real-RTT-distributed latencies; **not** the single-producer
-  topology described in CLAUDE.md / the audit. Load-bearing for WR-1.
+- Topology: **`parameters/phase-2-sweep/topology-realistic-100.yaml`**
+  — 100 nodes; mass-stratified epoch-582 Cardano mainnet snapshot
+  (top-1 stake share 1.97%, Nakamoto coefficient 35, Gini 0.253).
 - Protocol: `protocol-base.yaml` unless an RB-reduced overlay
   override is set per-job.
 
-## Per-suite claims and trust ratings
 
 ### M3 suites — single-lane EIP-1559 mechanism characterization
 

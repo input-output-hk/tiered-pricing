@@ -27,6 +27,7 @@ IN_SCOPE_DOCS=(
   "cip-evidence/audit-documents/realism-risks-register.md"
   "cip-evidence/audit-documents/coverage-check.md"
   "cip-evidence/audit-documents/methodology-overview.md"
+  "cip-evidence/audit-documents/latency-by-urgency.md"
   "cip-evidence/cip-author-summary.md"
 )
 

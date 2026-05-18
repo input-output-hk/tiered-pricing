@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Phase 3 context gathered
-last_updated: "2026-05-15T16:20:54.302Z"
-last_activity: 2026-05-15 -- Phase 03 planning complete
+stopped_at: Phase 4 complete (verified PASS 4/4)
+last_updated: "2026-05-18T15:33:39.870Z"
+last_activity: 2026-05-18 -- Phase 05 planning complete
 progress:
   total_phases: 5
-  completed_phases: 2
-  total_plans: 7
-  completed_plans: 4
-  percent: 57
+  completed_phases: 3
+  total_plans: 17
+  completed_plans: 15
+  percent: 88
 ---
 
 # Project State
@@ -25,12 +25,12 @@ See: .planning/PROJECT.md (updated 2026-05-15)
 
 ## Current Position
 
-Phase: 02 — COMPLETE
-Plan: 2 of 2
+Phase: 04 — COMPLETE (verified PASS 4/4 success criteria)
+Plan: 7 of 7
 Status: Ready to execute
-Last activity: 2026-05-15 -- Phase 03 planning complete
+Last activity: 2026-05-18 -- Phase 05 planning complete
 
-Progress: [████░░░░░░] 40%
+Progress: [████████░░] 80%
 
 ## Performance Metrics
 
@@ -98,6 +98,19 @@ Items acknowledged and carried forward from previous milestone close (see PROJEC
 
 ## Session Continuity
 
-Last session: 2026-05-15T15:52:19.807Z
-Stopped at: Phase 3 context gathered
-Resume file: .planning/phases/03-targeted-cheap-tests/03-CONTEXT.md
+Last session: 2026-05-18T14:45:00.000Z
+Stopped at: Phase 4 complete (verified PASS 4/4)
+Resume file: .planning/phases/04-refresh-and-anchor/04-SUMMARY.md
+
+Phase 4 outputs:
+
+- docs/phase-2/cardano-realism-audit.md (500 lines; 17 (value, source, date-retrieved) triples; substrate-scope umbrella included)
+- docs/phase-2/validity-threats.md (850 lines; all 19 per-suite blocks carry Related-RSK + Related-CLM)
+- docs/phase-2/realism-risks-register.md (452 lines; 6 LIVE + 18 DISCLOSED post-Phase-4; RSK-un-anchored-controller-knobs DISCLOSED with sub-knob granularity)
+- docs/phase-2/coverage-check.md (155 lines; CLM-05 signal-source-anchoring cites Reijsbergen/Leonardos/Liu for window-length 32)
+- docs/phase-2/methodology-overview.md (260 lines; ODD index + per-element prose + seed=1 worked example)
+- .planning/phases/04-refresh-and-anchor/04-SUMMARY.md (phase summary)
+- .planning/phases/04-refresh-and-anchor/04-07-consistency-report.md (8 defects fixed in place)
+- .planning/phases/04-refresh-and-anchor/04-VERIFICATION.md (4/4 PASS)
+
+19 atomic commits landed on `dynamic-experiment` (4ff3b32 .. af7bf61).

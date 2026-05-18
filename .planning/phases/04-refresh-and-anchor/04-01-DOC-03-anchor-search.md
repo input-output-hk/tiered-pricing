@@ -112,3 +112,56 @@ A 2024–2026 arXiv follow-up pass was scoped in the plan as optional ("any 2024
 
   *Lane-signal-source choices.* (i) The un-reserved priority signal source defaults to option 1 (`priority_paying_bytes / total_block_capacity`) of three open candidates in `docs/phase-2/mechanism-design.md` lines 207–211 (the other two: option 2, priority-paying-bytes against a notional priority share; option 3, observed delay-gap signal `standard_delay_ema − priority_delay_ema`). (ii) The both-dynamic standard signal source defaults to `standard_paying_bytes / eb_referenced_txs_max_size_bytes` over endorser blocks (EBs), with no standard sample fired on ranking-block-reserved (RB-reserved) ranking blocks (RBs); `mechanism-design.md` line 238 leaves this denominator choice explicitly open. No external anchor exists for either choice: the Ethereum Improvement Proposal 1559 (EIP-1559) academic-critique literature (Liu et al. Conference on Computer and Communications Security (CCS) 2022; Reijsbergen et al. Advances in Financial Technologies (AFT) 2021; Leonardos et al. AFT 2021) analyses single-lane controllers only, and no deployed dynamic-pricing system has a comparable second-lane signal-source choice. The simulator's option-1 choice for un-reserved priority is motivated by simplicity (no notional-share knob; no delay-EMA infrastructure); the both-dynamic standard side is motivated by the lane-isolation invariant (RB-reserved RBs cannot signal standard congestion without leaking the partition). Welfare findings from the un-reserved priority arm and the both-dynamic standard side are conditional on these specific signal-source definitions; alternative signal sources were not exercised.
 
+## Umbrella verdict for RSK-un-anchored-controller-knobs
+
+Per the register entry's `Scope-of-resolution` rule (`docs/phase-2/realism-risks-register.md` line 102): the umbrella verdict lands MITIGATED iff all four sub-knobs land ANCHORED; otherwise the umbrella verdict lands DISCLOSED with sub-knob granularity in the disclosure-paragraph.
+
+- **Recommendation:** **LIVE → DISCLOSED** (with sub-knob granularity: one ANCHORED, three DISCLOSED).
+
+### Per-sub-knob disposition table
+
+| Sub-knob | Disposition | One-line rationale |
+|---|---|---|
+| 1. Window length 32 (capacity-varying signals) | **ANCHORED** | Reijsbergen et al. AFT 2021 (chaotic-oscillation finding) plus Liu et al. CCS 2022 (empirical counter-bound) plus Leonardos et al. AFT 2021 (bounded-oscillation theoretical) motivate the *kind* of choice (a smoothing layer over the unwindowed Ethereum baseline); the specific length 32 is a round-number choice within the sweep-covered {16, 32, 64} band. |
+| 2. Multiplier-floor 4 (in `phase-2-rb-scarcity`, `phase-2-urgency-inversion`) | **DISCLOSED** | No external anchor exists for a second-lane multiplier (Ethereum has no second lane); the value 4 is an internal calibration accommodation per CLAUDE.md §"Calibration choices"; TEST-07a evidences the welfare regime-dependence at floor = 16. |
+| 3. Multiplier-floor 16 (spec default) | **DISCLOSED** | No external anchor exists for the magnitude; `mechanism-design.md` line 155 / 290 declares the default without citing calibration data; the justification is spec-internal ("strong price-discrimination guarantee") rather than externally anchored. |
+| 4. Lane-signal-source choices (un-reserved priority option 1; both-dynamic standard EB-bytes denominator) | **DISCLOSED** | The specification explicitly leaves both choices open (`mechanism-design.md` lines 207–211 and 238); the EIP-1559 literature addresses single-lane controllers only; no deployed dynamic-pricing system has a comparable second-lane signal-source choice. |
+
+The umbrella entry's verdict flips from **LIVE** to **DISCLOSED** rather than to MITIGATED because only one of four sub-knobs anchors. Plan 04-06 carries the verdict flip and the four-sub-knob disclosure-paragraph rewrite, pasting the per-sub-knob `Draft register prose` blocks above verbatim into the entry's `disclosure-paragraph` field.
+
+## Rejected citations
+
+The following citations were consulted but did not yield an anchor at the D-35 motivating-citation bar. Each line records the citation, the sub-knob it was tested against, and the one-line rejection rationale.
+
+- **Liu et al. CCS 2022** — *anchor-supporting* for Sub-knob 1 (window length 32) as a counter-bound to Reijsbergen's chaotic-oscillation finding; *rejected* as an anchor for Sub-knobs 2, 3, 4 because the paper analyses single-lane Ethereum Improvement Proposal 1559 (EIP-1559) only, and Ethereum has no second-lane multiplier or second-lane signal-source choice for the paper to anchor.
+- **Reijsbergen et al. AFT 2021** — *anchor-supporting* for Sub-knob 1 as the primary motivating citation for any smoothing window beyond unwindowed; *rejected* as an anchor for Sub-knobs 2, 3, 4 for the same single-lane-only reason.
+- **Leonardos et al. AFT 2021** — *anchor-supporting* for Sub-knob 1 as the theoretical bounded-oscillation result complementing Reijsbergen's empirical finding; *rejected* as an anchor for Sub-knobs 2, 3, 4 for the same single-lane-only reason.
+- **Azouvi, Goren, Heimbach, Hicks, DISC 2023** — *secondary-anchor-supporting* for Sub-knob 1 (window smoothing weakens the 20%-minority base-fee manipulation attack); *rejected* as a primary anchor because the paper's main contribution is an attack rather than a calibration; rejected as an anchor for Sub-knobs 2, 3, 4 because it addresses single-lane EIP-1559 only.
+- **Roughgarden, *"Transaction Fee Mechanism Design for the Ethereum Blockchain"*, EC 2021 / working paper** — *rejected* as an anchor for all four sub-knobs because the paper's contribution is an analysis of single-lane EIP-1559's incentive properties (myopic-miner-incentive-compatibility (MMIC); off-chain-agreement (OCA)-proofness; dominant-strategy-incentive-compatibility (DSIC) except under demand spike); does not consider second-lane controllers or signal-source choices.
+- **Sui Reference Gas Price documentation** ([Sui Docs — Gas in Sui](https://docs.sui.io/concepts/tokenomics/gas-in-sui); [Figment — Deep Dive](https://www.figment.io/insights/deep-dive-sui-reference-gas-price/)) — *rejected* as an anchor for all four sub-knobs. Sui uses epoch-boundary validator-governance voting on a single reference gas price; not a closed-loop controller; no second lane; no comparable architecture to anchor against.
+- **Solana priority-fee documentation** ([Solana Docs — Fees](https://solana.com/docs/core/fees); [Helius — Priority Fees](https://www.helius.dev/blog/priority-fees-understanding-solanas-transaction-fee-mechanics)) — *rejected* as an anchor for all four sub-knobs. Solana priority fees are user-side bids with no controller; no closed-loop architecture; no comparable second-lane signal source to anchor against.
+- **NEAR gas-pricing documentation** ([NEAR Docs — Gas Advanced](https://docs.near.org/concepts/basics/transactions/gas-advanced)) — *rejected* as an anchor for all four sub-knobs. NEAR adjusts minimum gas with token price plus sharding-based congestion management; different paradigm from a closed-loop dynamic-pricing controller; no second lane.
+- **CIP-0164 — Ouroboros Linear Leios** ([CIP-0164](https://cips.cardano.org/cip/CIP-0164)) — *rejected* as an anchor for all four sub-knobs. Cardano Improvement Proposal (CIP)-0164 preserves the static `minFeeA + minFeeB` fee structure and adds *throughput* via linear-Leios block geometry; does not introduce dynamic pricing. Phase-2 is a follow-on design with no Leios-side anchor to defer to.
+- **Consensys EIP-1559 deployed-parameter summary** ([Consensys — What is EIP-1559?](https://consensys.io/blog/what-is-eip-1559-how-will-it-change-ethereum)) — *rejected* as an independent anchor for any sub-knob because it summarises the same parameter table as the EIP-1559 specification ([EIPs.ethereum.org](https://eips.ethereum.org/EIPS/eip-1559)) without adding empirical calibration data; consulted only as cross-confirmation of the EIP-1559 parameter table.
+
+### 2024–2026 follow-up arXiv pass
+
+Not executed during this plan run (web-fetch tooling unavailable in the executor environment for this run). Per D-37 the cut-off decision is recorded in §"Search methodology and cut-off" above: the marginal new-citation expectation for Sub-knobs 2, 3, 4 is zero (no deployed system has a comparable second-lane mechanism, so no anchor can surface); for Sub-knob 1 the disposition is already ANCHORED at the D-35 bar from the three primary citations, and a 2024–2026 follow-up would strengthen rather than weaken the anchor. Plan 04-07 (Wave-3 consistency review) may run the optional follow-up pass and re-grade if a relevant citation surfaces; the verdicts above are robust to that re-grade in the direction of more anchors only.
+
+## Abbreviations expanded on first use (in-document audit)
+
+For the executor's own self-check, the following abbreviations are used in this document and each is expanded on first use within its first occurrence in the relevant prose block:
+
+- Cardano Improvement Proposal (CIP) — first use in the header; expanded.
+- Cardano Problem Statement (CPS) — not used in this document.
+- Ethereum Improvement Proposal 1559 (EIP-1559) — first use in §"Search methodology and cut-off"; expanded.
+- Conference on Computer and Communications Security (CCS) — first use in §"Search methodology and cut-off" table; expanded.
+- Advances in Financial Technologies (AFT) — first use in §"Search methodology and cut-off" table; expanded.
+- ranking block (RB) — first use in Sub-knob 1 audit-section copy; expanded.
+- endorser block (EB) — first use in Sub-knob 1 audit-section copy; expanded.
+- additive-increase / multiplicative-decrease (AIMD) — first use in Sub-knob 1; expanded.
+- ranking-block-reserved (RB-reserved) — first use in Sub-knob 1 audit-section copy; expanded.
+- kilobytes (KiB) / megabytes (MiB) — first use in Sub-knob 1 audit-section copy; expanded.
+- myopic-miner-incentive-compatibility (MMIC) / off-chain-agreement (OCA) / dominant-strategy-incentive-compatibility (DSIC) — first use in Sub-knob 4 rejected-citation block; expanded.
+
+Each per-sub-knob `Draft register prose` block is also self-contained: a reader who pastes only that prose into the `RSK-un-anchored-controller-knobs.disclosure-paragraph` field re-expands each abbreviation on its first use within the block, per the register's own first-use rule. The four per-block expansions are verified in the prose above (each block opens with CIP / EIP-1559 / CCS / AFT / RB / EB / AIMD expansion on first use).

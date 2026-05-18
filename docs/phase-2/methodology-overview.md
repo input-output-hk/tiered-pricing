@@ -62,3 +62,199 @@ Phase-2 has three empirical anchors. **First, the Cardano mainnet stake distribu
 ### Submodels
 
 The phase-2 simulator decomposes into four named submodels, each with a well-defined interface. **`PricingBackend`** ([`sim-rs/sim-core/src/tx_pricing/mod.rs`](../../sim-rs/sim-core/src/tx_pricing/mod.rs)) is the trait that abstracts the controller policy: implementations include `BaselinePricing` (flat-fee `c = 1`), `Eip1559Pricing` (single-lane EIP-1559 step), and `TwoLanePricing` with four `TwoLaneVariant` arms covering the spec's matrix (RB-reserved priority-only-static, un-reserved priority-only-static, both-dynamic partitioned, both-dynamic un-partitioned); the trait method `compute_derived_quote` is pure (no `&mut self`, no node-local state). **`MempoolGate`** ([`sim-rs/sim-core/src/sim/mempool_gate.rs`](../../sim-rs/sim-core/src/sim/mempool_gate.rs)) is the sole byte-cap authority: owns admission (`minFeeB + quote × bytes ≤ max_fee_lovelace` and not over byte cap), revalidation on quote change (evicts transactions whose lane's quote has risen above their `max_fee_lovelace`), inclusion charging (`actual_fee = minFeeB + quote(served_lane) × bytes`, `refund = max_fee − actual_fee`), and reject-only-on-full semantics (no eviction to make room for new arrivals). **`ActorComponent`** ([`sim-rs/sim-core/src/tx_actors.rs`](../../sim-rs/sim-core/src/tx_actors.rs)) is the demand-side actor model: weighted value-urgency sampling produces a stream of transactions; `MaxFeePolicy::ScaledOverLaneQuote { numerator, denominator }` produces `max_fee_lovelace` deterministically (default `{4, 1}`, i.e. 4× quote-drift headroom); `LanePolicy::UtilityMaximising` picks `posted_lane` by maximising expected utility through `libm::pow` + `libm::round` into i128 lovelace; per-(component, lane) `LatencyEstimator` keeps an Exponentially-Weighted Moving Average (EMA) of observed inclusion latencies. **`WindowAggregate`** update ([`sim-rs/sim-core/src/tx_pricing/window.rs`](../../sim-rs/sim-core/src/tx_pricing/window.rs)) implements the rolling capacity-weighted utilisation sums (u128 throughout) as two pure functions: `aggregate_from_chain` for cold-start aggregation and `update_aggregate` for the per-block incremental step. The chain-derived production path in [`sim/linear_leios.rs`](../../sim-rs/sim-core/src/sim/linear_leios.rs) wires these submodels together; the only seam between the simulator and the pricing kernel is the `ChainView` trait (a read-only walk of the canonical chain).
+
+## Worked example
+
+The seven §"Per-element prose" sub-sections above are summaries; this §"Worked example" instantiates them against one specific simulation run so a new contributor can read the document in isolation and understand how the pieces fit together. Abbreviations are re-expanded on first use here even when already expanded above, because the §"Worked example" is intended to be readable as a standalone learning artefact for new contributors per the planning-phase decision D-42 in [`.planning/phases/04-refresh-and-anchor/04-CONTEXT.md`](../../.planning/phases/04-refresh-and-anchor/04-CONTEXT.md).
+
+**Worked-example target.** The chosen Phase 3 cell is `menu_unreserved_priority_only_static_x4` — the un-reserved priority-only-static arm at multiplier-floor 4 under `sundaeswap_moderate` demand on the 100-node realistic topology, seed = 1, 2000 slots. The cell lives in the suite at [`sim-rs/parameters/phase-2-sweep/suites/phase-3-canonical-variance.yaml`](../../sim-rs/parameters/phase-2-sweep/suites/phase-3-canonical-variance.yaml) line 29 (`pricing: parameters/phase-2-sweep/pricing/two_lane_priority_only_unreserved_x4.yaml`). The cell's CIP-cited welfare outcome at Number of seeds (N) = 20 is BACKED with a Bias-corrected and accelerated (BCa) 95% Confidence Interval (CI) on Δ `retained_value` of `[+4.28e+09, +8.49e+09]`, median Δ `+6.66e+09`, sign-coherence `0.90`, and 20 / 20 distinct pricing-event-stream SHA256 hashes — see [`.planning/realism-tests/multi-seed-variance/results.md`](../../.planning/realism-tests/multi-seed-variance/results.md) §"TEST-04". This is the un-reserved-arms-outperform-single-lane-Ethereum-Improvement-Proposal-1559 headline cell that the downstream Cardano Improvement Proposal (CIP) cites as primary empirical evidence. The control against which the paired bootstrap measures Δ is the single-lane EIP-1559 baseline `control_eip1559_d8_t50_w32` (the same suite's last job, run at the same `(demand, topology, seed)`).
+
+### Worked example: Purpose
+
+For this specific run, the Purpose narrows from the per-element-prose framing "evaluate four CIP menu options against single-lane EIP-1559" to a single, falsifiable question:
+
+> **Does un-reserved priority-only-static at multiplier-floor 4 produce a positive welfare delta versus single-lane EIP-1559 under `sundaeswap_moderate` demand at seed = 1?**
+
+The welfare metric is `retained_value` — the per-(job, seed) f64 sum across the priority and standard lanes, computed as `priority_retained_value_total + standard_retained_value_total` from the `RunSummary` struct in [`sim-rs/sim-cli/src/metrics/collector.rs`](../../sim-rs/sim-cli/src/metrics/collector.rs). Per [`CLAUDE.md`](../../CLAUDE.md) §"Numeric representation contract" this is reporting-only and never feeds back into a simulation decision; the integer admission, eviction, and fee-charging events are the inputs from which `retained_value` is derived after the simulation has fully run.
+
+The Phase 3 N=20 paired Bias-corrected and accelerated (BCa) bootstrap 95% Confidence Interval (CI) for this menu option is `[+4.28e+09, +8.49e+09]` lovelace (median Δ = `+6.66e+09`, sign-coherence 0.90, 20 / 20 distinct event-stream hashes — see [`.planning/realism-tests/multi-seed-variance/results.md`](../../.planning/realism-tests/multi-seed-variance/results.md)). Seed = 1 is one specific draw inside the seed set that produced that CI; specifically the first of the 20 sequential seeds `[1..20]` listed in the suite YAML.
+
+The question this run answers is therefore not "what is the population mean" (that's the bootstrap's job at N=20) but "what does a single seed-deterministic trajectory look like that contributes to that bootstrap." The cited Phase 3 verdict at this menu option is BACKED — the CI strictly excludes zero and the hash-diversity gate passes (Coverage-check item 05 (COV-05) — see [`.planning/realism-tests/hash-diversity-gate/results.md`](../../.planning/realism-tests/hash-diversity-gate/results.md)) — so the worked-example seed = 1 trajectory is a representative member of an evidence-backed positive-welfare population.
+
+The paired comparison is meaningful because both the menu cell and its control share `(demand, topology, seed)` — the same seed produces the same network gossip schedule, lottery wins, and transaction generation across both arms. Paired bootstrap resampling nets out simulator-side variance unrelated to the mechanism, so the Δ-CI is interpretable as "the welfare improvement caused by switching from single-lane EIP-1559 to un-reserved priority-only-static at multiplier-floor 4, holding everything else fixed." This is exactly the claim a Cardano Improvement Proposal (CIP) reader is asking when they read the proposal's empirical evidence section.
+
+### Worked example: State variables
+
+At slot zero, the simulator's State variables initialise as follows.
+
+**Per-node mempool.** Each of the 100 nodes from the realistic topology owns its own `Mempool` ([`sim-rs/sim-core/src/sim/linear_leios.rs`](../../sim-rs/sim-core/src/sim/linear_leios.rs) line 2905), bounded by `max_size_bytes = 2 × eb-referenced-txs-max-size-bytes = 24 MB`. At slot zero every mempool is empty; transactions arrive across the run as the actor model fires arrivals from the demand profile. Don't infer "one source ⇒ one mempool" — gossip propagation, slot-battle dynamics, and per-node `LatencyEstimator` state all behave per-mempool in this multi-node topology (see [`CLAUDE.md`](../../CLAUDE.md) §"Conventions / gotchas" for the multi-producer-per-node-mempool clarification).
+
+**Canonical chain.** Empty at slot zero.
+
+**Initial `PerLaneQuote`.** Pinned by the cold-start path of `TwoLanePricing::compute_derived_quote` at the values from [`sim-rs/parameters/phase-2-sweep/pricing/two_lane_priority_only_unreserved_x4.yaml`](../../sim-rs/parameters/phase-2-sweep/pricing/two_lane_priority_only_unreserved_x4.yaml):
+
+| Field | Value | Notes |
+|---|---|---|
+| `priority.initial-quote-per-byte` | `176` | Already at the multiplier-floor of `4 × minFeeA = 4 × 44 = 176`; constructor-time floor-enforcement does not need to raise it. |
+| `standard.initial-quote-per-byte` | `44` | `c_standard = 1`; this lane is held static for the un-reserved priority-only-static variant. |
+
+**Initial `WindowAggregate`.** Empty: `{ standard_sum_bytes: 0, standard_sum_capacity: 0, priority_sum_bytes: 0, priority_sum_capacity: 0, blocks_in_window: 0 }` (all `u128`). Per the chain-derived design, this state lives on the canonical chain — it is materialised on every `LinearRankingBlock` (RB) as a header field, not held in node-local memory (see [`docs/phase-2/mechanism-design.md`](mechanism-design.md) §"Chain-derived controller").
+
+**Slot lottery state.** The Verifiable Random Function (VRF) slot lottery in [`sim-rs/sim-core/src/sim/lottery.rs`](../../sim-rs/sim-core/src/sim/lottery.rs) is seeded by `(seed = 1, slot, node)`. Each of the 100 nodes runs its own per-slot lottery weighted by its stake share. The 100 nodes' stake distribution comes from [`topology-realistic-100.yaml`](../../sim-rs/parameters/phase-2-sweep/topology-realistic-100.yaml) (top-1 share 1.97%, Nakamoto coefficient 35); for `rb-generation-probability = 0.05` and the minimum stake `3943207` lovelace, every node's lottery passes the `min × rb-prob ≥ 100` quantisation check (`3943207 × 0.05 ≈ 197160`, well above the lottery-quantisation floor — see the topology header).
+
+**Type-level invariants.** Per [`CLAUDE.md`](../../CLAUDE.md) §"Mechanism abstractions" all state types instantiated at slot zero are integer: `PerLaneQuote`'s `u64` fields, `WindowAggregate`'s `u128` sums, `Mempool`'s `usize` byte counts, `LinearRankingBlock`'s `u64` slot numbers. No `f64` is present anywhere in the controller state at any time during the run; the only `f64` field on `Transaction` is `urgency`, and it is read only by the actor lane-choice math (which routes it through `libm::pow` + `libm::round` into `i128` lovelace per [`sim-rs/sim-core/src/tx_actors.rs`](../../sim-rs/sim-core/src/tx_actors.rs) for bit-stable cross-architecture lane choice).
+
+### Worked example: Process overview
+
+Consider one ranking block (RB) production cycle at an arbitrary slot N inside the slots-400-to-800 SundaeSwap-launch demand spike (the demand spike where the `dex_launch_retail` super-component's arrival rate jumps from 0 to ~35 transactions per slot — see [`demand/sundaeswap_moderate.yaml`](../../sim-rs/parameters/phase-2-sweep/demand/sundaeswap_moderate.yaml) §"phase structure"). The cycle runs in six numbered phases.
+
+**(1) Slot lottery.** Each of the 100 nodes runs its stake-weighted VRF in [`sim-rs/sim-core/src/sim/lottery.rs`](../../sim-rs/sim-core/src/sim/lottery.rs). At `rb-generation-probability = 0.05` the network-wide expected RB-producer count per slot is `0.05 × 100 = 5`, but most slots have zero RB winners — the median RB-gap across the run is ~20 slots, which clears the linear-Leios endorsement window of `header_diffusion × 3 + linear_vote_stage_length + linear_diffuse_stage_length ≈ 13 slots`. Suppose node `n42` wins.
+
+**(2) Chain-derived quote computation.** Node `n42` reads its current chain tip (the parent RB) and computes the new RB's `derived_quote` via `compute_chain_derived_quote_for_child_of` in [`linear_leios.rs`](../../sim-rs/sim-core/src/sim/linear_leios.rs). That function delegates to `TwoLanePricing::compute_derived_quote(parent_quote, parent_aggregate, parent_samples, evicted_samples)` — a pure function defined in [`sim-rs/sim-core/src/tx_pricing/two_lane.rs`](../../sim-rs/sim-core/src/tx_pricing/two_lane.rs).
+
+For the un-reserved priority-only-static variant, the **priority** controller follows the EIP-1559 step against `priorityUtil = priority_paying_bytes / total_block_capacity` (the un-reserved-priority signal source, option 1 per [`docs/phase-2/mechanism-design.md`](mechanism-design.md) lines 207-211) while the **standard** controller is held at `c_standard = 1` so `standard_quote_per_byte = 44` and never moves. During the demand spike, `priority_paying_bytes / total_block_capacity` exceeds the target `0.5` (signalled by `target-num: 1, target-den: 2` in the pricing YAML), so the priority quote ratchets up by at most `1 / max-change-denominator = 1 / 8 = 12.5%` per block (clamped on both sides). Per the chain-derived design, this `derived_quote` is produced once at production and stored as a header field on the new RB.
+
+**(3) Block packing.** `n42` invokes `try_generate_rb` and packs transactions from its local mempool. The un-reserved variant carries no on-chain partition rule; standard-fee and priority-fee transactions share RB space. Selection order is `priority_first` (`lane-selection-order: priority-first` in the pricing YAML) — every priority-fee transaction is admitted before any standard-fee transaction is considered. Consider three representative transactions in the mempool at this slot.
+
+  - **(a) Priority admission.** A `dex_launch_retail` component (urgency component, half-life ~5 minutes per `mu: 5.703782, sigma: 0.6` log-normal) submitted an 800-byte transaction with `posted_lane = Priority`, `max_fee_lovelace = minFeeB + 4 × current_priority_quote × 800` (per `MaxFeePolicy::ScaledOverLaneQuote { 4, 1 }`, giving 4× quote-drift headroom). The admission gate `MempoolGate::try_admit` checks `minFeeB + current_priority_quote × 800 ≤ max_fee_lovelace` — passes (the comparison reduces to `current_priority_quote × 800 ≤ 4 × current_priority_quote × 800`, which is true unconditionally if no quote drift since submission). Admitted.
+
+  - **(b) Standard admission.** A `background_transfers` component submitted a 350-byte transaction with `posted_lane = Standard`, `max_fee_lovelace = minFeeB + 4 × 44 × 350 = 155381 + 61600 = 216981` lovelace. Admission gate: `minFeeB + 44 × 350 = 155381 + 15400 = 170781 ≤ 216981` — also passes (4× headroom on a static lane is unconditionally safe; the standard quote never moves in this variant). Admitted.
+
+  - **(c) Revalidation eviction.** A priority transaction from earlier in the spike, when the quote was lower at `200` lovelace/byte, posted `max_fee_lovelace = minFeeB + 4 × 200 × 1000 = 155381 + 800000 = 955381` lovelace for its 1000 bytes. The priority quote has now ratcheted to `225` lovelace/byte. Check: `minFeeB + 225 × 1000 = 155381 + 225000 = 380381` — still under `955381`, so not evicted yet, despite the quote rise. If the spike continues and the priority quote climbs above `(955381 − 155381) / 1000 = 800` lovelace/byte (i.e. `c_priority ≥ 800 / 44 ≈ 18.2`), this transaction is evicted by `MempoolGate::revalidate` emitting `Event::TXEvictedQuoteDrift`.
+
+**(4) Inclusion charging.** `n42` publishes the RB. The 800-byte priority transaction emits `Event::TXIncluded` with `actual_fee_lovelace = minFeeB + current_priority_quote × 800` (charged at the *current* quote at inclusion, not the `max_fee_lovelace` ceiling) and `refund_lovelace = max_fee_lovelace − actual_fee_lovelace`. The difference is refunded via the separate refund-handling Cardano Improvement Proposal (CIP) (Polina's CIP, a hard external dependency disclosed in [`docs/phase-2/realism-risks-register.md`](realism-risks-register.md) under `RSK-fee-as-maxFee-envelope`).
+
+**(5) Endorsement validation.** Later in the slot stream, a different RB-producer is elected and considers whether to endorse `n42`'s referenced endorser block (EB). It walks the EB's transactions and re-checks each against its own current posted-lane quote via `eb_endorsement_valid` in [`linear_leios.rs`](../../sim-rs/sim-core/src/sim/linear_leios.rs). Any transaction whose `posted_fee` is no longer payable causes the producer to refuse endorsement entirely; the EB ships unendorsed and its transactions stay in the mempool. This is the M2 design decision (per [`docs/phase-2/m2-handoff.md`](m2-handoff.md)) — refusing to endorse is cleaner than mutating already-gossiped EB bodies in flight.
+
+**(6) Controller advance.** Exactly one controller step per canonical block, per Ethereum Improvement Proposal 1559 (EIP-1559) cadence — `n42`'s new block carries the new `derived_quote` and `window_aggregate`; deferred-EB validation does NOT trigger a second step (see [`mechanism-design.md`](mechanism-design.md) §"Chain-derived controller" and [`CLAUDE.md`](../../CLAUDE.md) §"Mechanism choice and audit trail" for the audit trail; the pre-2026-05-14 accumulator implementation effectively stepped twice per RB-EB pair, which was an unintentional divergence corrected by the chain-derived refactor).
+
+### Worked example: Design concepts
+
+This run exercises five Design concepts in interaction.
+
+**Chain-derivation.** At slot N, `n42` derives its `derived_quote` purely from the parent RB's chain-derived state and the parent's emitted samples; no node-local mutable accumulator exists. The consequence is that if `n42` and `n17` both win the slot lottery and produce sibling RBs on the same parent, both must emit identical `derived_quote` and `window_aggregate` by pure-function reasoning. This is asserted by the unit test `sibling_rbs_produce_identical_derived_quote_pure` in [`sim-rs/sim-core/src/sim/tests/m2_two_lane.rs`](../../sim-rs/sim-core/src/sim/tests/m2_two_lane.rs). Whichever sibling wins the slot battle, the canonical-chain pricing trajectory is invariant — closing writeup-risk-1 (WR-1) reorg contamination by construction (see [`.planning/REVIEW.md`](../../.planning/REVIEW.md) Fix Status table for the formal disposition).
+
+**Integer/rational discipline.** The EIP-1559 step at slot N runs entirely in `u128` rationals. The aggregate utilisation `aggregateUtil = priority_sum_bytes / priority_sum_capacity` is a `u128 / u128` ratio; `target = (1, 2)` is a `(u32, u32)` rational; max-change-denominator `D = 8` is a `u32`; the clamped step is applied to `quote_per_byte: u64`. The shared helper `compute_eip1559_step` in [`sim-rs/sim-core/src/tx_pricing/single_lane.rs`](../../sim-rs/sim-core/src/tx_pricing/single_lane.rs) uses ceiling division to enforce the spec's rounding regime (per [`docs/phase-2/implementation-plan.md`](implementation-plan.md) line 175). The result is bit-identical on any architecture with conforming `u128` arithmetic (`x86_64`, `aarch64`); no `f64` enters this path.
+
+**Multiplier-floor invariant.** For this un-reserved variant the floor is `4 × c_standard` and `c_standard` is held at 1, so `c_priority ≥ 4`, i.e. `priority_quote_per_byte ≥ 176`. The invariant is enforced on the output of `compute_derived_quote` with `u128` intermediates and ceiling division via the `apply_floor` helper in [`sim-rs/sim-core/src/tx_pricing/two_lane.rs`](../../sim-rs/sim-core/src/tx_pricing/two_lane.rs); the cold-start `initial-quote-per-byte: 176` is already at the floor. The floor is not enforced on any persistent state (because under chain-derivation there is none); the constructor-time invariant raises the priority initial quote up to the floor at cold start if necessary, and post-update enforcement re-applies it on every `compute_derived_quote` output.
+
+**No on-chain partition rule.** The un-reserved variant has no priority partition; priority delivery is via producer-side `priority_first` ordering only — there is no `LaneValidityRule::PriorityOnly` for this variant. Contrast with the RB-reserved variant where a standard-fee transaction in an RB makes the block invalid (see [`mechanism-design.md`](mechanism-design.md) §"RB-reserved priority-only premium"). Anti-bribery is therefore not on-chain-enforceable for this variant — a producer could in principle take a side-payment to drop a priority-fee transaction and admit a standard-fee one, and the resulting block is still valid. The realism-risks register entry [`RSK-mev-strategic-bidder`](realism-risks-register.md) (Maximal Extractable Value (MEV) strategic-bidder risk) carries the DISCLOSED disclosure paragraph for this risk; the CIP author pastes that paragraph into the CIP Limitations section.
+
+**Intra-architecture determinism.** The entire trajectory at seed = 1 is bit-reproducible on the development machine (`x86_64` / `glibc`); the pricing-event-stream SHA256 hash for `(menu_unreserved_priority_only_static_x4, seed = 1)` is one specific value in the 20 / 20 distinct hashes that pass the hash-diversity gate per [`.planning/realism-tests/hash-diversity-gate/results.md`](../../.planning/realism-tests/hash-diversity-gate/results.md). Cross-architecture verification is out of phase-2 scope: the integer math (`libm::pow` / `libm::round`, `u128` rationals, integer arithmetic) is bit-stable across architectures given identical inputs, but the simulator inherits `f64` from `main` in non-pricing code paths (slot lottery, propagation, distribution sampling) which has not been hardened for cross-arch determinism. The realism-risks register entry `RSK-cross-arch-determinism` carries the DISCLOSED disclosure paragraph.
+
+### Worked example: Initialisation
+
+The run loads four configuration Yet Another Markup Language (YAML) files at startup, layered by [`sim-rs/sim-cli/src/runner.rs`](../../sim-rs/sim-cli/src/runner.rs)'s `run_job` function with figment-style overlays. The resulting `SimConfiguration` deterministically drives the run.
+
+**(1) Protocol YAML** — [`sim-rs/parameters/phase-2-sweep/protocol-base.yaml`](../../sim-rs/parameters/phase-2-sweep/protocol-base.yaml):
+
+| Key | Value | Source / rationale |
+|---|---|---|
+| `min-fee-a` | `44` | Phase-2 mechanism-design §"Era floor" |
+| `min-fee-b` | `155381` | Phase-2 mechanism-design §"Era floor" |
+| `mempool-max-total-size-bytes` | `null` (derived 24 MB) | Runner derives this as `2 × eb-referenced-txs-max-size-bytes` per the spec's "finite mempool cap" |
+| `simulate-transactions` | `true` | Uses the actor-model demand path (legacy `TransactionProducer` silenced) |
+| `rb-generation-probability` | `0.05` | Cardano-mainnet `activeSlotsCoeff` retrieved 2026-05-14; an earlier framing at `1.0` was a calibration bug — see [`docs/phase-2/calibration-fix-postmortem.md`](calibration-fix-postmortem.md) |
+| `vote-generation-probability` | `600.0` | CIP-0164 §"Feasible Protocol Parameters" Table 7 (n=600 mean committee) |
+| `vote-threshold` | `450` | CIP-0164 quorum τ = 75% (`0.75 × 600 = 450`) |
+| `linear-vote-stage-length-slots` | `4` | CIP-0164 Table 7 |
+| `linear-diffuse-stage-length-slots` | `7` | CIP-0164 Table 7 |
+| `eb-referenced-txs-max-size-bytes` | `12000000` | CIP-0164 12 MB EB cap |
+| `eb-body-validation-cpu-time-ms-per-byte` | `2.15e-5` | Cardano formal-spec linear validation `(353.9 μs) + (21.51 μs/kB) × bytes` ≈ 21.5 ns/byte |
+
+**(2) Topology YAML** — [`topology-realistic-100.yaml`](../../sim-rs/parameters/phase-2-sweep/topology-realistic-100.yaml) — 100 stake-pool nodes whose stake values are a mass-stratified downsample of the 1,510 Cardano mainnet pools with active stake ≥ 1k ADA (epoch 582 on-chain snapshot, retrieved 2026-05-14), rescaled to total = `3 × 10^10` lovelace. Locations / latencies / producers / bandwidth values are copied verbatim from [`parameters/topology.default.yaml`](../../sim-rs/parameters/topology.default.yaml); only stake values change. Min stake = `3943207` lovelace; top-1 stake share = `1.97%`; Nakamoto coefficient = `35`; Gini = `0.253`.
+
+**(3) Pricing YAML** — [`pricing/two_lane_priority_only_unreserved_x4.yaml`](../../sim-rs/parameters/phase-2-sweep/pricing/two_lane_priority_only_unreserved_x4.yaml):
+
+| Key | Value |
+|---|---|
+| `kind` | `two-lane` |
+| `variant` | `unreserved-priority-only` |
+| `priority.initial-quote-per-byte` | `176` (already at floor `4 × 44`) |
+| `priority.target-num`, `priority.target-den` | `1`, `2` (target utilisation = `0.5`) |
+| `priority.max-change-denominator` | `8` (step clamp `±1/8 = ±12.5%`) |
+| `priority.window-length` | `32` |
+| `standard.*` | mirrored (but `c_standard = 1` held static for this variant) |
+| `multiplier-floor-num`, `multiplier-floor-den` | `4`, `1` |
+| `lane-selection-order` | `priority-first` |
+
+**(4) Demand YAML** — [`demand/sundaeswap_moderate.yaml`](../../sim-rs/parameters/phase-2-sweep/demand/sundaeswap_moderate.yaml) — twelve actor components grouped into four super-categories:
+
+| Super-category | Components | Arrival rate (transactions per slot) |
+|---|---|---|
+| `background_transfers` | 3 components (simple / staking / moderate transfer) | ~6 across slots 0-2000 |
+| `background_defi` | 3 components (routine swap / larger DeFi op / small yield farm) | ~4 across slots 0-2000 |
+| `dex_launch_retail` | 3 components (casual swapper / eager early adopter / FOMO buyer) | phased: 0 / ~35 / ~15 / ~3 across slots 0-400 / 400-800 / 800-1200 / 1200-2000 |
+| `arbitrage_bots` | 2 components (DEX arbitrage / whale swap) | phased: 0 / ~5 / ~2 / 0 |
+
+Each component carries `size-bytes` (Normal-distributed), `value-lovelace` (Normal-distributed), and `half-life-seconds` (Log-normal-distributed) parameters. The actor `LanePolicy::UtilityMaximising` reads each component's effective `urgency = exp(-ln(2) / half_life_seconds × target_inclusion_blocks)` (through `libm::pow` for bit-stability per [`sim-rs/sim-core/src/tx_actors.rs`](../../sim-rs/sim-core/src/tx_actors.rs)) and decides which lane each new transaction posts to by comparing the priority-lane expected utility to the standard-lane expected utility, after routing through `libm::pow` + `libm::round` into `i128` lovelace.
+
+### Worked example: Input data
+
+The run rests on three empirical anchors that fix its quantitative behaviour against Cardano mainnet rather than against arbitrary engineering defaults.
+
+**(1) Cardano mainnet stake distribution at epoch 582.** The 100 stake values in [`topology-realistic-100.yaml`](../../sim-rs/parameters/phase-2-sweep/topology-realistic-100.yaml) reproduce mass-stratified samples of the 1,510 Stake Pool Operator (SPO) pools with active stake ≥ 1k ADA from the Cardano mainnet on-chain state retrieved 2026-05-14:
+
+- Top-1 share: `1.97%`
+- Nakamoto coefficient: `35` (the smallest number of pools whose combined stake exceeds 50%)
+- Gini coefficient: `0.253`
+- Min stake: `3943207` lovelace
+- Total stake: rescaled linearly to `3 × 10^10` lovelace (to match the CIP-0164 reference topology's headroom)
+
+The reproduction script lives at [`sim-rs/scripts/generate-realistic-100-topology.py`](../../sim-rs/scripts/generate-realistic-100-topology.py). Regenerating at a later epoch is only safe alongside a full M5 suite-goldens re-pinning (per the topology header). The disclosure for the 100-vs-3000-pool extrapolation gap is in [`docs/phase-2/realism-risks-register.md`](realism-risks-register.md) `RSK-pool-count`; the disclosure for the single-epoch anchor is in `RSK-calibration-stale-stake-snapshot`.
+
+**(2) Cardano mainnet `activeSlotsCoeff`.** The `rb-generation-probability = 0.05` value in [`protocol-base.yaml`](../../sim-rs/parameters/phase-2-sweep/protocol-base.yaml) is the mainnet `activeSlotsCoeff` retrieved at the same date. The chosen value is the only one that cleanly clears the linear-Leios endorsement window (`header_diffusion × 3 + linear_vote_stage_length + linear_diffuse_stage_length ≈ 13 slots`); values ≥ ~0.077 re-introduce the earlier bug where every RB-RB gap drops below 13 slots and EBs fail to certify (see [`docs/phase-2/calibration-fix-postmortem.md`](calibration-fix-postmortem.md) for the postmortem on the pre-2026-05-13 `rb-prob = 1.0` framing).
+
+**(3) Demand profile against the January 2022 SundaeSwap mainnet launch.** The `sundaeswap_moderate.yaml` profile's phased structure matches publicly reported SundaeSwap launch traffic:
+
+| Phase | Slot range | Aggregate arrival rate (transactions per slot) |
+|---|---|---|
+| Baseline | 0-400 | ~10 |
+| Decentralised Exchange (DEX) spike | 400-800 | ~50 (peak congestion) |
+| Cooldown | 800-1200 | ~30 |
+| Recovery | 1200-2000 | ~15 |
+
+Half-life distributions are use-case priors:
+
+- Background traffic (transfer / staking / DeFi): hours to days (`mu = 7.5` to `12.0`, `sigma = 0.8` to `1.0` log-normal)
+- Retail DEX traffic: minutes (`mu = 5.7` to `7.5`, `sigma = 0.6` to `0.7`)
+- Automated arbitrage tail: ~60 seconds (`mu = 4.0` to `4.8`, `sigma = 0.5`)
+
+The `(value, source, date-retrieved)` triple inventory for these anchors lives in [`docs/phase-2/cardano-realism-audit.md`](cardano-realism-audit.md) §"What lines up with mainnet"; the realism-risks register at [`docs/phase-2/realism-risks-register.md`](realism-risks-register.md) carries the disclosure paragraphs for the gaps (`RSK-pool-count`, `RSK-calibration-stale-stake-snapshot`, `RSK-substrate-scope` for the utility-maximising-not-strategic actor model — Maximal Extractable Value (MEV) strategic bidder dynamics are out of phase-2 scope per [`.planning/PROJECT.md`](../../.planning/PROJECT.md)).
+
+### Worked example: Submodels
+
+In one block-production cycle the four named submodels invoke each other in a precise order.
+
+**(1) `TwoLanePricing::compute_derived_quote`** ([`sim-rs/sim-core/src/tx_pricing/two_lane.rs`](../../sim-rs/sim-core/src/tx_pricing/two_lane.rs)) is the controller policy. For `TwoLaneVariant::UnreservedPriorityOnly` only the priority quote moves; the standard side stays at `c_standard = 1`, i.e. `standard_quote_per_byte = 44`, regardless of demand. The function calls `compute_eip1559_step` for the priority side (the shared helper in [`sim-rs/sim-core/src/tx_pricing/single_lane.rs`](../../sim-rs/sim-core/src/tx_pricing/single_lane.rs)) and then enforces the multiplier-floor invariant via `apply_floor`. Returns a fresh `(PerLaneQuote, WindowAggregate)` tuple — no `&mut self`, no node-local state.
+
+**(2) `WindowAggregate` update** ([`sim-rs/sim-core/src/tx_pricing/window.rs`](../../sim-rs/sim-core/src/tx_pricing/window.rs)). The pure function `update_aggregate` runs incrementally: parent's `WindowAggregate` plus parent's emitted samples (priority bytes against total block capacity for the un-reserved priority signal source per [`mechanism-design.md`](mechanism-design.md) §"Un-reserved priority-only premium"), minus any samples falling off the 32-block tail (the priority controller's window length). The function is a pure `u128`-rational stepper. The companion `aggregate_from_chain` handles cold-start aggregation when no parent aggregate is yet available.
+
+**(3) `MempoolGate`** ([`sim-rs/sim-core/src/sim/mempool_gate.rs`](../../sim-rs/sim-core/src/sim/mempool_gate.rs)) is the sole byte-cap authority. For each candidate transaction the producer evaluates:
+
+- `MempoolGate::try_admit` checks `minFeeB + quote(posted_lane) × bytes ≤ max_fee_lovelace` AND `mempool_size + bytes ≤ max_total_size_bytes`. Reject-only-on-full: no eviction of valid transactions to make room for new arrivals (see [`mechanism-design.md`](mechanism-design.md) §"Finite mempool cap").
+- `MempoolGate::revalidate` is called when the lane quote changes: any transaction whose lane's quote has risen above its `max_fee_lovelace` is evicted, emitting `Event::TXEvictedQuoteDrift`.
+- `MempoolGate::on_inclusion` charges `actual_fee = minFeeB + quote(served_lane) × bytes` and emits `refund = max_fee − actual_fee`.
+
+The gate is the sole byte-cap authority — the chain-derived controller never sees mempool size directly.
+
+**(4) `ActorComponent` + `MaxFeePolicy::ScaledOverLaneQuote`** ([`sim-rs/sim-core/src/tx_actors.rs`](../../sim-rs/sim-core/src/tx_actors.rs)). Each new transaction's `max_fee_lovelace` is computed as `minFeeB + (numerator / denominator) × current_lane_quote × bytes` (default `{numerator: 4, denominator: 1}`, so 4× quote-drift headroom). `LanePolicy::UtilityMaximising` then picks `posted_lane` by maximising `expected_utility(lane)`, with the expected-utility computation routing through `libm::pow` (for the urgency-decay factor `urgency^-latency_blocks`) and `libm::round` into `i128` lovelace before the cross-lane comparison. This rounding-before-cast pattern is load-bearing: without the explicit `libm::round`, `as i128` would truncate toward zero and bias positive expected-utility values downward by up to one lovelace, flipping the lane choice rule the deterministic event-stream hash is over. The per-(component, lane) `LatencyEstimator` keeps an Exponentially-Weighted Moving Average (EMA) of observed inclusion latencies, seeded at run-start by the demand YAML's `target_inclusion_blocks` (defaults: priority = 1, standard = 4).
+
+**(5) `ChainView` trait** ([`sim-rs/sim-core/src/tx_pricing/mod.rs`](../../sim-rs/sim-core/src/tx_pricing/mod.rs)) is the only seam between the protocol simulator and the pricing kernel. It lets the backend walk the canonical chain (read-only) to fold parent samples into the next `derived_quote`. The simulator's `LinearLeiosNode` implements `ChainView`; the backend never sees simulator types directly.
+
+None of these submodels holds mutable controller state; chain-derivation makes them all stateless at the node level. The block-production cycle is the wiring (`linear_leios.rs`'s `try_generate_rb`, `publish_rb`, `select_eb_with_partition`, `compute_chain_derived_quote_for_child_of`); the submodels are the policy. This separation is what makes the design reorg-safe by construction and trivially auditable: any third party can re-derive the canonical chain's `derived_quote` sequence from the canonical blocks alone, given the published controller settings and the samples emitted by each block.
+
+## Where to go next
+
+After reading this overview, follow the in-repo links per topic of interest:
+
+- **Mechanism specification.** [`docs/phase-2/mechanism-design.md`](mechanism-design.md) — fee semantics, controller signal, lane structure, multiplier-floor invariant, the four live mechanisms; see §"Live mechanisms" for the per-mechanism prose and §"Chain-derived controller" for the implementation pattern.
+- **Calibration audit.** [`docs/phase-2/cardano-realism-audit.md`](cardano-realism-audit.md) — every calibration value as a `(value, source, date-retrieved)` triple; §"What lines up with mainnet" / §"What needs disclosure" / §"What does NOT transfer cleanly" / §"Recommended disclosure statements" (Cardano Improvement Proposal (CIP)-pasteable disclosure prose).
+- **Per-suite trust.** [`docs/phase-2/validity-threats.md`](validity-threats.md) — the per-suite trust matrix across the 19 phase-2 suites; each block carries a Realism Risk (RSK)-NN cross-reference linking the suite to the register entry that constrains its trust verdict.
+- **Realism risks register.** [`docs/phase-2/realism-risks-register.md`](realism-risks-register.md) — the 24 RSK-NN entries; CIP authors paste the `disclosure-paragraph` fields verbatim into the CIP Limitations section. Phase 4 updates `disclosure-paragraph` fields and verdict flips for `RSK-pool-count`, `RSK-calibration-stale-stake-snapshot`, `RSK-steady-state-run-length`, `RSK-un-anchored-controller-knobs`, and `RSK-multiplier-floor-4-suite-coverage` in light of Phase 3 evidence.
+- **Per-claim coverage.** [`docs/phase-2/coverage-check.md`](coverage-check.md) — the per-claim coverage table mapping CIP-cited welfare claims to the (suite, menu-option, seed-set) evidence cells that back them.
+- **Phase 3 cheap-test evidence.** [`.planning/realism-tests/multi-seed-variance/results.md`](../../.planning/realism-tests/multi-seed-variance/results.md) (TEST-03 sign-flip + TEST-04 canonical menu-item variance bands), [`.planning/realism-tests/multiplier-floor-16-companion/results.md`](../../.planning/realism-tests/multiplier-floor-16-companion/results.md) (TEST-07a multiplier-floor regime dependence), [`.planning/realism-tests/pool-number-sensitivity/results.md`](../../.planning/realism-tests/pool-number-sensitivity/results.md) (TEST-05), [`.planning/realism-tests/run-length-steady-state/results.md`](../../.planning/realism-tests/run-length-steady-state/results.md) (TEST-06).
+- **Family-B mechanism commitment.** [`.planning/family-b-decision-2026-05-14.md`](../../.planning/family-b-decision-2026-05-14.md) — the authoritative chain-derived adoption memo; reorg-safety claim and audit trail.
+- **Source-code entry points.** [`sim-rs/sim-core/src/sim/linear_leios.rs`](../../sim-rs/sim-core/src/sim/linear_leios.rs) (the protocol), [`sim-rs/sim-core/src/tx_pricing/`](../../sim-rs/sim-core/src/tx_pricing/) (the pricing kernel), [`sim-rs/sim-cli/src/bin/experiment-suite/main.rs`](../../sim-rs/sim-cli/src/bin/experiment-suite/main.rs) (the driver: `experiment-suite {run|status|verify} <suite.yaml> [--parallelism N]`).
+
+For broader context — the Cardano Problem Statement that motivates this work, the planning history, the determinism contract — read [`CLAUDE.md`](../../CLAUDE.md) end-to-end. It is the single authoritative entry point for the `dynamic-experiment` branch.

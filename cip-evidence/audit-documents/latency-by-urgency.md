@@ -8,25 +8,51 @@
 
 ## Headline finding
 
+The table splits into two views — latency conditional on inclusion (Table A), and inclusion rate (Table B) — across the same `(urgency tier × component × mechanism)` cells. Both are derived from the same Phase 3 `phase-3-canonical-variance` Number of seeds (N) = 20 run.
+
+### Table A — Latency (blocks to inclusion, median across 20 seeds, conditional on inclusion)
+
+Each cell is the median across-seeds mean latency-from-submission-to-inclusion (in priced blocks; 1 block ≈ 20 simulated slots ≈ 10 simulated seconds at `rb-generation-probability = 0.05`). The mean is computed over included transactions only; transactions submitted but never confirmed do not contribute. `—` means inclusion rate < 1% across most seeds — the latency mean over near-zero observations is uninformative.
+
 | Urgency tier | Component | single-lane EIP-1559 | priority-only RB-reserved | priority-only un-reserved | both-dynamic partitioned | both-dynamic un-partitioned |
 |---|---|---|---|---|---|---|
-| **very-high** | c9: DEX arbitrage (half-life 1 min) | 12.9 / 22.4% | 15.2 / 36.1% | 14.8 / 35.5% | 15.2 / 36.1% | 14.4 / 41.4% |
-| **very-high** | c10: whale swap (half-life 2 min) | 12.9 / 24.8% | 15.5 / 35.6% | 15.0 / 35.1% | 15.5 / 35.6% | 14.6 / 37.8% |
-| **high** | c7: eager adopter (half-life 5 min) | 12.6 / 19.7% | 15.5 / 28.9% | 15.2 / 28.9% | 15.5 / 28.9% | 16.3 / 31.3% |
-| **high** | c8: FOMO buyer (half-life 10 min) | 13.8 / 12.2% | 13.3 / 6.1% | 46.4 / 16.1% | 13.3 / 6.1% | 50.4 / 15.4% |
-| **medium** | c4: larger DeFi op (half-life 15 min) | 8.0 / 57.6% | 6.3 / 28.6% | 8.3 / 34.0% | 6.3 / 28.6% | 9.5 / 33.0% |
-| **medium** | c3: routine swap (half-life 30 min) | 7.5 / 56.2% | 5.3 / 10.6% | 22.1 / 27.1% | 5.3 / 10.6% | 22.5 / 26.8% |
-| **medium** | c6: casual swapper (half-life 30 min) | 13.5 / 15.4% | 15.3 / 1.8% | 58.5 / 15.0% | 15.3 / 1.8% | 60.5 / 14.4% |
-| **low** | c5: small yield farm (half-life 1 h) | 7.3 / 59.5% | 5.3 / 1.8% | 30.5 / 25.8% | 5.3 / 1.8% | 26.0 / 25.2% |
-| **low** | c2: moderate transfer (half-life 6 h) | 8.0 / 56.5% | — | 32.6 / 25.4% | — | 29.1 / 25.0% |
-| **low** | c0: simple transfer (half-life 1 d) | 7.4 / 55.9% | — | 34.4 / 24.7% | — | 31.7 / 25.0% |
-| **very-low** | c1: staking / governance (half-life 2 d) | 6.8 / 60.1% | — | 33.3 / 24.9% | — | 29.6 / 25.0% |
+| **very-high** | c9: DEX arbitrage (half-life 1 min) | 12.9 | 15.2 | 14.8 | 15.2 | 14.4 |
+| **very-high** | c10: whale swap (half-life 2 min) | 12.9 | 15.5 | 15.0 | 15.5 | 14.6 |
+| **high** | c7: eager adopter (half-life 5 min) | 12.6 | 15.5 | 15.2 | 15.5 | 16.3 |
+| **high** | c8: FOMO buyer (half-life 10 min) | 13.8 | 13.3 | 46.4 | 13.3 | 50.4 |
+| **medium** | c4: larger DeFi op (half-life 15 min) | 8.0 | 6.3 | 8.3 | 6.3 | 9.5 |
+| **medium** | c3: routine swap (half-life 30 min) | 7.5 | 5.3 | 22.1 | 5.3 | 22.5 |
+| **medium** | c6: casual swapper (half-life 30 min) | 13.5 | 15.3 | 58.5 | 15.3 | 60.5 |
+| **low** | c5: small yield farm (half-life 1 h) | 7.3 | 5.3 | 30.5 | 5.3 | 26.0 |
+| **low** | c2: moderate transfer (half-life 6 h) | 8.0 | — | 32.6 | — | 29.1 |
+| **low** | c0: simple transfer (half-life 1 d) | 7.4 | — | 34.4 | — | 31.7 |
+| **very-low** | c1: staking / governance (half-life 2 d) | 6.8 | — | 33.3 | — | 29.6 |
 
-**Cell format.** `latency_blocks / inclusion_rate%`. `latency_blocks` is the median across-seeds mean latency-from-submission-to-inclusion conditional on inclusion (1 block ≈ 20 simulated slots ≈ 10 simulated seconds at `rb-generation-probability = 0.05`). `inclusion_rate%` is the median across-seeds fraction of submitted transactions that were included. `—` means median inclusion rate < 1% across seeds — the latency mean over near-zero observations is uninformative, so we report exclusion rather than a noisy number.
+**Latency readings.** Single-lane EIP-1559 latency sits in a tight 6.8–13.8 block band across all 11 components — the controller flattens user-experienced wait-time across the urgency spectrum. Two-lane mechanisms widen the band: very-high and high-urgency components see slightly longer latency (14–16 blocks) under all four menu options vs single-lane's 12.6–13.8, but medium / low / very-low components under un-reserved variants pay a much larger penalty (22–60 blocks) because their transactions get confirmed only in the run-tail after the spike subsides. Under RB-reserved variants, the same medium-to-low components don't experience longer latency — they don't get included at all (see Table B).
 
-**Two-paragraph interpretation.** Single-lane EIP-1559 looks competitive on latency (6.8–13.8 blocks across all tiers) but its inclusion rate distribution is the inverse of what an urgency-pricing mechanism is supposed to deliver: high-urgency arbitrage and DEX-launch traffic (c7–c10) get 12–25% inclusion while low-urgency background transfers (c0–c2) get 55–60%. This is the *first-price-auction-under-congestion* failure mode — the controller cannot price-discriminate fast enough during demand spikes, so the spike traffic loses out to the steady-state background load. The two-lane mechanisms reverse this: very-high-urgency users get 36–41% inclusion (up from 22–25% under single-lane), at the cost of slightly higher latency (14–16 blocks vs 13).
+### Table B — Inclusion rate (% of submitted transactions confirmed, median across 20 seeds)
 
-The flip side is what happens to low-urgency users. Ranking-block-reserved (RB-reserved) variants (`priority-only RB-reserved` and `both-dynamic partitioned`) effectively exclude users with half-life ≥ 1 hour — no inclusion at all for `c0` / `c1` / `c2`, ~2% for `c5`. Un-reserved variants (`priority-only un-reserved` and `both-dynamic un-partitioned`) serve everyone but charge low-urgency users in latency: 25–35 blocks (half the run length) for 25% inclusion. **The "menu" the CIP presents is genuine on this axis** — RB-reserved trades low-urgency-exclusion for tighter priority service; un-reserved trades latency for inclusion-rate parity. Neither is a free win.
+Each cell is the median across-seeds fraction of submitted transactions that were included in any block.
+
+| Urgency tier | Component | single-lane EIP-1559 | priority-only RB-reserved | priority-only un-reserved | both-dynamic partitioned | both-dynamic un-partitioned |
+|---|---|---|---|---|---|---|
+| **very-high** | c9: DEX arbitrage (half-life 1 min) | 22.4% | 36.1% | 35.5% | 36.1% | 41.4% |
+| **very-high** | c10: whale swap (half-life 2 min) | 24.8% | 35.6% | 35.1% | 35.6% | 37.8% |
+| **high** | c7: eager adopter (half-life 5 min) | 19.7% | 28.9% | 28.9% | 28.9% | 31.3% |
+| **high** | c8: FOMO buyer (half-life 10 min) | 12.2% | 6.1% | 16.1% | 6.1% | 15.4% |
+| **medium** | c4: larger DeFi op (half-life 15 min) | 57.6% | 28.6% | 34.0% | 28.6% | 33.0% |
+| **medium** | c3: routine swap (half-life 30 min) | 56.2% | 10.6% | 27.1% | 10.6% | 26.8% |
+| **medium** | c6: casual swapper (half-life 30 min) | 15.4% | 1.8% | 15.0% | 1.8% | 14.4% |
+| **low** | c5: small yield farm (half-life 1 h) | 59.5% | 1.8% | 25.8% | 1.8% | 25.2% |
+| **low** | c2: moderate transfer (half-life 6 h) | 56.5% | 0.0% | 25.4% | 0.0% | 25.0% |
+| **low** | c0: simple transfer (half-life 1 d) | 55.9% | 0.0% | 24.7% | 0.0% | 25.0% |
+| **very-low** | c1: staking / governance (half-life 2 d) | 60.1% | 0.0% | 24.9% | 0.0% | 25.0% |
+
+**Inclusion-rate readings.** The most striking finding lives in this table, not the latency one. Under single-lane Ethereum Improvement Proposal 1559 (EIP-1559), inclusion rate is *higher for lower-urgency components* (55–60% for half-life ≥ 1 hour vs 12–25% for half-life ≤ 10 min). This is the inverse of what an urgency-pricing mechanism is supposed to deliver — the controller cannot price-discriminate fast enough during the dex-launch + arbitrage demand spike, so spike traffic loses out to the steady-state background load. Two-lane mechanisms reverse this for very-high and high-urgency components (29–41% inclusion for c7, c9, c10 — significantly better than single-lane's 12–25%) at the cost of low-urgency inclusion under RB-reserved variants (the four `0.0%` cells under `priority-only RB-reserved` and `both-dynamic partitioned` are exact zeros — those components never get included over 20 seeds × 2000 slots). Un-reserved variants are the compromise: they include low-urgency users at ~25% (paying for that inclusion in latency per Table A) while still beating single-lane on high-urgency inclusion.
+
+### Cross-table synthesis
+
+The menu the Cardano Improvement Proposal (CIP) presents is genuine on this axis. **Ranking-block-reserved (RB-reserved) variants trade low-urgency exclusion for tighter priority service**: half-life ≥ 1 hour gets 0% inclusion outright, but very-high-urgency components get 36% inclusion at 15 blocks (vs single-lane's 22–25% at 13 blocks). **Un-reserved variants trade latency for inclusion-rate parity**: every user class gets ~25–41% inclusion, but the medium-and-below tier waits 22–60 blocks for it (vs single-lane's 7–8 blocks at the same tier). **Single-lane EIP-1559 is "fair on latency" but unfair on inclusion-rate distribution under congestion**: low-urgency users get fast and frequent service while high-urgency arbitrage / DEX-launch users are systematically under-served during the spike. Neither mechanism is a free win across both axes.
 
 ## Per-tier reading
 

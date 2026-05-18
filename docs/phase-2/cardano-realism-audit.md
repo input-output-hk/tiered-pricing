@@ -1,43 +1,69 @@
 # Cardano-realism audit — phase-2 dynamic-pricing simulator
 
-Date: 2026-05-13
+Date: 2026-05-18
 Branch: dynamic-experiment
 Scope: every calibration choice in `parameters/phase-2-sweep/` and every
 modeling assumption in `sim-rs/sim-core/`.
-Evidence: 4 spike READMEs under `.planning/spikes/`, cited inline.
-
-> **[Annotation added 2026-05-13]** When this audit was written,
-> phase-2 suites referenced `topology-single-producer.yaml` in
-> CLAUDE.md and the spike trail. As of 2026-05-13, suites have been
-> re-pointed to `topology-realistic-100.yaml` (100-node multi-producer
-> with a mass-stratified mainnet stake curve). The "Topology and actor
-> model" verdict and the single-producer disclosure paragraphs below
-> are preserved for context but are no longer the operational
-> reality; see CLAUDE.md §Calibration choices §"Topology choice" and
-> [`.planning/spikes/006-curve-design/README.md`](../../.planning/spikes/006-curve-design/README.md).
-> Per `validity-threats.md` the operational suites now expose
-> slot-battle dynamics; WR-1 (no pricing-state rollback on slot-battle
-> reorg) is correspondingly reclassified as LIVE rather than dormant —
-> see `.planning/REVIEW.md`.
+Evidence: 4 spike READMEs under `.planning/spikes/`, cited inline; Phase 3
+multi-seed evidence under `.planning/realism-tests/`, cited inline.
+Abbreviations on first use: Cardano Improvement Proposal (CIP), Ethereum
+Improvement Proposal 1559 (EIP-1559), ranking block (RB), endorser block
+(EB), Stake Pool Operator (SPO), Bias-corrected and accelerated (BCa)
+bootstrap, confidence interval (CI), Inter-Quartile Range (IQR),
+Conference on Computer and Communications Security (CCS), Advances in
+Financial Technologies (AFT), Symposium on Discrete Algorithms (SODA),
+Maximum Extractable Value (MEV), extended unspent-transaction-output
+(eUTxO), additive-increase / multiplicative-decrease (AIMD), Coordinated
+Universal Time (UTC), exponential-moving-average (EMA).
 
 ## TL;DR
 
-Phase-2's protocol-cadence and fee-floor calibrations are literal re-uses of
-current mainnet values (rb-prob = 0.05 = activeSlotsCoeff; minFeeA = 44;
-minFeeB = 155381; maxTxSize = 16384; mempool-cap rule = 2× one bearer
-block) — not approximations, but bit-equal lifts. The pricing controller
-inherits EIP-1559's deployed knobs unchanged (`D = 8`, `target = 0.5`,
-per-priced-block cadence). Three categories require disclosure but none
-invalidate the conclusions: (i) the fee `field` is reinterpreted as a
-maxFee envelope rather than the exact deterministic fee Cardano wallets
-ship today, and the refund path depends on a separate CIP; (ii) four
-controller knobs — window-length 32, multiplier-floor 4 (in 2 of 7
-suites), multiplier-floor 16 (spec default), and the lane-signal-source
-choices — are defensible but unanchored to deployed-system data; (iii)
-the `topology-single-producer.yaml` collapses ~3,000 mainnet SPOs to
-N=1, which removes slot-battle and fork dynamics by construction. No
-hard limitations were surfaced — every deviation is bounded and
-defensible with explicit disclosure.
+Phase-2's pricing controller is chain-derived Family B (per
+`.planning/family-b-decision-2026-05-14.md`): every ranking block (RB)
+carries its own `derived_quote` as a pure function of canonical
+predecessors, the controller advances exactly once per canonical block,
+and reorg-safety holds by construction (no node-local mutable controller
+state). Protocol-cadence and fee-floor calibrations are literal re-uses
+of current Cardano mainnet values, applied as `(value, source,
+date-retrieved YYYY-MM-DD)` triples below: `rb-generation-probability =
+0.05` (= `activeSlotsCoeff`), `min-fee-a = 44`, `min-fee-b = 155381`,
+`maxTxSize = 16384`. The pricing controller inherits Ethereum Improvement
+Proposal 1559 (EIP-1559)'s deployed knobs unchanged (`D = 8`, `target =
+0.5`, per-priced-block update cadence under Family B). The operational
+topology is `topology-realistic-100.yaml` (100-node mass-stratified
+mainnet stake curve from epoch 582; retrieved 2026-05-14; downsampled
+from the 1,510 Cardano mainnet pools with ≥ 1k ADA active stake), not
+the historical single-producer overlay.
+
+Three disclosure categories follow, none of which invalidate the
+conclusions: (i) the existing Cardano transaction `fee` field is
+reinterpreted as a `max_fee_lovelace` envelope rather than the exact
+deterministic fee Cardano wallets ship today, and the refund path
+depends on a separate fee-change-return CIP; (ii) four pricing-
+controller knobs (window length 32; multiplier-floor 4 in two of seven
+suites; multiplier-floor 16 as the spec default; lane-signal-source
+choices) are addressed under the anchor-or-disclose discipline of Plan
+04-01 (one ANCHORED via Reijsbergen / Leonardos / Liu; three DISCLOSED
+with sub-knob granularity in `RSK-un-anchored-controller-knobs` of
+[`docs/phase-2/realism-risks-register.md`](realism-risks-register.md));
+(iii) substrate-scope umbrella for inherited upstream limitations
+(`f64` in non-pricing code paths, propagation-model fidelity,
+utility-maximising actor model) per `RSK-substrate-scope` in the
+register.
+
+Phase 3 multi-seed evidence (N=20 seeds, sundaeswap_moderate demand,
+multiplier_floor = 4; results at
+[`.planning/realism-tests/multi-seed-variance/results.md`](../../.planning/realism-tests/multi-seed-variance/results.md))
+establishes the welfare ranking among the four CIP menu options: the
+two **un-reserved menu arms materially outperform single-lane EIP-1559**
+(Δ `retained_value` ≈ +6.66e+09 to +7.95e+09, 95% BCa CI excluding
+zero, sign-coherence 0.90); the two **RB-reserved menu arms underperform
+single-lane EIP-1559** (Δ ≈ −4.15e+09, 95% BCa CI excluding zero,
+sign-coherence 0.65). The multiplier-floor 4 calibration itself is
+regime-dependent: at multiplier-floor 16 (TEST-07a) the rb-scarcity
+finding inverts (priority captures everything; total welfare collapses
+93–98%) and the urgency-inversion finding weakly reverses (correctly
+priced > mispriced by ~13%).
 
 ## Verdict by category
 
@@ -45,49 +71,98 @@ defensible with explicit disclosure.
 |---|---|---|
 | RB cadence and capacity | VALIDATED | None — matches mainnet exactly |
 | Fee structure and mempool sizing | NEEDS-DISCLOSURE | 3 reinterpretations to state |
-| Pricing-controller calibration | NEEDS-DISCLOSURE | 4 spec-open choices to acknowledge |
-| Topology and actor model | NEEDS-DISCLOSURE | Single-producer is the strongest abstraction |
+| Pricing-controller calibration | NEEDS-DISCLOSURE | Anchor-or-disclose at sub-knob granularity per Plan 04-01: 1 ANCHORED + 3 DISCLOSED (umbrella verdict DISCLOSED) |
+| Topology and actor model | NEEDS-DISCLOSURE | Substrate-scope umbrella (`RSK-substrate-scope`): 100-node topology vs mainnet ~3,000 SPOs; honest-producer assumption; demand-mix not bit-calibrated |
 
 ## What lines up with mainnet
 
 These are the "phase-2 is mainnet-grounded" anchors a reviewer can verify
-against Cardano on-chain state / cardano-node directly:
+against Cardano on-chain state / `cardano-node` directly. Each calibration
+value is presented as a `(value, source, date-retrieved YYYY-MM-DD)`
+triple.
 
-- **RB cadence is bit-equal to mainnet Praos.** `rb-generation-probability =
-  0.05` equals `activeSlotsCoeff = 0.05`; the expected 20-slot RB gap
-  matches mainnet's observed ~20.1 s average (~0.5 % drift, attributable
-  to pool downtime). See spike 001 §Comparison Table rows 1–3.
-- **RB body cap is mainnet-current.** `rb-body-max-size-bytes = 90112`
-  is the value set by the April-2022 protocol update and unchanged
-  since. Spike 001 §Comparison Table row 4.
-- **Fee floor matches mainnet to the lovelace.** `min-fee-a = 44`,
-  `min-fee-b = 155381` are bit-equal to Conway-era mainnet; the
-  EIP-1559 baseline initial quote of 44 reproduces today's
-  `minFeeA × bytes` term at controller equilibrium. A 200-byte tx
-  costs exactly 164,181 lovelace under both. Spike 002 §Findings.
-- **`maxTxSize` matches mainnet exactly.** 16,384 bytes inherited from
-  the upstream `config.default.yaml`. Spike 001 §Comparison Table.
-- **Mempool sizing rule matches mainnet shape.** Both networks use
-  `2 × one_bearer_block` with reject-on-full overflow. The absolute
-  byte cap diverges (24 MB vs 180 KB) but only because Leios's 12 MB
-  EB drives the bearer-block-size term; the rule itself is identical.
-  Spike 002 §Comparison Table row "Mempool cap rule".
+- **Ranking-block (RB) cadence is bit-equal to mainnet Praos.**
+  `(rb-generation-probability = 0.05, source:
+  docs/phase-2/calibration-fix-postmortem.md citing Cardano mainnet
+  activeSlotsCoeff, date-retrieved: 2026-05-14)` equals
+  `activeSlotsCoeff = 0.05`; the expected 20-slot RB gap matches
+  mainnet's observed ~20.1-second average (~0.5% drift, attributable to
+  pool downtime). See
+  [Spike 001 §Comparison Table](../../.planning/spikes/001-rb-cadence-and-capacity/README.md)
+  rows 1–3.
+- **RB body cap is mainnet-current.**
+  `(rb-body-max-size-bytes = 90112, source: Cardano mainnet protocol
+  parameters since the April-2022 protocol update,
+  date-retrieved: 2026-05-14)` is the value set by the April-2022
+  protocol update and unchanged since. Spike 001 §Comparison Table row 4.
+- **Fee floor matches mainnet to the lovelace.**
+  `(min-fee-a = 44, source: Conway-era Cardano mainnet protocol
+  parameters, date-retrieved: 2026-05-14)` and
+  `(min-fee-b = 155381, source: Conway-era Cardano mainnet protocol
+  parameters, date-retrieved: 2026-05-14)` are bit-equal to Conway-era
+  mainnet. The Ethereum Improvement Proposal 1559 (EIP-1559) baseline
+  initial quote of 44 reproduces today's `minFeeA × bytes` term at
+  controller equilibrium; a 200-byte transaction costs exactly 164,181
+  lovelace under both. See
+  [Spike 002 §Findings](../../.planning/spikes/002-fee-structure-and-mempool-sizing/README.md).
+- **`maxTxSize` matches mainnet exactly.**
+  `(maxTxSize = 16384 bytes, source: upstream
+  sim-rs/parameters/config.default.yaml inherited from
+  cardano-node defaults, date-retrieved: 2026-05-14)`. Spike 001
+  §Comparison Table.
+- **Mempool sizing rule matches mainnet shape.**
+  `(mempool-max-total-size-bytes = 2 × eb_referenced_txs_max_size_bytes
+  = 24 megabytes (MB), source: derived per the CIP-0164 12 MB
+  endorser-block (EB) target combined with the mainnet `2 ×
+  one-bearer-block-bytes` rule, date-retrieved: 2026-05-14)`. Both
+  networks use `2 × one-bearer-block-bytes` with reject-on-full
+  overflow. The absolute byte cap diverges (24 MB vs ~180 KB on
+  mainnet) but only because Leios's 12 MB endorser-block (EB) drives
+  the bearer-block-size term; the rule itself is identical. Spike 002
+  §Comparison Table row "Mempool cap rule".
 - **EIP-1559 controller parameters match Ethereum mainnet exactly.**
-  `D = 8` (BASE_FEE_MAX_CHANGE_DENOMINATOR), `target = 0.5`
-  (ELASTICITY_MULTIPLIER = 2), per-priced-block update cadence — all
-  present in every baseline pricing YAML, with sweeps in
-  `phase-2-eip1559-robustness.yaml` (D ∈ {4, 8, 16}, target ∈
-  {0.25, 0.5, 0.75}) bracketing the deployed values for sensitivity.
-  Spike 003 §Comparison Table rows 1–3.
+  `(D = 8, source: Ethereum EIP-1559 specification field
+  BASE_FEE_MAX_CHANGE_DENOMINATOR, date-retrieved: 2026-05-13)`;
+  `(target = 0.5, source: Ethereum EIP-1559 specification field
+  ELASTICITY_MULTIPLIER = 2, date-retrieved: 2026-05-13)`; and the
+  per-priced-block update cadence — all present in every baseline
+  pricing yet-another-markup-language (YAML) file. The
+  `phase-2-eip1559-robustness.yaml` suite sweeps `D ∈ {4, 8, 16}` and
+  `target ∈ {0.25, 0.5, 0.75}` bracketing the deployed values for
+  sensitivity. Under Family B (chain-derived; committed 2026-05-14 per
+  [`.planning/family-b-decision-2026-05-14.md`](../../.planning/family-b-decision-2026-05-14.md))
+  the controller advances exactly once per canonical block — the
+  EIP-1559-faithful cadence. See
+  [Spike 003 §Comparison Table](../../.planning/spikes/003-pricing-controller-calibration/README.md)
+  rows 1–3.
 - **Leios-specific knobs cite CIP-0164 Table 7 with in-YAML
-  provenance.** `linear-vote-stage-length-slots = 4`,
-  `linear-diffuse-stage-length-slots = 7`,
-  `eb-referenced-txs-max-size-bytes = 12000000`,
-  `eb-body-validation-cpu-time-ms-per-byte = 2.15e-5`, `n = 600`,
-  `τ = 75 %` — none cross-checkable against deployed mainnet (Leios
-  is pre-deployment), but each has an explicit "CIP-0164 Table 7"
-  comment and the Leios FAQ ("RB ~20 s, EB ~5 s") corroborates the
-  cadence shape. Spike 001 §Findings.
+  provenance.** `(linear-vote-stage-length-slots = 4, source: CIP-0164
+  Table 7, date-retrieved: 2026-05-13)`;
+  `(linear-diffuse-stage-length-slots = 7, source: CIP-0164 Table 7,
+  date-retrieved: 2026-05-13)`;
+  `(eb-referenced-txs-max-size-bytes = 12000000, source: CIP-0164 Table
+  7, date-retrieved: 2026-05-13)`;
+  `(eb-body-validation-cpu-time-ms-per-byte = 2.15e-5, source: CIP-0164
+  Table 7, date-retrieved: 2026-05-13)`; `(n = 600, source: CIP-0164
+  Table 7 cohort size, date-retrieved: 2026-05-13)`; `(τ = 75%, source:
+  CIP-0164 Table 7 quorum threshold, date-retrieved: 2026-05-13)`.
+  None are cross-checkable against deployed mainnet (Leios is
+  pre-deployment), but each has an explicit "CIP-0164 Table 7"
+  comment in the YAML and the Leios Frequently Asked Questions (RB
+  ~20 seconds, EB ~5 seconds) corroborates the cadence shape. Caveat
+  preserved: these values are conditional on the Leios substrate
+  reaching deployment with the specified parameters. Spike 001
+  §Findings.
+- **Operational topology is mainnet-curve-stratified.**
+  `(topology = parameters/phase-2-sweep/topology-realistic-100.yaml,
+  source: epoch-582 Cardano mainnet on-chain state snapshot via
+  .planning/spikes/006-curve-design/README.md, date-retrieved:
+  2026-05-14)`. 100 nodes; same locations / latencies / producers /
+  bandwidth as the upstream `parameters/topology.default.yaml`; stake
+  values are a mass-stratified downsample of the 1,510 Cardano mainnet
+  pools with ≥ 1k ADA active stake, rescaled linearly to total = 3 ×
+  10^10 lovelace. Top-1 stake share = 1.97%; Nakamoto coefficient =
+  35; Gini = 0.253.
 
 ## What needs disclosure
 
@@ -95,39 +170,49 @@ against Cardano on-chain state / cardano-node directly:
 
 1. **Fee-field semantic reinterpretation.** Mainnet `tx.fee` is the
    exact deterministic fee the wallet computed at sign-time; there is
-   no maxFee envelope or refund path. Phase-2 reinterprets the same
-   `fee` field as `max_fee_lovelace`, charges the (possibly-lower)
-   current quote at inclusion, and refunds the gap via Polina's
-   separate fee-change-return CIP. This is a deliberate mechanism-
-   level change documented in `mechanism-design.md` L39-51 — not a
-   calibration drift — but it is the single most user-visible
-   deviation from the world Cardano users have today, and the refund
-   path is an external dependency. **Defensible because** phase-2's
-   welfare claims explicitly assume the refund mechanism exists and
-   the spec is transparent about the reinterpretation. Spike 002
-   §Findings + §Verdict item 1.
+   no `max_fee_lovelace` envelope or refund path. Phase-2 reinterprets
+   the same `fee` field as a `max_fee_lovelace` envelope, charges the
+   (possibly-lower) current quote at inclusion, and refunds the gap
+   via Polina's separate fee-change-return Cardano Improvement Proposal
+   (CIP). This is a deliberate mechanism-level change documented in
+   [`docs/phase-2/mechanism-design.md`](mechanism-design.md) lines
+   39–51 — not a calibration drift — but it is the single most
+   user-visible deviation from the world Cardano users have today, and
+   the refund path is an external dependency. **Defensible because**
+   phase-2's welfare claims explicitly assume the refund mechanism
+   exists and the spec is transparent about the reinterpretation. See
+   `RSK-fee-as-maxFee-envelope` in
+   [`docs/phase-2/realism-risks-register.md`](realism-risks-register.md)
+   for the canonical CIP-pasteable disclosure paragraph.
 
-2. **Mempool absolute byte cap is 133× larger than mainnet** (24 MB
-   vs 180 KB). The cap *rule* matches mainnet (`2 × bearer-block-
-   bytes`), but Leios's 12 MB EB drives the bearer-block term to 24
-   MB total. A reader who knows mainnet's ~180 KB mempool will be
+2. **Mempool absolute byte cap is 133× larger than mainnet** (24 MB vs
+   ~180 KB).
+   `(mempool-max-total-size-bytes = 2 × eb_referenced_txs_max_size_bytes
+   = 24 MB, source: derived per the CIP-0164 12 MB EB target,
+   date-retrieved: 2026-05-14)` vs Cardano mainnet's current
+   `(mempool-cap ≈ 180 KB, source: Cardano mainnet protocol
+   parameters / cardano-node defaults, date-retrieved: 2026-05-14)`.
+   The cap *rule* matches mainnet (`2 × one-bearer-block-bytes`), but
+   Leios's 12 MB endorser-block (EB) drives the bearer-block term to
+   24 MB total. A reader who knows mainnet's ~180 KB mempool will be
    surprised. **Defensible because** the rule shape and overflow
    policy match exactly; the absolute number is a downstream
-   consequence of CIP-0164's 12 MB EB target, not a different
-   sizing philosophy. Spike 002 §Comparison Table row "mempool-
-   max-total-size-bytes".
+   consequence of CIP-0164's 12 MB EB target, not a different sizing
+   philosophy. See `RSK-mempool-cap-magnitude` in the register for the
+   disclosure paragraph.
 
 3. **Default `max_fee_policy = {4, 1}` (4× quote-drift headroom) is
-   a forecast about post-deployment wallet behavior, not a
-   calibration anchor.** Mainnet wallets today have no analogous
-   knob — they ship at the exact deterministic min-fee via
+   a forecast about post-deployment wallet behaviour, not a
+   calibration anchor.** Mainnet wallets today have no analogous knob —
+   they ship at the exact deterministic min-fee via
    `cardano-serialization-lib`. Phase-2's 4× headroom is comparable
-   to Ethereum's ~2× `maxFeePerGas` convention but is not measured
-   against Cardano user behavior (which doesn't exist for this
-   knob). **Defensible because** `paper_like_mispriced.yaml` uses
-   `{1, 1}` (zero headroom) for the hard-deadline component to
+   to Ethereum's approximate-2× `maxFeePerGas` convention but is not
+   measured against Cardano user behaviour (which doesn't exist for
+   this knob). **Defensible because** `paper_like_mispriced.yaml`
+   uses `{1, 1}` (zero headroom) for the hard-deadline component to
    bound the worst case where users treat phase-2 like mainnet and
-   ship at exact min-fee. Spike 002 §Findings + §Verdict item 3.
+   ship at exact min-fee. See `RSK-max-fee-policy-default` in the
+   register for the disclosure paragraph.
 
 ### Pricing-controller calibration
 

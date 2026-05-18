@@ -105,7 +105,7 @@ confidence intervals:
   ~40 min. TEST-05's 33 jobs × 5 demand profiles × 2 pool counts × 5 seeds =
   1650 runs dominate Phase-3 compute and are the load-bearing budget item.
 - Phase 3 suite designation: this suite is NOT goldens-pinned per D-25. Phase 3
-  outputs land in `.planning/realism-tests/`, not in
+  outputs land in `../`, not in
   `parameters/phase-2-sweep/suites/.goldens/`. The M5 suite goldens are
   unaffected by this scoping run or any Wave 2 suites.
 - Seed=1 `pricing_event_stream.sha256` for cross-reference into the Wave 3

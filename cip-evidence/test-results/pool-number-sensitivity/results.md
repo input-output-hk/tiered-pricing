@@ -25,7 +25,7 @@ the partial data covers only a small slice of one demand profile
 ## Why this gap matters
 
 `RSK-pool-count` and `RSK-calibration-stale-stake-snapshot` in
-`docs/phase-2/realism-risks-register.md` carry **LIVE** verdicts that
+`../../audit-documents/realism-risks-register.md` carry **LIVE** verdicts that
 TEST-05 was the path to MITIGATED. With the gap, those entries remain
 LIVE going into Phase 4. The Phase 1 plan-02 disclosure paragraph for
 `RSK-pool-count` is the load-bearing fallback: it explicitly anticipates
@@ -34,10 +34,10 @@ the LIVE → DISCLOSED transition if the 150-pool data is not in hand.
 ## Recommendation for Phase 4
 
 **Option A — Disclose without re-running.** Phase 4's
-`docs/phase-2/cardano-realism-audit.md` and `validity-threats.md` refresh
+`../../audit-documents/cardano-realism-audit.md` and `validity-threats.md` refresh
 includes the disclosure paragraph for `RSK-pool-count`. The CIP cites this
 disclosure rather than measured Δ% values, and the test result column for
-the relevant `CLM-NN` rows in `docs/phase-2/coverage-check.md` stays
+the relevant `CLM-NN` rows in `../../audit-documents/coverage-check.md` stays
 `UNBACKED` (Phase 4 may downgrade to `DISCLOSED` if the verdict vocabulary
 supports it; otherwise `UNBACKED` + annotation `"100-vs-150 not measured;
 see RSK-pool-count disclosure"`).
@@ -73,7 +73,7 @@ explicitly to `UNBACKED` with annotation in Phase 4 if Option A is chosen.
 
 ## Abbreviations on first use
 
-- **CLM** — claim identifier in `docs/phase-2/coverage-check.md` (`CLM-NN` format)
-- **RSK** — realism-risk identifier in `docs/phase-2/realism-risks-register.md`
+- **CLM** — claim identifier in `../../audit-documents/coverage-check.md` (`CLM-NN` format)
+- **RSK** — realism-risk identifier in `../../audit-documents/realism-risks-register.md`
 - **IQR** — Inter-Quartile Range
 - **CIP** — Cardano Improvement Proposal

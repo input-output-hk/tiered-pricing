@@ -8,7 +8,7 @@ requires:
   - phase: 05-handoff
     provides: Post-Plan-05-01 (24 DISCLOSED + 0 LIVE register) + Post-Plan-05-02 (reproducible four-check audit at baseline PASS)
 provides:
-  - "Hybrid-shape CIP-author paste guide at docs/phase-2/cip-author-summary.md (258 lines; paste-target table + per-CIP-section recommendations + pinned-references block + embedded tag-message draft)"
+  - "Hybrid-shape CIP-author paste guide at cip-evidence/cip-author-summary.md (258 lines; paste-target table + per-CIP-section recommendations + pinned-references block + embedded tag-message draft)"
   - "Post-Plan-05-03 verification appendix on 05-CONSISTENCY-REPORT.md (final OVERALL: PASS across all four checks against the full six-document corpus)"
   - "Phase 5 SUMMARY at .planning/phases/05-handoff/05-SUMMARY.md"
 affects: []
@@ -22,10 +22,10 @@ tech-stack:
 
 key-files:
   created:
-    - "docs/phase-2/cip-author-summary.md (258 lines)"
+    - "cip-evidence/cip-author-summary.md (258 lines)"
     - ".planning/phases/05-handoff/05-SUMMARY.md (Phase 5 SUMMARY consumed by gsd-verify-phase)"
   modified:
-    - ".planning/phases/05-handoff/05-CONSISTENCY-REPORT.md (Plan 05-02 baseline 141 lines + Plan 05-03 post-summary appendix → 202 lines)"
+    - "cip-evidence/consistency-audit/CONSISTENCY-REPORT.md (Plan 05-02 baseline 141 lines + Plan 05-03 post-summary appendix → 202 lines)"
 
 key-decisions:
   - "Six headline claims derived from Phase 3 / Phase 4 evidence per D-46: un-reserved outperform EIP-1559 (CLM-07+09); RB-reserved underperform EIP-1559 (CLM-06+08); multiplier_floor regime-dependence (TEST-07a); partitioned ≡ RB-reserved cross-arm artefact (CLM-06+08); sign-flip cell variance (CLM-10+11); hash-diversity gate 17/17 (RSK-hash-diversity-policy)"
@@ -44,7 +44,7 @@ completed: 2026-05-18
 
 # Phase 5 / Plan 03: CIP-Author Paste Guide — Summary
 
-**A hybrid-shape CIP-author paste guide lands at `docs/phase-2/cip-author-summary.md` with six headline claims, four inline Limitations paragraphs, a 20-row reference-only Limitations table, and an embedded tag-message draft for the user-applied `phase-2-cip-evidence-v1` git tag.**
+**A hybrid-shape CIP-author paste guide lands at `cip-evidence/cip-author-summary.md` with six headline claims, four inline Limitations paragraphs, a 20-row reference-only Limitations table, and an embedded tag-message draft for the user-applied `phase-2-cip-evidence-v1` git tag.**
 
 ## Performance
 
@@ -54,7 +54,7 @@ completed: 2026-05-18
 
 ## Accomplishments
 
-### Task 1 — docs/phase-2/cip-author-summary.md
+### Task 1 — cip-evidence/cip-author-summary.md
 
 A 258-line hybrid-shape paste guide for the Cardano Improvement Proposal (CIP) author:
 
@@ -70,7 +70,7 @@ A 258-line hybrid-shape paste guide for the Cardano Improvement Proposal (CIP) a
 
 ### Task 2 — Post-Plan-05-03 verification appendix on 05-CONSISTENCY-REPORT.md
 
-Re-ran `bash .planning/phases/05-handoff/verify-consistency.sh` with the cip-author-summary.md present:
+Re-ran `bash cip-evidence/consistency-audit/verify-consistency.sh` with the cip-author-summary.md present:
 
 - First run flagged one defect: `.planning/phases/05-handoff/05-SUMMARY.md` referenced in the cip-author-summary's closing footer was missing (forward-reference; would be created later in Plan 05-03 per the plan's `<output>` directive).
 - Resolved by writing `05-SUMMARY.md` before the final re-run.
@@ -88,7 +88,7 @@ Final report length: 202 lines (Plan-05-02 baseline 141 + Plan-05-03 appendix ~6
 
 ### Task 3 — Tag application (deferred to user)
 
-Per the don't-auto-commit user-memory + CONTEXT.md HAND-03 Claude's-Discretion: Claude drafts the tag message but does not run `git tag`. The annotated message is embedded verbatim in `docs/phase-2/cip-author-summary.md` §"Tag message draft" + `docs/phase-2/cip-author-summary.md` §"HAND-03 execution note" provides a step-by-step recipe:
+Per the don't-auto-commit user-memory + CONTEXT.md HAND-03 Claude's-Discretion: Claude drafts the tag message but does not run `git tag`. The annotated message is embedded verbatim in `cip-evidence/cip-author-summary.md` §"Tag message draft" + `cip-evidence/cip-author-summary.md` §"HAND-03 execution note" provides a step-by-step recipe:
 
 1. Resolve the post-Plan-05-03 commit SHA via `git rev-parse HEAD`.
 2. Run `git tag -a phase-2-cip-evidence-v1 -m "$(cat <<'EOF' ... EOF)"` with the message pasted verbatim.
@@ -101,9 +101,9 @@ Per the don't-auto-commit user-memory + CONTEXT.md HAND-03 Claude's-Discretion: 
 ## Verification
 
 ```
-$ wc -l docs/phase-2/cip-author-summary.md
+$ wc -l cip-evidence/cip-author-summary.md
 258
-$ .planning/phases/05-handoff/verify-consistency.sh > /tmp/v.out 2>&1; echo "exit: $?"
+$ cip-evidence/consistency-audit/verify-consistency.sh > /tmp/v.out 2>&1; echo "exit: $?"
 exit: 0
 $ sed -n '/=== SUMMARY/,/OVERALL/p' /tmp/v.out
 === SUMMARY ===
@@ -113,11 +113,11 @@ Check (iii) golden-sha256 matches:            PASS
 Check (iv)  markdown link resolution:         PASS
 
 OVERALL: PASS
-$ wc -l .planning/phases/05-handoff/05-CONSISTENCY-REPORT.md
+$ wc -l cip-evidence/consistency-audit/CONSISTENCY-REPORT.md
 202
-$ grep -c '^> \*\*Headline Claim' docs/phase-2/cip-author-summary.md
+$ grep -c '^> \*\*Headline Claim' cip-evidence/cip-author-summary.md
 6
-$ grep -oE 'CLM-0[6-9]' docs/phase-2/cip-author-summary.md | sort -u | wc -l
+$ grep -oE 'CLM-0[6-9]' cip-evidence/cip-author-summary.md | sort -u | wc -l
 4
 ```
 

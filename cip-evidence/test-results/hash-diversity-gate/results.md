@@ -2,7 +2,7 @@
 
 **Run id:** `20260518-084846`
 **Gate semantics (CONTEXT.md D-19 + REQUIREMENTS.md COV-05):** for every
-`BACKED`-labelled row in `docs/phase-2/coverage-check.md`, the count of
+`BACKED`-labelled row in `../../audit-documents/coverage-check.md`, the count of
 distinct `pricing_event_stream.sha256` values across the cited seeds
 must equal the seed count. If `distinct < N`, the seed-set has collapsed
 (the simulator produced the same event sequence twice from different
@@ -84,6 +84,6 @@ gate is per-suite per-run-id; cross-run gate composition is not defined.
 ## Abbreviations on first use
 
 - **SHA-256** — Secure Hash Algorithm 256-bit
-- **CLM** — claim identifier in `docs/phase-2/coverage-check.md`
-- **RSK** — realism-risk identifier in `docs/phase-2/realism-risks-register.md`
+- **CLM** — claim identifier in `../../audit-documents/coverage-check.md`
+- **RSK** — realism-risk identifier in `../../audit-documents/realism-risks-register.md`
 - **CIP** — Cardano Improvement Proposal

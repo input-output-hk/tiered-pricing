@@ -72,5 +72,5 @@ existing pre-Phase-3 status until the re-run completes.
 
 ## Abbreviations on first use
 
-- **CLM** — claim identifier in `docs/phase-2/coverage-check.md`
-- **RSK** — realism-risk identifier in `docs/phase-2/realism-risks-register.md`
+- **CLM** — claim identifier in `../../audit-documents/coverage-check.md`
+- **RSK** — realism-risk identifier in `../../audit-documents/realism-risks-register.md`

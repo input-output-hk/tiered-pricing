@@ -18,20 +18,20 @@ IFS=$'\n\t'
 
 # --- Configuration ----------------------------------------------------------
 
-REPO_ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
+REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$REPO_ROOT"
 
 IN_SCOPE_DOCS=(
-  "docs/phase-2/cardano-realism-audit.md"
-  "docs/phase-2/validity-threats.md"
-  "docs/phase-2/realism-risks-register.md"
-  "docs/phase-2/coverage-check.md"
-  "docs/phase-2/methodology-overview.md"
-  "docs/phase-2/cip-author-summary.md"
+  "cip-evidence/audit-documents/cardano-realism-audit.md"
+  "cip-evidence/audit-documents/validity-threats.md"
+  "cip-evidence/audit-documents/realism-risks-register.md"
+  "cip-evidence/audit-documents/coverage-check.md"
+  "cip-evidence/audit-documents/methodology-overview.md"
+  "cip-evidence/cip-author-summary.md"
 )
 
-REGISTER="docs/phase-2/realism-risks-register.md"
-COVERAGE_CHECK="docs/phase-2/coverage-check.md"
+REGISTER="cip-evidence/audit-documents/realism-risks-register.md"
+COVERAGE_CHECK="cip-evidence/audit-documents/coverage-check.md"
 SUITES_DIR="sim-rs/parameters/phase-2-sweep/suites"
 GOLDENS_DIR="sim-rs/parameters/phase-2-sweep/suites/.goldens"
 
@@ -426,11 +426,12 @@ else
 fi
 
 # Emit machine-parseable per-doc / per-pair / per-hash / per-link tables
-# (consumed by the 05-CONSISTENCY-REPORT.md author in Plan 05-02 Task 2).
-mkdir -p "$REPO_ROOT/.planning/phases/05-handoff/.cache"
-cp "$PER_DOC_TABLE"   "$REPO_ROOT/.planning/phases/05-handoff/.cache/per_doc_table.tsv"
-cp "$PAIR_TABLE"      "$REPO_ROOT/.planning/phases/05-handoff/.cache/pair_table.tsv"
-cp "$HASH_TABLE"      "$REPO_ROOT/.planning/phases/05-handoff/.cache/hash_table.tsv"
-cp "$LINK_TABLE"      "$REPO_ROOT/.planning/phases/05-handoff/.cache/link_table.tsv"
+# (consumed by the CONSISTENCY-REPORT.md author + by future reviewers
+# inspecting why a check passed or failed at a given commit).
+mkdir -p "$REPO_ROOT/cip-evidence/consistency-audit/.cache"
+cp "$PER_DOC_TABLE"   "$REPO_ROOT/cip-evidence/consistency-audit/.cache/per_doc_table.tsv"
+cp "$PAIR_TABLE"      "$REPO_ROOT/cip-evidence/consistency-audit/.cache/pair_table.tsv"
+cp "$HASH_TABLE"      "$REPO_ROOT/cip-evidence/consistency-audit/.cache/hash_table.tsv"
+cp "$LINK_TABLE"      "$REPO_ROOT/cip-evidence/consistency-audit/.cache/link_table.tsv"
 
 exit "$EXIT_CODE"

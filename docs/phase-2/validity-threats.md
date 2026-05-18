@@ -572,8 +572,8 @@ settings); `priority-only` 16 jobs (rb-reserved × {4,8,16} ×
   standard-lane controller does not drift away from the era floor;
   the price experience is indistinguishable from flat-fee for
   standard users. Partitioned both-dynamic produces bounded
-  standard-quote drift per CLM-40 / RSK-standard-user-fee-drift-
-  exposure."
+  standard-quote drift per CLM-40 /
+  `RSK-standard-user-fee-drift-exposure`."
 - **Threats:** External item #4 (standard signal source).
   RSK-standard-user-fee-drift-exposure applies; the suite's whole
   point is the standard-user-drift diagnostic.

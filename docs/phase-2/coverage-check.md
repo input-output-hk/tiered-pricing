@@ -4,6 +4,7 @@
 **Scope:** Per-claim coverage map for the Cardano Improvement Proposal (CIP) responding to CPS-0023 ("Urgency Signaling"). Each row is one `(claim, menu-option)` pair; rows are atomic and greppable by claim, menu-option, status, or related-RSK reference.
 **Identifier convention:** `CLM-NN` (append-only; never renumbered) per Leios `docs/ImpactAnalysis.md` precedent. Cross-references to the realism-risks register use the `RSK-NN` identifiers from `docs/phase-2/realism-risks-register.md` directly.
 **Verdict vocabulary:** `BACKED` / `WEAK` / `UNBACKED` / `OUT-OF-SCOPE`. Different vocabulary from the register's `LIVE` / `DORMANT` / `MITIGATED` / `DISCLOSED`. `BACKED` requires the hash-diversity gate (see "Hash-diversity gate" section below).
+**Abbreviations on first use** (per `CLAUDE.md` §"Conventions / gotchas"): Cardano Improvement Proposal (CIP), Ethereum Improvement Proposal 1559 (EIP-1559), Ranking Block (RB), Endorser Block (EB), Lines-of-Code (LoC), Bias-corrected and accelerated (BCa) bootstrap, Paired Seed Evaluation (PSE), Inter-Quartile Range (IQR), Coefficient of Variation (CV), Symposium on Discrete Algorithms (SODA), Conference on Computer and Communications Security (CCS), Advances in Financial Technologies (AFT), Realism Risk identifier (RSK), Claim identifier (CLM), Experiment identifier (EXP), Secure Hash Algorithm 256-bit (SHA-256). Realism Risks register cross-reference: `docs/phase-2/realism-risks-register.md`.
 
 ## Reading guide
 

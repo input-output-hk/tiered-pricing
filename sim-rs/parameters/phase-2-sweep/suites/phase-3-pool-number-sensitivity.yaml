@@ -1,0 +1,188 @@
+# Phase-3 TEST-05 — Pool-number sensitivity (150 vs existing 100 pools).
+#
+# Scope cut from the over-scoped original (330 cells × 5 seeds = 1650 runs).
+# The plan's literal text is: "topology-realistic-150.yaml rerun of (33-job
+# smoke × 5 demand profiles) at 150 pools **vs the existing 100-pool runs**".
+# In tree we have 3-seed 100-pool sundaeswap_moderate coverage (from the
+# three existing phase-2-sundaeswap-* suites at seeds [1, 2, 3]); we do
+# NOT have the 4 paper_like_* 100-pool variants at multi-seed. Running
+# the 100-pool side fresh for paper_like_* would re-blow the suite up.
+#
+# Decision: this suite covers ONLY (sundaeswap_moderate × 150-pool) at
+# N=5 seeds. That's 33 jobs × 5 seeds = 165 fresh runs. The 100-pool
+# baseline uses existing in-tree 3-seed data. The 4 paper_like_* profiles
+# are deferred as a Phase 4 disclosure gap rather than measured here —
+# the analysis writes that up in
+# `.planning/realism-tests/pool-number-sensitivity/results.md`.
+#
+# Verdict (per CONTEXT.md Claude's Discretion §"Verdict on TEST-05"):
+#   MITIGATED       iff for every job, the 150-pool seed-median Δ% on
+#                   welfare metrics (retained_value, net_utility,
+#                   retained_value_ratio) is within the 100-pool seed-Inter-
+#                   Quartile-Range (IQR) (from existing 3-seed data).
+#   LIVE→DISCLOSED  if any job shows Δ% outside the 100-pool seed-IQR.
+#
+# N = 5 seeds per cell. NOT goldens-pinned.
+
+
+suite-name: phase-3-pool-number-sensitivity
+output-dir: output/phase-3/pool-number-sensitivity
+seeds:
+- 1
+- 2
+- 3
+- 4
+- 5
+default-slots: 2000
+default-topology: parameters/phase-2-sweep/topology-realistic-150.yaml
+default-protocol: parameters/phase-2-sweep/protocol-base.yaml
+default-demand: parameters/phase-2-sweep/demand/sundaeswap_moderate.yaml
+jobs:
+- name: singlelane__baseline_flat_fee__150n
+  pricing: parameters/phase-2-sweep/pricing/baseline_flat_fee.yaml
+  overrides:
+    topology: parameters/phase-2-sweep/topology-realistic-150.yaml
+- name: singlelane__eip1559_d4_t50_w32__150n
+  pricing: parameters/phase-2-sweep/pricing/eip1559_d4_target0.5_window32.yaml
+  overrides:
+    topology: parameters/phase-2-sweep/topology-realistic-150.yaml
+- name: singlelane__eip1559_d8_t25_w32__150n
+  pricing: parameters/phase-2-sweep/pricing/eip1559_d8_target0.25_window32.yaml
+  overrides:
+    topology: parameters/phase-2-sweep/topology-realistic-150.yaml
+- name: singlelane__eip1559_d8_t50_w16__150n
+  pricing: parameters/phase-2-sweep/pricing/eip1559_d8_target0.5_window16.yaml
+  overrides:
+    topology: parameters/phase-2-sweep/topology-realistic-150.yaml
+- name: singlelane__eip1559_d8_t50_w32__150n
+  pricing: parameters/phase-2-sweep/pricing/eip1559_d8_target0.5_window32.yaml
+  overrides:
+    topology: parameters/phase-2-sweep/topology-realistic-150.yaml
+- name: singlelane__eip1559_d8_t50_w64__150n
+  pricing: parameters/phase-2-sweep/pricing/eip1559_d8_target0.5_window64.yaml
+  overrides:
+    topology: parameters/phase-2-sweep/topology-realistic-150.yaml
+- name: singlelane__eip1559_d8_t75_w32__150n
+  pricing: parameters/phase-2-sweep/pricing/eip1559_d8_target0.75_window32.yaml
+  overrides:
+    topology: parameters/phase-2-sweep/topology-realistic-150.yaml
+- name: singlelane__eip1559_d16_t50_w32__150n
+  pricing: parameters/phase-2-sweep/pricing/eip1559_d16_target0.5_window32.yaml
+  overrides:
+    topology: parameters/phase-2-sweep/topology-realistic-150.yaml
+- name: priority-only__rb_reserved_x4__150n
+  pricing: parameters/phase-2-sweep/pricing/two_lane_priority_only_static_x4.yaml
+  overrides:
+    topology: parameters/phase-2-sweep/topology-realistic-150.yaml
+- name: priority-only__rb_reserved_x8__150n
+  pricing: parameters/phase-2-sweep/pricing/two_lane_priority_only_static_x8.yaml
+  overrides:
+    topology: parameters/phase-2-sweep/topology-realistic-150.yaml
+- name: priority-only__rb_reserved_x16__150n
+  pricing: parameters/phase-2-sweep/pricing/two_lane_priority_only_static_x16.yaml
+  overrides:
+    topology: parameters/phase-2-sweep/topology-realistic-150.yaml
+- name: priority-only__unreserved_x4__150n
+  pricing: parameters/phase-2-sweep/pricing/two_lane_priority_only_unreserved_x4.yaml
+  overrides:
+    topology: parameters/phase-2-sweep/topology-realistic-150.yaml
+- name: priority-only__unreserved_x8__150n
+  pricing: parameters/phase-2-sweep/pricing/two_lane_priority_only_unreserved_x8.yaml
+  overrides:
+    topology: parameters/phase-2-sweep/topology-realistic-150.yaml
+- name: priority-only__unreserved_x16__150n
+  pricing: parameters/phase-2-sweep/pricing/two_lane_priority_only_unreserved_x16.yaml
+  overrides:
+    topology: parameters/phase-2-sweep/topology-realistic-150.yaml
+- name: priority-only__rb_reserved_x4_rb_half__150n
+  pricing: parameters/phase-2-sweep/pricing/two_lane_priority_only_static_x4.yaml
+  overrides:
+    topology: parameters/phase-2-sweep/topology-realistic-150.yaml
+    protocol: parameters/phase-2-sweep/protocol-rb-reduced-half.yaml
+- name: priority-only__rb_reserved_x4_rb_third__150n
+  pricing: parameters/phase-2-sweep/pricing/two_lane_priority_only_static_x4.yaml
+  overrides:
+    topology: parameters/phase-2-sweep/topology-realistic-150.yaml
+    protocol: parameters/phase-2-sweep/protocol-rb-reduced-third.yaml
+- name: priority-only__rb_reserved_x4_rb_quarter__150n
+  pricing: parameters/phase-2-sweep/pricing/two_lane_priority_only_static_x4.yaml
+  overrides:
+    topology: parameters/phase-2-sweep/topology-realistic-150.yaml
+    protocol: parameters/phase-2-sweep/protocol-rb-reduced-quarter.yaml
+- name: priority-only__rb_reserved_x8_rb_half__150n
+  pricing: parameters/phase-2-sweep/pricing/two_lane_priority_only_static_x8.yaml
+  overrides:
+    topology: parameters/phase-2-sweep/topology-realistic-150.yaml
+    protocol: parameters/phase-2-sweep/protocol-rb-reduced-half.yaml
+- name: priority-only__rb_reserved_x8_rb_third__150n
+  pricing: parameters/phase-2-sweep/pricing/two_lane_priority_only_static_x8.yaml
+  overrides:
+    topology: parameters/phase-2-sweep/topology-realistic-150.yaml
+    protocol: parameters/phase-2-sweep/protocol-rb-reduced-third.yaml
+- name: priority-only__rb_reserved_x8_rb_quarter__150n
+  pricing: parameters/phase-2-sweep/pricing/two_lane_priority_only_static_x8.yaml
+  overrides:
+    topology: parameters/phase-2-sweep/topology-realistic-150.yaml
+    protocol: parameters/phase-2-sweep/protocol-rb-reduced-quarter.yaml
+- name: priority-only__rb_reserved_x16_rb_half__150n
+  pricing: parameters/phase-2-sweep/pricing/two_lane_priority_only_static_x16.yaml
+  overrides:
+    topology: parameters/phase-2-sweep/topology-realistic-150.yaml
+    protocol: parameters/phase-2-sweep/protocol-rb-reduced-half.yaml
+- name: priority-only__rb_reserved_x16_rb_third__150n
+  pricing: parameters/phase-2-sweep/pricing/two_lane_priority_only_static_x16.yaml
+  overrides:
+    topology: parameters/phase-2-sweep/topology-realistic-150.yaml
+    protocol: parameters/phase-2-sweep/protocol-rb-reduced-third.yaml
+- name: priority-only__rb_reserved_x16_rb_quarter__150n
+  pricing: parameters/phase-2-sweep/pricing/two_lane_priority_only_static_x16.yaml
+  overrides:
+    topology: parameters/phase-2-sweep/topology-realistic-150.yaml
+    protocol: parameters/phase-2-sweep/protocol-rb-reduced-quarter.yaml
+- name: both-dynamic__partitioned_x4__150n
+  pricing: parameters/phase-2-sweep/pricing/two_lane_both_dynamic_partitioned_x4.yaml
+  overrides:
+    topology: parameters/phase-2-sweep/topology-realistic-150.yaml
+- name: both-dynamic__partitioned_x16__150n
+  pricing: parameters/phase-2-sweep/pricing/two_lane_both_dynamic_partitioned_x16.yaml
+  overrides:
+    topology: parameters/phase-2-sweep/topology-realistic-150.yaml
+- name: both-dynamic__unreserved_x4__150n
+  pricing: parameters/phase-2-sweep/pricing/two_lane_both_dynamic_unreserved_x4.yaml
+  overrides:
+    topology: parameters/phase-2-sweep/topology-realistic-150.yaml
+- name: both-dynamic__unreserved_x16__150n
+  pricing: parameters/phase-2-sweep/pricing/two_lane_both_dynamic_unreserved_x16.yaml
+  overrides:
+    topology: parameters/phase-2-sweep/topology-realistic-150.yaml
+- name: both-dynamic__partitioned_x4_rb_half__150n
+  pricing: parameters/phase-2-sweep/pricing/two_lane_both_dynamic_partitioned_x4.yaml
+  overrides:
+    topology: parameters/phase-2-sweep/topology-realistic-150.yaml
+    protocol: parameters/phase-2-sweep/protocol-rb-reduced-half.yaml
+- name: both-dynamic__partitioned_x4_rb_third__150n
+  pricing: parameters/phase-2-sweep/pricing/two_lane_both_dynamic_partitioned_x4.yaml
+  overrides:
+    topology: parameters/phase-2-sweep/topology-realistic-150.yaml
+    protocol: parameters/phase-2-sweep/protocol-rb-reduced-third.yaml
+- name: both-dynamic__partitioned_x4_rb_quarter__150n
+  pricing: parameters/phase-2-sweep/pricing/two_lane_both_dynamic_partitioned_x4.yaml
+  overrides:
+    topology: parameters/phase-2-sweep/topology-realistic-150.yaml
+    protocol: parameters/phase-2-sweep/protocol-rb-reduced-quarter.yaml
+- name: both-dynamic__partitioned_x16_rb_half__150n
+  pricing: parameters/phase-2-sweep/pricing/two_lane_both_dynamic_partitioned_x16.yaml
+  overrides:
+    topology: parameters/phase-2-sweep/topology-realistic-150.yaml
+    protocol: parameters/phase-2-sweep/protocol-rb-reduced-half.yaml
+- name: both-dynamic__partitioned_x16_rb_third__150n
+  pricing: parameters/phase-2-sweep/pricing/two_lane_both_dynamic_partitioned_x16.yaml
+  overrides:
+    topology: parameters/phase-2-sweep/topology-realistic-150.yaml
+    protocol: parameters/phase-2-sweep/protocol-rb-reduced-third.yaml
+- name: both-dynamic__partitioned_x16_rb_quarter__150n
+  pricing: parameters/phase-2-sweep/pricing/two_lane_both_dynamic_partitioned_x16.yaml
+  overrides:
+    topology: parameters/phase-2-sweep/topology-realistic-150.yaml
+    protocol: parameters/phase-2-sweep/protocol-rb-reduced-quarter.yaml
+

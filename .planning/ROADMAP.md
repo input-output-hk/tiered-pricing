@@ -18,7 +18,7 @@ Granularity: standard. Five phases, 25 v1 requirements, 100% coverage.
 - [x] **Phase 2: Coverage Check Skeleton** - Map menu-item trade-off claims to backing simulator jobs, surface gaps (completed 2026-05-15)
 - [x] **Phase 3: Targeted Cheap Tests** - Resolve Live risks via paired-bootstrap variance bands, pool-number sensitivity, run-length validation (completed 2026-05-18)
 - [x] **Phase 4: Refresh and Anchor** - Refresh authoritative audit documents and anchor or disclose the four un-anchored controller knobs (completed 2026-05-18)
-- [ ] **Phase 5: Handoff** - Consolidate the evidence package into a CIP-author summary and tag the citable commit
+- [x] **Phase 5: Handoff** - Consolidate the evidence package into a CIP-author summary and tag the citable commit (completed 2026-05-18)
 
 ## Phase Details
 
@@ -113,7 +113,7 @@ Plans:
   1. `docs/phase-2/cip-author-summary.md` exists listing: which `disclosure-paragraph` blocks paste into the CIP's Limitations section, which `CLM-NN` rows cite into the CIP's Evidence section, the pinned git commit and tag that all artefacts reference, and the epoch-582 stake snapshot reference for the topology
   2. A final consistency review has been performed and recorded: no `RSK-NN` or `CLM-NN` references in any artefact point to non-existent identifiers, no identifiers were renumbered, all `backing-job` paths in the coverage check resolve to suite + job entries that still exist in `parameters/phase-2-sweep/suites/`, and all `golden-sha256` values in the coverage check match the current `.goldens/` directory contents
   3. The `dynamic-experiment` branch carries a git tag at the milestone-close commit (suggested name: `phase-2-cip-evidence-v1`), and that tag is the citable reference recorded in `cip-author-summary.md`
-**Plans:** 2/3 plans executed
+**Plans:** 4/3 plans complete
 Plans:
 **Wave 1**
 - [x] 05-01-PLAN.md — Flip the six remaining LIVE register entries to DISCLOSED with load-bearing CIP-pasteable disclosure-paragraphs; update Index table + reading-guide + footer to 0 LIVE + 24 DISCLOSED distribution (HAND-01 prerequisite)
@@ -122,7 +122,7 @@ Plans:
 - [x] 05-02-PLAN.md — Author the reproducible four-check verify-consistency.sh script (RSK/CLM/EXP dead-refs, backing-job resolution, golden-sha256 cross-check, broken markdown links) + the 05-CONSISTENCY-REPORT.md audit log (HAND-02)
 
 **Wave 3** *(blocked on Waves 1 and 2 completion)*
-- [ ] 05-03-PLAN.md — Author the hybrid-shape docs/phase-2/cip-author-summary.md paste guide with 4-8 headline CIP claims, top-5 inline Limitations paragraphs, pinned-references block including tag-message draft; re-run verify-consistency.sh post-summary and append final verification block; user-applied git tag phase-2-cip-evidence-v1 checkpoint (HAND-01 + HAND-03)
+- [x] 05-03-PLAN.md — Author the hybrid-shape docs/phase-2/cip-author-summary.md paste guide with 4-8 headline CIP claims, top-5 inline Limitations paragraphs, pinned-references block including tag-message draft; re-run verify-consistency.sh post-summary and append final verification block; user-applied git tag phase-2-cip-evidence-v1 checkpoint (HAND-01 + HAND-03)
 
 ## Progress
 
@@ -135,4 +135,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | 2. Coverage Check Skeleton | 2/2 | Complete | 2026-05-15 |
 | 3. Targeted Cheap Tests | 3/3 | Complete | 2026-05-18 |
 | 4. Refresh and Anchor | 7/7 | Complete (verified PASS 4/4) | 2026-05-18 |
-| 5. Handoff | 2/3 | In Progress|  |
+| 5. Handoff | 4/3 | Complete   | 2026-05-18 |

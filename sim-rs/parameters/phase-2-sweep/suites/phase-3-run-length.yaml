@@ -1,0 +1,77 @@
+# Phase-3 TEST-06 — Run-length / steady-state validation.
+#
+# Four canonical menu-option jobs (one per Cardano Improvement Proposal (CIP)
+# menu arm — NOT the single-lane EIP-1559 control; this test is about menu
+# options' steady-state behaviour) × three slot lengths {2000, 4000, 8000} × N
+# seeds. Per-(job, length) STEADY verdict via the criterion in CONTEXT.md D-33:
+#
+#   For each (job, seed): compute rolling mean of `retained_value`-per-slot
+#   over slots [N/4, N/2] (first quarter of the steady portion) versus
+#   [N/2, 3N/4] (second quarter). The first quarter [0, N/4] is discarded
+#   as start-up transient.
+#   Per-seed delta = mean(second_quarter) − mean(first_quarter).
+#   STEADY iff |median(deltas across seeds)| < seed-IQR(retained_value over full run).
+#
+# If the 2000-slot default fails STEADY for a menu option, the canonical job
+# for that option is re-run at 4000 slots; if 4000 fails, 8000. The suite
+# default is raised for any menu option that requires longer than 2000 slots
+# (Wave 2 Task 4 writes the recommendation to results.md).
+#
+# N = 10 seeds (per scoping-results.md). NOT goldens-pinned.
+
+suite-name: phase-3-run-length
+output-dir: output/phase-3/run-length
+seeds: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+default-slots: 2000
+default-topology: parameters/phase-2-sweep/topology-realistic-100.yaml
+default-protocol: parameters/phase-2-sweep/protocol-base.yaml
+default-demand: parameters/phase-2-sweep/demand/sundaeswap_moderate.yaml
+
+jobs:
+  # --- Menu arm 1: RB-reserved priority-only-static at three slot counts ---
+  - name: rb_reserved_priority_only_x4_slots_2000
+    pricing: parameters/phase-2-sweep/pricing/two_lane_priority_only_static_x4.yaml
+  - name: rb_reserved_priority_only_x4_slots_4000
+    pricing: parameters/phase-2-sweep/pricing/two_lane_priority_only_static_x4.yaml
+    overrides:
+      slots: 4000
+  - name: rb_reserved_priority_only_x4_slots_8000
+    pricing: parameters/phase-2-sweep/pricing/two_lane_priority_only_static_x4.yaml
+    overrides:
+      slots: 8000
+
+  # --- Menu arm 2: Un-reserved priority-only-static at three slot counts ---
+  - name: unreserved_priority_only_x4_slots_2000
+    pricing: parameters/phase-2-sweep/pricing/two_lane_priority_only_unreserved_x4.yaml
+  - name: unreserved_priority_only_x4_slots_4000
+    pricing: parameters/phase-2-sweep/pricing/two_lane_priority_only_unreserved_x4.yaml
+    overrides:
+      slots: 4000
+  - name: unreserved_priority_only_x4_slots_8000
+    pricing: parameters/phase-2-sweep/pricing/two_lane_priority_only_unreserved_x4.yaml
+    overrides:
+      slots: 8000
+
+  # --- Menu arm 3: RB-reserved both-dynamic partitioned at three slot counts ---
+  - name: rb_reserved_both_dynamic_x4_slots_2000
+    pricing: parameters/phase-2-sweep/pricing/two_lane_both_dynamic_partitioned_x4.yaml
+  - name: rb_reserved_both_dynamic_x4_slots_4000
+    pricing: parameters/phase-2-sweep/pricing/two_lane_both_dynamic_partitioned_x4.yaml
+    overrides:
+      slots: 4000
+  - name: rb_reserved_both_dynamic_x4_slots_8000
+    pricing: parameters/phase-2-sweep/pricing/two_lane_both_dynamic_partitioned_x4.yaml
+    overrides:
+      slots: 8000
+
+  # --- Menu arm 4: Un-reserved both-dynamic at three slot counts ---
+  - name: unreserved_both_dynamic_x4_slots_2000
+    pricing: parameters/phase-2-sweep/pricing/two_lane_both_dynamic_unreserved_x4.yaml
+  - name: unreserved_both_dynamic_x4_slots_4000
+    pricing: parameters/phase-2-sweep/pricing/two_lane_both_dynamic_unreserved_x4.yaml
+    overrides:
+      slots: 4000
+  - name: unreserved_both_dynamic_x4_slots_8000
+    pricing: parameters/phase-2-sweep/pricing/two_lane_both_dynamic_unreserved_x4.yaml
+    overrides:
+      slots: 8000

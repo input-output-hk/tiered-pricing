@@ -1,0 +1,72 @@
+# Phase-3 TEST-03 — Sign-flip variance bands.
+#
+# The four "sign-flip" welfare cells (per `.planning/mechanism-welfare-impact-2026-05-14.md`)
+# are configurations where the welfare delta between accumulator and chain-derived
+# (Family A vs Family B) controllers changed sign across the 33 sundaeswap-smoke jobs.
+# This suite re-runs each cell under the committed Family B controller at N=20 seeds
+# alongside its single-lane Ethereum Improvement Proposal 1559 (EIP-1559) baseline
+# control, so the Bias-corrected and accelerated (BCa) bootstrap can characterise
+# the variance of the welfare delta vs that control.
+#
+# Verdict (per CONTEXT.md D-32):
+#   BACKED       iff paired_bca_ci's 95% CI on `retained_value` delta does NOT
+#                cross zero AND the COV-05 hash-diversity gate passes (distinct
+#                pricing_event_stream.sha256 count = 20).
+#   WEAK         iff CI crosses zero (variance dominates the welfare delta).
+#   re-run-needed iff hash-diversity gate fails (distinct count < 20).
+#
+# Pairing: cells 1+2 are EIP-1559 themselves, paired against the canonical
+# EIP-1559 baseline `d8_target0.5_window32` at the same demand+protocol.
+# Cells 3+4 are two-lane priority-only / both-dynamic configurations on the
+# rb-reduced-quarter protocol overlay, paired against a single-lane EIP-1559
+# control on the same overlay.
+#
+# N = 20 seeds per cell, sequential [1..20] (per CONTEXT.md D-26 + scoping-results.md).
+# NOT goldens-pinned (per CONTEXT.md D-25). Output under
+# sim-rs/output/phase-3/sign-flip-variance-<run-id>/ via experiment-suite
+# `--run-id` (scripts/run-phase-3-suites.sh batches all Phase 3 suites under
+# one batch identifier).
+
+suite-name: phase-3-sign-flip-variance
+output-dir: output/phase-3/sign-flip-variance
+seeds: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+default-slots: 2000
+default-topology: parameters/phase-2-sweep/topology-realistic-100.yaml
+default-protocol: parameters/phase-2-sweep/protocol-base.yaml
+default-demand: parameters/phase-2-sweep/demand/sundaeswap_moderate.yaml
+
+jobs:
+  # --- Cell 1: eip1559_d4_t50_w32 — single-lane EIP-1559 with D=4 ---
+  # Step-size denominator D=4 (faster controller response than baseline D=8).
+  # Paired against baseline d8_target0.5_window32 below.
+  - name: cell_eip1559_d4_t50_w32
+    pricing: parameters/phase-2-sweep/pricing/eip1559_d4_target0.5_window32.yaml
+
+  # --- Cell 2: eip1559_d8_t25_w32 — single-lane EIP-1559 with target=0.25 ---
+  # Lower target utilization (25% vs 50%) — controller pushes quote up
+  # harder under congestion. Paired against the same d8_target0.5_window32
+  # baseline below.
+  - name: cell_eip1559_d8_t25_w32
+    pricing: parameters/phase-2-sweep/pricing/eip1559_d8_target0.25_window32.yaml
+
+  # --- Single-lane EIP-1559 baseline at default protocol (shared control for cells 1 + 2) ---
+  - name: control_eip1559_d8_t50_w32_base
+    pricing: parameters/phase-2-sweep/pricing/eip1559_d8_target0.5_window32.yaml
+
+  # --- Cell 3: rb_reserved_x4_rb_quarter — two-lane priority-only-static, x4 floor, RB-quarter ---
+  - name: cell_rb_reserved_x4_rb_quarter
+    pricing: parameters/phase-2-sweep/pricing/two_lane_priority_only_static_x4.yaml
+    overrides:
+      protocol: parameters/phase-2-sweep/protocol-rb-reduced-quarter.yaml
+
+  # --- Cell 4: partitioned_x4_rb_quarter — two-lane both-dynamic partitioned, x4, RB-quarter ---
+  - name: cell_partitioned_x4_rb_quarter
+    pricing: parameters/phase-2-sweep/pricing/two_lane_both_dynamic_partitioned_x4.yaml
+    overrides:
+      protocol: parameters/phase-2-sweep/protocol-rb-reduced-quarter.yaml
+
+  # --- Single-lane EIP-1559 baseline on rb-quarter overlay (shared control for cells 3 + 4) ---
+  - name: control_eip1559_d8_t50_w32_rb_quarter
+    pricing: parameters/phase-2-sweep/pricing/eip1559_d8_target0.5_window32.yaml
+    overrides:
+      protocol: parameters/phase-2-sweep/protocol-rb-reduced-quarter.yaml

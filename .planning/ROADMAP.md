@@ -70,7 +70,16 @@ Plans:
   5. Pool-number sensitivity results exist at `.planning/realism-tests/pool-number-sensitivity/` for the 33-job smoke × {100, 150 pools} × {sundaeswap_moderate + 4 paper_like variants} cross-product, with MITIGATED verdict iff Δ% on welfare metrics is within the seed-IQR threshold locked by REG-05
   6. Run-length / steady-state validation results exist at `.planning/realism-tests/run-length-steady-state/` for one canonical job per menu option (4 jobs) at 2000 / 4000 / 8000 slots, with the suite default raised for any menu option that fails the steady-state criterion
   7. The hash-diversity gate (COV-05) has been applied: every `BACKED` coverage-check row has a distinct `pricing_event_stream.sha256` count equal to its seed count, and rows that collapse are downgraded to `WEAK` with annotation or re-run with different seed values
-**Plans**: TBD
+**Plans:** 3 plans
+Plans:
+**Wave 1**
+- [ ] 03-01-PLAN.md — Foundations: paired_bootstrap.rs library (TEST-01), phase-3-scoping.yaml run for wall-clock measurement and N determination (TEST-02), topology-realistic-150.yaml generation (TEST-05 prerequisite)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+- [ ] 03-02-PLAN.md — Five multi-seed sub-tasks: TEST-03 sign-flip variance, TEST-04 canonical menu-item variance, TEST-05 pool-number sensitivity (33 × 5 × 2 = 330 triples), TEST-06 run-length / steady-state, TEST-07a multiplier-floor-16 companion. Each sub-task updates coverage-check.md rows incrementally per D-27.
+
+**Wave 3** *(blocked on Wave 2 completion)*
+- [ ] 03-03-PLAN.md — COV-05 hash-diversity gate applied across all BACKED rows; final coverage-check.md consistency review (RSK / EXP / CLM integrity); phase 03-SUMMARY.md for verify-phase consumption.
 
 ### Phase 4: Refresh and Anchor
 **Goal**: The authoritative audit and validity-threats documents are refreshed to consistent, CIP-pasteable voice, every calibration value carries a `(value, source, date-retrieved)` triple, the four un-anchored controller knobs are either anchored to deployed-system data or carry an explicit disclosure paragraph, and a one-page Overview, Design concepts, Details (ODD) methodology index exists for the CIP author to cite by repo URL.
@@ -102,6 +111,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 |-------|----------------|--------|-----------|
 | 1. Register Inventory | 2/2 | Complete | 2026-05-15 |
 | 2. Coverage Check Skeleton | 2/2 | Complete | 2026-05-15 |
-| 3. Targeted Cheap Tests | 0/TBD | Not started | - |
+| 3. Targeted Cheap Tests | 0/3 | Planned | - |
 | 4. Refresh and Anchor | 0/TBD | Not started | - |
 | 5. Handoff | 0/TBD | Not started | - |

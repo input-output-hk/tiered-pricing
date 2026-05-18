@@ -26,6 +26,7 @@ The CIP author may freely edit inline content. Reference-only items should be pa
 | Trust matrix | `audit-documents/validity-threats.md` | Aggregate trust matrix — **2 HIGH + 13 MEDIUM + 4 LOW + 0 UNRESOLVED** across 19 per-suite blocks; each block carries `Related RSK:` + `Related CLM:` cross-references | Reference (CIP cites the aggregate + per-suite breakdown by name) |
 | Evidence | `audit-documents/coverage-check.md` | Headline CIP claims backed by specific CLM-NN rows (see §"CIP Section: Evidence" §"Headline CIP claim list" below for the row-to-claim mapping); supporting CLM rows referenced by identifier + line range | Mixed — 4–8 headline claims inline; long-tail CLM rows reference-only |
 | Limitations | `audit-documents/realism-risks-register.md` | 24 DISCLOSED `disclosure-paragraph` blocks pastable verbatim; substrate-scope umbrella + top-4 paste-order paragraphs inlined below in §"CIP Section: Limitations" §"Limitations paste order"; long-tail paragraphs referenced by RSK-NN identifier + path + line range | Mixed |
+| Evidence — user experience | `audit-documents/latency-by-urgency.md` | Per-mechanism observed inclusion latency and inclusion rate across 11 urgency-tagged user classes at N=20 seeds on `sundaeswap_moderate × multiplier_floor=4`; refines the welfare-delta findings with the user-class attribution single-lane EIP-1559 vs un-reserved vs RB-reserved mechanisms produce | Reference (one anomaly flagged pending team review; see source doc §"Anomaly to flag") |
 
 ## CIP Section: Methodology
 

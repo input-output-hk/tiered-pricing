@@ -15,12 +15,13 @@ cip-evidence/
 ├── README.md                                # You are here
 ├── cip-author-summary.md                    # Paste guide — start here
 │
-├── audit-documents/                         # The 5 CIP-cited source-of-truth artefacts
+├── audit-documents/                         # The 6 CIP-cited source-of-truth artefacts
 │   ├── cardano-realism-audit.md             #   Calibration source: 17 (value, source, date-retrieved) triples
 │   ├── validity-threats.md                  #   Trust matrix: 19 per-suite blocks
 │   ├── realism-risks-register.md            #   Limitations: 24 DISCLOSED RSK-NN entries
 │   ├── coverage-check.md                    #   Evidence: 55 CLM-NN rows (claim → backing simulator job)
-│   └── methodology-overview.md              #   Methodology: ODD index + worked example
+│   ├── methodology-overview.md              #   Methodology: ODD index + worked example
+│   └── latency-by-urgency.md                #   Operational user-experience axis: latency × urgency × mechanism
 │
 ├── test-results/                            # Phase-3 empirical evidence
 │   ├── multi-seed-variance/                 #   TEST-03 + TEST-04 N=20 BCa Confidence Intervals
@@ -43,7 +44,8 @@ A reader of the CIP can:
 3. **Read the trust matrix** at [`audit-documents/validity-threats.md`](audit-documents/validity-threats.md) — 19 per-suite blocks at 2 HIGH + 13 MEDIUM + 4 LOW + 0 UNRESOLVED aggregate trust.
 4. **Cite calibration values** via [`audit-documents/cardano-realism-audit.md`](audit-documents/cardano-realism-audit.md)'s 17 `(value, source, date-retrieved)` triples.
 5. **Reference methodology** via [`audit-documents/methodology-overview.md`](audit-documents/methodology-overview.md) (Overview, Design concepts, Details — ODD — protocol index with a worked example).
-6. **Re-run the consistency audit** independently: `bash cip-evidence/consistency-audit/verify-consistency.sh` — exit 0 on PASS.
+6. **See latency-by-urgency trade-offs** at [`audit-documents/latency-by-urgency.md`](audit-documents/latency-by-urgency.md) — per-mechanism observed inclusion latency and inclusion rate across 11 urgency-tagged user classes at N=20 seeds. Surfaces the user-experience axis the welfare-only findings don't.
+7. **Re-run the consistency audit** independently: `bash cip-evidence/consistency-audit/verify-consistency.sh` — exit 0 on PASS.
 
 ## Headline empirical findings
 

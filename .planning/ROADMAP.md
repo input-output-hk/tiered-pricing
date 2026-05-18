@@ -16,8 +16,8 @@ Granularity: standard. Five phases, 25 v1 requirements, 100% coverage.
 
 - [x] **Phase 1: Register Inventory** - Build the realism-risks register that disciplines every downstream test (completed 2026-05-15)
 - [x] **Phase 2: Coverage Check Skeleton** - Map menu-item trade-off claims to backing simulator jobs, surface gaps (completed 2026-05-15)
-- [ ] **Phase 3: Targeted Cheap Tests** - Resolve Live risks via paired-bootstrap variance bands, pool-number sensitivity, run-length validation
-- [ ] **Phase 4: Refresh and Anchor** - Refresh authoritative audit documents and anchor or disclose the four un-anchored controller knobs
+- [x] **Phase 3: Targeted Cheap Tests** - Resolve Live risks via paired-bootstrap variance bands, pool-number sensitivity, run-length validation (completed 2026-05-18)
+- [x] **Phase 4: Refresh and Anchor** - Refresh authoritative audit documents and anchor or disclose the four un-anchored controller knobs (completed 2026-05-18)
 - [ ] **Phase 5: Handoff** - Consolidate the evidence package into a CIP-author summary and tag the citable commit
 
 ## Phase Details
@@ -73,13 +73,13 @@ Plans:
 **Plans:** 3 plans
 Plans:
 **Wave 1**
-- [ ] 03-01-PLAN.md — Foundations: paired_bootstrap.rs library (TEST-01), phase-3-scoping.yaml run for wall-clock measurement and N determination (TEST-02), topology-realistic-150.yaml generation (TEST-05 prerequisite)
+- [x] 03-01-PLAN.md — Foundations: paired_bootstrap.rs library (TEST-01), phase-3-scoping.yaml run for wall-clock measurement and N determination (TEST-02), topology-realistic-150.yaml generation (TEST-05 prerequisite) (completed 2026-05-18)
 
 **Wave 2** *(blocked on Wave 1 completion)*
-- [ ] 03-02-PLAN.md — Five multi-seed sub-tasks: TEST-03 sign-flip variance, TEST-04 canonical menu-item variance, TEST-05 pool-number sensitivity (33 × 5 × 2 = 330 triples), TEST-06 run-length / steady-state, TEST-07a multiplier-floor-16 companion. Each sub-task updates coverage-check.md rows incrementally per D-27.
+- [x] 03-02-PLAN.md — Five multi-seed sub-tasks: TEST-03 sign-flip variance, TEST-04 canonical menu-item variance, TEST-05 pool-number sensitivity (33 × 5 × 2 = 330 triples), TEST-06 run-length / steady-state, TEST-07a multiplier-floor-16 companion. Each sub-task updates coverage-check.md rows incrementally per D-27. (completed 2026-05-18)
 
 **Wave 3** *(blocked on Wave 2 completion)*
-- [ ] 03-03-PLAN.md — COV-05 hash-diversity gate applied across all BACKED rows; final coverage-check.md consistency review (RSK / EXP / CLM integrity); phase 03-SUMMARY.md for verify-phase consumption.
+- [x] 03-03-PLAN.md — COV-05 hash-diversity gate applied across all BACKED rows; final coverage-check.md consistency review (RSK / EXP / CLM integrity); phase 03-SUMMARY.md for verify-phase consumption. (completed 2026-05-18)
 
 ### Phase 4: Refresh and Anchor
 **Goal**: The authoritative audit and validity-threats documents are refreshed to consistent, CIP-pasteable voice, every calibration value carries a `(value, source, date-retrieved)` triple, the four un-anchored controller knobs are either anchored to deployed-system data or carry an explicit disclosure paragraph, and a one-page Overview, Design concepts, Details (ODD) methodology index exists for the CIP author to cite by repo URL.
@@ -90,7 +90,20 @@ Plans:
   2. `docs/phase-2/validity-threats.md` is refreshed so per-suite trust ratings are cross-referenced to `RSK-NN` identifiers, verdicts are consistent with the register, and any menu-item-trade-off claims identified by the coverage check are added
   3. Each of the four un-anchored controller knobs (window-length 32, multiplier-floor 4, multiplier-floor 16, lane-signal-source) carries either an external anchor (e.g. Liu et al. Conference on Computer and Communications Security (CCS) 2022, Reijsbergen et al. Advances in Financial Technologies (AFT) 2021 for Ethereum window-length / step-size data) or a "conditional on X" disclosure paragraph in the `RSK-NN` entry's `disclosure-paragraph` field, after a two-hour literature search at phase open
   4. `docs/phase-2/methodology-overview.md` (or `.planning/methodology-overview.md`) exists as a one-page ODD index mapping the seven ODD elements (Purpose, State variables, Process overview, Design concepts, Initialisation, Input data, Submodels) to in-repo locations, so the CIP cites this document by repo URL rather than embedding methodology prose
-**Plans**: TBD
+**Plans:** 7 plans
+Plans:
+**Wave 1** *(parallel)*
+- [x] 04-01-PLAN.md — DOC-03 literature search across the four un-anchored controller knobs; per-sub-knob ANCHORED-or-DISCLOSED decisions; draft audit-section copy + draft register prose blocks for Wave-2 plans to consume; rejected-citations list (completed 2026-05-18; window-length 32 ANCHORED, three sub-knobs DISCLOSED)
+- [x] 04-02-PLAN.md — DOC-04 ODD methodology overview at `docs/phase-2/methodology-overview.md`: header + 7-row index table + per-element prose + worked example tracing a canonical (job, seed) through the seven ODD elements (completed 2026-05-18)
+- [x] 04-03-PLAN.md — Consolidate Phase 3 evidence (TEST-03 + TEST-04 + TEST-07a numerical findings; TEST-05 / TEST-06 disclose-only fallback decision per CONTEXT.md `<deferred>`) into a phase-internal evidence summary for Wave 2 plans (completed 2026-05-18)
+
+**Wave 2** *(blocked on Wave 1 completion; parallel within wave)*
+- [x] 04-04-PLAN.md — DOC-01 full rewrite of `docs/phase-2/cardano-realism-audit.md` per CONTEXT.md D-38 / D-39: strip 2026-05-13 / 2026-05-14 banners; apply `(value, source, date-retrieved)` triple format uniformly; fold Plan 04-01 anchor decisions into §"Pricing-controller calibration"; regenerate §"Recommended disclosure statements" against Phase 3 evidence; include substrate-scope paragraph (completed 2026-05-18)
+- [x] 04-05-PLAN.md — DOC-02 in-place refresh of `docs/phase-2/validity-threats.md` per CONTEXT.md D-40: strip historical banners; add `Related RSK:` + `Related CLM:` fields to all 19 per-suite blocks; reconcile per-suite Trust verdicts with the register; resolve the 4 formerly-UNRESOLVED suites (completed 2026-05-18)
+- [x] 04-06-PLAN.md — DOC-03 register-side: update `RSK-un-anchored-controller-knobs` verdict + disclosure-paragraph per Plan 04-01; flip `RSK-pool-count` / `RSK-calibration-stale-stake-snapshot` / `RSK-steady-state-run-length` to DISCLOSED per Plan 04-03; rewrite `RSK-multiplier-floor-4-suite-coverage` per TEST-07a regime-dependence; update `coverage-check.md` `signal-source-anchoring` cells (completed 2026-05-18)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+- [x] 04-07-PLAN.md — Final consistency review across the four refreshed documents + methodology-overview: RSK / CLM / EXP cross-reference integrity; register-↔-validity-threats verdict reconciliation; abbreviation-on-first-use audit; `(value, source, date-retrieved)` triple-format conformance; markdown link resolution; Phase 4 SUMMARY for gsd-verify-phase consumption (completed 2026-05-18; 8 defects fixed in place; RSK-substrate-scope flipped LIVE → DISCLOSED)
 
 ### Phase 5: Handoff
 **Goal**: The Cardano Improvement Proposal (CIP) author has a single consolidated summary identifying which artefacts paste into which CIP sections, a final consistency review confirms no dead identifier references and no renumbering across the evidence package, and the `dynamic-experiment` branch is git-tagged at a citable milestone-close commit.
@@ -100,7 +113,16 @@ Plans:
   1. `docs/phase-2/cip-author-summary.md` exists listing: which `disclosure-paragraph` blocks paste into the CIP's Limitations section, which `CLM-NN` rows cite into the CIP's Evidence section, the pinned git commit and tag that all artefacts reference, and the epoch-582 stake snapshot reference for the topology
   2. A final consistency review has been performed and recorded: no `RSK-NN` or `CLM-NN` references in any artefact point to non-existent identifiers, no identifiers were renumbered, all `backing-job` paths in the coverage check resolve to suite + job entries that still exist in `parameters/phase-2-sweep/suites/`, and all `golden-sha256` values in the coverage check match the current `.goldens/` directory contents
   3. The `dynamic-experiment` branch carries a git tag at the milestone-close commit (suggested name: `phase-2-cip-evidence-v1`), and that tag is the citable reference recorded in `cip-author-summary.md`
-**Plans**: TBD
+**Plans:** 1/3 plans executed
+Plans:
+**Wave 1**
+- [x] 05-01-PLAN.md — Flip the six remaining LIVE register entries to DISCLOSED with load-bearing CIP-pasteable disclosure-paragraphs; update Index table + reading-guide + footer to 0 LIVE + 24 DISCLOSED distribution (HAND-01 prerequisite)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+- [ ] 05-02-PLAN.md — Author the reproducible four-check verify-consistency.sh script (RSK/CLM/EXP dead-refs, backing-job resolution, golden-sha256 cross-check, broken markdown links) + the 05-CONSISTENCY-REPORT.md audit log (HAND-02)
+
+**Wave 3** *(blocked on Waves 1 and 2 completion)*
+- [ ] 05-03-PLAN.md — Author the hybrid-shape docs/phase-2/cip-author-summary.md paste guide with 4-8 headline CIP claims, top-5 inline Limitations paragraphs, pinned-references block including tag-message draft; re-run verify-consistency.sh post-summary and append final verification block; user-applied git tag phase-2-cip-evidence-v1 checkpoint (HAND-01 + HAND-03)
 
 ## Progress
 
@@ -111,6 +133,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 |-------|----------------|--------|-----------|
 | 1. Register Inventory | 2/2 | Complete | 2026-05-15 |
 | 2. Coverage Check Skeleton | 2/2 | Complete | 2026-05-15 |
-| 3. Targeted Cheap Tests | 0/3 | Planned | - |
-| 4. Refresh and Anchor | 0/TBD | Not started | - |
-| 5. Handoff | 0/TBD | Not started | - |
+| 3. Targeted Cheap Tests | 3/3 | Complete | 2026-05-18 |
+| 4. Refresh and Anchor | 7/7 | Complete (verified PASS 4/4) | 2026-05-18 |
+| 5. Handoff | 1/3 | In Progress|  |

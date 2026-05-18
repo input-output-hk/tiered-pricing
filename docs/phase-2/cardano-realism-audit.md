@@ -216,157 +216,251 @@ triple.
 
 ### Pricing-controller calibration
 
-> **Update 2026-05-14:** The disclosure items below reflected the
-> audited spec (per-priced-block update cadence matching EIP-1559).
-> Empirical investigation revealed the pre-refactor accumulator
-> implementation diverged from the spec by double-stepping per RB-EB
-> pair (separate `apply_priced_block` and `apply_eb_priced_block`
-> calls; see
-> [`.planning/chain-derived-bug2-investigation.md`](../../.planning/chain-derived-bug2-investigation.md)).
-> The chain-derived refactor (spike 007, Family B committed
-> 2026-05-14) brings the implementation in line with the spec.
-> Disclosure items 1-4 below are now historical and apply to the
-> spec-matched implementation. The empirical welfare-impact
-> characterization is at
-> [`.planning/mechanism-welfare-impact-2026-05-14.md`](../../.planning/mechanism-welfare-impact-2026-05-14.md);
-> the decision memo is at
-> [`.planning/family-b-decision-2026-05-14.md`](../../.planning/family-b-decision-2026-05-14.md).
+The pricing controller's core parameters match Ethereum mainnet
+bit-exact (`D = 8`, `target = 0.5`, per-priced-block update cadence;
+under Family B per
+[`.planning/family-b-decision-2026-05-14.md`](../../.planning/family-b-decision-2026-05-14.md)
+the controller advances exactly once per canonical block, reorg-safe
+by construction). Four controller knobs are not anchored to deployed-
+system data and were graded under the anchor-or-disclose discipline
+of Plan 04-01 (literature search at the motivating-citation bar; see
+[`.planning/phases/04-refresh-and-anchor/04-01-DOC-03-anchor-search.md`](../../.planning/phases/04-refresh-and-anchor/04-01-DOC-03-anchor-search.md)
+for the per-sub-knob audit trail and rejected-citations list).
 
-1. **Window length 32 for capacity-varying signals is a defensible
-   response to a real-but-empirically-mild problem.** EIP-1559's
-   per-block-no-smoothing controller exhibits chaotic short-term
-   oscillations under uniform-bidder models (Reijsbergen et al.
-   2021/2025; Leonardos et al. AFT'21), though Liu et al. (CCS'22)
-   show this has not been a usability disaster on Ethereum mainnet.
-   Phase-2's capacity-weighted window picks a *different*
-   architectural answer from the literature's preferred AIMD fix,
-   addressing the same problem plus the linear-Leios-specific
-   problem of blending 90 KB RBs with 12 MB EBs (133× capacity
-   ratio). **Defensible because** the smoothing suite
-   (`phase-2-eip1559-smoothing.yaml`) sweeps window ∈ {16, 32, 64}
-   for sensitivity; the specific length 32 is a round-number choice,
-   not an empirical anchor. Spike 003 §Comparison Table row "Window
-   length" + §Verdict item 1.
+1. **Window length 32 for capacity-varying signals — ANCHORED.**
+   `(window length = 32 priced blocks for capacity-varying signals;
+   window length = 1 for the RB-reserved priority controller;
+   motivating citation: Reijsbergen et al. AFT 2021 §"Short-term
+   oscillation"; date-retrieved: 2026-05-13)`. The Reijsbergen et al.
+   AFT 2021 finding of chaotic short-term oscillations under
+   EIP-1559's per-block-no-smoothing controller motivates introducing
+   a smoothing layer; Leonardos et al. AFT 2021 establishes the
+   theoretical bounded-oscillation regime under variable demand; Liu
+   et al. CCS 2022 reports the empirical counter-bound that this
+   theoretical instability has not yet manifested as a mainnet
+   usability problem. Phase-2 selects a capacity-weighted window
+   over the literature's preferred AIMD response because the
+   linear-Leios block-mix (RBs at ~90 KB versus EBs up to 12 MB;
+   ratio ≈ 133×) requires capacity-weighting that AIMD does not
+   provide. The specific length 32 is a round-number choice within
+   the smoothing band; the `phase-2-eip1559-smoothing` suite sweeps
+   {16, 32, 64} for sensitivity. See
+   `RSK-un-anchored-controller-knobs` sub-knob (a) in
+   [`docs/phase-2/realism-risks-register.md`](realism-risks-register.md)
+   for the per-sub-knob CIP-pasteable disclosure paragraph.
 
-2. **`multiplier_floor = 4` in `phase-2-rb-scarcity` and
-   `phase-2-urgency-inversion` is a calibration accommodation, not
-   an economic claim.** CLAUDE.md states the rationale explicitly:
-   at the spec default 16, only urgency≥5 components find priority
-   attractive and priority demand stays too low to surface
-   controller drift; at 4, urgency≥2 picks priority and the
-   controller drifts. Any external summary of these two suites'
-   conclusions must lead with "under multiplier_floor = 4."
-   **Defensible because** 5 of 7 suites independently cover the spec
-   default 16 (priority-only at {4, 8, 16}; both-dynamic at {4, 16}),
-   so the 7-suite design as a whole is robust across the floor sweep.
-   Spike 003 §Comparison Table row "Multiplier-floor" + §Verdict
-   item 2.
+2. **Multiplier-floor 4 in two suites — DISCLOSED; the calibration
+   is regime-dependent.** Multiplier-floor 4 is a calibration
+   accommodation chosen to surface controller drift at moderate
+   priority demand. TEST-07a (Phase 3,
+   [`.planning/realism-tests/multiplier-floor-16-companion/results.md`](../../.planning/realism-tests/multiplier-floor-16-companion/results.md))
+   found that at multiplier-floor 16, the `phase-2-rb-scarcity`
+   finding inverts ("standard dominates welfare" → "priority captures
+   everything; total welfare collapses 93–98%") and the
+   `phase-2-urgency-inversion` finding weakly reverses ("mispriced >
+   correctly priced" → "correctly priced > mispriced by ~13%").
+   Welfare findings from these two suites are conditional on the
+   multiplier-floor = 4 calibration. `(multiplier-floor = 4 in
+   phase-2-rb-scarcity and phase-2-urgency-inversion;
+   multiplier-floor ∈ {4, 8, 16} swept in priority-only suites;
+   multiplier-floor ∈ {4, 16} swept in both-dynamic suite; source: no
+   external anchor — internal calibration accommodation per CLAUDE.md
+   §"Calibration choices"; date-retrieved: —)`. CLAUDE.md states the
+   rationale explicitly: at the spec default 16, only urgency≥5
+   components find priority attractive and priority demand stays too
+   low to surface controller drift in these two suites; at 4,
+   urgency≥2 picks priority and the controller drifts. **Defensible
+   because** 5 of 7 suites independently cover the spec default 16
+   (priority-only at {4, 8, 16}; both-dynamic at {4, 16}), so the
+   7-suite design as a whole is robust across the floor sweep, and
+   the floor-16 regime-dependence is itself disclosed. See
+   `RSK-un-anchored-controller-knobs` sub-knob (b) in the register
+   for the per-sub-knob disclosure paragraph;
+   `RSK-multiplier-floor-4-suite-coverage` carries the suite-coverage
+   restatement of the same risk.
 
-3. **The spec default 16 itself has no empirical anchor.**
-   `mechanism-design.md` L155, L290 list the default without citing
-   calibration data; the only justification is "strong price-
-   discrimination guarantee." Ethereum has no comparable second-lane
-   multiplier. The multiplier-floor magnitude is therefore the
-   single weakest-anchored calibration in phase-2, but this is a
-   spec-level rather than simulator-level issue — the simulator
-   faithfully implements the spec's open-question framing.
-   **Defensible because** the priority-only suites sweep {4, 8, 16}
-   and the both-dynamic suite sweeps {4, 16}, so phase-2's findings
-   are reported across the floor sweep rather than at a single point.
-   Spike 003 §Findings + §Verdict item 3.
+3. **Multiplier-floor 16 (spec default) — DISCLOSED.**
+   `(multiplier-floor default = 16 in the spec; source: no external
+   anchor — spec-internal "strong price-discrimination" rationale per
+   docs/phase-2/mechanism-design.md line 155 and the Calibration-vs-
+   Invariant table at line 290; date-retrieved: —)`. The EIP-1559
+   academic-critique literature does not extend to second-lane
+   controllers and Ethereum has no comparable multiplier floor. The
+   phase-2 specification declares 16 as the default without citing
+   calibration data; the only stated justification is that 16 gives
+   a "strong price-discrimination guarantee". This is a spec-level
+   disclosure rather than a simulator-level one — the simulator
+   faithfully implements the spec's open-question framing. Welfare
+   findings from suites operating at the spec default (the five
+   goldens-pinned suites that include an `x16` variant) are reported
+   under the spec-stated assumption that 16 gives strong
+   discrimination, not under an externally validated calibration.
+   Future work calibrating the floor against deployed-system
+   telemetry from comparable second-lane mechanisms (none currently
+   exist) is flagged as a follow-on item. See
+   `RSK-un-anchored-controller-knobs` sub-knob (c) in the register.
 
-4. **Both-dynamic standard signal source and un-reserved priority
-   option 1 are spec-open choices.** The simulator picks
-   (a) `standard_paying_bytes / eb_referenced_txs_max_size_bytes`
-   for EBs with no standard sample on RB-reserved RBs (lane-
-   isolation invariant), and (b) `priority_paying_bytes /
-   total_block_capacity` for un-reserved priority (the simplest of
-   three open options in `mechanism-design.md` L207-211). Neither
-   has an empirical anchor; both have internally-consistent
-   motivations. **Defensible because** option 1's known weakness
-   (priority demand fitting below partition-worth reads as low
-   utilization) is partially probed by the multiplier-floor sweep,
-   and the both-dynamic lane-isolation argument is forced by the
-   partition rule's logic. Spike 003 §Findings + §Verdict item 4.
+4. **Lane-signal-source choices — DISCLOSED.**
+   `(un-reserved priority signal source = priority_paying_bytes /
+   total_block_capacity (option 1 of three open candidates in
+   docs/phase-2/mechanism-design.md lines 207–211); both-dynamic
+   standard signal source = standard_paying_bytes /
+   eb_referenced_txs_max_size_bytes over endorser blocks (EBs), with
+   no standard sample fired on RB-reserved RBs; source: no external
+   anchor — internally consistent simplest-choice rationale per
+   spike 003; date-retrieved: —)`. The EIP-1559 academic-critique
+   literature (Liu et al. CCS 2022; Reijsbergen et al. AFT 2021;
+   Leonardos et al. AFT 2021; Roughgarden EC 2021) analyses single-
+   lane controllers only and cannot motivate a second-lane signal-
+   source choice; no deployed dynamic-pricing system (Sui, Solana,
+   NEAR) has a comparable second-lane signal-source choice. The
+   phase-2 specification explicitly leaves the un-reserved priority
+   signal source open (three candidates at `mechanism-design.md`
+   lines 207–211; the specification states "The decision is left to
+   a follow-up design pass") and likewise leaves the both-dynamic
+   standard signal source open at line 238. The simulator's choice of
+   option 1 for un-reserved priority is motivated by simplicity (no
+   notional-share knob; no delay-EMA infrastructure); the both-
+   dynamic standard side is motivated by the lane-isolation
+   invariant (RB-reserved RBs cannot signal standard congestion
+   without leaking the partition). Welfare findings from the un-
+   reserved priority arm and the both-dynamic standard side are
+   conditional on these specific signal-source definitions;
+   alternative signal sources were not exercised. See
+   `RSK-un-anchored-controller-knobs` sub-knob (d) in the register.
+
+**Umbrella anchor verdict per Plan 04-01:** window-length 32 →
+ANCHORED via Reijsbergen / Leonardos / Liu; multiplier-floor 4 →
+DISCLOSED (calibration accommodation; regime-dependent at floor 16);
+multiplier-floor 16 → DISCLOSED (spec-internal, no external anchor);
+lane-signal-source → DISCLOSED (spec-open choice). The umbrella entry
+verdict for `RSK-un-anchored-controller-knobs` flips from LIVE to
+DISCLOSED rather than to MITIGATED because only one of four sub-knobs
+anchors; see
+[`docs/phase-2/realism-risks-register.md`](realism-risks-register.md)
+`RSK-un-anchored-controller-knobs` for the per-sub-knob disclosure
+paragraph.
 
 ### Topology and actor model
 
-> **[Corrected 2026-05-13]** The disclosure below described the
-> topology as `topology-single-producer.yaml`, which was incorrect for
-> the operational suites at audit-time. The suites now use
-> `topology-realistic-100.yaml` (100-node, mass-stratified mainnet
-> curve). The N=1 single-producer disclosure no longer applies;
-> instead, multi-producer disclosures apply: per-node controller
-> divergence, slot-battle siblings with different pricing samples,
-> and the WR-1 rollback gap are all live concerns. The CIP-realistic
-> 600-pool topology remains available for any larger multi-node
-> cross-check.
+1. **100-node topology versus mainnet ~3,000 stake-pool operators
+   (SPOs).**
+   `(topology = parameters/phase-2-sweep/topology-realistic-100.yaml;
+   100-node multi-producer; mass-stratified downsample of the 1,510
+   Cardano mainnet pools with ≥ 1k ADA active stake at epoch 582;
+   summary statistics: top-1 stake share = 1.97%, Nakamoto
+   coefficient = 35, Gini = 0.253; source: epoch-582 mainnet snapshot
+   per .planning/spikes/006-curve-design/README.md, date-retrieved:
+   2026-05-14)`. Mainnet operates approximately 3,000 stake pools.
+   Pool-count sensitivity within the 100-to-150 range is currently
+   disclose-only via `RSK-pool-count` in
+   [`docs/phase-2/realism-risks-register.md`](realism-risks-register.md)
+   per the Phase 3 TEST-05 data-gap disposition (re-run not in
+   Phase 4 scope per the phase context); behaviour at deployed-
+   mainnet pool counts (~3,000) is DISCLOSED there. The snapshot's
+   freshness over a six-month CIP review horizon is bounded by
+   `RSK-calibration-stale-stake-snapshot` in the register.
 
-1. **Single-producer topology (N=1) vs mainnet ~3,000 SPOs is the
-   strongest abstraction in the simulator** and an intentional one.
-   M5 suite goldens are pinned to `topology-single-producer.yaml` to
-   remove slot-battle and fork-resolution dynamics from the pricing-
-   mechanism welfare question. Per-node controller divergence and
-   multi-producer pricing-sample races are not exercised.
-   **Defensible because** (a) the pricing-mechanism welfare
-   question is slot-scoped and would only be noised by multi-
-   producer dynamics, (b) M6 already produced
-   `topology-cip-realistic.yaml` (600 pools, Pareto(α=1.4) stakes,
-   4 regions, RIPE-Atlas latencies) as the mainnet-faithful
-   counterpart, and (c) `topology-single-producer.yaml`'s preamble
-   documents the choice explicitly. Spike 004 §Findings item 1 +
-   §Verdict ranking item 1.
-
-2. **The honest-producer assumption is operationally trivial under
-   N=1 but is implicit and load-bearing.** The `partition_activated`
-   bit on `LinearEndorserBlock` is a producer claim, not derivable
-   from the EB body (CONCERNS.md security note). Under multi-
-   producer with a byzantine producer, this could be mis-claimed to
-   obtain priority service for standard-fee txs in the same EB. The
-   simulator does not exercise this attack. **Defensible because**
-   N=1 makes the producer by-construction the honest majority, and
-   the fix path (make `partition_activated` body-derivable from the
-   priority-paying-bytes count) is straightforward but outside
-   phase-2's scope. Spike 004 §Findings item 3 + §Verdict ranking
-   item 2.
+2. **Honest-producer assumption under multi-producer.** The
+   operational topology has 100 producer nodes; the
+   `partition_activated` bit on `LinearEndorserBlock` is a producer
+   claim, not a property derivable from the EB body. Under multi-
+   producer with a byzantine producer, the bit could be mis-claimed
+   to obtain priority service for standard-fee transactions in the
+   same EB. The simulator does not exercise this attack — all
+   producers are honest by construction. **Defensible because** the
+   fix path (compute the bit from the priority-paying-bytes count in
+   the EB body rather than carrying it as a producer claim) is
+   straightforward but outside phase-2's scope. See
+   `RSK-partition-activated-honest-producer` in the register for the
+   honest-producer disclosure paragraph and the body-derivable
+   follow-on pointer.
 
 3. **Actor demand-mix is order-of-magnitude correct, not bit-
-   calibrated to mainnet share-of-traffic.** The three-component
-   profiles (hard-deadline-arb / DeFi / patient) qualitatively match
-   Q1 2026 mainnet's ~35 % smart-contract / ~65 % transfer mix; the
-   log-normal byte-size distribution (median ~930 B) is consistent
-   with mainnet's 200–2,000 B typical range; total tx/slot rate
-   (~25–150) is within an order of magnitude of mainnet's ~30 tx/s.
-   But shares are not bit-calibrated. **Defensible because** the M4
-   / M5 sweeps probe demand-shape sensitivity via mispriced overlays
-   and phased congestion variants; welfare claims should be reported
-   "under this stylised demand mix." Spike 004 §Findings item 4 +
-   §Verdict ranking item 3.
+   calibrated to mainnet share-of-traffic.**
+   `(demand-mix shares ≈ 35% smart-contract, 65% transfer; total
+   ~30 transactions per second; source: Q1 2026 Cardano mainnet
+   transaction-mix order-of-magnitude estimate per
+   .planning/spikes/004-topology-and-actor-model/README.md,
+   date-retrieved: 2026-05-13)`. The three-component profiles
+   (hard-deadline-arb / DeFi / patient) qualitatively match the
+   estimate; the log-normal byte-size distribution (median ~930 B)
+   is consistent with mainnet's 200–2,000 B typical range; total
+   transactions-per-slot rate (~25–150) is within an order of
+   magnitude of mainnet's ~30 tx/s. But shares are not bit-
+   calibrated. **Defensible because** the M4 / M5 sweeps probe
+   demand-shape sensitivity via mispriced overlays and phased
+   congestion variants; welfare claims should be reported "under
+   this stylised demand mix." See `RSK-demand-mix-bit-calibration`
+   in the register for the disclosure paragraph.
 
-4. **`target_inclusion_blocks` defaults (priority=1, standard=4)
-   are mechanism-induced, not mainnet-anchored.** These seed the
-   actor's `LatencyEstimator` per (component, lane). Standard=4
-   models the expected wait when a standard tx might sit behind
-   several priority-only RBs — internal to the phase-2 mechanism,
-   not measured on mainnet (where there is no priority lane).
-   **Defensible because** observed inclusion latencies overwrite
-   the seed once events arrive; the seed only shapes the first
-   ~50 slots of actor lane choice. Spike 004 §Comparison Table row
-   "`target_inclusion_blocks` defaults" + §Verdict ranking item 4.
+4. **`target_inclusion_blocks` defaults are mechanism-induced, not
+   mainnet-anchored.**
+   `(target_inclusion_blocks: priority = 1 block, standard = 4
+   blocks; source: mechanism-induced default — no deployed-mainnet
+   anchor because no priority lane exists on mainnet; date-retrieved:
+   —)`. These seed the actor's `LatencyEstimator` per (component,
+   lane). Standard = 4 models the expected wait when a standard
+   transaction might sit behind several priority-only RBs — internal
+   to the phase-2 mechanism, not measured on mainnet (where there is
+   no priority lane). **Defensible because** observed inclusion
+   latencies overwrite the seed once events arrive; the seed only
+   shapes the first ~50 slots of actor lane choice. See
+   `RSK-target-inclusion-blocks-default` in the register for the
+   disclosure paragraph.
 
 5. **Demand non-stationarity at finer than ~2-hour scale is not
    modelled, and MEV / strategic actors are absent.** Phase-2's
    `Phased` arrival-rate machinery captures order-of-2-hours stress
-   regimes but not diurnal patterns, NFT drops, or governance
-   deadlines. Cardano's eUTxO model is structurally MEV-resistant
-   (no global mempool), so the lack of strategic-actor modelling is
-   *mainnet-faithful in shape* — phase-2's "arb tail" component is
-   partly aspirational (a model of what a DEX arb bot would look
-   like under a deployed priority lane). **Defensible because** the
+   regimes but not diurnal Coordinated Universal Time (UTC) working-
+   hours peaks, non-fungible-token (NFT) drop spikes, or governance-
+   deadline pile-ons. Cardano's eUTxO model is structurally MEV-
+   resistant (no global mempool), so the absence of strategic-actor
+   modelling is *mainnet-faithful in shape* — phase-2's "arb tail"
+   component is partly aspirational (a model of what a DEX arb bot
+   would look like under a deployed priority lane). The strategic-
+   actor gap proper is the canonical formal frame of Chung and Shi
+   SODA 2023's impossibility result for joint user-incentive-
+   compatibility, miner-incentive-compatibility, and side-contract-
+   proofness in transaction-fee mechanisms; phase-2 does not exercise
+   strategic / adversarial regimes. **Defensible because** the
    controller-drift timescale is window-length × per-block-cadence
-   ≈ 10 min, faster than diurnal demand shifts; the mispriced suite
-   bounds the worst-case wallet-behavior assumptions. Spike 004
-   §Findings items 5–6 + §Verdict ranking items 5–7.
+   ≈ 10 minutes, faster than diurnal demand shifts; the mispriced
+   suite bounds the worst-case wallet-behaviour assumptions. See
+   `RSK-demand-non-stationarity` and `RSK-substrate-scope` sub-point
+   (c) in the register for the disclosure paragraphs.
+
+**Substrate-scope umbrella disclosure (engineering-report voice; the
+canonical CIP-pasteable prose lives at `RSK-substrate-scope` in
+[`docs/phase-2/realism-risks-register.md`](realism-risks-register.md)).**
+Phase-2's pricing kernel and mempool gate are integer / rational /
+128-bit unsigned (`u128`) by construction (admission, eviction, fee
+charging, controller coefficient, mempool tracking, multiplier-floor
+invariant, actor lane choice; see CLAUDE.md §"Numeric representation
+contract"), but the work inherits the upstream Leios simulator
+substrate which carries three categories of unresolved-realism
+limitation that the CIP must disclose: **(a) floating-point arithmetic
+in non-pricing code paths** — slot lottery, propagation timing,
+distribution sampling, and a residual `f64::sqrt` site in
+`endorsement_window_priced_blocks` (review finding CR-1) retain `f64`;
+intra-architecture determinism on x86_64 / glibc is pinned by golden
+hashes, but cross-architecture continuous-integration verification is
+disclosed as deferred future work; **(b) propagation-model fidelity**
+— the simulator's round-trip-time-driven network model with real-
+world-derived latencies stands in for the production Cardano mainnet
+propagation reality (geographically distributed pools, varying round-
+trip times, dynamic peer selection), reasonable but not validated
+against packet-level mainnet propagation traces; **(c) utility-
+maximising actor model** — no adversarial / strategic bidders;
+Chung and Shi SODA 2023 is the canonical formal frame for the
+strategic-bidder regime, and Roughgarden's foundational work on
+transaction-fee mechanism design defines the strategic-bidder regime
+phase-2 does not exercise. The three sub-points share a single
+mitigation path (none — they are inherited substrate and out-of-scope
+for re-audit per PROJECT.md Out-of-Scope items 2 and 3); the
+disclosure paragraph in `RSK-substrate-scope` is the load-bearing
+CIP-pasteable prose. This audit's summary above is the engineering-
+report-voice equivalent for self-containment.
 
 ## What does NOT transfer cleanly (hard limitations)
 

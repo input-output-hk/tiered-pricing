@@ -2261,27 +2261,35 @@ impl LinearLeiosNode {
     /// endorsement validation, EB inclusion charging) should use against
     /// the current canonical chain tip.
     ///
-    /// Returns the controller state *after* folding in the chain tip's
-    /// own samples — equivalent to a hypothetical child of the tip's
-    /// `derived_quote`. This matches legacy accumulator semantics where
-    /// `pricing.current_quote()` after `publish_rb(tip)` reflected the
-    /// post-`apply_priced_block(tip)` state. The chain tip's stored
-    /// `rb.derived_quote` is one controller step earlier (it was stepped
-    /// from its *parent's* samples), so reading it directly would lag
-    /// admission/charging by one step. RB body inclusion charging
-    /// continues to use the new RB's own `rb.derived_quote` (the
-    /// post-step value computed for that block at production), so all
-    /// consumers end up using the same quote on the canonical chain.
+    /// Returns `tip.derived_quote.get(lane)` for the canonical chain tip
+    /// — the same value every node sees once the tip's RB header is on
+    /// chain. Falls back to the backend cold-start initial quote when
+    /// there is no canonical RB yet (genesis path).
     ///
-    /// Falls back to the cold-start initial quote when there is no
-    /// canonical RB yet (genesis path).
+    /// Protocol-soundness rationale: the quote a user signs against
+    /// (`max_fee_lovelace`) must equal the quote the network uses to
+    /// evaluate that transaction. Reading the canonical
+    /// `rb.derived_quote` directly gives a quote that is a pure
+    /// function of the canonical chain — every node agrees by
+    /// construction. The previous hypothetical-child-of-tip path
+    /// (`compute_chain_derived_quote_for_child_of`) read the node-local
+    /// mutable `block_samples` cache, which mutates when deferred
+    /// Endorser Blocks (EBs) finally validate; that produced per-node
+    /// divergence at the same canonical chain tip and violated
+    /// EIP-1559 protocol fidelity (cf. spike 007 chain-derived design).
+    ///
+    /// RB body inclusion charging is unaffected: the producer charges
+    /// the RB body against the new RB's own `rb.derived_quote` (the
+    /// post-step value computed for that block at production, see
+    /// `produce_rb`). Producer-side admission against the previous
+    /// canonical tip's quote and consumer-side validation of the new
+    /// block both agree on the canonical-tip quote everywhere.
     fn current_chain_tip_quote(&self, lane: Lane) -> u64 {
-        let tip = self.latest_rb_id();
-        if tip.is_none() {
-            return self.pricing.cold_start_quote(lane);
-        }
-        let (next_quote, _agg) = self.compute_chain_derived_quote_for_child_of(tip);
-        next_quote.get(lane)
+        self.latest_rb_id()
+            .and_then(|id| self.praos.blocks.get(&id))
+            .and_then(|view| view.received_rb())
+            .map(|rb| rb.derived_quote.get(lane))
+            .unwrap_or_else(|| self.pricing.cold_start_quote(lane))
     }
 
     /// Read the chain tip's `window_aggregate`. Empty `ZERO` aggregate

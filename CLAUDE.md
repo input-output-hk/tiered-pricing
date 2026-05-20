@@ -523,7 +523,7 @@ refreshing the vendored Observable Plot + D3 bundles.
   producer/source/mempool counts happen to coincide at N=1, but
   this is the special case, not the default. In any multi-node
   topology (the operational `topology-realistic-100.yaml`,
-  `topology.default.yaml`, `topology-cip-realistic.yaml`) there are
+  `topology.default.yaml`) there are
   N mempools regardless of how many nodes carry
   `tx-generation-weight`. Don't infer "one source ⇒ one mempool" —
   gossip propagation, slot-battle dynamics, and per-node

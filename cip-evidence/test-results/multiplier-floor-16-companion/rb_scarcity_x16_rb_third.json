@@ -1,0 +1,50 @@
+{
+  "cell": "rb_scarcity_x16_rb_third",
+  "n_seeds": 5,
+  "seeds": [
+    1,
+    2,
+    3,
+    4,
+    5
+  ],
+  "retained_value": [
+    2527488312.026152,
+    1790412910.8889291,
+    2077444483.4408007,
+    2356191952.5324783,
+    2266916576.838102
+  ],
+  "priority_retained_value_total": [
+    2527488312.026152,
+    1790412910.8889291,
+    2077444483.4408007,
+    2356191952.5324783,
+    2266916576.838102
+  ],
+  "standard_retained_value_total": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+  ],
+  "priority_share": [
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0
+  ],
+  "mean_retained_value": 2203690847.1452923,
+  "median_retained_value": 2266916576.838102,
+  "stdev_retained_value": 282327679.8543223,
+  "pricing_event_stream_sha256s": [
+    "9e89fb433e9ff428a3b73f5e1372a3ee46b6fa5943c3becfb77a587202f7ae81",
+    "9f99badd44a2a790c207565ec4399ae48b3ba7093d21235237e9fbf9d5b90b11",
+    "91950c64fc052d307fa766531c3d48e07df00e8205b1956fbb8e1c1312b12d96",
+    "9bde7e5f99d6f1bdc5c07a7c9f2ac0b43e22e0a614f7c797162a14b2035fd72e",
+    "5fc558117332093ac1764841f7696eab1a225f9adc7e5d171bdda891d712edb8"
+  ],
+  "distinct_hash_count": 5
+}

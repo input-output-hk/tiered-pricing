@@ -395,6 +395,13 @@ impl EventMonitor {
                 Event::VTBundleReceived { .. } => {
                     vote_messages.received += 1;
                 }
+                // Phase-2 pricing events: handled by per-experiment
+                // welfare aggregation (M3+); ignored by this top-level
+                // praos/leios summary.
+                Event::TXIncluded { .. } => {}
+                Event::TXEvictedQuoteDrift { .. } => {}
+                Event::PricingTick { .. } => {}
+                Event::LinearPricingSampleApplied { .. } => {}
             }
         }
 

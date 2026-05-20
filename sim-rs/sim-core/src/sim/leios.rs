@@ -770,7 +770,7 @@ impl LeiosNode {
             if let TransactionConfig::Mock(config) = &self.sim_config.transactions {
                 // Add one transaction, the right size for the extra RB payload
                 let tx = config.mock_tx(config.rb_size);
-                self.tracker.track_transaction_generated(&tx, self.id);
+                self.tracker.track_transaction_generated(&tx, self.id, slot);
                 transactions.push(Arc::new(tx));
             } else {
                 let mut size = 0;
@@ -1010,7 +1010,10 @@ impl LeiosNode {
     }
 
     fn generate_tx(&mut self, tx: Arc<Transaction>) {
-        self.tracker.track_transaction_generated(&tx, self.id);
+        // Non-linear-Leios protocols don't drive phase-2 actor metrics;
+        // the welfare collapses to retained_value = 0 anyway because
+        // these paths set value_lovelace = 0. Pass slot 0.
+        self.tracker.track_transaction_generated(&tx, self.id, 0);
         self.propagate_tx(self.id, tx)
     }
 
@@ -1457,7 +1460,9 @@ impl LeiosNode {
     fn select_txs_for_ib(&mut self, shard: u64, rb_ref: Option<BlockId>) -> Vec<Arc<Transaction>> {
         if let TransactionConfig::Mock(config) = &self.sim_config.transactions {
             let tx = config.mock_tx(config.ib_size);
-            self.tracker.track_transaction_generated(&tx, self.id);
+            // Non-linear-Leios IB selection has no slot context; pass 0
+            // (these paths set value_lovelace = 0 so welfare collapses).
+            self.tracker.track_transaction_generated(&tx, self.id, 0);
             vec![Arc::new(tx)]
         } else {
             let ledger_state = self.resolve_ledger_state(rb_ref);

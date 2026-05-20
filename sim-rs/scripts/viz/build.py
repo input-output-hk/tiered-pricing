@@ -260,7 +260,160 @@ def discover_suites(source, includes, excludes, warnings):
 
 
 # ------------------------------------------------------- per-(job, seed) layer
-#  (Task 2 lands here: ``load_seed`` + ``_read_time_series_long``.)
+
+
+def _read_time_series_long(csv_path):
+    """Generator: yield long-form ``{slot, lane, metric, value}``
+    records from a per-(job, seed) ``time_series.csv``.
+
+    The Rust writer pins the 15-column header
+    (``sim-cli/src/metrics/time_series.rs`` lines 16-20), so this
+    reader uses square-bracket access on every column in ``LANE_FIELDS``
+    and never paraphrases the header. A schema regression on the
+    writer side surfaces here as a ``KeyError`` at the call site
+    rather than silently emitting empty series.
+
+    Every column value is an integer (``u64`` in Rust formatted
+    via ``write!``), so the reader casts via ``int(row[col])``
+    unconditionally — there is no f64 path through this generator
+    (PATTERNS.md Pattern F).
+
+    Yields one record per (slot, LANE_FIELDS entry) — so a CSV with
+    N rows yields ``N × len(LANE_FIELDS)`` records, in slot-then-
+    field order.
+    """
+    with open(csv_path, newline="") as f:
+        for row in csv.DictReader(f):
+            slot = int(row["slot"])
+            for col, lane, metric in LANE_FIELDS:
+                yield {
+                    "slot": slot,
+                    "lane": lane,
+                    "metric": metric,
+                    "value": int(row[col]),
+                }
+
+
+def load_seed(seed_dir, warnings):
+    """Read a single (job, seed) from disk and return the per-seed
+    JSON-shaped dict that the browser's per-(job, seed) detail view
+    consumes.
+
+    ``seed_dir`` is conventionally ``<suite_dir>/<job_name>/<seed>``
+    (the manifest's ``output-path`` is optional and not always
+    reliable). The reader looks for ``run_summary.json`` and
+    ``time_series.csv`` inside that directory.
+
+    Returns ``None`` and appends a warning if ``run_summary.json`` is
+    missing or unparseable — the seed is then skipped in the per-
+    suite emit layer (Task 3). Returns a populated dict with
+    ``time_series = []`` and ``peak_mempool_bytes = None`` (plus a
+    warning) if ``run_summary.json`` is present but ``time_series.csv``
+    is missing (RESEARCH.md Pitfall 8 / D-21 soft-failure path).
+
+    Snake_case access (``priority_retained_value_total``,
+    ``standard_retained_value_total``, ``components[i].net_utility_total``,
+    ``components[i].latency_blocks_observations``) reflects the
+    ``RunSummary`` / ``ComponentSummary`` shapes in
+    ``sim-cli/src/metrics/collector.rs`` (which carry no
+    ``rename_all = "kebab-case"`` attribute). Required fields use
+    square-bracket access so a regression surfaces as a clear
+    KeyError; optional / M6-noise fields use ``.get(key, default)``
+    per the RESEARCH.md "Verified Schemas" guidance.
+
+    ``latency_blocks_observations`` is a per-component list of
+    block-latency observations — NOT a scalar. The Rust accessor
+    ``ComponentSummary::latency_blocks_mean()`` is dropped at
+    serialisation, so this function computes the mean in Python
+    using the same formula
+    (``sum(obs) / len(obs)`` with a ``0.0`` empty-list fallback;
+    RESEARCH.md Pitfall 5).
+    """
+    rs_path = seed_dir / "run_summary.json"
+    if not rs_path.exists():
+        warnings.append(f"skip {seed_dir}: run_summary.json missing")
+        return None
+    try:
+        with open(rs_path) as f:
+            rs = json.load(f)
+    except (json.JSONDecodeError, OSError) as e:
+        warnings.append(f"skip {seed_dir}: run_summary.json unreadable ({e})")
+        return None
+
+    # Required snake_case fields (KeyError on schema regression).
+    priority_retained = rs["priority_retained_value_total"]
+    standard_retained = rs["standard_retained_value_total"]
+    retained_value = priority_retained + standard_retained
+
+    # Lovelace totals serialise as numbers (u128 in Rust).
+    priority_included_lovelace = rs.get("priority_included_value_total", 0)
+    standard_included_lovelace = rs.get("standard_included_value_total", 0)
+    included_lovelace_total = priority_included_lovelace + standard_included_lovelace
+    if included_lovelace_total > 0:
+        retained_value_ratio = retained_value / included_lovelace_total
+    else:
+        retained_value_ratio = None
+
+    components_out = []
+    net_utility_sum = 0.0
+    for c in rs["components"]:
+        obs = c["latency_blocks_observations"]
+        # Pitfall 5 / RESEARCH.md landmine #3: the Vec<f64> is
+        # serialised; the mean is computed downstream.
+        latency_mean = sum(obs) / len(obs) if obs else 0.0
+        net_utility_sum += c["net_utility_total"]
+        components_out.append({
+            "index": c["component_index"],
+            "txs_submitted": c["txs_submitted"],
+            "txs_included": c["txs_included"],
+            "txs_evicted_quote_drift": c.get("txs_evicted_quote_drift", 0),
+            "bytes_included": c["bytes_included"],
+            "fees_paid_lovelace": c.get("fees_paid_lovelace", 0),
+            "refund_lovelace": c.get("refund_lovelace", 0),
+            "retained_value": c["retained_value_total"],
+            "net_utility": c["net_utility_total"],
+            "latency_blocks_mean": latency_mean,
+            "priority_included": c["priority_included"],
+            "standard_included": c["standard_included"],
+        })
+
+    ts_path = seed_dir / "time_series.csv"
+    if ts_path.exists():
+        try:
+            time_series = list(_read_time_series_long(ts_path))
+        except (OSError, ValueError, KeyError) as e:
+            warnings.append(f"skip {ts_path}: time_series.csv unreadable ({e})")
+            time_series = []
+        if time_series:
+            mempool_bytes_total = (
+                r["value"]
+                for r in time_series
+                if r["metric"] == "mempool_bytes" and r["lane"] == "total"
+            )
+            peak_mempool_bytes = max(mempool_bytes_total, default=0)
+        else:
+            peak_mempool_bytes = None
+    else:
+        warnings.append(f"{seed_dir}: time_series.csv missing")
+        time_series = []
+        peak_mempool_bytes = None
+
+    return {
+        "retained_value": retained_value,
+        "priority_retained_value": priority_retained,
+        "standard_retained_value": standard_retained,
+        "net_utility": net_utility_sum,
+        "retained_value_ratio": retained_value_ratio,
+        "total_txs_submitted": rs.get("total_txs_submitted", 0),
+        "total_txs_included": rs.get("total_txs_included", 0),
+        "total_txs_evicted_quote_drift": rs.get("total_txs_evicted_quote_drift", 0),
+        "total_fees_paid_lovelace": rs.get("total_fees_paid_lovelace", 0),
+        "total_refund_lovelace": rs.get("total_refund_lovelace", 0),
+        "pricing_event_stream_sha256": rs.get("pricing_event_stream_sha256", ""),
+        "components": components_out,
+        "time_series": time_series,
+        "peak_mempool_bytes": peak_mempool_bytes,
+    }
 
 
 # --------------------------------------------------------- emit + CLI layer

@@ -1,0 +1,20 @@
+{
+  "suite-name": "phase-2-mini-suite",
+  "started-at-utc": "2026-05-20T10:00:00.000000000Z",
+  "jobs": {
+    "d8_target0.5_window32": {
+      "1": {
+        "status": "completed",
+        "started-at-utc": "2026-05-20T10:00:01.000000000Z",
+        "completed-at-utc": "2026-05-20T10:01:01.000000000Z",
+        "output-path": "fixtures/mini-suite/d8_target0.5_window32/1"
+      },
+      "2": {
+        "status": "completed",
+        "started-at-utc": "2026-05-20T10:01:02.000000000Z",
+        "completed-at-utc": "2026-05-20T10:02:02.000000000Z",
+        "output-path": "fixtures/mini-suite/d8_target0.5_window32/2"
+      }
+    }
+  }
+}

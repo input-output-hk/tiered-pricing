@@ -1,0 +1,49 @@
+{
+  "components": [
+    {
+      "component_index": 0,
+      "txs_submitted": 1000,
+      "txs_included": 600,
+      "txs_evicted_quote_drift": 100,
+      "bytes_included": 120000,
+      "fees_paid_lovelace": 3000000000,
+      "refund_lovelace": 500000000,
+      "retained_value_total": 1500000000.0,
+      "net_utility_total": -200000000.0,
+      "included_value_lovelace_total": 3500000000,
+      "priority_included": 580,
+      "standard_included": 20,
+      "latency_blocks_observations": [0.9, 1.1, 1.0, 0.95, 1.05, 1.2, 0.85, 1.15]
+    },
+    {
+      "component_index": 1,
+      "txs_submitted": 800,
+      "txs_included": 500,
+      "txs_evicted_quote_drift": 50,
+      "bytes_included": 100000,
+      "fees_paid_lovelace": 1000000000,
+      "refund_lovelace": 200000000,
+      "retained_value_total": 800000000.0,
+      "net_utility_total": 50000000.0,
+      "included_value_lovelace_total": 1100000000,
+      "priority_included": 10,
+      "standard_included": 490,
+      "latency_blocks_observations": [4.5, 5.0, 4.8, 5.2, 4.6, 5.1, 4.9, 5.3, 4.7, 5.0]
+    }
+  ],
+  "total_txs_submitted": 1800,
+  "total_txs_included": 1100,
+  "total_txs_evicted_quote_drift": 150,
+  "total_fees_paid_lovelace": 4000000000,
+  "total_refund_lovelace": 700000000,
+  "priority_retained_value_total": 1500000000.0,
+  "standard_retained_value_total": 800000000.0,
+  "priority_included_value_total": 3500000000,
+  "standard_included_value_total": 1100000000,
+  "block_generation_probability": 0.05,
+  "multiplier_floor_breaches": 0,
+  "min_priority_over_standard_ratio": 4.0,
+  "max_priority_over_standard_ratio": 7.25,
+  "pricing_ticks": 100,
+  "pricing_event_stream_sha256": "0000000000000000000000000000000000000000000000000000000000000001"
+}

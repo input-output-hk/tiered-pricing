@@ -1,0 +1,6 @@
+slot,c_priority,c_standard,util_priority_window_x_1e9,util_standard_window_x_1e9,mempool_bytes_total,mempool_bytes_priority,mempool_bytes_standard,included_bytes_priority,included_bytes_standard,included_count_priority,included_count_standard,evicted_quote_drift_count,fees_paid_lovelace,refund_lovelace
+0,44,44,0,0,0,0,0,0,0,0,0,0,0,0
+1,44,44,0,0,280000,280000,0,0,0,0,0,0,0,0
+2,46,44,90000000,0,220000,170000,50000,75000,18000,4,2,0,950000,180000
+3,50,44,180000000,0,190000,140000,50000,85000,22000,5,3,1,1050000,220000
+4,54,44,280000000,0,160000,110000,50000,95000,28000,6,4,2,1150000,280000

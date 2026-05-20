@@ -4,16 +4,16 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: 01
 current_plan: 6
-status: phase-complete
+status: milestone_complete
 stopped_at: Phase 01 (viz-site-mvp) complete — all six VIZ-NN requirements met, README + CLAUDE.md crumb landed, end-to-end visual verification confirmed
 last_updated: "2026-05-20T13:00:00Z"
 last_activity: 2026-05-20
 progress:
   total_phases: 5
-  completed_phases: 5
+  completed_phases: 6
   total_plans: 17
   completed_plans: 21
-  percent: 100
+  percent: 120
 ---
 
 # Project State
@@ -22,7 +22,7 @@ progress:
 
 Phase: 01 (viz-site-mvp) — COMPLETE
 Plan: 6 of 6 (final plan in the phase)
-**Status:** Phase 01 closed; viz site MVP shipped against `sim-rs/output/`
+**Status:** Milestone complete
 **Current Phase:** 01
 **Last Activity:** 2026-05-20
 **Last Activity Description:** Completed Plan 01-06 (Wave 4 docs + end-to-end verification): shipped `sim-rs/scripts/viz/README.md` (201 lines — single command, all six argparse flags, three-tier output layout, Notes covering every Pitfall 1-8 / CRITICAL LANDMINE, annual refresh recipe covering both vendored Observable Plot AND its D3 peer dep) and added a `### Visualising suite results` breadcrumb subsection to `CLAUDE.md` under `## Running the suites`. Orchestrator's earlier end-to-end smoke (captured in this plan's SUMMARY Context & history) had already confirmed Plot charts render against the live `sim-rs/output/` tree once the d3 vendor fix landed at ca2b2be. 18/18 viz tests green. Phase 01 is operationally complete; no follow-on phases scheduled for this workstream in this milestone.
@@ -30,7 +30,7 @@ Plan: 6 of 6 (final plan in the phase)
 ## Progress
 
 **Phases Complete:** 1 / 1
-**Current Plan:** 6 (final)
+**Current Plan:** Not started
 
 ## Plans Completed (this phase)
 

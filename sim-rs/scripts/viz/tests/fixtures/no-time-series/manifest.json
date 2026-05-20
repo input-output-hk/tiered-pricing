@@ -1,0 +1,14 @@
+{
+  "suite-name": "phase-3-no-time-series",
+  "started-at-utc": "2026-05-20T10:30:00.000000000Z",
+  "jobs": {
+    "job_a": {
+      "1": {
+        "status": "completed",
+        "started-at-utc": "2026-05-20T10:30:01.000000000Z",
+        "completed-at-utc": "2026-05-20T10:31:01.000000000Z",
+        "output-path": "fixtures/no-time-series/job_a/1"
+      }
+    }
+  }
+}

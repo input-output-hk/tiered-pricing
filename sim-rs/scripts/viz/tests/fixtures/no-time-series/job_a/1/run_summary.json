@@ -1,0 +1,34 @@
+{
+  "components": [
+    {
+      "component_index": 0,
+      "txs_submitted": 100,
+      "txs_included": 60,
+      "txs_evicted_quote_drift": 5,
+      "bytes_included": 12000,
+      "fees_paid_lovelace": 300000000,
+      "refund_lovelace": 50000000,
+      "retained_value_total": 150000000.0,
+      "net_utility_total": -20000000.0,
+      "included_value_lovelace_total": 350000000,
+      "priority_included": 55,
+      "standard_included": 5,
+      "latency_blocks_observations": [1.0, 1.5, 2.0, 1.25]
+    }
+  ],
+  "total_txs_submitted": 100,
+  "total_txs_included": 60,
+  "total_txs_evicted_quote_drift": 5,
+  "total_fees_paid_lovelace": 300000000,
+  "total_refund_lovelace": 50000000,
+  "priority_retained_value_total": 150000000.0,
+  "standard_retained_value_total": 0.0,
+  "priority_included_value_total": 350000000,
+  "standard_included_value_total": 0,
+  "block_generation_probability": 0.05,
+  "multiplier_floor_breaches": 0,
+  "min_priority_over_standard_ratio": 4.0,
+  "max_priority_over_standard_ratio": 4.0,
+  "pricing_ticks": 10,
+  "pricing_event_stream_sha256": "0000000000000000000000000000000000000000000000000000000000000003"
+}

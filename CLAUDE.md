@@ -443,6 +443,28 @@ parallel driver (e.g. `scripts/run-parallel-suites.sh` parallelises
 *across* suites — total tokio worker threads ≈ cross-suite K ×
 intra-suite P).
 
+### Visualising suite results
+
+For browsing `sim-rs/output/` interactively in a browser, the phase-2
+visualisation site lives at
+[`sim-rs/scripts/viz/`](sim-rs/scripts/viz/README.md). One command builds
+and serves it locally:
+
+```sh
+python sim-rs/scripts/viz/build.py --serve
+```
+
+The site renders the suite list, per-suite drill-down, per-(job, seed)
+detail (headline strip + per-component latency + three Observable Plot
+panes), and an in-suite cross-seed time-series overlay against the
+artefacts already on disk under `sim-rs/output/`. The bundle is written
+to `sim-rs/output/viz/`, which is gitignored transitively via the
+existing `sim-rs/.gitignore` `/output` rule (no new gitignore entry was
+added for this surface). The server binds `127.0.0.1` exclusively. See
+[`sim-rs/scripts/viz/README.md`](sim-rs/scripts/viz/README.md) for the
+flag reference, the three-tier output layout, and the annual recipe for
+refreshing the vendored Observable Plot + D3 bundles.
+
 ## Conventions / gotchas
 
 - **Abbreviations: expand on first use.** Every acronym or abbreviation

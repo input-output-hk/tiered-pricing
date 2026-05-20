@@ -58,7 +58,7 @@ For each of `RSK-single-seed-precision`, `RSK-three-seed-statistical-power`, `RS
 - Per-entry `**EXP / Resolution:**` line appended with `— RESOLVED to DISCLOSED via Plan 05-01 prose-promotion …` annotation.
 - Per-entry `**Disclosure-paragraph:**` field:
   - For the two entries with `*(draft fallback; …)*` prefixes (`RSK-single-seed-precision`, `RSK-standard-user-fee-drift-exposure`): prefix removed; prose light-touch refined to integrate Phase 3 / Phase 4 evidence (TEST-03 / TEST-04 N=20 BCa CI verdicts; the EIP-1559 `±1/D` per-block clamp on standard-quote drift).
-  - For the three entries with `TBD — drafted in Phase 4` placeholders (`RSK-three-seed-statistical-power`, `RSK-unresolved-suite-claims`, `RSK-menu-collapse-to-advocacy`): placeholders replaced with load-bearing CIP-pasteable prose integrating the specific evidence named in D-49 (nine-cell Phase-3-promoted N=20 set; Plan 02-02 output-read resolution of the four UNRESOLVED suites; the four non-welfare property columns + Chung & Shi SODA 2023 impossibility result).
+  - For the three entries with `TBD — drafted in Phase 4` placeholders (`RSK-three-seed-statistical-power`, `RSK-unresolved-suite-claims`, `RSK-menu-collapse-to-advocacy`): placeholders replaced with load-bearing CIP-pasteable prose integrating the specific evidence named in D-49 (nine-cell Phase-3-promoted N=20 set; Plan 02-02 output-read resolution of the four UNRESOLVED suites; the four non-welfare property columns, with Chung & Shi SODA 2023 narrowed to the anti-bribery / incentive-compatibility axis).
 - Index-table Verdict cell for each row: LIVE → DISCLOSED.
 
 ### Task 2 — RSK-hash-diversity-policy + Index header / reading-guide / footer

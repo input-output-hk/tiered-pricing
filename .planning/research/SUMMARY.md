@@ -59,7 +59,7 @@ For statistical methodology, the simulator's intra-architectural determinism mak
 - Run-length / steady-state validation — diagnostic time-series check; Active in PROJECT.md; cheap
 
 **Defer (out of scope per PROJECT.md):**
-- Adversarial / strategic-bidder modelling — disclosed as future work; cite Chung & Shi SODA 2023 impossibility result
+- Adversarial / strategic-bidder modelling — disclosed as future work; cite Chung & Shi SODA 2023 for the incentive/collusion frame
 - Cross-architecture CI verification — intra-arch determinism sufficient; CR-1 caveat disclosed
 - Deployed-EIP-1559 baseline comparison — pleasant but not load-bearing; flat-fee counterfactual is the right comparator
 

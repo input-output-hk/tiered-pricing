@@ -125,7 +125,7 @@ None for v1. Phase-2-milestone-internal deferrals (per PROJECT.md Out of Scope) 
 ## Out of Scope
 
 - **Writing the CIP itself** — User authors the CIP. Milestone delivers evidence base only.
-- **Adversarial / strategic-bidder modelling** — Current actors are utility-maximising; adversarial regime is named as future work in `disclosure-paragraph` per CRIT-3 / Chung & Shi SODA 2023 (Symposium on Discrete Algorithms) precedent. Adding this would double milestone length.
+- **Adversarial / strategic-bidder modelling** — Current actors are utility-maximising; adversarial regime is named as future work in `disclosure-paragraph` per CRIT-3 / Chung & Shi's *Foundations of Transaction Fee Mechanism Design* (Symposium on Discrete Algorithms (SODA) 2023) precedent. Adding this would double milestone length.
 - **Re-auditing upstream simulator code paths** — `sim/lottery.rs`, `sim/driver.rs`, propagation, vote diffusion, and the inherited f64 in non-pricing hot paths are out-of-scope substrate. CRIT-4 covers them with a disclosure paragraph in the register.
 - **Cross-architecture continuous integration (CI) verification** — Intra-architectural determinism is sufficient for CIP evidence; deferred per `.planning/codebase/CONCERNS.md`. CRIT-4 substrate-scope paragraph covers the disclosure.
 - **600-pool CIP-0164 topology migration** ([`docs/phase-2/m6-implementation-plan.md`](../docs/phase-2/m6-implementation-plan.md) as drafted) — Superseded by TEST-05. The drafted M6 plan stays in tree as a contingency if pool-number sensitivity surfaces a real gap.

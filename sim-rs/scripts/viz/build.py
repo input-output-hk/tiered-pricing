@@ -15,7 +15,8 @@ Usage::
 
   python3 sim-rs/scripts/viz/build.py --include 'phase-2/*'
 
-  # --serve / --port flags land in Plan 01-04 (build entry-point).
+  # Build and serve over a local HTTP server bound to 127.0.0.1:
+  python3 sim-rs/scripts/viz/build.py --serve --port 8000
 
 The emitted layout (D-09 of the phase 01 CONTEXT) is::
 
@@ -77,9 +78,12 @@ contract) does not apply to the build's JSON shape.
 import argparse
 import csv
 import fnmatch
+import functools
 import json
+import shutil
 import sys
 from datetime import datetime
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 # Long-form CSV → JSON mapping for the pinned 15-column
@@ -637,16 +641,123 @@ def run_build(source, output, includes, excludes, warnings):
         json.dump(index, f, indent=2, sort_keys=True)
 
 
+# ------------------------------------------------------- static assets + serve
+
+
+def copy_static_assets(static_src, output):
+    """Copy the Single-Page Application (SPA) bundle from
+    ``static_src`` into ``<output>/`` so the result is self-contained
+    and the local HTTP server (``serve``) can hand the assets to the
+    browser alongside the emitted ``data/`` tree.
+
+    Layout produced (mirrors what ``static/index.html`` references via
+    relative paths like ``static/main.js`` and ``static/plot.min.js``):
+
+      <output>/index.html      ← entry point at the served root
+      <output>/static/main.js
+      <output>/static/style.css
+      <output>/static/plot.min.js
+      <output>/static/PLOT_VERSION.txt
+
+    Implementation choices:
+
+      * Idempotent — uses ``shutil.copy2`` so re-runs overwrite older
+        bundles in place; mtime is preserved for refresh-tracking via
+        ``PLOT_VERSION.txt``.
+      * One-level ``iterdir`` only; the static directory is flat by
+        Plan 01-03 design (no nested subdirs).
+      * Soft-fail if ``static_src`` does not exist (partial checkout,
+        running against a stripped tree). The emitted data is still
+        useful for inspection via ``cat <output>/data/index.json``;
+        a warning surfaces to stderr.
+
+    RESEARCH.md / D-04: the bundle is served via a local HTTP server,
+    not opened via ``file://`` — that's why ``index.html`` lives at
+    the served root and the assets live under ``static/`` (so the
+    HTML's ``href="static/main.js"`` resolves correctly via path-
+    relative routing).
+    """
+    if not static_src.exists() or not static_src.is_dir():
+        print(
+            f"[warning] static source {static_src} not found; "
+            f"skipping copy_static_assets (build outputs only)",
+            file=sys.stderr,
+        )
+        return
+    output_static = output / "static"
+    output_static.mkdir(parents=True, exist_ok=True)
+    copied = 0
+    for entry in static_src.iterdir():
+        if not entry.is_file():
+            continue
+        if entry.name == "index.html":
+            # The SPA shell lives at the served root, not under
+            # ``static/``, because ``index.html`` references its
+            # assets at ``static/<asset>`` relative paths — those
+            # resolve correctly only when the document itself is
+            # served from the bundle root.
+            shutil.copy2(entry, output / "index.html")
+        else:
+            shutil.copy2(entry, output_static / entry.name)
+        copied += 1
+    print(
+        f"Copied {copied} static assets to {output}/static/ "
+        f"(+ index.html at bundle root)",
+        file=sys.stderr,
+    )
+
+
+def serve(output_dir, port):
+    """Block-serve ``output_dir`` on ``127.0.0.1:<port>`` via the
+    stdlib ``ThreadingHTTPServer`` + ``SimpleHTTPRequestHandler``.
+
+    Bind landmine: the first element of the address tuple MUST be the
+    literal string ``"127.0.0.1"`` — NOT ``""``, ``None``, or
+    ``"0.0.0.0"``. The default of some ``http.server`` constructors
+    binds all interfaces, which would expose the developer's
+    ``sim-rs/output/`` tree (potentially un-shared experiment results)
+    to the local LAN. RESEARCH.md Security Domain / Pitfall 7 / threat
+    T-01-04-01.
+
+    ``allow_reuse_address = True`` is set BEFORE ``serve_forever()`` so
+    a quick restart on the same port doesn't fail with "Address
+    already in use" while a previous socket sits in TIME_WAIT
+    (T-01-04-02). Wrap ``serve_forever()`` in a try/except so Ctrl-C
+    exits cleanly without a stack trace.
+
+    The handler is ``functools.partial(SimpleHTTPRequestHandler,
+    directory=str(output_dir))``; the ``directory=`` keyword anchors
+    every served path to the bundle root, so the handler does not
+    inherit the process's current working directory.
+    """
+    handler = functools.partial(
+        SimpleHTTPRequestHandler, directory=str(output_dir)
+    )
+    with ThreadingHTTPServer(("127.0.0.1", port), handler) as httpd:
+        httpd.allow_reuse_address = True
+        print(
+            f"Serving {output_dir} at http://127.0.0.1:{port}/  "
+            f"(Ctrl-C to stop)",
+            file=sys.stderr,
+        )
+        try:
+            httpd.serve_forever()
+        except KeyboardInterrupt:
+            pass
+
+
 # ------------------------------------------------------------- CLI surface
 
 
 def parse_args():
-    """Minimal argparse stub for the ingest layer.
+    """Argparse surface for the build script.
 
-    Plan 01-04 (Wave 3) extends this with ``--serve`` / ``--port``
-    and the ``copy_static_assets`` hook. Flag names use kebab-case
-    (matching ``generate-realistic-100-topology.py``) and the
-    resulting Namespace exposes them as snake_case attributes.
+    Adds ``--serve`` and ``--port`` on top of the ingest-layer flag
+    set (``--source``, ``--output``, ``--include``, ``--exclude``).
+    Flag names use kebab-case (matching
+    ``generate-realistic-100-topology.py``); argparse exposes them as
+    snake_case attributes on the resulting Namespace
+    (``args.serve``, ``args.port``).
     """
     parser = argparse.ArgumentParser(
         description=(
@@ -692,16 +803,31 @@ def parse_args():
             "exclude. May be passed multiple times."
         ),
     )
+    parser.add_argument(
+        "--serve",
+        action="store_true",
+        default=False,
+        help="After build, serve via http.server on --port (default 8000).",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=8000,
+        help="Port for --serve (default 8000).",
+    )
     return parser.parse_args()
 
 
 def main():
-    """Entry point: parse_args + run_build + report warnings.
+    """Entry point: parse_args + run_build + copy_static_assets +
+    (optionally) serve.
 
-    Plan 01-04 lands the ``--serve`` / ``--port`` branch + the
-    ``copy_static_assets`` step that hangs ``static/`` next to
-    ``data/`` so the local HTTP server serves both. For now this
-    is a build-only stub.
+    Sequential — no threads, no async (RESEARCH.md Pitfall 7). The
+    build emits the three-tier JSON layout, then the SPA bundle is
+    copied next to it so a single ``--output`` directory holds
+    everything the browser fetches. ``--serve`` then blocks on
+    ``serve()`` until Ctrl-C; without ``--serve`` the script prints a
+    one-line instruction for serving the bundle by hand.
     """
     args = parse_args()
     warnings = []
@@ -712,6 +838,8 @@ def main():
         excludes=args.exclude,
         warnings=warnings,
     )
+    static_src = Path(__file__).resolve().parent / "static"
+    copy_static_assets(static_src, args.output.resolve())
     if warnings:
         print(f"[warnings] {len(warnings)} issues:", file=sys.stderr)
         for w in warnings:
@@ -721,6 +849,14 @@ def main():
         f"(source={args.source})",
         file=sys.stderr,
     )
+    if args.serve:
+        serve(args.output.resolve(), args.port)
+    else:
+        print(
+            f"Build complete. Open with: python -m http.server "
+            f"--bind 127.0.0.1 --directory {args.output} 8000",
+            file=sys.stderr,
+        )
 
 
 if __name__ == "__main__":

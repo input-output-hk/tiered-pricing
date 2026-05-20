@@ -18,11 +18,13 @@
     <div id="app"></div>
   </main>
   <!--
-    Observable Plot 0.6.17 UMD bundle is loaded as a classic script
-    BEFORE the module entry-point so it registers `window.Plot` for
-    use by the (currently stub) renderers in main.js. Plan 01-05 will
-    consume it to draw the time-series panes.
+    Observable Plot 0.6.17 UMD externalizes D3 — its UMD entry reads
+    `globalThis.d3`, so D3 7.9.0 must be loaded FIRST or every method
+    that delegates to D3 (Plot.ruleY, Plot.timeSecond, scale ticks,
+    etc.) fails with TypeError. Both are vendored locally per D-19;
+    no CDN request fires at page load.
   -->
+  <script src="static/d3.min.js"></script>
   <script src="static/plot.min.js"></script>
   <script type="module" src="static/main.js"></script>
 </body>

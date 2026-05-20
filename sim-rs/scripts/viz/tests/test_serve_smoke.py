@@ -262,6 +262,20 @@ class ServeSmokeTest(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertGreaterEqual(len(body), MIN_PLOT_BUNDLE_BYTES)
 
+    def test_d3_js_vendored_locally(self):
+        """GET /static/d3.min.js returns 200 with the vendored bundle.
+
+        Observable Plot 0.6's UMD externalizes D3 — it reads
+        ``globalThis.d3`` at module init, so D3 7.9.0 must load first
+        or every Plot method that delegates to D3 (``Plot.ruleY``,
+        ``Plot.timeSecond``, scale ticks, etc.) fails with TypeError.
+        Floor of 100 KB catches a stub-file regression; the real D3
+        v7.9.0 minified bundle is ~280 KB.
+        """
+        status, body = self._get("/static/d3.min.js")
+        self.assertEqual(status, 200)
+        self.assertGreaterEqual(len(body), 100 * 1024)
+
 
 if __name__ == "__main__":
     unittest.main()

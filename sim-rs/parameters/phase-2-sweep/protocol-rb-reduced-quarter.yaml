@@ -1,0 +1,27 @@
+# RB-scarcity protocol overlay: quarter-capacity RB.
+# Full replacement (see rb-reduced-half.yaml header for rationale).
+# Total per-slot priority capacity: 2 × 22528 = 45 KB.
+
+leios-variant: linear
+timestamp-resolution-ms: 0.05
+
+min-fee-a: 44
+min-fee-b: 155381
+
+mempool-max-total-size-bytes: null
+
+simulate-transactions: true
+rb-generation-probability: 0.05
+
+# CIP-0164 Table 7 calibrated multi-node voting (M6). See
+# protocol-base.yaml for the rationale.
+vote-generation-probability: 600.0
+vote-threshold: 450
+
+# CIP-0164 Table 7 calibration (matches protocol-base.yaml).
+linear-vote-stage-length-slots: 4
+linear-diffuse-stage-length-slots: 7
+eb-referenced-txs-max-size-bytes: 12000000
+eb-body-validation-cpu-time-ms-per-byte: 2.15e-5
+
+rb-body-max-size-bytes: 22528

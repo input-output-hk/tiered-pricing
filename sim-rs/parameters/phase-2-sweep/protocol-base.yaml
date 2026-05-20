@@ -1,0 +1,105 @@
+# Phase-2 sweep protocol baseline.
+#
+# Layered on top of `parameters/config.default.yaml` + `parameters/linear.yaml`
+# by the experiment-suite runner (the suite YAML's
+# `default_protocol` points here). Sets phase-2 spec defaults for
+# the values the mechanism design pins:
+# - `min_fee_a` / `min_fee_b` from mechanism-design.md §"Era floor".
+# - `mempool_max_total_size_bytes` from implementation-plan.md
+#   §"Finite mempool cap" (line 124): "twice the EB transaction-
+#   referenced max", i.e. `2 × eb_referenced_txs_max_size_bytes`.
+#   The simulator interprets the spec's "max block body size" as the
+#   EB tx-referenced max in linear-Leios.
+#
+# Defaults the spec leaves *open* (calibration choices, see M5
+# methodology table) are NOT set here — they are calibrated by the
+# pricing TOMLs and demand profiles. Examples of *open* values:
+# window-length, controller D / target / initial coefficient,
+# multiplier_floor, actor max_fee_policy.
+
+leios-variant: linear
+timestamp-resolution-ms: 0.05
+
+# Phase-2 mechanism-design.md §"Era floor".
+min-fee-a: 44
+min-fee-b: 155381
+
+# Spec invariant from implementation-plan.md §"Finite mempool cap"
+# (line 124). Concretely: 2 × 1024 × 1024 = 2_097_152, but actually
+# 2 × eb_referenced_txs_max_size_bytes — the runner derives this
+# automatically when `mempool_max_total_size_bytes` is null. Pin the
+# computed default here so the diagnostics log surfaces it.
+mempool-max-total-size-bytes: null
+
+# Phase-2 demand is driven by the actor model (see `actors:` section
+# of the demand profile). Setting `simulate-transactions: true`
+# keeps `TransactionConfig::Real` so the simulator goes through the
+# Real (not Mock) packing path; the legacy `TransactionProducer`
+# task is silenced when an `actors:` profile is configured (see
+# sim-rs/sim-core/src/sim/tx.rs).
+simulate-transactions: true
+
+# Phase-2 welfare suites: Cardano-realistic RB cadence.
+#
+# History: a pre-calibration-fix revision pinned
+# `rb-generation-probability: 1.0`. The simulator's `try_generate_rb`
+# enforces an `earliest_endorse_time` check (`linear_leios.rs` ≈ line
+# 654) requiring `slot ≥ parent_rb.slot + header_diffusion_time × 3
+# + linear_vote_stage_length + linear_diffuse_stage_length`. With
+# config defaults that's parent.slot + 14. At rb-prob=1.0 every RB's
+# parent is the immediate predecessor (gap = 1), the check fails on
+# every RB, endorsement is `None` for every RB, and EBs never get
+# referenced from any RB on chain. EB-borne txs (the standard-fee
+# lane in RB-reserved variants, the standard residual in un-reserved
+# variants) never trigger `TXIncluded` events, distorting every two-
+# lane suite's per-lane inclusion counts and welfare metrics.
+#
+# Fix: rb-prob = 0.05 (Cardano-realistic). Expected RB cadence ≈ 20
+# slots, comfortably clearing the 14-slot endorsement window so EBs
+# referenced by RBs do get certified on chain. Carried through M6's
+# multi-node migration: with 600 stake-weighted pools and rb-prob =
+# 0.05, the network-wide expected RB rate per slot remains 0.05.
+# See docs/phase-2/m6-handoff.md for the multi-node consequences.
+rb-generation-probability: 0.05
+
+# CIP-0164 Table 7 calibrated multi-node voting (M6).
+#
+# Pre-M6 (single-producer): inherited vote-generation-probability=500
+# from config.default.yaml, overrode vote-threshold=1. One node owned
+# all stake, so per-RB it ran 500 always-win lotteries and its single
+# vote certified the EB trivially.
+#
+# Post-M6 (CIP-0164 n=600 mean committee): stake-weighted Poisson
+# sortition via sim-core/src/sim/lottery.rs::vrf_probabilities ×
+# compute_target_vrf_stake gives per-node expected hits =
+# share × probability; summed across 600 pools the total expected
+# vote count equals `vote-generation-probability` itself.
+# Threshold = 75 % of n = 450 (CIP-0164 quorum τ = 75 %).
+vote-generation-probability: 600.0
+vote-threshold: 450
+
+# CIP-0164 §"Feasible Protocol Parameters" (Table 7) calibration.
+#
+# History: an earlier revision inherited the upstream-Leios `short`
+# variant defaults (L_vote=5, L_diff=5, eb-referenced-txs-max=16 MB,
+# eb-body-validation-cpu-time-ms-per-byte=5e-4 = 500 ns/byte). Those
+# values are coherent for `short` Leios, where EBs reference IBs and
+# carry only a few KB of data. In phase-2's `linear` variant, EBs
+# carry full transaction bodies up to the cap, so 500 ns/byte × 16 MB
+# = 8 s of EB validation CPU — well past `header-diffusion-time = 1 s`
+# and the `LateRBHeader` voting deadline. The producer therefore
+# fails to vote on its own EBs, no EB ever reaches the
+# `vote-threshold`, and no RB ever endorses an EB. Throughput collapses
+# to the 90 KB-per-RB praos_fallback path.
+#
+# Fix: align with CIP-0164 Table 7. The CIP cites the Cardano formal-
+# spec linear validation model `(353.9 μs) + (21.51 μs/kB) × bytes`
+# (≈ 21.5 ns/byte) — about 23× cheaper than the inherited 500 ns/byte
+# default. At the CIP's 12 MB EB cap, that gives ~258 ms of validation
+# CPU (plus the constant 75+50 = 125 ms generation+constant), well
+# inside L_hdr.
+linear-vote-stage-length-slots: 4
+linear-diffuse-stage-length-slots: 7
+eb-referenced-txs-max-size-bytes: 12000000
+eb-body-validation-cpu-time-ms-per-byte: 2.15e-5
+

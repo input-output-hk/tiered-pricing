@@ -1,0 +1,84 @@
+# Phase-2 paper-like congested demand with a mis-priced
+# hard-deadline component.
+#
+# Same three-component, phased-load shape as `paper_like_congested.yaml`,
+# but the hard-deadline component (component 0) carries
+# `MaxFeePolicy::ScaledOverLaneQuote { numerator: 1, denominator: 1 }`.
+#
+# Why `{1, 1}` is the mis-pricing knob (not `{0, 1}` etc.):
+# - `{1, 1}` => `max_fee_lovelace = min_fee_b + 1 × current_quote × bytes`,
+#   i.e. the actor's max-fee covers the lane fee *exactly* at submission.
+#   Zero quote-drift headroom: as soon as the priority controller
+#   ticks up, the tx is invalidated by the mempool gate's quote-drift
+#   revalidation and is evicted.
+# - `{4, 1}` (the default used in `paper_like_congested.yaml`) gives 4×
+#   headroom; under congested drift, those txs survive substantially
+#   longer.
+#
+# The urgency-inversion question: with deadline-sensitive users
+# mis-priced against quote drift, do they lose their priority service
+# while correctly-priced lower-sensitivity users hold onto theirs? The
+# per-component breakdown in `metrics_comparison.txt` answers this
+# directly — compare component 0's eviction count and retained-value
+# ratio across the two suite jobs.
+
+actors:
+  components:
+    # Component 0: hard-deadline / arb tail, MIS-PRICED (zero quote-drift headroom).
+    - arrival-rate-per-slot:
+        phases:
+          - { start-slot: 0, end-slot: 400, rate: 3.0 }
+          - { start-slot: 400, end-slot: 1200, rate: 6.0 }
+          - { start-slot: 1200, end-slot: 2000, rate: 2.0 }
+      size-bytes:
+        distribution: log-normal
+        mu: 6.833
+        sigma: 0.5
+      value-lovelace:
+        distribution: log-normal
+        mu: 17.0
+        sigma: 0.4
+      half-life-seconds:
+        distribution: log-normal
+        mu: 4.094345    # median 60s
+        sigma: 0.5
+      max-fee-policy:
+        kind: scaled-over-lane-quote
+        numerator: 1
+        denominator: 1
+    # Component 1: active DeFi, default {4, 1} headroom.
+    - arrival-rate-per-slot:
+        phases:
+          - { start-slot: 0, end-slot: 400, rate: 103.3 }
+          - { start-slot: 400, end-slot: 1200, rate: 206.6 }
+          - { start-slot: 1200, end-slot: 2000, rate: 68.9 }
+      size-bytes:
+        distribution: log-normal
+        mu: 6.833
+        sigma: 0.5
+      value-lovelace:
+        distribution: log-normal
+        mu: 15.0
+        sigma: 0.4
+      half-life-seconds:
+        distribution: log-normal
+        mu: 5.703782    # median 5 minutes
+        sigma: 0.6
+    # Component 2: patient traffic, default {4, 1} headroom.
+    - arrival-rate-per-slot:
+        phases:
+          - { start-slot: 0, end-slot: 400, rate: 193.7 }
+          - { start-slot: 400, end-slot: 1200, rate: 387.4 }
+          - { start-slot: 1200, end-slot: 2000, rate: 129.1 }
+      size-bytes:
+        distribution: log-normal
+        mu: 6.833
+        sigma: 0.5
+      value-lovelace:
+        distribution: log-normal
+        mu: 13.0
+        sigma: 0.4
+      half-life-seconds:
+        distribution: log-normal
+        mu: 8.188689    # median 1 hour
+        sigma: 1.0

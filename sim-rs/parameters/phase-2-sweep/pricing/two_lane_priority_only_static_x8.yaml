@@ -1,0 +1,19 @@
+# RB-reserved priority-only premium with multiplier_floor = 8.
+pricing:
+  kind: two-lane
+  variant: rb-reserved-priority-only
+  priority:
+    initial-quote-per-byte: 352
+    target-num: 1
+    target-den: 2
+    max-change-denominator: 8
+    window-length: 1
+  standard:
+    initial-quote-per-byte: 44
+    target-num: 1
+    target-den: 2
+    max-change-denominator: 8
+    window-length: 32
+  multiplier-floor-num: 8
+  multiplier-floor-den: 1
+  lane-selection-order: priority-first

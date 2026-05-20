@@ -1,0 +1,10 @@
+# Lower target (0.25) — keeps the network running emptier, leaving
+# headroom for spikes. Spec calibration choice (mechanism-design.md
+# §"Why allow target ≠ 0.5 at all").
+pricing:
+  kind: eip1559
+  initial-quote-per-byte: 44
+  target-num: 1
+  target-den: 4
+  max-change-denominator: 8
+  window-length: 32

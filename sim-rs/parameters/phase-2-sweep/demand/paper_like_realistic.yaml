@@ -1,0 +1,60 @@
+# Phase-2 paper-like REALISTIC demand.
+#
+# Lower-load realistic profile (~150 tx/slot, about 150 KB/slot),
+# with value-decay sampled as economic half-lives rather than fixed
+# urgency constants.
+#
+# Half-life calibration:
+#
+#   hard-deadline / arb tail  → log-normal median 60s.
+#   active DeFi              → log-normal median 5 minutes.
+#   patient traffic          → log-normal median 1 hour.
+#
+# Compositional shares intentionally model a DeFi-heavy stress day:
+#   ~10% hard-deadline/arb, ~40% active DeFi, ~50% patient traffic.
+#
+# Contrast with `paper_like_congested.yaml`, which is now a heavier
+# 300/600/200 tx/slot phased stress profile with the same half-life
+# families but much higher arrival rates.
+
+actors:
+  components:
+    - arrival-rate-per-slot: 15.0
+      size-bytes:
+        distribution: log-normal
+        mu: 6.833
+        sigma: 0.5
+      value-lovelace:
+        distribution: log-normal
+        mu: 17.0
+        sigma: 0.4
+      half-life-seconds:
+        distribution: log-normal
+        mu: 4.094345    # median 60s
+        sigma: 0.5
+    - arrival-rate-per-slot: 60.0
+      size-bytes:
+        distribution: log-normal
+        mu: 6.833
+        sigma: 0.5
+      value-lovelace:
+        distribution: log-normal
+        mu: 15.0
+        sigma: 0.4
+      half-life-seconds:
+        distribution: log-normal
+        mu: 5.703782    # median 5 minutes
+        sigma: 0.6
+    - arrival-rate-per-slot: 75.0
+      size-bytes:
+        distribution: log-normal
+        mu: 6.833
+        sigma: 0.5
+      value-lovelace:
+        distribution: log-normal
+        mu: 13.0
+        sigma: 0.4
+      half-life-seconds:
+        distribution: log-normal
+        mu: 8.188689    # median 1 hour
+        sigma: 1.0

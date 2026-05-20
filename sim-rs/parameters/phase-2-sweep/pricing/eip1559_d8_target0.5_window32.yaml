@@ -1,0 +1,11 @@
+# Single-lane EIP-1559: D=8, target=0.5, window=32. The phase-2
+# robustness reference point — Ethereum-style centred target with
+# the spec's default smoothing window.
+
+pricing:
+  kind: eip1559
+  initial-quote-per-byte: 44
+  target-num: 1
+  target-den: 2
+  max-change-denominator: 8
+  window-length: 32

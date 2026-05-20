@@ -1,0 +1,77 @@
+# Phase-2 paper-like congested demand.
+#
+# Same value-decay mix as `paper_like_moderate.yaml`, but with the
+# pricing-sim-base phased load envelope so branch-to-branch runtime
+# comparisons are not accidentally shortened by lower demand:
+#
+#   slots    0-400   ramp-up:            300 tx/slot
+#   slots  400-1200  sustained overload: 600 tx/slot
+#   slots 1200-2000  recovery:           200 tx/slot
+#
+# With the current ~1KB weighted mean tx size, the overload phase is
+# roughly 600 KB/slot. That exceeds the RB body cap and drives EB
+# traffic, priority-vs-standard lane separation, quote drift, and the
+# multiplier-floor invariant.
+#
+# Component 0 population sizing (M10): set to ~1% of total demand to
+# model a small fringe of deadline-sensitive automated actors. See
+# `paper_like_moderate.yaml` for the half-life rationale. Per-phase
+# totals are preserved (300 / 600 / 200) by redistributing the reduced
+# share to components 1 and 2 in their original 96:180 ratio.
+
+actors:
+  components:
+    # Component 0: hard-deadline / arb tail (~1% of total demand).
+    - arrival-rate-per-slot:
+        phases:
+          - { start-slot: 0, end-slot: 400, rate: 3.0 }
+          - { start-slot: 400, end-slot: 1200, rate: 6.0 }
+          - { start-slot: 1200, end-slot: 2000, rate: 2.0 }
+      size-bytes:
+        distribution: log-normal
+        mu: 6.833
+        sigma: 0.5
+      value-lovelace:
+        distribution: log-normal
+        mu: 17.0
+        sigma: 0.4
+      half-life-seconds:
+        distribution: log-normal
+        mu: 4.094345    # median 60s
+        sigma: 0.5
+    # Component 1: active DeFi.
+    - arrival-rate-per-slot:
+        phases:
+          - { start-slot: 0, end-slot: 400, rate: 103.3 }
+          - { start-slot: 400, end-slot: 1200, rate: 206.6 }
+          - { start-slot: 1200, end-slot: 2000, rate: 68.9 }
+      size-bytes:
+        distribution: log-normal
+        mu: 6.833
+        sigma: 0.5
+      value-lovelace:
+        distribution: log-normal
+        mu: 15.0
+        sigma: 0.4
+      half-life-seconds:
+        distribution: log-normal
+        mu: 5.703782    # median 5 minutes
+        sigma: 0.6
+    # Component 2: patient traffic.
+    - arrival-rate-per-slot:
+        phases:
+          - { start-slot: 0, end-slot: 400, rate: 193.7 }
+          - { start-slot: 400, end-slot: 1200, rate: 387.4 }
+          - { start-slot: 1200, end-slot: 2000, rate: 129.1 }
+      size-bytes:
+        distribution: log-normal
+        mu: 6.833
+        sigma: 0.5
+      value-lovelace:
+        distribution: log-normal
+        mu: 13.0
+        sigma: 0.4
+      half-life-seconds:
+        distribution: log-normal
+        mu: 8.188689    # median 1 hour
+        sigma: 1.0

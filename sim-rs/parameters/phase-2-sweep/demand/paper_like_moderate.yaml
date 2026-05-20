@@ -1,0 +1,67 @@
+# Phase-2 paper-like moderate demand.
+#
+# Three weighted value-decay components matching the spec's
+# delay-sensitivity narrative:
+# - Hard-deadline / arb tail (component 0): low arrival, high value,
+#   median value half-life 60s. Intended to ride priority lanes when
+#   offered.
+# - Active DeFi (component 1): moderate arrival, median value
+#   half-life 5 minutes.
+# - Patient traffic (component 2): high arrival, median value
+#   half-life 1 hour.
+#
+# Per-slot total = 25 txs of ~1KB each → ~25KB/slot, well below the
+# 90KB RB body cap. No congestion at this volume.
+#
+# Component 0 population sizing (M10): set to ~1% of total demand to
+# model a small fringe of deadline-sensitive automated actors. Total
+# arrival rate is preserved (25 tx/slot) by redistributing the reduced
+# share to components 1 and 2 in their original ratio (8:15).
+#
+# Calibration choice (M3 default): see implementation-plan.md
+# §M5 line 290 — `actor max_fee_policy = ScaledOverLaneQuote{4,1}`,
+# `target_inclusion_blocks_priority = 1`,
+# `target_inclusion_blocks_standard = 4`. These are picked up from
+# the per-component defaults in `RawActorComponent`.
+
+actors:
+  components:
+    - arrival-rate-per-slot: 0.25
+      size-bytes:
+        distribution: log-normal
+        mu: 6.833
+        sigma: 0.5
+      value-lovelace:
+        distribution: log-normal
+        mu: 17.0
+        sigma: 0.4
+      half-life-seconds:
+        distribution: log-normal
+        mu: 4.094345    # median 60s
+        sigma: 0.5
+    - arrival-rate-per-slot: 9.0
+      size-bytes:
+        distribution: log-normal
+        mu: 6.833
+        sigma: 0.5
+      value-lovelace:
+        distribution: log-normal
+        mu: 15.0
+        sigma: 0.4
+      half-life-seconds:
+        distribution: log-normal
+        mu: 5.703782    # median 5 minutes
+        sigma: 0.6
+    - arrival-rate-per-slot: 15.75
+      size-bytes:
+        distribution: log-normal
+        mu: 6.833
+        sigma: 0.5
+      value-lovelace:
+        distribution: log-normal
+        mu: 13.0
+        sigma: 0.4
+      half-life-seconds:
+        distribution: log-normal
+        mu: 8.188689    # median 1 hour
+        sigma: 1.0

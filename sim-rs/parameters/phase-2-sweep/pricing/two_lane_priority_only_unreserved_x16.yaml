@@ -1,0 +1,18 @@
+pricing:
+  kind: two-lane
+  variant: unreserved-priority-only
+  priority:
+    initial-quote-per-byte: 704
+    target-num: 1
+    target-den: 2
+    max-change-denominator: 8
+    window-length: 32
+  standard:
+    initial-quote-per-byte: 44
+    target-num: 1
+    target-den: 2
+    max-change-denominator: 8
+    window-length: 32
+  multiplier-floor-num: 16
+  multiplier-floor-den: 1
+  lane-selection-order: priority-first

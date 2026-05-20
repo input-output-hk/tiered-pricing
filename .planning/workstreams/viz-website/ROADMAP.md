@@ -47,7 +47,7 @@ Plans:
 - [x] `phases/01-viz-site-mvp/01-01-PLAN.md` — Wave 1: Test harness (fixtures + failing test scaffolds for every Pitfall 1–8 + every VIZ-NN)
 - [x] `phases/01-viz-site-mvp/01-02-PLAN.md` — Wave 2: Ingest module (`build.py` core — discover_suites, load_seed, three-tier JSON emission, kebab/snake split, latency-list-to-mean, aggregates:null)
 - [x] `phases/01-viz-site-mvp/01-03-PLAN.md` — Wave 2: Static bundle skeleton (`index.html`, `style.css`, `main.js` router + stubs, vendored Observable Plot 0.6.x) — parallel with 01-02
-- [ ] `phases/01-viz-site-mvp/01-04-PLAN.md` — Wave 3: Build entry-point (--serve / --port, copy_static_assets, ThreadingHTTPServer bound to 127.0.0.1, serve smoke test)
+- [x] `phases/01-viz-site-mvp/01-04-PLAN.md` — Wave 3: Build entry-point (--serve / --port, copy_static_assets, ThreadingHTTPServer bound to 127.0.0.1, serve smoke test)
 - [ ] `phases/01-viz-site-mvp/01-05-PLAN.md` — Wave 3: Browser views (real renderHome/renderSuite/renderJob with three Plot chart panes + cross-seed overlay) — parallel with 01-04
 - [ ] `phases/01-viz-site-mvp/01-06-PLAN.md` — Wave 4: README + CLAUDE.md crumb + end-to-end checkpoint against the live `sim-rs/output/` tree
 

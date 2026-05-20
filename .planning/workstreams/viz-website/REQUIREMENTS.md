@@ -31,7 +31,7 @@ REQ-ID prefix: **VIZ-NN** — Visualisation Website work.
 
 ### Local-first hosting
 
-- [ ] **VIZ-06** — The site runs locally on the developer's machine. Whether that means a static bundle, a build script, or a local dev server is a discuss-phase decision; the requirement is that one documented command produces a browsable site. Acceptance: a single command (in `CLAUDE.md` or workstream README) gets a fresh dev environment to a viewable viz site against the current `sim-rs/output/` tree.
+- [x] **VIZ-06** — The site runs locally on the developer's machine. Whether that means a static bundle, a build script, or a local dev server is a discuss-phase decision; the requirement is that one documented command produces a browsable site. Acceptance: a single command (in `CLAUDE.md` or workstream README) gets a fresh dev environment to a viewable viz site against the current `sim-rs/output/` tree. **Plan 01-04: `python sim-rs/scripts/viz/build.py --serve` builds the three-tier JSON layout and serves it from `<output>/` on `127.0.0.1:<port>` (default 8000). End-to-end coverage by `sim-rs/scripts/viz/tests/test_serve_smoke.py`. Plan 01-06 adds the README that documents the command and runs the final E2E checkpoint against the live `sim-rs/output/` tree.**
 
 ## Future Requirements
 

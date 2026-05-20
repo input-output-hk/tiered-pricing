@@ -17,7 +17,6 @@ Out of scope:
 - Modifying any Rust source code under `sim-rs/sim-core/` or `sim-rs/sim-cli/`. YAML + Markdown + Python helper only.
 - Rewriting the 7-suite vs 19-suite table in CLAUDE.md beyond a small annotation. Cosmetic; flag but defer.
 - Re-running phase-2 experimental suites with the new topology (separate compute investment; the team plans that downstream).
-- Committing or tagging. Per `feedback_no_commits.md`, leave staged/unstaged changes for the user.
 
 ## Goal-backward verification
 
@@ -142,7 +141,7 @@ Verification commands the executor will run at the end:
 - `grep -l "parameters/topology.default.yaml" sim-rs/parameters/phase-2-sweep/suites/*.yaml` — must produce empty output.
 - `grep -c "topology-realistic-100" CLAUDE.md` — must return ≥ 4.
 - `grep -c "LIVE / disclosure-required" .planning/REVIEW.md` — must return ≥ 1.
-- `git status --short` — review what's modified. **Do NOT commit.** Per `feedback_no_commits.md` (in user memory), the executor leaves all changes staged/unstaged for the user.
+- `git status --short` — review what's modified.
 - **Dependencies:** all prior tasks.
 
 ## Task DAG / sequencing
@@ -161,7 +160,7 @@ Task 6 (reclassify WR-1 in REVIEW.md) ──────────────
                                                                                 Task 7 (validity-threats note) — text written any time; semantic dependency on Task 8 completion
                                                                                             │
                                                                                             ▼
-                                                                                          Task 9 (final verification, no-commit)
+                                                                                          Task 9 (final verification)
 ```
 
 Suggested execution order (single-thread, minimises rework): 1 → 2 → 3 → 4 → 5 → 6 → 7 (write text) → 8 (regen goldens) → 9 (final verification). Tasks 3–7 are documentation-only and pairwise independent; an executor preferring to parallelise can swap their order freely.
@@ -189,4 +188,3 @@ Suggested execution order (single-thread, minimises rework): 1 → 2 → 3 → 4
 - **Resolving CR-1 (`f64::sqrt` in `endorsement_window_priced_blocks`).** Rust code change, explicitly excluded from this plan's "YAML + Markdown only" constraint.
 - **Resolving WR-2 (`AdmissionRejected { reason }` event).** Public-API change; same reason.
 - **Increasing seed count from 3 to ≥ 10.** Compute investment; separate.
-- **Committing or tagging the resulting changeset.** Per `feedback_no_commits.md`, the executor leaves everything for the user to commit.

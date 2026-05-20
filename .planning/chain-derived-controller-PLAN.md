@@ -6,8 +6,6 @@ Spec: spike 007 (`.planning/spikes/007-chain-derived-controller/README.md`) — 
 
 ## Binding constraints (do not violate)
 
-- **No commits.** Executor MUST NOT run `git commit`, `git tag`, or `git add`. All changes left as working-tree modifications. User commits manually after review.
-- **No worktrees.** Work directly on the current `dynamic-experiment` branch.
 - **DO NOT modify `sim-rs/parameters/topology.default.yaml`** — upstream `main` consumes it; phase-2 work must not touch it.
 - M2/M3 unit-test goldens and all 7 M5 suite-level goldens are expected to flip. Regenerating them via `UPDATE_GOLDENS=1` is in scope.
 - Existing event-stream hash format and event types stay the same — `TXIncluded` and `TXEvictedQuoteDrift` remain the only hashed events; chain-derivation changes *where* `quote_per_byte` lives, not *what* gets hashed.
@@ -389,7 +387,7 @@ Critical path: T1 → T2 → {T3,T4,T5} parallel → T6 → T7 → T8 → T9 →
   - **"Numeric representation contract"** — add a sentence to the closing paragraph: "All chain-derived computation is integer/u128 throughout: `compute_derived_quote` is a pure function returning `PerLaneQuote` and `WindowAggregate`, both of which are `u64`/`u128` only. Block fields `derived_quote` and `window_aggregate` are bit-stable across architectures."
   - **NEW bullet under "Mechanism abstractions"** (insert near the `PricingBackend` bullet rewrite):
     > **`derived_quote` on `LinearRankingBlock`**: every RB carries a `PerLaneQuote { standard: u64, priority: u64 }` plus a `WindowAggregate` (the controller window's incremental state). These are pure functions of the parent RB plus samples in canonical predecessors. EBs do not carry `derived_quote` — they inherit it from their parent RB via chain lookup. The simulator's local block cache (`block_samples: BTreeMap<BlockId, Vec<PricedBlockSample>>`) is pruned at `2 × window_length` behind the chain tip to bound memory; under Cardano's k=2160 finality, this is trivially well within the chain-stability horizon.
-- **DO NOT add WR-1 commentary to CLAUDE.md.** The "no commits" / "don't surface dormant threats" memory rules apply: WR-1 is resolved, not active, so it does not appear in operational docs (it appears in REVIEW.md as a closed historical entry — that is the right venue).
+- **DO NOT add WR-1 commentary to CLAUDE.md.** The "don't surface dormant threats" memory rule applies: WR-1 is resolved, not active, so it does not appear in operational docs (it appears in REVIEW.md as a closed historical entry — that is the right venue).
 - **Verification:** the four bullet edits applied; CLAUDE.md still renders cleanly (no broken markdown).
 - **Done:** CLAUDE.md describes the chain-derived pattern as the live mechanism, not as a future plan.
 

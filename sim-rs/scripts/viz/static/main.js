@@ -1,4 +1,4 @@
-// phase-2 sim viz — browser entry-point (Plan 01-05 real renderers)
+// phase-2 sim viz — browser entry-point (Plan 01-05: real renderers)
 //
 // Observable Plot 0.6.17 is loaded by the preceding `<script>` tag in
 // index.html and is available as the global `window.Plot`. If a future
@@ -86,7 +86,7 @@ function fmtComponents(components) {
 }
 
 function sortBy(rows, key, dir) {
-  // Null-safe sort: nulls always sort to the end regardless of dir.
+  // Null-safe stable sort: nulls always sort to the end regardless of dir.
   return [...rows].sort((a, b) => {
     const av = a == null ? undefined : a[key];
     const bv = b == null ? undefined : b[key];
@@ -241,7 +241,7 @@ async function renderHome() {
     return;
   }
 
-  // Column definitions: {key (data field), label (UI)}.
+  // Column definitions: {key (data field), label (UI), type}.
   // max_concurrent_jobs is the RESEARCH.md Open Q #1 proxy: max
   // overlap of (started, completed) intervals across (job, seed).
   // null means too few timestamps to compute.
@@ -470,6 +470,9 @@ async function renderSuite(suiteId) {
           (col.key === seedSortKey ? (seedSortDir === "desc" ? " ▼" : " ▲") : ""),
       });
       if (col.key === seedSortKey) th.classList.add("sort-active");
+      // Per-component latency column sorts on the first component's
+      // mean so the click does *something* useful; otherwise the
+      // string composite isn't comparable.
       th.style.cursor = "pointer";
       th.addEventListener("click", () => {
         if (seedSortKey === col.key) {
@@ -677,7 +680,14 @@ function renderCrossSeedSection(suiteId, jobNames, jobs) {
   return section;
 }
 
-// ----- View: per-(job, seed) detail (stub — Task 2 wires it) -------
+// ----- View: per-(job, seed) detail --------------------------------
+//
+// VIZ-03 + VIZ-04: headline-metric strip + per-component latency
+// table + three vertically-stacked time-series chart panes.
+//
+// Time-series records are already long-form (build.py LANE_FIELDS) so
+// no client-side melt is needed; each chart filters on (metric, lane)
+// before passing to Plot.line.
 
 async function renderJob(suiteId, job, seed) {
   let payload;
@@ -710,7 +720,7 @@ async function renderJob(suiteId, job, seed) {
 
   const root = el("section");
 
-  // Heading via textContent.
+  // Heading + breadcrumb back to suite.
   root.append(el("h1", { text: job + " · seed " + seed }));
   const breadcrumb = el("p", { class: "muted" });
   breadcrumb.append(document.createTextNode(payload.suite_id || suiteId));
@@ -720,11 +730,244 @@ async function renderJob(suiteId, job, seed) {
     text: "← back to suite",
   })));
 
-  // Task 2 of this plan replaces the body below with the headline
-  // strip, per-component latency table, and three Plot chart panes.
-  root.append(el("p", { class: "muted", text: "(detail view — Task 2 of Plan 01-05 wires the headline strip and charts here)" }));
+  // ----- Headline-metric strip (VIZ-03) -----------------------------
+  const strip = el("section", { class: "headline-strip" });
+
+  // retained_value (with priority + standard subtotals as <small>).
+  {
+    const card = el("div", { class: "headline-card" });
+    card.append(el("div", { class: "label", text: "retained_value" }));
+    card.append(el("div", { class: "value", text: fmtInt(payload.retained_value) }));
+    const sub = el("small", { class: "muted" });
+    sub.textContent =
+      "priority " + fmtInt(payload.priority_retained_value) +
+      " · standard " + fmtInt(payload.standard_retained_value);
+    card.append(sub);
+    strip.append(card);
+  }
+
+  // net_utility.
+  {
+    const card = el("div", { class: "headline-card" });
+    card.append(el("div", { class: "label", text: "net_utility" }));
+    card.append(el("div", { class: "value", text: fmtInt(payload.net_utility) }));
+    strip.append(card);
+  }
+
+  // retained_value_ratio (4 decimals, "—" if null).
+  {
+    const card = el("div", { class: "headline-card" });
+    card.append(el("div", { class: "label", text: "retained_value_ratio" }));
+    card.append(el("div", { class: "value", text: fmtRatio(payload.retained_value_ratio) }));
+    strip.append(card);
+  }
+
+  // peak_mempool_bytes.
+  {
+    const card = el("div", { class: "headline-card" });
+    card.append(el("div", { class: "label", text: "peak_mempool_bytes" }));
+    card.append(el("div", { class: "value", text: fmtInt(payload.peak_mempool_bytes) }));
+    strip.append(card);
+  }
+
+  // total_txs_included of total_txs_submitted.
+  {
+    const card = el("div", { class: "headline-card" });
+    card.append(el("div", { class: "label", text: "txs included / submitted" }));
+    const included = payload.total_txs_included;
+    const submitted = payload.total_txs_submitted;
+    card.append(el("div", {
+      class: "value",
+      text: fmtInt(included) + " / " + fmtInt(submitted),
+    }));
+    if (submitted) {
+      const ratio = included / submitted;
+      const sub = el("small", { class: "muted" });
+      sub.textContent = "ratio " + fmtRatio(ratio);
+      card.append(sub);
+    }
+    strip.append(card);
+  }
+
+  // pricing_event_stream_sha256: render only the first 8 hex chars
+  // in a card titled "Event-stream hash"; the full hash is exposed
+  // via the title attribute set via setAttribute (the unsafe
+  // HTML-string sink is grep-gated out of this file).
+  {
+    const card = el("div", { class: "headline-card" });
+    card.append(el("div", { class: "label", text: "Event-stream hash" }));
+    const fullHash = String(payload.pricing_event_stream_sha256 || "");
+    const shortHash = fullHash ? fullHash.slice(0, 8) : "—";
+    const valueDiv = el("div", { class: "value mono", text: shortHash });
+    if (fullHash) valueDiv.setAttribute("title", fullHash);
+    card.append(valueDiv);
+    strip.append(card);
+  }
+
+  root.append(strip);
+
+  // ----- Per-component latency table (Pitfall 5 / RESEARCH.md
+  // Open Q #2: surface the per-component lane-dominance breakdown
+  // since `latency_blocks_observations` mixes both lanes' inclusions
+  // into one list per component. The per-lane wording forbidden by
+  // Pitfall 5 is grep-gated out of this file — the canonical UI
+  // label comes from HEADLINE_LATENCY_LABEL. -----
+  {
+    const latSection = el("section");
+    latSection.append(el("h2", { text: HEADLINE_LATENCY_LABEL }));
+
+    const components = Array.isArray(payload.components) ? payload.components : [];
+    if (components.length === 0) {
+      latSection.append(el("p", {
+        class: "muted",
+        text: "(no components for this seed)",
+      }));
+    } else {
+      const tbl = el("table");
+      const thead = el("thead");
+      const hr = el("tr");
+      for (const label of [
+        "index",
+        "latency_blocks_mean",
+        "priority_included",
+        "standard_included",
+        "dominant lane",
+      ]) {
+        hr.append(el("th", { text: label }));
+      }
+      thead.append(hr);
+      tbl.append(thead);
+
+      const tbody = el("tbody");
+      for (const c of components) {
+        const tr = el("tr");
+        tr.append(el("td", { text: String(c.index == null ? "—" : c.index) }));
+        const meanVal = c.latency_blocks_mean;
+        tr.append(el("td", {
+          text: meanVal == null ? "—" : Number(meanVal).toFixed(2),
+        }));
+        tr.append(el("td", { text: fmtInt(c.priority_included) }));
+        tr.append(el("td", { text: fmtInt(c.standard_included) }));
+        // Per RESEARCH.md Open Q #2: surface "which lane dominates"
+        // rather than mis-attribute the mean to one lane.
+        const p = Number(c.priority_included) || 0;
+        const s = Number(c.standard_included) || 0;
+        let dominant;
+        if (p > s) dominant = "priority";
+        else if (s > p) dominant = "standard";
+        else dominant = "tied";
+        tr.append(el("td", { text: dominant }));
+        tbody.append(tr);
+      }
+      tbl.append(tbody);
+      latSection.append(tbl);
+    }
+    root.append(latSection);
+  }
+
+  // ----- Time-series chart panes (VIZ-04) ---------------------------
+  //
+  // Observable Plot 0.6.x: see static/PLOT_VERSION.txt for the
+  // vendored version. Each pane filters the long-form time_series
+  // array on (metric[, lane]) and feeds Plot.line. A try/catch wraps
+  // each chart so one broken pane doesn't kill the rest of the view.
+
+  const timeSeries = Array.isArray(payload.time_series) ? payload.time_series : [];
+
+  if (timeSeries.length === 0) {
+    // Pitfall 8 / phase-3 suites: soft-fail with a single placeholder
+    // instead of three blank chart panes.
+    const tsSection = el("section");
+    tsSection.append(el("h2", { text: "Time-series" }));
+    tsSection.append(el("p", {
+      class: "muted",
+      text: "(no time-series available for this seed — see build warnings)",
+    }));
+    root.append(tsSection);
+    setView(root);
+    return;
+  }
+
+  // Chart 1: controller quote per lane (c_priority, c_standard).
+  renderChartPane(root, {
+    heading: "Controller quote per lane (c_priority, c_standard)",
+    records: timeSeries.filter(
+      (r) => r.metric === "quote_per_byte" &&
+             (r.lane === "priority" || r.lane === "standard")
+    ),
+    yLabel: "controller quote (lovelace/byte)",
+    stroke: "lane",
+    addZeroRule: true,
+  });
+
+  // Chart 2: mempool bytes per lane (priority, standard, total).
+  renderChartPane(root, {
+    heading: "Mempool bytes (priority, standard, total)",
+    records: timeSeries.filter((r) => r.metric === "mempool_bytes"),
+    yLabel: "mempool bytes",
+    stroke: "lane",
+    addZeroRule: true,
+  });
+
+  // Chart 3: fees + refunds per slot. Both are lane=total; stroke on
+  // `metric` to distinguish the two lines.
+  renderChartPane(root, {
+    heading: "Fees paid + refunds per slot (lovelace)",
+    records: timeSeries.filter(
+      (r) => r.metric === "fees_paid_lovelace" || r.metric === "refund_lovelace"
+    ),
+    yLabel: "lovelace per slot",
+    stroke: "metric",
+    addZeroRule: true,
+  });
 
   setView(root);
+}
+
+// Render a single Plot.line chart pane into a fresh <section>.
+// Try/catch wraps the Plot call so one broken pane (e.g. an
+// unexpected NaN in the value stream) doesn't kill the rest of the
+// view — it replaces the chart container with a muted message
+// instead. Records are pre-filtered by the caller.
+
+function renderChartPane(root, opts) {
+  const section = el("section");
+  section.append(el("h2", { text: opts.heading }));
+  const container = el("div", { class: "chart-pane" });
+  section.append(container);
+  root.append(section);
+
+  if (!opts.records || opts.records.length === 0) {
+    container.replaceChildren(el("p", {
+      class: "muted",
+      text: "(no records for this metric in this seed's time-series)",
+    }));
+    return;
+  }
+
+  try {
+    const marks = [];
+    if (opts.addZeroRule) marks.push(window.Plot.ruleY([0]));
+    marks.push(window.Plot.line(opts.records, {
+      x: "slot",
+      y: "value",
+      stroke: opts.stroke,
+    }));
+    const chart = window.Plot.plot({
+      width: 800,
+      height: 240,
+      color: { legend: true },
+      x: { label: "slot" },
+      y: { label: opts.yLabel },
+      marks: marks,
+    });
+    container.replaceChildren(chart);
+  } catch (e) {
+    container.replaceChildren(el("p", {
+      class: "muted",
+      text: "(chart failed: " + e.message + ")",
+    }));
+  }
 }
 
 // ----- Boot ---------------------------------------------------------

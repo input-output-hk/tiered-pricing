@@ -325,9 +325,10 @@ paragraph.
    governance-deadline pile-ons.
    Cardano's eUTxO model is structurally MEV-resistant (no global
    mempool), so the absence of strategic-actor modelling is mainnet-
-   faithful in shape; the canonical formal frame for the strategic-
-   bidder regime is Chung and Shi SODA 2023's impossibility result
-   for joint user-incentive-compatibility, miner-incentive-
+   faithful in shape. Chung and Shi's *Foundations of Transaction
+   Fee Mechanism Design* (SODA 2023) is relevant only as the formal
+   frame for the unmodelled strategic-bidder regime: joint
+   user-incentive-compatibility, miner/proposer-incentive-
    compatibility, and side-contract-proofness. See
    `RSK-demand-non-stationarity` and `RSK-substrate-scope` sub-point
    (c).

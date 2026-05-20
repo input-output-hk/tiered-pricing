@@ -77,7 +77,6 @@ contract) does not apply to the build's JSON shape.
 import argparse
 import csv
 import fnmatch
-import functools
 import json
 import sys
 from datetime import datetime
@@ -417,5 +416,262 @@ def load_seed(seed_dir, warnings):
 
 
 # --------------------------------------------------------- emit + CLI layer
-#  (Task 3 lands here: ``_build_suite_json``, ``_emit_seed_json``,
-#  ``run_build``, ``parse_args``, ``main``.)
+
+
+def _seed_headline(seed_data):
+    """Project the per-seed dict down to the cross-seed overlay
+    headline shape carried in the per-suite JSON.
+
+    Lets the browser build the in-suite cross-seed overlay (D-15 /
+    VIZ-05) directly from a single ``<suite>.json`` round-trip,
+    without re-fetching every per-(job, seed) JSON.
+    """
+    return {
+        "retained_value": seed_data["retained_value"],
+        "net_utility": seed_data["net_utility"],
+        "retained_value_ratio": seed_data["retained_value_ratio"],
+        "peak_mempool_bytes": seed_data["peak_mempool_bytes"],
+        "components": [
+            {
+                "index": c["index"],
+                "latency_blocks_mean": c["latency_blocks_mean"],
+                "priority_included": c["priority_included"],
+                "standard_included": c["standard_included"],
+            }
+            for c in seed_data["components"]
+        ],
+    }
+
+
+def _emit_seed_json(suite_id, job_name, seed, seed_payload, output):
+    """Write the per-(job, seed) JSON to
+    ``<output>/data/<suite_id>/<job>-<seed>.json``.
+
+    ``sort_keys=True`` and ``indent=2`` keep emission deterministic
+    across runs — diff-based testing on this output stays cheap.
+    """
+    path = output / "data" / suite_id / f"{job_name}-{seed}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w") as f:
+        json.dump(seed_payload, f, indent=2, sort_keys=True)
+
+
+def _build_suite_json(suite, source, output, warnings):
+    """Build the per-suite JSON (tier-2) and emit each per-(job, seed)
+    JSON (tier-3) as we go.
+
+    Returns the per-suite dict that ``run_build`` writes to
+    ``<output>/data/<suite_id>.json``.
+
+    The ``aggregates`` field is unconditionally ``None`` for phase-2.
+    Pitfall 3 / CRITICAL LANDMINE #2: phase-2's metrics writer emits
+    only ``metrics_comparison.txt`` (prose-Markdown). The historical
+    ``priority_only_fast_path_overall_comparison.csv`` lives under
+    ``sim-rs/output/analysis/`` from older work, not in any phase-2
+    suite. NEVER parse ``metrics_comparison.txt`` (Pitfall 4) —
+    every field it carries is also in ``run_summary.json``. If a
+    future iteration emits suite-level CSVs, populate this field
+    then; do not pretend it exists today.
+
+    ``manifest`` is round-tripped verbatim (kebab-cased keys intact)
+    so the browser's manifest summary panel can render the raw shape
+    without re-deriving anything.
+    """
+    suite_id = suite["id"]
+    manifest = suite["manifest"]
+    suite_dir = suite["dir"]
+    jobs_out = {}
+    for job_name, seeds in suite["jobs"].items():
+        seeds_out = {}
+        for seed, job_entry in seeds.items():
+            seed_dir = suite_dir / job_name / str(seed)
+            seed_record = {
+                "status": job_entry.get("status"),
+                "started_at": job_entry.get("started-at-utc"),
+                "completed_at": job_entry.get("completed-at-utc"),
+            }
+            seed_payload = load_seed(seed_dir, warnings)
+            if seed_payload is not None:
+                seed_record["headline"] = _seed_headline(seed_payload)
+                # tier-3: per-(job, seed) JSON, includes the time-series.
+                full_payload = dict(seed_payload)
+                full_payload["suite_id"] = suite_id
+                full_payload["job"] = job_name
+                full_payload["seed"] = str(seed)
+                _emit_seed_json(suite_id, job_name, str(seed), full_payload, output)
+            else:
+                seed_record["headline"] = None
+            seeds_out[str(seed)] = seed_record
+        jobs_out[job_name] = {"seeds": seeds_out}
+
+    return {
+        "id": suite_id,
+        "name": suite["name"],
+        "path": suite["rel_path"],
+        "started_at": suite["started_at"],
+        "manifest": manifest,
+        "jobs": jobs_out,
+        # Pitfall 3 (priority_only_fast_path_overall_comparison.csv):
+        # no suite-level CSV is emitted in phase-2. ``aggregates`` is
+        # null unconditionally; the browser render path gates on it.
+        "aggregates": None,
+    }
+
+
+def _suite_index_entry(suite, suite_json):
+    """Build the per-suite entry that lands in ``index.json``.
+
+    ``max_concurrent_jobs`` is the RESEARCH.md Open Question #1
+    proxy: the runner's ``Manifest`` carries no explicit parallelism
+    field, so we derive an overlap-sweep proxy from the (started,
+    completed) timestamps on each (job, seed). Null when fewer than
+    two (job, seed) entries have parseable timestamps.
+    """
+    seeds_total = 0
+    completed = 0
+    for job_block in suite_json["jobs"].values():
+        for seed_record in job_block["seeds"].values():
+            seeds_total += 1
+            if seed_record.get("status") == "completed":
+                completed += 1
+    return {
+        "id": suite_json["id"],
+        "name": suite_json["name"],
+        "path": suite_json["path"],
+        "started_at": suite_json["started_at"],
+        "job_count": len(suite_json["jobs"]),
+        "seed_count": seeds_total,
+        "completed_count": completed,
+        "max_concurrent_jobs": _max_concurrent_jobs(suite["manifest"]),
+    }
+
+
+def run_build(source, output, includes, excludes, warnings):
+    """Top-level builder.
+
+    Resolves ``source`` to an absolute path, discovers every suite
+    via ``discover_suites``, builds + emits per-suite JSONs (tier-2)
+    and per-(job, seed) JSONs (tier-3), then writes
+    ``<output>/data/index.json`` (tier-1).
+
+    Every error path appends to ``warnings`` and continues; the build
+    never exits non-zero on data errors (D-21). ``json.dump`` calls
+    use ``indent=2, sort_keys=True`` so emission is deterministic
+    across runs.
+    """
+    source = source.resolve()
+    output = output.resolve()
+    data_dir = output / "data"
+    data_dir.mkdir(parents=True, exist_ok=True)
+
+    suites = discover_suites(source, includes, excludes, warnings)
+    index_entries = []
+    for suite in suites:
+        try:
+            suite_json = _build_suite_json(suite, source, output, warnings)
+        except (OSError, KeyError, ValueError) as e:
+            warnings.append(f"skip suite {suite['id']}: build failed ({e})")
+            continue
+        suite_path = data_dir / f"{suite['id']}.json"
+        with open(suite_path, "w") as f:
+            json.dump(suite_json, f, indent=2, sort_keys=True)
+        index_entries.append(_suite_index_entry(suite, suite_json))
+
+    index = {
+        "generated_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "source": str(source),
+        "suite_count": len(index_entries),
+        "suites": index_entries,
+    }
+    with open(data_dir / "index.json", "w") as f:
+        json.dump(index, f, indent=2, sort_keys=True)
+
+
+# ------------------------------------------------------------- CLI surface
+
+
+def parse_args():
+    """Minimal argparse stub for the ingest layer.
+
+    Plan 01-04 (Wave 3) extends this with ``--serve`` / ``--port``
+    and the ``copy_static_assets`` hook. Flag names use kebab-case
+    (matching ``generate-realistic-100-topology.py``) and the
+    resulting Namespace exposes them as snake_case attributes.
+    """
+    parser = argparse.ArgumentParser(
+        description=(
+            "phase-2 simulator visualisation build script — ingests "
+            "sim-rs/output/ into a three-tier JSON layout for the "
+            "static browser bundle."
+        ),
+    )
+    parser.add_argument(
+        "--source",
+        type=Path,
+        default=Path("sim-rs/output"),
+        help=(
+            "Root directory to walk for manifest.json files "
+            "(default: sim-rs/output)."
+        ),
+    )
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=Path("sim-rs/output/viz"),
+        help=(
+            "Output directory for the generated bundle (default: "
+            "sim-rs/output/viz; gitignored transitively via the "
+            "existing sim-rs/.gitignore /output rule)."
+        ),
+    )
+    parser.add_argument(
+        "--include",
+        action="append",
+        default=[],
+        help=(
+            "Glob (matched against the relative-to-source path) to "
+            "include. May be passed multiple times. Empty = include all."
+        ),
+    )
+    parser.add_argument(
+        "--exclude",
+        action="append",
+        default=[],
+        help=(
+            "Glob (matched against the relative-to-source path) to "
+            "exclude. May be passed multiple times."
+        ),
+    )
+    return parser.parse_args()
+
+
+def main():
+    """Entry point: parse_args + run_build + report warnings.
+
+    Plan 01-04 lands the ``--serve`` / ``--port`` branch + the
+    ``copy_static_assets`` step that hangs ``static/`` next to
+    ``data/`` so the local HTTP server serves both. For now this
+    is a build-only stub.
+    """
+    args = parse_args()
+    warnings = []
+    run_build(
+        source=args.source,
+        output=args.output,
+        includes=args.include,
+        excludes=args.exclude,
+        warnings=warnings,
+    )
+    if warnings:
+        print(f"[warnings] {len(warnings)} issues:", file=sys.stderr)
+        for w in warnings:
+            print(f"  - {w}", file=sys.stderr)
+    print(
+        f"Wrote {args.output}/data/index.json "
+        f"(source={args.source})",
+        file=sys.stderr,
+    )
+
+
+if __name__ == "__main__":
+    main()

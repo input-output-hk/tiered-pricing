@@ -15,19 +15,19 @@ REQ-ID prefix: **VIZ-NN** — Visualisation Website work.
 
 ### Browsing
 
-- [ ] **VIZ-01** — A user can open the site locally and see a navigable list of suite runs that exist under [`sim-rs/output/`](../../../sim-rs/output/), with enough metadata per row (suite name, run date, parallelism, job count) to pick the right one. Acceptance: opening the site lists the existing ~100 suite runs without crawling output directories by hand.
+- [x] **VIZ-01** — A user can open the site locally and see a navigable list of suite runs that exist under [`sim-rs/output/`](../../../sim-rs/output/), with enough metadata per row (suite name, run date, parallelism, job count) to pick the right one. Acceptance: opening the site lists the existing ~100 suite runs without crawling output directories by hand.
 
-- [ ] **VIZ-02** — A user can drill into a single suite run and see its `manifest.json` summary, the suite's job list, and per-job seed inventory in a structured view. Acceptance: from the list in VIZ-01, one click reaches a "this suite ran X jobs at Y seeds, here is the manifest" view.
+- [x] **VIZ-02** — A user can drill into a single suite run and see its `manifest.json` summary, the suite's job list, and per-job seed inventory in a structured view. Acceptance: from the list in VIZ-01, one click reaches a "this suite ran X jobs at Y seeds, here is the manifest" view.
 
 ### Per-job visualisation
 
-- [ ] **VIZ-03** — A user can view the headline metrics for a selected (job, seed) pair: retained value, net utility, retained-value ratio, latency-by-lane, mempool depth. Acceptance: the same numbers that appear in the `metrics_comparison.txt` / per-job CSVs are rendered in a readable layout.
+- [x] **VIZ-03** — A user can view the headline metrics for a selected (job, seed) pair: retained value, net utility, retained-value ratio, latency-by-lane, mempool depth. Acceptance: the same numbers that appear in the `metrics_comparison.txt` / per-job CSVs are rendered in a readable layout.
 
-- [ ] **VIZ-04** — A user can view time-series plots for a selected (job, seed): controller `quote_per_byte` per lane, mempool size, `derived_quote` per block. Acceptance: opening the `time_series.csv` for a job renders as a multi-line chart with lane colouring rather than requiring a notebook.
+- [x] **VIZ-04** — A user can view time-series plots for a selected (job, seed): controller `quote_per_byte` per lane, mempool size, `derived_quote` per block. Acceptance: opening the `time_series.csv` for a job renders as a multi-line chart with lane colouring rather than requiring a notebook.
 
 ### Comparison
 
-- [ ] **VIZ-05** — A user can compare headline metrics across (job, seed) pairs within a suite, or across suites. Acceptance: the suite-level aggregate CSVs (e.g. `priority_only_fast_path_overall_comparison.csv`) are rendered as charts or tables alongside the relevant jobs.
+- [x] **VIZ-05** — A user can compare headline metrics across (job, seed) pairs within a suite, or across suites. Acceptance: the suite-level aggregate CSVs (e.g. `priority_only_fast_path_overall_comparison.csv`) are rendered as charts or tables alongside the relevant jobs.
 
 ### Local-first hosting
 

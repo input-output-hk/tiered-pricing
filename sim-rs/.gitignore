@@ -4,3 +4,7 @@ flamegraph.svg
 perf.data*
 .docker/
 *.tar
+
+# Python build/test artifacts (sim-rs/scripts/ + sim-rs/scripts/viz/tests/)
+__pycache__/
+*.pyc

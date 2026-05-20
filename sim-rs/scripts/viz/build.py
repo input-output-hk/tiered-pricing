@@ -153,8 +153,17 @@ def _max_concurrent_jobs(manifest):
     ``int`` >= 1 otherwise.
     """
     events = []
-    for job_entries in manifest.get("jobs", {}).values():
+    raw_jobs = manifest.get("jobs", {})
+    if not isinstance(raw_jobs, dict):
+        # Schema variance in real-world manifests; treat as
+        # "no parallelism signal available" rather than crashing.
+        return None
+    for job_entries in raw_jobs.values():
+        if not isinstance(job_entries, dict):
+            continue
         for entry in job_entries.values():
+            if not isinstance(entry, dict):
+                continue
             start = _iso_to_epoch(entry.get("started-at-utc"))
             end = _iso_to_epoch(entry.get("completed-at-utc"))
             if start is None or end is None:
@@ -481,9 +490,35 @@ def _build_suite_json(suite, source, output, warnings):
     manifest = suite["manifest"]
     suite_dir = suite["dir"]
     jobs_out = {}
-    for job_name, seeds in suite["jobs"].items():
+    raw_jobs = suite["jobs"]
+    # Defensive: the runner's persisted ``manifest.json`` carries
+    # ``jobs`` as a ``BTreeMap<String, BTreeMap<String, JobEntry>>``,
+    # serialised as a dict-of-dicts. Some legacy / hand-edited
+    # manifests in ``sim-rs/output/`` carry ``jobs`` as a list (or
+    # other unexpected shape); skip-and-warn instead of crashing
+    # (D-21 / Rule 2: missing critical handling).
+    if not isinstance(raw_jobs, dict):
+        warnings.append(
+            f"skip suite {suite_id}: jobs field is "
+            f"{type(raw_jobs).__name__} (expected dict-of-dicts)"
+        )
+        raw_jobs = {}
+    for job_name, seeds in raw_jobs.items():
         seeds_out = {}
+        if not isinstance(seeds, dict):
+            warnings.append(
+                f"skip job {suite_id}/{job_name}: seeds field is "
+                f"{type(seeds).__name__} (expected dict)"
+            )
+            jobs_out[job_name] = {"seeds": seeds_out}
+            continue
         for seed, job_entry in seeds.items():
+            if not isinstance(job_entry, dict):
+                warnings.append(
+                    f"skip {suite_id}/{job_name}/{seed}: entry is "
+                    f"{type(job_entry).__name__} (expected dict)"
+                )
+                continue
             seed_dir = suite_dir / job_name / str(seed)
             seed_record = {
                 "status": job_entry.get("status"),
@@ -569,13 +604,28 @@ def run_build(source, output, includes, excludes, warnings):
     for suite in suites:
         try:
             suite_json = _build_suite_json(suite, source, output, warnings)
-        except (OSError, KeyError, ValueError) as e:
-            warnings.append(f"skip suite {suite['id']}: build failed ({e})")
+        except (OSError, KeyError, ValueError, TypeError, AttributeError) as e:
+            # Broaden the catch: real-world manifests in
+            # sim-rs/output/ have surfaced jobs-as-list and other
+            # shape variances. D-21 says skip-and-warn, never crash;
+            # surfacing the exception type in the warning gives the
+            # operator a debugging hook.
+            warnings.append(
+                f"skip suite {suite['id']}: build failed "
+                f"({type(e).__name__}: {e})"
+            )
             continue
         suite_path = data_dir / f"{suite['id']}.json"
-        with open(suite_path, "w") as f:
-            json.dump(suite_json, f, indent=2, sort_keys=True)
-        index_entries.append(_suite_index_entry(suite, suite_json))
+        try:
+            with open(suite_path, "w") as f:
+                json.dump(suite_json, f, indent=2, sort_keys=True)
+            index_entries.append(_suite_index_entry(suite, suite_json))
+        except (OSError, KeyError, ValueError, TypeError, AttributeError) as e:
+            warnings.append(
+                f"skip suite {suite['id']} (emit): "
+                f"({type(e).__name__}: {e})"
+            )
+            continue
 
     index = {
         "generated_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),

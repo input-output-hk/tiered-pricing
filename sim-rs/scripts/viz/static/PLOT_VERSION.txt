@@ -1,0 +1,1 @@
+@observablehq/plot@0.6.17 retrieved 2026-05-20 from https://cdn.jsdelivr.net/npm/@observablehq/plot@0.6/dist/plot.umd.min.js

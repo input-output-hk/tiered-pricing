@@ -4,15 +4,15 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: 01
 current_plan: 6
-status: executing
-stopped_at: Plan 01-05 complete; ready for Plan 01-06 (README + end-to-end checkpoint)
-last_updated: "2026-05-20T12:33:39Z"
+status: phase-complete
+stopped_at: Phase 01 (viz-site-mvp) complete — all six VIZ-NN requirements met, README + CLAUDE.md crumb landed, end-to-end visual verification confirmed
+last_updated: "2026-05-20T13:00:00Z"
 last_activity: 2026-05-20
 progress:
   total_phases: 5
   completed_phases: 5
   total_plans: 17
-  completed_plans: 20
+  completed_plans: 21
   percent: 100
 ---
 
@@ -20,26 +20,26 @@ progress:
 
 ## Current Position
 
-Phase: 01 (viz-site-mvp) — EXECUTING
-Plan: 6 of 6
-**Status:** Plan 01-05 complete; ready for Plan 01-06
+Phase: 01 (viz-site-mvp) — COMPLETE
+Plan: 6 of 6 (final plan in the phase)
+**Status:** Phase 01 closed; viz site MVP shipped against `sim-rs/output/`
 **Current Phase:** 01
 **Last Activity:** 2026-05-20
-**Last Activity Description:** Completed Plan 01-05 (Wave 3 browser views): replaced the Plan 01-03 stub renderers in `sim-rs/scripts/viz/static/main.js` with real renderHome (sortable suite list, default sort started_at desc), renderSuite (manifest summary + sortable (job, seed) table + conditional aggregates panel + cross-seed time-series overlay), and renderJob (six-card headline strip + per-component latency table + three Observable Plot chart panes). 362 → 988 lines; security grep gates green (no innerHTML, no "latency by lane"); 17/17 existing tests still pass; HTTP smoke against mini-suite green.
+**Last Activity Description:** Completed Plan 01-06 (Wave 4 docs + end-to-end verification): shipped `sim-rs/scripts/viz/README.md` (201 lines — single command, all six argparse flags, three-tier output layout, Notes covering every Pitfall 1-8 / CRITICAL LANDMINE, annual refresh recipe covering both vendored Observable Plot AND its D3 peer dep) and added a `### Visualising suite results` breadcrumb subsection to `CLAUDE.md` under `## Running the suites`. Orchestrator's earlier end-to-end smoke (captured in this plan's SUMMARY Context & history) had already confirmed Plot charts render against the live `sim-rs/output/` tree once the d3 vendor fix landed at ca2b2be. 18/18 viz tests green. Phase 01 is operationally complete; no follow-on phases scheduled for this workstream in this milestone.
 
 ## Progress
 
-**Phases Complete:** 0 / 1
-**Current Plan:** 6
+**Phases Complete:** 1 / 1
+**Current Plan:** 6 (final)
 
 ## Plans Completed (this phase)
 
 - [x] 01-01 — Wave 1 test harness (fixtures + 11 RED tests)
 - [x] 01-02 — Wave 2 ingest module (build.py, three-tier JSON emission)
-- [x] 01-03 — Wave 2 static bundle (index.html, style.css, main.js, vendored plot.min.js)
+- [x] 01-03 — Wave 2 static bundle (index.html, style.css, main.js, vendored plot.min.js + d3.min.js peer dep)
 - [x] 01-04 — Wave 3 serve entry-point (--serve / --port, copy_static_assets, ThreadingHTTPServer bound to 127.0.0.1, serve smoke test)
 - [x] 01-05 — Wave 3 browser views (real renderHome/renderSuite/renderJob with three Plot chart panes + cross-seed overlay)
-- [ ] 01-06 — Wave 4 README + end-to-end checkpoint
+- [x] 01-06 — Wave 4 README + CLAUDE.md crumb + end-to-end checkpoint (orchestrator-confirmed)
 
 ## Decisions
 
@@ -53,8 +53,10 @@ Plan: 6 of 6
 - **Cross-seed overlay uses stroke: 'seed'; lane multi-line charts use stroke: 'lane'; fees+refunds chart uses stroke: 'metric'** — three distinct `stroke` channel choices across the four chart shapes match RESEARCH.md `## Code Examples` verbatim and surface the correct grouping at the legend level.
 - **Per-component latency table includes a derived 'dominant lane' column** — per RESEARCH.md Open Q #2 recommendation, surfaces lane info without mis-attributing the mean (which is computed over a mixed-lane observations list).
 - **Per-suite Promise cache (Map<suiteId, Promise<payload>>)** — back-button revisits hit memory, not network. Bounded by the number of suites the user actually clicks into; no explicit eviction policy in v1.
+- **D3 vendored as Observable Plot's peer dependency** — Plot's UMD bundle externalizes D3, so loading `plot.min.js` without a prior `d3.min.js` script tag yields `Cannot read properties of undefined (reading 'timeSecond')` / `Plot.ruleY is not a function`. Discovered + fixed at commit ca2b2be (`fix(01-03): vendor d3@7.9.0`); `index.html` loads `static/d3.min.js` BEFORE `static/plot.min.js`; `PLOT_VERSION.txt` records both pins; `test_d3_js_vendored_locally` (100 KB floor) locks the dep.
+- **README is the canonical entry-point + CLAUDE.md is the breadcrumb** — Plan 01-06 added `sim-rs/scripts/viz/README.md` (the single documented command + full flag reference + three-tier output layout + every Pitfall 1-8 / CRITICAL LANDMINE surfaced + annual refresh recipe for both vendored bundles) and a two-paragraph `### Visualising suite results` subsection in `CLAUDE.md` under `## Running the suites`. The README is the deep doc; CLAUDE.md is the discovery breadcrumb from the primary project doc. Closes VIZ-06.
 
 ## Session Continuity
 
-**Stopped At:** Plan 01-05 complete; ready for Plan 01-06
+**Stopped At:** Phase 01 (viz-site-mvp) complete — all six VIZ-NN requirements met, README + CLAUDE.md crumb landed, end-to-end visual verification confirmed
 **Resume File:** None

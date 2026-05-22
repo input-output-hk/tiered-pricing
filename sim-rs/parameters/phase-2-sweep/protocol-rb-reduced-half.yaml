@@ -11,7 +11,7 @@
 #
 # Total per-slot priority capacity: 2 × 45056 = 90 KB (vs baseline 180 KB).
 
-leios-variant: linear
+leios-variant: linear-with-tx-references
 timestamp-resolution-ms: 0.05
 
 min-fee-a: 44
@@ -31,6 +31,7 @@ vote-threshold: 450
 linear-vote-stage-length-slots: 4
 linear-diffuse-stage-length-slots: 7
 eb-referenced-txs-max-size-bytes: 12000000
+eb-max-size-bytes: 512000
 eb-body-validation-cpu-time-ms-per-byte: 2.15e-5
 
 # RB-scarcity knob.

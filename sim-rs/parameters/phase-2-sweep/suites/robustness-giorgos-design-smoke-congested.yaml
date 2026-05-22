@@ -1,0 +1,18 @@
+# Giorgos-design-only FIFO smoke under paper_like_congested.
+#
+# One seed, one job. Use this for a quick standalone check of Giorgos'
+# RB-reserved both-dynamic design where EB inclusions pay standard
+# price while priority-posted EB bytes still feed the priority
+# controller.
+
+suite-name: robustness-giorgos-design-smoke-congested
+output-dir: output/robustness/giorgos-design-smoke-congested
+seeds: [1]
+default-slots: 2000
+default-topology: parameters/phase-2-sweep/topology-realistic-100.yaml
+default-protocol: parameters/phase-2-sweep/protocol-base.yaml
+default-demand: parameters/phase-2-sweep/demand/paper_like_congested.yaml
+
+jobs:
+  - name: giorgos_design_rb_reserved_both_dynamic_eb_standard_fifo_x4
+    pricing: parameters/phase-2-sweep/pricing/two_lane_giorgos_rb_reserved_both_dynamic_eb_standard_x4_fifo.yaml

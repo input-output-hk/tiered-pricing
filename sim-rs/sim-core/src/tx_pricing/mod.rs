@@ -149,8 +149,7 @@ pub trait ChainView {
 
     /// `derived_quote` of a given canonical block (read of the field).
     /// `None` when the block is not on this node's canonical chain.
-    fn derived_quote(&self, block_id: crate::model::BlockId)
-        -> Option<crate::model::PerLaneQuote>;
+    fn derived_quote(&self, block_id: crate::model::BlockId) -> Option<crate::model::PerLaneQuote>;
 
     /// `window_aggregate` of a given canonical block (for incremental
     /// updates). `None` when the block is not on this node's canonical
@@ -213,6 +212,15 @@ pub trait PricingBackend: Send + Sync {
         LaneSelectionOrder::Fifo
     }
 
+    /// Whether EB inclusions are always charged at the standard lane
+    /// quote regardless of their posted lane. Default is false; this
+    /// is used by the Giorgos RB-reserved both-dynamic design, where
+    /// EB priority-posted bytes still feed the priority controller but
+    /// EB txs pay the standard price.
+    fn eb_inclusions_pay_standard(&self) -> bool {
+        false
+    }
+
     /// Rational multiplier-floor for two-lane backends. `None` for
     /// single-lane.
     fn min_priority_premium_multiplier(&self) -> Option<Multiplier> {
@@ -260,10 +268,15 @@ pub fn snapshot_at(
             Some(u64::try_from(scaled).unwrap_or(u64::MAX))
         }
     }
-    let standard_util = util_x_1e9(aggregate.standard_sum_bytes, aggregate.standard_sum_capacity);
+    let standard_util = util_x_1e9(
+        aggregate.standard_sum_bytes,
+        aggregate.standard_sum_capacity,
+    );
     if is_two_lane {
-        let priority_util =
-            util_x_1e9(aggregate.priority_sum_bytes, aggregate.priority_sum_capacity);
+        let priority_util = util_x_1e9(
+            aggregate.priority_sum_bytes,
+            aggregate.priority_sum_capacity,
+        );
         PricingSnapshot {
             standard_quote_per_byte: derived_quote.standard,
             priority_quote_per_byte: Some(derived_quote.priority),

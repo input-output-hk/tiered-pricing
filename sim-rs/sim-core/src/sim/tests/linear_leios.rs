@@ -235,21 +235,44 @@ impl TestDriver {
         rb: Arc<LinearRankingBlock>,
         eb: Option<Arc<LinearEndorserBlock>>,
     ) {
-        self.expect_message(from, to, Message::AnnounceRBHeader(rb.header.id));
-        self.expect_message(to, from, Message::RequestRBHeader(rb.header.id));
+        let (has_body, has_eb) = self
+            .queued
+            .get(&from)
+            .and_then(|queued| {
+                queued.messages.iter().find_map(|(target, msg)| match msg {
+                    Message::RBHeader(header, has_body, has_eb)
+                        if *target == to && *header == rb.header =>
+                    {
+                        Some((*has_body, *has_eb))
+                    }
+                    _ => None,
+                })
+            })
+            .unwrap_or_else(|| {
+                panic!(
+                    "RB header {:?} was not sent from {from} to {to}",
+                    rb.header.id
+                )
+            });
         self.expect_message(
             from,
             to,
-            Message::RBHeader(rb.header.clone(), true, eb.is_some()),
+            Message::RBHeader(rb.header.clone(), has_body, has_eb),
         );
         self.expect_cpu_task(
             to,
-            CpuTask::RBHeaderValidated(from, rb.header.clone(), true, eb.is_some()),
+            CpuTask::RBHeaderValidated(from, rb.header.clone(), has_body, has_eb),
         );
+        if !has_body {
+            self.expect_message(from, to, Message::AnnounceRB(rb.header.id));
+        }
         self.expect_message(to, from, Message::RequestRB(rb.header.id));
         self.expect_message(from, to, Message::RB(rb.clone()));
         self.expect_cpu_task(to, CpuTask::RBBlockValidated(rb));
         if let Some(eb) = eb {
+            if !has_eb {
+                self.expect_message(from, to, Message::AnnounceEB(eb.id()));
+            }
             self.expect_message(to, from, Message::RequestEB(eb.id()));
             self.expect_message(from, to, Message::EB(eb.clone()));
             self.expect_cpu_task(to, CpuTask::EBHeaderValidated(from, eb));

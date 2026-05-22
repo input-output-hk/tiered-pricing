@@ -1,0 +1,53 @@
+# Robustness smoke probe for FIFO mempool scan order, under paper_like_congested.
+#
+# Companion to robustness-fifo-smoke.yaml (which runs under sundaeswap_moderate).
+# At sundaeswap_moderate the demand never approaches the priority-partition
+# capacity, so every mechanism delivers ~98–100% inclusion and the within-block
+# urgency separation collapses. This congested variant uses the same menu
+# plus Giorgos' design, but swaps in the paper_like_congested demand profile — phased 300 / 600 / 200
+# tx/slot, peaking well above the RB body cap — so the priority lane is
+# actually contested and the urgency separation (or its absence) becomes
+# visible.
+#
+# Scope note: `lane-selection-order: fifo` disables priority sorting in the
+# existing block builder. It does not implement the stricter reserved-FIFO
+# scanner that caps standard service while walking the mempool. Treat this as
+# a smoke test for the mempool arrangement under load, not the final
+# Cardano-style reserved-mempool model.
+
+suite-name: robustness-fifo-smoke-congested
+output-dir: output/robustness/fifo-smoke-congested
+seeds: [1, 2, 3]
+default-slots: 2000
+default-topology: parameters/phase-2-sweep/topology-realistic-100.yaml
+default-protocol: parameters/phase-2-sweep/protocol-base.yaml
+default-demand: parameters/phase-2-sweep/demand/paper_like_congested.yaml
+
+jobs:
+  # --- Menu option 1: RB-reserved priority-only-static, FIFO ---
+  - name: rb_reserved_priority_only_static_fifo_x4
+    pricing: parameters/phase-2-sweep/pricing/two_lane_priority_only_static_x4_fifo.yaml
+
+  # --- Menu option 2: un-reserved priority-only-static, FIFO ---
+  - name: unreserved_priority_only_static_fifo_x4
+    pricing: parameters/phase-2-sweep/pricing/two_lane_priority_only_unreserved_x4_fifo.yaml
+
+  # --- Menu option 3: RB-reserved both-dynamic, FIFO ---
+  - name: rb_reserved_both_dynamic_fifo_x4
+    pricing: parameters/phase-2-sweep/pricing/two_lane_both_dynamic_partitioned_x4_fifo.yaml
+
+  # --- Giorgos design: RB-reserved both-dynamic, EB pays standard, FIFO ---
+  - name: giorgos_design_rb_reserved_both_dynamic_eb_standard_fifo_x4
+    pricing: parameters/phase-2-sweep/pricing/two_lane_giorgos_rb_reserved_both_dynamic_eb_standard_x4_fifo.yaml
+
+  # --- Menu option 4: un-reserved both-dynamic, FIFO ---
+  - name: unreserved_both_dynamic_fifo_x4
+    pricing: parameters/phase-2-sweep/pricing/two_lane_both_dynamic_unreserved_x4_fifo.yaml
+
+  # --- Control: flat-fee baseline ("no mechanisms") ---
+  - name: control_baseline_flat_fee
+    pricing: parameters/phase-2-sweep/pricing/baseline_flat_fee.yaml
+
+  # --- Control: single-lane EIP-1559 ---
+  - name: control_eip1559_d8_t50_w32
+    pricing: parameters/phase-2-sweep/pricing/eip1559_d8_target0.5_window32.yaml

@@ -20,8 +20,7 @@ use crate::model::{PerLaneQuote, WindowAggregate};
 
 use super::{
     BlockKind, BlockLaneBreakdown, Eip1559Settings, Lane, LaneSelectionOrder, LaneValidityRule,
-    Multiplier, PricedBlockSample, PricingBackend,
-    single_lane::compute_eip1559_step,
+    Multiplier, PricedBlockSample, PricingBackend, single_lane::compute_eip1559_step,
     window::update_aggregate,
 };
 
@@ -38,6 +37,11 @@ pub enum TwoLaneVariant {
     /// RB-reserved partition; both controllers dynamic.
     /// Mechanism-design.md §"Both-dynamic" (partitioned variant).
     RbReservedBothDynamic,
+    /// Giorgos' RB-reserved both-dynamic design: RBs are priority-only;
+    /// EB priority-posted bytes feed the priority controller capped at
+    /// one RB-worth; EB inclusions are always charged at the standard
+    /// quote.
+    GiorgosRbReservedBothDynamic,
     /// No partition; priority dynamic; standard fixed at `c = 1`.
     /// Mechanism-design.md §"Un-reserved priority-only premium".
     UnreservedPriorityOnly,
@@ -52,7 +56,9 @@ impl TwoLaneVariant {
     pub fn standard_dynamic(self) -> bool {
         matches!(
             self,
-            Self::RbReservedBothDynamic | Self::UnreservedBothDynamic
+            Self::RbReservedBothDynamic
+                | Self::GiorgosRbReservedBothDynamic
+                | Self::UnreservedBothDynamic
         )
     }
 
@@ -61,8 +67,16 @@ impl TwoLaneVariant {
     pub fn rb_priority_only(self) -> bool {
         matches!(
             self,
-            Self::RbReservedPriorityOnly | Self::RbReservedBothDynamic
+            Self::RbReservedPriorityOnly
+                | Self::RbReservedBothDynamic
+                | Self::GiorgosRbReservedBothDynamic
         )
+    }
+
+    /// True for the Giorgos design: EBs use standard-price charging
+    /// while retaining the RB-reserved both-dynamic controller signal.
+    pub fn eb_inclusions_pay_standard(self) -> bool {
+        matches!(self, Self::GiorgosRbReservedBothDynamic)
     }
 }
 
@@ -246,7 +260,10 @@ impl PricingBackend for TwoLanePricing {
             parent_aggregate,
             parent_samples,
             evicted_samples,
-            self.settings.priority.window_length.max(self.settings.standard.window_length),
+            self.settings
+                .priority
+                .window_length
+                .max(self.settings.standard.window_length),
         );
 
         // Step 2: priority controller step. Skip when the priority
@@ -256,7 +273,11 @@ impl PricingBackend for TwoLanePricing {
             parent_quote.priority
         } else {
             let (p_num, p_den) = new_aggregate.aggregate_util(Lane::Priority);
-            compute_eip1559_step(parent_quote.priority, (p_num, p_den), &self.settings.priority)
+            compute_eip1559_step(
+                parent_quote.priority,
+                (p_num, p_den),
+                &self.settings.priority,
+            )
         };
 
         // Step 3: standard controller step (or pin to min_fee_a for
@@ -267,7 +288,11 @@ impl PricingBackend for TwoLanePricing {
                 parent_quote.standard
             } else {
                 let (s_num, s_den) = new_aggregate.aggregate_util(Lane::Standard);
-                compute_eip1559_step(parent_quote.standard, (s_num, s_den), &self.settings.standard)
+                compute_eip1559_step(
+                    parent_quote.standard,
+                    (s_num, s_den),
+                    &self.settings.standard,
+                )
             }
         } else {
             // Pin c_standard = 1 (mechanism-design.md §"RB-reserved
@@ -337,6 +362,10 @@ impl PricingBackend for TwoLanePricing {
         self.settings.lane_selection_order
     }
 
+    fn eb_inclusions_pay_standard(&self) -> bool {
+        self.settings.variant.eb_inclusions_pay_standard()
+    }
+
     fn min_priority_premium_multiplier(&self) -> Option<Multiplier> {
         Some(self.settings.multiplier_floor)
     }
@@ -350,7 +379,9 @@ impl PricingBackend for TwoLanePricing {
         // branching on (variant, block_kind).
         match (self.settings.variant, block_kind) {
             (
-                TwoLaneVariant::RbReservedPriorityOnly | TwoLaneVariant::RbReservedBothDynamic,
+                TwoLaneVariant::RbReservedPriorityOnly
+                | TwoLaneVariant::RbReservedBothDynamic
+                | TwoLaneVariant::GiorgosRbReservedBothDynamic,
                 BlockKind::RankingBlock,
             ) => {
                 debug_assert_eq!(
@@ -365,7 +396,9 @@ impl PricingBackend for TwoLanePricing {
                 }]
             }
             (
-                TwoLaneVariant::RbReservedPriorityOnly | TwoLaneVariant::RbReservedBothDynamic,
+                TwoLaneVariant::RbReservedPriorityOnly
+                | TwoLaneVariant::RbReservedBothDynamic
+                | TwoLaneVariant::GiorgosRbReservedBothDynamic,
                 BlockKind::EndorserBlock,
             ) => {
                 let cap = self.settings.priority_reservation_bytes;
@@ -376,7 +409,11 @@ impl PricingBackend for TwoLanePricing {
                     relevant_bytes: priority_bytes,
                     relevant_capacity: cap,
                 }];
-                if matches!(self.settings.variant, TwoLaneVariant::RbReservedBothDynamic) {
+                if matches!(
+                    self.settings.variant,
+                    TwoLaneVariant::RbReservedBothDynamic
+                        | TwoLaneVariant::GiorgosRbReservedBothDynamic
+                ) {
                     out.push(PricedBlockSample {
                         block_kind,
                         controller_lane: Lane::Standard,
@@ -474,13 +511,15 @@ mod tests {
             }],
             &[],
         );
-        assert_eq!(q.standard, 44, "priority-only variant must not move c_standard");
+        assert_eq!(
+            q.standard, 44,
+            "priority-only variant must not move c_standard"
+        );
     }
 
     #[test]
     fn multiplier_floor_holds_at_construction() {
-        let pricing =
-            TwoLanePricing::new(settings(TwoLaneVariant::RbReservedBothDynamic)).unwrap();
+        let pricing = TwoLanePricing::new(settings(TwoLaneVariant::RbReservedBothDynamic)).unwrap();
         let q_p = pricing.cold_start_quote(Lane::Priority);
         let q_s = pricing.cold_start_quote(Lane::Standard);
         assert_eq!(q_s, 44);
@@ -489,8 +528,7 @@ mod tests {
 
     #[test]
     fn multiplier_floor_holds_after_standard_moves_up() {
-        let pricing =
-            TwoLanePricing::new(settings(TwoLaneVariant::RbReservedBothDynamic)).unwrap();
+        let pricing = TwoLanePricing::new(settings(TwoLaneVariant::RbReservedBothDynamic)).unwrap();
         let mut q = PerLaneQuote {
             standard: pricing.cold_start_quote(Lane::Standard),
             priority: pricing.cold_start_quote(Lane::Priority),
@@ -519,8 +557,7 @@ mod tests {
 
     #[test]
     fn rb_reserved_only_emits_priority_sample_for_rb() {
-        let pricing =
-            TwoLanePricing::new(settings(TwoLaneVariant::RbReservedBothDynamic)).unwrap();
+        let pricing = TwoLanePricing::new(settings(TwoLaneVariant::RbReservedBothDynamic)).unwrap();
         let breakdown = BlockLaneBreakdown {
             priority_paying_bytes: 90_000,
             standard_paying_bytes: 0,
@@ -557,8 +594,7 @@ mod tests {
 
     #[test]
     fn rb_reserved_both_dynamic_eb_emits_two_samples() {
-        let pricing =
-            TwoLanePricing::new(settings(TwoLaneVariant::RbReservedBothDynamic)).unwrap();
+        let pricing = TwoLanePricing::new(settings(TwoLaneVariant::RbReservedBothDynamic)).unwrap();
         let breakdown = BlockLaneBreakdown {
             priority_paying_bytes: 50_000,
             standard_paying_bytes: 5_000_000,
@@ -581,6 +617,36 @@ mod tests {
     }
 
     #[test]
+    fn giorgos_design_eb_emits_rb_reserved_both_dynamic_samples() {
+        let pricing =
+            TwoLanePricing::new(settings(TwoLaneVariant::GiorgosRbReservedBothDynamic)).unwrap();
+        let breakdown = BlockLaneBreakdown {
+            priority_paying_bytes: 120_000,
+            standard_paying_bytes: 5_000_000,
+            block_capacity: 12_000_000,
+        };
+        let samples = pricing.samples_for_block(BlockKind::EndorserBlock, &breakdown);
+        assert_eq!(samples.len(), 2);
+        let priority = samples
+            .iter()
+            .find(|s| s.controller_lane == Lane::Priority)
+            .unwrap();
+        let standard = samples
+            .iter()
+            .find(|s| s.controller_lane == Lane::Standard)
+            .unwrap();
+        assert_eq!(priority.relevant_bytes, 90_000);
+        assert_eq!(priority.relevant_capacity, 90_000);
+        assert_eq!(standard.relevant_bytes, 5_000_000);
+        assert_eq!(standard.relevant_capacity, 12_000_000);
+        assert!(pricing.eb_inclusions_pay_standard());
+        assert_eq!(
+            pricing.lane_validity_rule(BlockKind::RankingBlock),
+            LaneValidityRule::PriorityOnly
+        );
+    }
+
+    #[test]
     fn unreserved_priority_only_emits_only_priority_sample() {
         let pricing =
             TwoLanePricing::new(settings(TwoLaneVariant::UnreservedPriorityOnly)).unwrap();
@@ -598,8 +664,7 @@ mod tests {
 
     #[test]
     fn unreserved_both_dynamic_emits_two_samples_for_each_block_kind() {
-        let pricing =
-            TwoLanePricing::new(settings(TwoLaneVariant::UnreservedBothDynamic)).unwrap();
+        let pricing = TwoLanePricing::new(settings(TwoLaneVariant::UnreservedBothDynamic)).unwrap();
         let breakdown = BlockLaneBreakdown {
             priority_paying_bytes: 30_000,
             standard_paying_bytes: 60_000,
@@ -650,8 +715,7 @@ mod tests {
     fn rb_reserved_standard_isolation_does_not_move_c_standard_on_priority_rb() {
         // Plan line 313: a saturated priority-only RB updates c_priority
         // but does **not** change c_standard or its window samples.
-        let pricing =
-            TwoLanePricing::new(settings(TwoLaneVariant::RbReservedBothDynamic)).unwrap();
+        let pricing = TwoLanePricing::new(settings(TwoLaneVariant::RbReservedBothDynamic)).unwrap();
         let parent_q = PerLaneQuote {
             standard: pricing.cold_start_quote(Lane::Standard),
             priority: pricing.cold_start_quote(Lane::Priority),
@@ -704,8 +768,7 @@ mod tests {
         // Spike 007 §"Slot-battle resolution under chain-derived":
         // two children of the same parent with identical compute
         // inputs must produce identical (PerLaneQuote, WindowAggregate).
-        let pricing =
-            TwoLanePricing::new(settings(TwoLaneVariant::RbReservedBothDynamic)).unwrap();
+        let pricing = TwoLanePricing::new(settings(TwoLaneVariant::RbReservedBothDynamic)).unwrap();
         let parent_q = PerLaneQuote {
             standard: pricing.cold_start_quote(Lane::Standard),
             priority: pricing.cold_start_quote(Lane::Priority),
@@ -717,10 +780,8 @@ mod tests {
             block_capacity: 12_000_000,
         };
         let samples = pricing.samples_for_block(BlockKind::EndorserBlock, &breakdown);
-        let (a_q, a_agg) =
-            pricing.compute_derived_quote(parent_q, parent_agg, &samples, &[]);
-        let (b_q, b_agg) =
-            pricing.compute_derived_quote(parent_q, parent_agg, &samples, &[]);
+        let (a_q, a_agg) = pricing.compute_derived_quote(parent_q, parent_agg, &samples, &[]);
+        let (b_q, b_agg) = pricing.compute_derived_quote(parent_q, parent_agg, &samples, &[]);
         assert_eq!(a_q, b_q, "sibling derived_quote must be identical");
         assert_eq!(a_agg, b_agg, "sibling window_aggregate must be identical");
     }

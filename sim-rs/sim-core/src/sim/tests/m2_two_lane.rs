@@ -733,6 +733,64 @@ fn eb_partition_unit_test_four_cases() {
     );
 }
 
+#[test]
+fn giorgos_design_eb_inclusions_pay_standard_even_when_partition_activated() {
+    let cfg = RawPricingConfig::TwoLane(two_lane_cfg(
+        RawTwoLaneVariant::GiorgosRbReservedBothDynamic,
+        LaneSelectionOrder::Fifo,
+    ));
+    let mut sim = TwoLaneDriver::new(cfg);
+    let max_fee = MIN_FEE_B + 1_000 * RB_BODY_MAX;
+    let priority_a = sim.make_tx(30_000, max_fee, Lane::Priority);
+    let standard = sim.make_tx(30_000, max_fee, Lane::Standard);
+    let priority_b = sim.make_tx(30_000, max_fee, Lane::Priority);
+    let txs = vec![priority_a, standard, priority_b];
+
+    let producer = sim.producer_id();
+    let node = sim.nodes.get(&producer).unwrap();
+    let served = node.test_eb_served_lanes(&txs, true, true);
+
+    assert_eq!(
+        served,
+        vec![Lane::Standard, Lane::Standard, Lane::Standard],
+        "Giorgos design charges all EB inclusions at standard price"
+    );
+}
+
+#[test]
+fn giorgos_design_eb_endorsement_validates_against_standard_price() {
+    let priority_max_fee_insufficient = MIN_FEE_B + MIN_FEE_A * TX_BYTES_DEFAULT;
+    let priority_tx_under_priority_quote = |sim: &mut TwoLaneDriver| {
+        sim.make_tx(
+            TX_BYTES_DEFAULT,
+            priority_max_fee_insufficient,
+            Lane::Priority,
+        )
+    };
+
+    let mut giorgos = TwoLaneDriver::new(RawPricingConfig::TwoLane(two_lane_cfg(
+        RawTwoLaneVariant::GiorgosRbReservedBothDynamic,
+        LaneSelectionOrder::Fifo,
+    )));
+    let tx = priority_tx_under_priority_quote(&mut giorgos);
+    let node = giorgos.nodes.get(&giorgos.producer_id()).unwrap();
+    assert!(
+        node.test_eb_endorsement_valid(&[tx]),
+        "Giorgos EB tx pays standard price, so standard-fee max_fee is enough"
+    );
+
+    let mut rb_reserved = TwoLaneDriver::new(RawPricingConfig::TwoLane(two_lane_cfg(
+        RawTwoLaneVariant::RbReservedBothDynamic,
+        LaneSelectionOrder::Fifo,
+    )));
+    let tx = priority_tx_under_priority_quote(&mut rb_reserved);
+    let node = rb_reserved.nodes.get(&rb_reserved.producer_id()).unwrap();
+    assert!(
+        !node.test_eb_endorsement_valid(&[tx]),
+        "ordinary RB-reserved both-dynamic validates priority EB txs against priority quote"
+    );
+}
+
 // ============================================================================
 // Tests — EB-validation-at-endorsement (handoff §4 / approved scope)
 // ============================================================================
@@ -976,9 +1034,11 @@ fn sibling_rbs_produce_identical_derived_quote_pure() {
     // assertion they are guaranteed to produce identical
     // derived_quote.
     use crate::model::{PerLaneQuote, WindowAggregate};
-    use crate::tx_pricing::{BlockKind, BlockLaneBreakdown, PricingBackend, TwoLaneSettings, Multiplier};
     use crate::tx_pricing::single_lane::Eip1559Settings;
     use crate::tx_pricing::two_lane::{TwoLanePricing, TwoLaneVariant};
+    use crate::tx_pricing::{
+        BlockKind, BlockLaneBreakdown, Multiplier, PricingBackend, TwoLaneSettings,
+    };
     let settings = TwoLaneSettings {
         variant: TwoLaneVariant::RbReservedBothDynamic,
         priority: Eip1559Settings {
@@ -1048,7 +1108,11 @@ fn derived_quote_field_propagates_through_publish_rb() {
         "derived_quote.standard must not be the refactor sentinel u64::MAX"
     );
     if let Some(p) = snapshot.priority_quote_per_byte {
-        assert_ne!(p, u64::MAX, "derived_quote.priority must not be the sentinel");
+        assert_ne!(
+            p,
+            u64::MAX,
+            "derived_quote.priority must not be the sentinel"
+        );
     }
     // And the standard quote should be ≥ min_fee_a — the floor invariant
     assert!(snapshot.standard_quote_per_byte >= MIN_FEE_A);
@@ -1113,40 +1177,23 @@ fn slot_battle_does_not_contaminate_canonical_quote() {
 }
 
 #[test]
-fn admission_uses_post_step_quote_at_chain_tip() {
-    // Regression test for the chain-derived one-step-lag bug fixed
-    // 2026-05-14 (see .planning/chain-derived-bug-investigation.md).
-    //
-    // The chain tip's stored `rb.derived_quote` is the controller state
-    // *at the moment that RB was produced* — stepped from its parent's
-    // samples, NOT the tip's own samples. Legacy accumulator's
-    // `pricing.current_quote()` returned the state AFTER
-    // `apply_priced_block(tip)` had folded in the tip's own samples.
+fn admission_uses_canonical_chain_tip_quote() {
+    // Regression test for the chain-derived quote contract fixed in
+    // the 2026-05 chain-derived workstream.
     //
     // The consumer-visible quote (`current_chain_tip_quote`, used by
-    // admission, lane choice, EB endorsement validation, EB inclusion
-    // charging) MUST return the post-step state — i.e., what a
-    // hypothetical child of the tip would have as its `derived_quote`.
-    //
-    // Pre-fix bug: `current_chain_tip_quote` returned `rb.derived_quote`
-    // directly, which is one controller step behind. RB-body inclusion
-    // charging consumes the new block's own `rb.derived_quote` (the
-    // correct post-step value), creating an asymmetry: admission saw
-    // q_{N-1, post step with N-2's samples}; charging saw
-    // q_{N, post step with N-1's samples}. Under D=4 each step moves
-    // by ±25%, compounding into the 10× endpoint divergence and
-    // welfare sign-flip observed on `eip1559_d4_t50_w32`.
+    // admission, lane choice, EB endorsement validation, and EB
+    // inclusion charging) must be the canonical quote carried by the
+    // chain tip. It must not be a locally recomputed hypothetical child
+    // quote, because that path depends on the node-local sample cache
+    // and can diverge while endorsed EBs are still being downloaded or
+    // validated.
     //
     // The assertion: produce several priced blocks under a reactive
-    // single-lane EIP-1559 controller (D=4, w=4 — same shape as the
-    // regression case scaled down for unit-test runtime) with
-    // saturating demand so the controller actually steps. After the
-    // window has accumulated non-trivial samples, the consumer-visible
-    // chain-tip quote MUST equal what
-    // `compute_chain_derived_quote_for_child_of(tip)` computes — and
-    // MUST differ from the tip's stored `derived_quote` (since the
-    // most-recently-produced block contributed samples that the
-    // controller has yet to fold in).
+    // single-lane EIP-1559 controller (D=4, w=4) with saturating demand
+    // so the controller actually steps. Once the controller has moved
+    // off cold start, the consumer-visible quote must exactly match
+    // the tip's stored `derived_quote`.
     let cfg = RawPricingConfig::Eip1559(RawEip1559Config {
         initial_quote_per_byte: MIN_FEE_A,
         target_num: 1,
@@ -1171,12 +1218,7 @@ fn admission_uses_post_step_quote_at_chain_tip() {
     }
     let producer = sim.producer_id();
     let node = sim.nodes.get(&producer).unwrap();
-    // Consumer-visible quote = what admission, lane choice, EB
-    // endorsement validation, and EB inclusion charging actually read.
     let consumer_q = node.current_chain_tip_quote_for_test(Lane::Standard);
-    // The tip's stored `derived_quote` — pre-fix bug: this was what
-    // `current_chain_tip_quote` returned. One step behind the
-    // consumer-visible quote.
     let stored_q = node
         .chain_tip_stored_derived_quote_for_test(Lane::Standard)
         .expect("chain tip must exist after 6 produced RBs");
@@ -1190,22 +1232,11 @@ fn admission_uses_post_step_quote_at_chain_tip() {
          (= cold-start) means demand never saturated. Increase per-slot \
          tx count or block count."
     );
-    // The core regression assertion: the consumer-visible quote must
-    // be the POST-step state, NOT the chain tip's stored derived_quote.
-    // These differ because the chain tip emitted a non-empty sample
-    // batch (saturated RB body) which has not yet been folded into the
-    // tip's stored derived_quote (that was stepped from the tip's
-    // PARENT's samples). Pre-fix: these two values were identical
-    // (both = stored_q). Post-fix: consumer_q reflects the additional
-    // step from folding in the tip's own samples.
-    assert_ne!(
+    assert_eq!(
         consumer_q, stored_q,
-        "current_chain_tip_quote must return the post-step state \
-         (after folding in the tip's own samples), not the tip's \
-         stored derived_quote (which is one step behind). \
-         consumer_q={consumer_q} stored_q={stored_q} — if these are \
-         equal under saturating demand, the one-step-lag bug has \
-         regressed."
+        "current_chain_tip_quote must read the canonical tip's stored \
+         derived_quote, not a hypothetical child quote. \
+         consumer_q={consumer_q} stored_q={stored_q}"
     );
 }
 

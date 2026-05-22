@@ -1,0 +1,68 @@
+# Robustness smoke probe for FIFO mempool scan order, under
+# sundaeswap_overcapacity.
+#
+# Fourth companion to the fifo-smoke family:
+#   - robustness-fifo-smoke.yaml                    — sundaeswap_moderate
+#     (no congestion; demand ≈ 8% of capacity)
+#   - robustness-fifo-smoke-congested.yaml          — paper_like_congested
+#     (edge-of-collapse; peak ≈ 1× capacity)
+#   - robustness-fifo-smoke-overcapacity.yaml       — paper_like_overcapacity
+#     (sustained over-saturation; peak ≈ 1.3× capacity)
+#   - robustness-fifo-smoke-sundaeswap-overcapacity — sundaeswap_overcapacity
+#     (this suite — SundaeSwap-shape spike at ~1.35× capacity)
+#
+# This profile preserves the 11-component SundaeSwap-style mix
+# (background transfers + background DeFi + DEX-launch retail +
+# arbitrage bots) with the per-component urgency / value / size
+# distributions inherited bit-identically from
+# `sundaeswap_moderate.yaml`. The only difference is a 20× scaling of
+# the DEX-launch retail and arbitrage-bot rates so the peak phase
+# crosses the CIP-0164 EB throughput capacity. The companion suite
+# `robustness-fifo-smoke-overcapacity.yaml` does the same exercise on the
+# simpler paper-like 3-component schema; comparing the two surfaces
+# whether the mechanism distinctions are sensitive to demand-mix
+# complexity (11 components vs 3).
+#
+# Scope note: `lane-selection-order: fifo` disables priority sorting in
+# the existing block builder. It does not implement the stricter
+# reserved-FIFO scanner that caps standard service while walking the
+# mempool. Treat this as a smoke test for the mempool arrangement
+# under SundaeSwap-shape over-saturation, not the final Cardano-style
+# reserved-mempool model.
+
+suite-name: robustness-fifo-smoke-sundaeswap-overcapacity
+output-dir: output/robustness/fifo-smoke-sundaeswap-overcapacity
+seeds: [1, 2, 3]
+default-slots: 2000
+default-topology: parameters/phase-2-sweep/topology-realistic-100.yaml
+default-protocol: parameters/phase-2-sweep/protocol-base.yaml
+default-demand: parameters/phase-2-sweep/demand/sundaeswap_overcapacity.yaml
+
+jobs:
+  # --- Menu option 1: RB-reserved priority-only-static, FIFO ---
+  - name: rb_reserved_priority_only_static_fifo_x4
+    pricing: parameters/phase-2-sweep/pricing/two_lane_priority_only_static_x4_fifo.yaml
+
+  # --- Menu option 2: un-reserved priority-only-static, FIFO ---
+  - name: unreserved_priority_only_static_fifo_x4
+    pricing: parameters/phase-2-sweep/pricing/two_lane_priority_only_unreserved_x4_fifo.yaml
+
+  # --- Menu option 3: RB-reserved both-dynamic, FIFO ---
+  - name: rb_reserved_both_dynamic_fifo_x4
+    pricing: parameters/phase-2-sweep/pricing/two_lane_both_dynamic_partitioned_x4_fifo.yaml
+
+  # --- Giorgos design: RB-reserved both-dynamic, EB pays standard, FIFO ---
+  - name: giorgos_design_rb_reserved_both_dynamic_eb_standard_fifo_x4
+    pricing: parameters/phase-2-sweep/pricing/two_lane_giorgos_rb_reserved_both_dynamic_eb_standard_x4_fifo.yaml
+
+  # --- Menu option 4: un-reserved both-dynamic, FIFO ---
+  - name: unreserved_both_dynamic_fifo_x4
+    pricing: parameters/phase-2-sweep/pricing/two_lane_both_dynamic_unreserved_x4_fifo.yaml
+
+  # --- Control: flat-fee baseline ("no mechanisms") ---
+  - name: control_baseline_flat_fee
+    pricing: parameters/phase-2-sweep/pricing/baseline_flat_fee.yaml
+
+  # --- Control: single-lane EIP-1559 ---
+  - name: control_eip1559_d8_t50_w32
+    pricing: parameters/phase-2-sweep/pricing/eip1559_d8_target0.5_window32.yaml

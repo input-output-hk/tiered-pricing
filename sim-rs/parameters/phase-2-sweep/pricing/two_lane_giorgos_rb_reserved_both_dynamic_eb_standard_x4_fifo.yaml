@@ -1,0 +1,30 @@
+# Giorgos design: RB-reserved both-dynamic with multiplier_floor = 4.
+#
+# Semantics:
+# - RB bodies are priority-only.
+# - EBs charge both priority-posted and standard-posted txs at the
+#   standard lane price.
+# - Priority-posted EB bytes still feed the priority controller, capped
+#   at one RB worth of bytes; standard-posted EB bytes feed the standard
+#   controller.
+# - FIFO block-build scan order for the robustness mempool sensitivity
+#   comparison.
+
+pricing:
+  kind: two-lane
+  variant: giorgos-rb-reserved-both-dynamic
+  priority:
+    initial-quote-per-byte: 176
+    target-num: 1
+    target-den: 2
+    max-change-denominator: 8
+    window-length: 1
+  standard:
+    initial-quote-per-byte: 44
+    target-num: 1
+    target-den: 2
+    max-change-denominator: 8
+    window-length: 32
+  multiplier-floor-num: 4
+  multiplier-floor-den: 1
+  lane-selection-order: fifo

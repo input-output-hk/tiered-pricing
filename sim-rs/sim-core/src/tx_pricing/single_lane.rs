@@ -196,7 +196,11 @@ impl Eip1559Pricing {
 /// Preserves the WR-4 overflow bounds (validated by
 /// `Eip1559Settings::validate`) and IN-2's "div-by-D is exact because
 /// D | den by construction" proof.
-pub fn compute_eip1559_step(parent_quote: u64, util: (u128, u128), settings: &Eip1559Settings) -> u64 {
+pub fn compute_eip1559_step(
+    parent_quote: u64,
+    util: (u128, u128),
+    settings: &Eip1559Settings,
+) -> u64 {
     let (util_num, util_den) = util;
     // Empty window or zero capacity: no signal, no movement. Per the
     // legacy `Eip1559Pricing::step` semantics, the controller does not
@@ -405,9 +409,7 @@ mod tests {
     use crate::model::{PerLaneQuote, WindowAggregate};
     use crate::tx_pricing::{BlockKind, Lane, PricedBlockSample, PricingBackend};
 
-    use super::{
-        BaselinePricing, Eip1559Pricing, Eip1559Settings, compute_eip1559_step,
-    };
+    use super::{BaselinePricing, Eip1559Pricing, Eip1559Settings, compute_eip1559_step};
 
     fn standard_rb(bytes: u64, capacity: u64) -> PricedBlockSample {
         PricedBlockSample {
@@ -479,8 +481,16 @@ mod tests {
             &[standard_rb(100, 100)],
             &[],
         );
-        assert!(q.standard > 1000, "expected upward move, got {}", q.standard);
-        assert!(q.standard <= 1125, "expected ≤ +12.5% clamp, got {}", q.standard);
+        assert!(
+            q.standard > 1000,
+            "expected upward move, got {}",
+            q.standard
+        );
+        assert!(
+            q.standard <= 1125,
+            "expected ≤ +12.5% clamp, got {}",
+            q.standard
+        );
     }
 
     #[test]
@@ -494,8 +504,16 @@ mod tests {
             &[standard_rb(0, 100)],
             &[],
         );
-        assert!(q.standard < 1000, "expected downward move, got {}", q.standard);
-        assert!(q.standard >= 875, "expected ≥ -12.5% clamp, got {}", q.standard);
+        assert!(
+            q.standard < 1000,
+            "expected downward move, got {}",
+            q.standard
+        );
+        assert!(
+            q.standard >= 875,
+            "expected ≥ -12.5% clamp, got {}",
+            q.standard
+        );
     }
 
     #[test]
@@ -505,8 +523,7 @@ mod tests {
         let mut q = PerLaneQuote::flat(100);
         let mut agg = WindowAggregate::ZERO;
         for _ in 0..200 {
-            let (nq, na) =
-                pricing.compute_derived_quote(q, agg, &[standard_rb(0, 100)], &[]);
+            let (nq, na) = pricing.compute_derived_quote(q, agg, &[standard_rb(0, 100)], &[]);
             q = nq;
             agg = na;
         }
@@ -552,9 +569,12 @@ mod tests {
         let mut agg = WindowAggregate::ZERO;
         let mut last = 1000u64;
         for _ in 0..30 {
-            let (nq, na) =
-                pricing.compute_derived_quote(q, agg, &[standard_rb(100, 100)], &[]);
-            assert!(nq.standard >= last, "quote regressed: {last} -> {}", nq.standard);
+            let (nq, na) = pricing.compute_derived_quote(q, agg, &[standard_rb(100, 100)], &[]);
+            assert!(
+                nq.standard >= last,
+                "quote regressed: {last} -> {}",
+                nq.standard
+            );
             last = nq.standard;
             q = nq;
             agg = na;

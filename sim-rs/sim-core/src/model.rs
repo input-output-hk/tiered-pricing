@@ -443,6 +443,7 @@ pub enum NoVoteReason {
 pub enum TransactionLostReason {
     IBExpired,
     EBExpired,
+    MempoolRejected,
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]

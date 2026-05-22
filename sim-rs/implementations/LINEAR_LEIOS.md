@@ -9,7 +9,7 @@ The log file schema is currently identical to every other variant (though `pipel
 
 Whenever a node creates an RB, it also has an opportunity to create an EB (though it will not produce empty EBs). The RB header contains a reference to this new EB. If the RB producer has a certificate for the parent RB’s EB, and at least `3 * Δhdr + L_vote + L_diff` has passed since that RB was created, it will include that certificate in the RB body.
 
-RB headers are diffused separately from bodies. When a node receives an RB header, it checks whether that RB should be the new head of its chain. If so, it will request the RB body and the referenced EB (from the first peer which announces them).
+RB headers are diffused separately from bodies and are pushed directly to peers. When a node receives an RB header, it checks whether that RB should be the new head of its chain. If so, it will request the RB body and the referenced EB from a peer that advertises having them.
 
 To detect equivocation, a node will wait until at least `3 * Δhdr` after an EB was generated before voting for it.
 

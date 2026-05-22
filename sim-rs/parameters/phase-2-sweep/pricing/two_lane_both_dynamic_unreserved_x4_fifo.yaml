@@ -1,0 +1,23 @@
+# Un-reserved both-dynamic with multiplier_floor = 4.
+# FIFO smoke variant of two_lane_both_dynamic_unreserved_x4.yaml:
+# identical controller settings, but block-build scanning preserves
+# mempool order instead of sorting priority-fee txs first.
+
+pricing:
+  kind: two-lane
+  variant: unreserved-both-dynamic
+  priority:
+    initial-quote-per-byte: 176
+    target-num: 1
+    target-den: 2
+    max-change-denominator: 8
+    window-length: 32
+  standard:
+    initial-quote-per-byte: 44
+    target-num: 1
+    target-den: 2
+    max-change-denominator: 8
+    window-length: 32
+  multiplier-floor-num: 4
+  multiplier-floor-den: 1
+  lane-selection-order: fifo

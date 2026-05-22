@@ -369,6 +369,29 @@ pub enum Event {
     },
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum EventFilter {
+    All,
+    Metrics,
+}
+
+impl EventFilter {
+    fn allows(self, event: &Event) -> bool {
+        match self {
+            Self::All => true,
+            Self::Metrics => matches!(
+                event,
+                Event::TXGenerated { .. }
+                    | Event::TXLost { .. }
+                    | Event::TXIncluded { .. }
+                    | Event::TXEvictedQuoteDrift { .. }
+                    | Event::LinearPricingSampleApplied { .. }
+                    | Event::PricingTick { .. }
+            ),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Votes<Node>(pub BTreeMap<EndorserBlockId<Node>, usize>);
 
@@ -386,6 +409,7 @@ pub struct EventTracker {
     sender: mpsc::UnboundedSender<(Event, Timestamp)>,
     clock: Clock,
     node_names: Arc<BTreeMap<NodeId, Arc<String>>>,
+    filter: EventFilter,
 }
 
 impl EventTracker {
@@ -393,6 +417,15 @@ impl EventTracker {
         sender: mpsc::UnboundedSender<(Event, Timestamp)>,
         clock: Clock,
         nodes: &[NodeConfiguration],
+    ) -> Self {
+        Self::new_filtered(sender, clock, nodes, EventFilter::All)
+    }
+
+    pub fn new_filtered(
+        sender: mpsc::UnboundedSender<(Event, Timestamp)>,
+        clock: Clock,
+        nodes: &[NodeConfiguration],
+        filter: EventFilter,
     ) -> Self {
         let node_names = Arc::new(
             nodes
@@ -404,6 +437,7 @@ impl EventTracker {
             sender,
             clock,
             node_names,
+            filter,
         }
     }
 
@@ -611,6 +645,10 @@ impl EventTracker {
             sender: self.to_node(sender),
             recipient: self.to_node(recipient),
         });
+    }
+
+    pub fn track_transaction_lost(&self, id: TransactionId, reason: TransactionLostReason) {
+        self.send(Event::TXLost { id, reason });
     }
 
     /// Phase-2: emitted at the producer when a tx commits to the chain.
@@ -993,6 +1031,9 @@ impl EventTracker {
     }
 
     fn send(&self, event: Event) {
+        if !self.filter.allows(&event) {
+            return;
+        }
         if self.sender.send((event, self.clock.now())).is_err() {
             warn!("tried sending event after aggregator finished");
         }

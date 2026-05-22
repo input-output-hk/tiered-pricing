@@ -202,7 +202,7 @@ New `sim-rs/sim-cli/src/bin/experiment-suite.rs` plus `runner.rs` and `suite.rs`
 
 The new branch carries no configs at the start. Authoring order: protocol baseline → demand profiles → pricing TOMLs → experiment overlays → suites.
 
-**Protocol baseline** — `sim-rs/parameters/phase-2-sweep/protocol-base.yaml` overlaying `parameters/linear.yaml` with the spec's defaults (`minFeeA = 44`, `minFeeB = 155381`, `mempool_max_total_size_bytes = 2 × eb_referenced_txs_max_size_bytes` per the simulator's interpretation of the spec's "max block body size" in linear-Leios, default actor `max_fee_policy = ScaledOverLaneQuote { numerator: 4, denominator: 1 }`).
+**Protocol baseline** — `sim-rs/parameters/phase-2-sweep/protocol-base.yaml` over the embedded default config, using `linear-with-tx-references` so the EB wire object is bounded separately from the referenced transaction bytes. It pins the spec defaults (`minFeeA = 44`, `minFeeB = 155381`, `mempool_max_total_size_bytes = 2 × eb_referenced_txs_max_size_bytes` per the simulator's interpretation of the spec's "max block body size" in linear-Leios, default actor `max_fee_policy = ScaledOverLaneQuote { numerator: 4, denominator: 1 }`).
 
 **Demand profiles** (initially 2; expand only if an experiment requires it):
 - `paper_like_moderate.toml` — moderate demand, weighted hard-deadline / active-DeFi / patient components using half-life distributions.

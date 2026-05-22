@@ -1,9 +1,9 @@
 # Phase-2 sweep protocol baseline.
 #
-# Layered on top of `parameters/config.default.yaml` + `parameters/linear.yaml`
-# by the experiment-suite runner (the suite YAML's
-# `default_protocol` points here). Sets phase-2 spec defaults for
-# the values the mechanism design pins:
+# Layered on top of `parameters/config.default.yaml` by the
+# experiment-suite runner (the suite YAML's `default_protocol` points
+# here). Sets phase-2 spec defaults for the values the mechanism
+# design pins:
 # - `min_fee_a` / `min_fee_b` from mechanism-design.md §"Era floor".
 # - `mempool_max_total_size_bytes` from implementation-plan.md
 #   §"Finite mempool cap" (line 124): "twice the EB transaction-
@@ -17,7 +17,12 @@
 # window-length, controller D / target / initial coefficient,
 # multiplier_floor, actor max_fee_policy.
 
-leios-variant: linear
+# CIP-0164 Linear Leios: EBs carry a bounded reference structure
+# (`S_EB`) and reference up to `S_EB-tx` bytes of transaction data.
+# The simulator's `linear-with-tx-references` path models that split;
+# plain `linear` serializes full transaction bodies into the EB object
+# and is too pessimistic for CIP-0164 timing.
+leios-variant: linear-with-tx-references
 timestamp-resolution-ms: 0.05
 
 # Phase-2 mechanism-design.md §"Era floor".
@@ -82,15 +87,13 @@ vote-threshold: 450
 #
 # History: an earlier revision inherited the upstream-Leios `short`
 # variant defaults (L_vote=5, L_diff=5, eb-referenced-txs-max=16 MB,
-# eb-body-validation-cpu-time-ms-per-byte=5e-4 = 500 ns/byte). Those
-# values are coherent for `short` Leios, where EBs reference IBs and
-# carry only a few KB of data. In phase-2's `linear` variant, EBs
-# carry full transaction bodies up to the cap, so 500 ns/byte × 16 MB
-# = 8 s of EB validation CPU — well past `header-diffusion-time = 1 s`
-# and the `LateRBHeader` voting deadline. The producer therefore
-# fails to vote on its own EBs, no EB ever reaches the
-# `vote-threshold`, and no RB ever endorses an EB. Throughput collapses
-# to the 90 KB-per-RB praos_fallback path.
+# eb-body-validation-cpu-time-ms-per-byte=5e-4 = 500 ns/byte). In
+# Linear Leios, voters still validate the referenced transaction data
+# before voting. At 16 MB, 500 ns/byte = 8 s of validation CPU — well
+# past `header-diffusion-time = 1 s` and the `LateRBHeader` voting
+# deadline. The producer therefore fails to vote on its own EBs, no EB
+# ever reaches the `vote-threshold`, and no RB ever endorses an EB.
+# Throughput collapses to the 90 KB-per-RB praos_fallback path.
 #
 # Fix: align with CIP-0164 Table 7. The CIP cites the Cardano formal-
 # spec linear validation model `(353.9 μs) + (21.51 μs/kB) × bytes`
@@ -101,5 +104,5 @@ vote-threshold: 450
 linear-vote-stage-length-slots: 4
 linear-diffuse-stage-length-slots: 7
 eb-referenced-txs-max-size-bytes: 12000000
+eb-max-size-bytes: 512000
 eb-body-validation-cpu-time-ms-per-byte: 2.15e-5
-

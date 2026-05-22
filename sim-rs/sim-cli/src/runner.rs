@@ -30,7 +30,7 @@ use serde::{Deserialize, Serialize};
 use sim_core::{
     clock::ClockCoordinator,
     config::{RawParameters, RawTopology, SimConfiguration, Topology},
-    events::{Event, EventTracker},
+    events::{Event, EventFilter, EventTracker},
     sim::Simulation,
 };
 use tokio::sync::mpsc;
@@ -326,8 +326,7 @@ pub fn run_suite_with_run_id(
                     prev
                 };
 
-                let result =
-                    runtime.block_on(async { run_job(&suite_w, job_idx, seed).await });
+                let result = runtime.block_on(async { run_job(&suite_w, job_idx, seed).await });
                 let job_dir = suite_w.output_dir.join(&job_name).join(seed.to_string());
 
                 // Persist artefacts before the manifest transition so a
@@ -883,7 +882,12 @@ pub async fn run_job(suite: &Suite, job_idx: usize, seed: u64) -> Result<RunSumm
         mpsc::unbounded_channel::<(Event, sim_core::clock::Timestamp)>();
     let coordinator = ClockCoordinator::new(config.timestamp_resolution);
     let clock = coordinator.clock();
-    let tracker = EventTracker::new(events_tx, clock.clone(), &config.nodes);
+    let tracker = EventTracker::new_filtered(
+        events_tx,
+        clock.clone(),
+        &config.nodes,
+        EventFilter::Metrics,
+    );
 
     // The simulation owns the only outstanding event-sender (via the
     // tracker). When `simulation.run` returns we drop it explicitly,

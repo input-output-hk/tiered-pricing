@@ -23,8 +23,8 @@ use crate::{
     model::{
         BlockId, Endorsement, EndorserBlockId, LinearEndorserBlock as EndorserBlock,
         LinearRankingBlock as RankingBlock, LinearRankingBlockHeader as RankingBlockHeader,
-        NoVoteReason, PerLaneQuote, Transaction, TransactionId, VoteBundle, VoteBundleId,
-        WindowAggregate,
+        NoVoteReason, PerLaneQuote, Transaction, TransactionId, TransactionLostReason, VoteBundle,
+        VoteBundleId, WindowAggregate,
     },
     sim::{
         MiniProtocol, NodeImpl, SimCpuTask, SimMessage,
@@ -47,8 +47,6 @@ pub enum Message {
     Tx(Arc<Transaction>),
 
     // RB header propagation
-    AnnounceRBHeader(BlockId),
-    RequestRBHeader(BlockId),
     RBHeader(
         RankingBlockHeader,
         bool, /* has_body */
@@ -78,8 +76,6 @@ impl SimMessage for Message {
             Self::RequestTx(_) => MiniProtocol::Tx,
             Self::Tx(_) => MiniProtocol::Tx,
 
-            Self::AnnounceRBHeader(_) => MiniProtocol::Block,
-            Self::RequestRBHeader(_) => MiniProtocol::Block,
             Self::RBHeader(_, _, _) => MiniProtocol::Block,
 
             Self::AnnounceRB(_) => MiniProtocol::Block,
@@ -102,8 +98,6 @@ impl SimMessage for Message {
             Self::RequestTx(_) => 8,
             Self::Tx(tx) => tx.bytes,
 
-            Self::AnnounceRBHeader(_) => 8,
-            Self::RequestRBHeader(_) => 8,
             Self::RBHeader(header, _, _) => header.bytes,
 
             Self::AnnounceRB(_) => 8,
@@ -231,7 +225,6 @@ enum TransactionView {
 }
 
 enum RankingBlockView {
-    HeaderPending,
     Pending {
         header: RankingBlockHeader,
         header_seen: Timestamp,
@@ -248,7 +241,6 @@ enum RankingBlockView {
 impl RankingBlockView {
     fn header(&self) -> Option<&RankingBlockHeader> {
         match self {
-            Self::HeaderPending => None,
             Self::Pending { header, .. } => Some(header),
             Self::Requested { header, .. } => Some(header),
             Self::Received { rb, .. } => Some(&rb.header),
@@ -256,7 +248,6 @@ impl RankingBlockView {
     }
     fn header_seen(&self) -> Option<Timestamp> {
         match self {
-            Self::HeaderPending => None,
             Self::Pending { header_seen, .. } => Some(*header_seen),
             Self::Requested { header_seen, .. } => Some(*header_seen),
             Self::Received { header_seen, .. } => Some(*header_seen),
@@ -359,6 +350,19 @@ pub struct LinearLeiosNode {
     /// path passes its own `slot` argument directly and does not rely
     /// on this field.
     current_slot: u64,
+
+    /// Deferred per-tx cache eviction queue, keyed by the slot at
+    /// which each tx was declared terminal (included, evicted, or
+    /// rejected) locally. Drained by `prune_terminal_tx_cache` once
+    /// entries are older than `max_eb_age`.
+    ///
+    /// Populated only under `LeiosVariant::LinearWithTxReferences`:
+    /// that variant must keep tx bodies cached past local
+    /// terminality because incoming EBs reference txs by 32-byte
+    /// hash and validators need the body to validate the EB body.
+    /// Other variants either prune immediately (`Linear`, where the
+    /// EB itself carries the body) or do not require the cache.
+    pending_tx_evictions: BTreeMap<u64, Vec<TransactionId>>,
 
     eb_withholding_sender: Option<EBWithholdingSender>,
     eb_withholding_event_source: Option<mpsc::UnboundedReceiver<EBWithholdingEvent>>,
@@ -566,6 +570,7 @@ impl NodeImpl for LinearLeiosNode {
             behaviours: config.behaviours.clone(),
             actor_state,
             current_slot: 0,
+            pending_tx_evictions: BTreeMap::new(),
             eb_withholding_sender: None,
             eb_withholding_event_source: None,
         }
@@ -577,6 +582,7 @@ impl NodeImpl for LinearLeiosNode {
 
     fn handle_new_slot(&mut self, slot: u64) -> EventResult {
         self.current_slot = slot;
+        self.prune_old_leios_state();
         self.emit_pricing_tick(slot);
         self.run_actors_for_slot(slot);
         self.try_generate_rb(slot);
@@ -597,8 +603,6 @@ impl NodeImpl for LinearLeiosNode {
             Message::Tx(tx) => self.receive_tx(from, tx),
 
             // RB header propagation
-            Message::AnnounceRBHeader(id) => self.receive_announce_rb_header(from, id),
-            Message::RequestRBHeader(id) => self.receive_request_rb_header(from, id),
             Message::RBHeader(header, has_body, has_eb) => {
                 self.receive_rb_header(from, header, has_body, has_eb)
             }
@@ -704,6 +708,10 @@ impl LinearLeiosNode {
         let referenced_by_eb = self.acknowledge_tx(&tx);
         let added_to_mempool = self.try_add_tx_to_mempool(&tx);
         if !referenced_by_eb && !added_to_mempool {
+            if from == self.id {
+                self.tracker
+                    .track_transaction_lost(id, TransactionLostReason::MempoolRejected);
+            }
             self.forget_actor_pending(id);
             self.forget_terminal_tx(id);
         }
@@ -823,6 +831,7 @@ impl LinearLeiosNode {
                 self.sample_from_mempool_lane_aware(
                     &mut rb_transactions,
                     self.sim_config.max_block_size,
+                    None,
                     true,
                     validity_rule,
                     selection_order,
@@ -931,7 +940,11 @@ impl LinearLeiosNode {
                 (tx, served)
             })
             .collect();
-        self.charge_inclusions_at(&rb_pairs, rb.derived_quote.standard, rb.derived_quote.priority);
+        self.charge_inclusions_at(
+            &rb_pairs,
+            rb.derived_quote.standard,
+            rb.derived_quote.priority,
+        );
 
         self.tracker.track_praos_block_lottery_won(rb.header.id);
         self.queued
@@ -955,10 +968,15 @@ impl LinearLeiosNode {
         let q_standard = self.current_chain_tip_quote(Lane::Standard);
         let q_priority = self.current_chain_tip_quote(Lane::Priority);
         let min_fee_b = self.gate.config().min_fee_b;
+        let eb_inclusions_pay_standard = self.pricing.eb_inclusions_pay_standard();
         for tx in &eb.txs {
-            let q = match tx.posted_lane {
-                Lane::Standard => q_standard,
-                Lane::Priority => q_priority,
+            let q = if eb_inclusions_pay_standard {
+                q_standard
+            } else {
+                match tx.posted_lane {
+                    Lane::Standard => q_standard,
+                    Lane::Priority => q_priority,
+                }
             };
             let posted_fee = q
                 .checked_mul(tx.bytes)
@@ -995,12 +1013,18 @@ impl LinearLeiosNode {
     ///
     /// - Un-reserved variants (`rb_reserved = false`): no partition;
     ///   `served_lane = posted_lane`.
+    /// - Giorgos RB-reserved both-dynamic: every EB tx is charged at
+    ///   the standard lane while priority-posted EB bytes still feed
+    ///   the priority controller sample.
     /// - RB-reserved + activated: priority-fee txs whose cumulative
     ///   bytes ≤ `priority_reservation_bytes` get `Priority`; further
     ///   priority txs and all standard txs get `Standard`.
     /// - RB-reserved + NOT activated: all priority-fee txs get
     ///   `Standard` (refunded down to standard fee per spec).
     fn assign_served_lanes(&self, eb: &EndorserBlock, rb_reserved: bool) -> Vec<Lane> {
+        if self.pricing.eb_inclusions_pay_standard() {
+            return vec![Lane::Standard; eb.txs.len()];
+        }
         if !rb_reserved {
             return eb.txs.iter().map(|t| t.posted_lane).collect();
         }
@@ -1052,7 +1076,15 @@ impl LinearLeiosNode {
                 let message = if already_sent_header {
                     Message::AnnounceRB(rb.header.id)
                 } else {
-                    Message::AnnounceRBHeader(rb.header.id)
+                    // RB headers are the latency-critical object for
+                    // Linear Leios voting. Push the 1 KB header
+                    // directly instead of spending an extra
+                    // announce/request round trip on every hop.
+                    Message::RBHeader(
+                        rb.header.clone(),
+                        true,
+                        rb.header.eb_announcement.is_some() && !self.should_withhold_ebs(),
+                    )
                 };
                 self.queued.send_to(*peer, message);
                 self.praos.peer_heads.insert(*peer, rb.header.id.slot);
@@ -1096,47 +1128,14 @@ impl LinearLeiosNode {
             .blocks
             .insert(rb_id, RankingBlockView::Received { rb, header_seen });
         // Bound memory: prune samples older than 2 × window_length
-        // behind the chain tip.
+        // behind the chain tip. The terminal-tx cache (populated by
+        // `forget_terminal_tx` under `LinearWithTxReferences`) is
+        // pruned separately by EB max-age — see
+        // `prune_terminal_tx_cache`.
         self.prune_block_samples();
+        self.prune_terminal_tx_cache();
         // Revalidate the gate against the new tip's `derived_quote`.
         self.revalidate_against_new_tip(slot);
-    }
-
-    fn receive_announce_rb_header(&mut self, from: NodeId, id: BlockId) {
-        let should_request = match self.praos.blocks.get(&id) {
-            None => true,
-            Some(RankingBlockView::HeaderPending) => {
-                self.sim_config.relay_strategy == RelayStrategy::RequestFromAll
-            }
-            _ => false,
-        };
-        if should_request {
-            self.praos
-                .blocks
-                .insert(id, RankingBlockView::HeaderPending);
-            self.queued.send_to(from, Message::RequestRBHeader(id));
-        }
-    }
-
-    fn receive_request_rb_header(&mut self, from: NodeId, id: BlockId) {
-        if let Some(rb) = self.praos.blocks.get(&id)
-            && let Some(header) = rb.header()
-        {
-            // If we already have this RB's body,
-            // let the requester know that it's ready to fetch.
-            let have_body = matches!(rb, RankingBlockView::Received { .. });
-            // If we already have the EB announced by this RB,
-            // let the requester know that they can fetch it.
-            // But if we are maliciously withholding the EB, do not let them know.
-            let have_eb = header.eb_announcement.is_some_and(|eb_id| {
-                matches!(
-                    self.leios.ebs.get(&eb_id),
-                    Some(EndorserBlockView::Received { .. })
-                )
-            }) && !self.should_withhold_ebs();
-            self.queued
-                .send_to(from, Message::RBHeader(header.clone(), have_body, have_eb));
-        }
     }
 
     fn receive_rb_header(
@@ -1193,8 +1192,12 @@ impl LinearLeiosNode {
             if *peer == from {
                 continue;
             }
+            // Forward the header itself. The relay may not yet have
+            // the RB body or announced EB, so receivers learn the
+            // chain head promptly and fetch the heavier objects from a
+            // peer that advertises them.
             self.queued
-                .send_to(*peer, Message::AnnounceRBHeader(header.id));
+                .send_to(*peer, Message::RBHeader(header.clone(), false, false));
         }
         if has_body {
             self.queued.send_to(from, Message::RequestRB(header.id));
@@ -1509,10 +1512,7 @@ impl LinearLeiosNode {
             let mut parent_rb_id: Option<BlockId> = None;
             for (block_id, view) in self.praos.blocks.iter() {
                 if let Some(rb) = view.received_rb()
-                    && rb
-                        .endorsement
-                        .as_ref()
-                        .is_some_and(|e| e.eb == eb_id)
+                    && rb.endorsement.as_ref().is_some_and(|e| e.eb == eb_id)
                 {
                     parent_rb_id = Some(*block_id);
                     break;
@@ -1887,10 +1887,15 @@ impl LinearLeiosNode {
     ///
     /// The `MempoolSamplingStrategy` (random vs ordered-by-id) acts as
     /// the within-lane tiebreaker — the lane order takes precedence.
+    /// `max_count`, when present, caps the number of selected tx
+    /// references independently of transaction bytes. This models the
+    /// linear-with-tx-references split between `S_EB` (EB wire object)
+    /// and `S_EB-tx` (referenced transaction bytes).
     fn sample_from_mempool_lane_aware(
         &mut self,
         txs: &mut Vec<Arc<Transaction>>,
         max_size: u64,
+        max_count: Option<usize>,
         remove: bool,
         validity_rule: LaneValidityRule,
         selection_order: LaneSelectionOrder,
@@ -1944,6 +1949,9 @@ impl LinearLeiosNode {
                 && predictor.is_predicted_stale(tx)
             {
                 continue;
+            }
+            if max_count.is_some_and(|limit| txs.len() >= limit) {
+                break;
             }
             if size + tx.bytes > max_size {
                 break;
@@ -2017,9 +2025,14 @@ impl LinearLeiosNode {
 
         // Pack the EB greedily under the configured selection order.
         let mut packed: Vec<Arc<Transaction>> = Vec::new();
+        let max_reference_count = self
+            .sim_config
+            .sizes
+            .linear_eb_reference_count_limit(self.sim_config.max_eb_wire_size);
         self.sample_from_mempool_lane_aware(
             &mut packed,
             eb_capacity,
+            max_reference_count,
             false, // don't drain the mempool — selection happens elsewhere
             LaneValidityRule::None,
             selection_order,
@@ -2027,14 +2040,19 @@ impl LinearLeiosNode {
         );
         let selected_bytes: u64 = packed.iter().map(|t| t.bytes).sum();
         let residual = eb_capacity.saturating_sub(selected_bytes);
+        let selected_refs = packed.len();
+        let refs_saturated = max_reference_count.is_some_and(|limit| selected_refs >= limit);
 
         // Two-trigger activation rule.
-        let activated = if selected_bytes >= eb_capacity {
+        let activated = if selected_bytes >= eb_capacity || refs_saturated {
             true
         } else {
             let packed_ids: HashSet<_> = packed.iter().map(|t| t.id).collect();
             let mut any_unselected = false;
             let mut any_fits = false;
+            let residual_refs = max_reference_count
+                .map(|limit| limit.saturating_sub(selected_refs))
+                .unwrap_or(usize::MAX);
             for id in self.mempool.ids() {
                 if packed_ids.contains(&id) {
                     continue;
@@ -2043,7 +2061,7 @@ impl LinearLeiosNode {
                     continue;
                 };
                 any_unselected = true;
-                if tx.bytes <= residual {
+                if residual_refs > 0 && tx.bytes <= residual {
                     any_fits = true;
                     break;
                 }
@@ -2234,11 +2252,13 @@ impl LinearLeiosNode {
     ) -> u64 {
         match self.sim_config.pricing_config() {
             PricingConfig::Baseline => current_quote, // flat fee — no drift
-            PricingConfig::Eip1559(settings) => crate::tx_pricing::single_lane::worst_case_eip1559_quote(
-                current_quote,
-                settings.max_change_denominator,
-                blocks_ahead,
-            ),
+            PricingConfig::Eip1559(settings) => {
+                crate::tx_pricing::single_lane::worst_case_eip1559_quote(
+                    current_quote,
+                    settings.max_change_denominator,
+                    blocks_ahead,
+                )
+            }
             PricingConfig::TwoLane(settings) => {
                 let d = match lane {
                     Lane::Priority => settings.priority.max_change_denominator,
@@ -2349,8 +2369,7 @@ impl LinearLeiosNode {
             Some(boundary) => boundary.slot,
             None => return, // chain shorter than 2×window — nothing to prune
         };
-        self.block_samples
-            .retain(|id, _| id.slot >= keep_from_slot);
+        self.block_samples.retain(|id, _| id.slot >= keep_from_slot);
     }
 
     /// Revalidate the mempool gate against the new canonical chain
@@ -2417,16 +2436,124 @@ impl LinearLeiosNode {
     }
 
     /// Bound the per-node transaction propagation cache once a tx is
-    /// terminal for this node. Full-body Linear EBs/RBs carry the tx
-    /// payloads in block structures, so old standalone tx cache entries
-    /// are not needed after admission rejection, inclusion, or eviction.
+    /// terminal for this node.
     ///
-    /// Do not prune `LinearWithTxReferences`: in that mode EB validation
-    /// and voting intentionally depend on the standalone tx cache.
+    /// Under `LeiosVariant::Linear` the full-body EBs/RBs carry the tx
+    /// payloads in block structures, so old standalone tx cache
+    /// entries are not needed after admission rejection, inclusion, or
+    /// eviction — drop them immediately.
+    ///
+    /// Under `LeiosVariant::LinearWithTxReferences` EB validation and
+    /// voting depend on the standalone tx cache (EBs reference txs by
+    /// 32-byte hash and validators need the body), so an immediate
+    /// drop is unsafe. Defer eviction until the tx is older than
+    /// `eb_max_age_slots`; after that no future EB can reference it,
+    /// so the body is safe to drop. `prune_terminal_tx_cache` drains
+    /// the queue.
     fn forget_terminal_tx(&mut self, tx_id: TransactionId) {
-        if matches!(self.sim_config.variant, LeiosVariant::Linear) {
-            self.txs.remove(&tx_id);
+        match self.sim_config.variant {
+            LeiosVariant::Linear => {
+                self.txs.remove(&tx_id);
+            }
+            LeiosVariant::LinearWithTxReferences => {
+                self.pending_tx_evictions
+                    .entry(self.current_slot)
+                    .or_default()
+                    .push(tx_id);
+            }
+            _ => {}
         }
+    }
+
+    /// Drain the deferred-eviction queue populated by
+    /// `forget_terminal_tx` under `LeiosVariant::LinearWithTxReferences`,
+    /// removing tx-cache entries for txs that became terminal more
+    /// than `eb_max_age_slots` slots behind the current slot. Called
+    /// from `publish_rb` after the new RB lands, alongside
+    /// `prune_block_samples`. No-op for variants that don't populate
+    /// the queue.
+    ///
+    /// The horizon is `eb_max_age_slots` (config default 100 slots)
+    /// rather than the `2 × window_length` controller-window horizon
+    /// used by `prune_block_samples`. Per CIP-0164, an EB cannot be
+    /// referenced past `eb_max_age_slots` after its production, and a
+    /// tx terminal at slot S can only be referenced by EBs produced
+    /// at slots ≤ S + eb_max_age_slots. So a tx terminal more than
+    /// `eb_max_age_slots` ago at the current node cannot be
+    /// referenced by any future EB the node might receive, and its
+    /// body can be dropped from the standalone cache. Using the
+    /// controller-window horizon instead would keep ~13× more cache
+    /// entries than necessary under the default config — an OOM
+    /// risk under sustained over-capacity demand.
+    fn prune_terminal_tx_cache(&mut self) {
+        if self.pending_tx_evictions.is_empty() {
+            return;
+        }
+        let horizon = self.sim_config.max_eb_age;
+        let keep_from_slot = self.current_slot.saturating_sub(horizon);
+        // `BTreeMap::split_off` returns entries with keys ≥ split key;
+        // the older entries remain in `self.pending_tx_evictions` to
+        // be drained.
+        let to_keep = self.pending_tx_evictions.split_off(&keep_from_slot);
+        let to_prune = std::mem::replace(&mut self.pending_tx_evictions, to_keep);
+        for (_slot, ids) in to_prune {
+            for id in ids {
+                self.txs.remove(&id);
+            }
+        }
+    }
+
+    /// Bound EB/vote-side bookkeeping by the protocol's EB age
+    /// horizon. In `LinearWithTxReferences`, an in-memory EB carries
+    /// the full referenced tx list even though the wire object carries
+    /// references, so retaining old EBs dominates overcapacity memory.
+    ///
+    /// Keep three classes of older EBs:
+    /// - the recent EB-age/endorsement window, because they can still
+    ///   gather votes or be endorsed;
+    /// - EBs referenced by an on-chain RB whose body is still
+    ///   incomplete locally, because deferred validation may still
+    ///   need to update samples and mempool state;
+    /// - EBs whose full body validation task has already been
+    ///   scheduled but not marked validated yet, because the CPU task
+    ///   will call back into `finish_validating_eb`.
+    fn prune_old_leios_state(&mut self) {
+        let horizon = self
+            .sim_config
+            .max_eb_age
+            .saturating_add(self.sim_config.endorsement_window_slots());
+        let keep_from_slot = self.current_slot.saturating_sub(horizon);
+        let incomplete_onchain_ebs = self.leios.incomplete_onchain_ebs.clone();
+
+        self.leios.ebs.retain(|id, view| {
+            id.slot >= keep_from_slot
+                || incomplete_onchain_ebs.contains(id)
+                || matches!(
+                    view,
+                    EndorserBlockView::Received {
+                        all_txs_seen: true,
+                        validated: false,
+                        ..
+                    }
+                )
+        });
+        self.leios
+            .ebs_by_rb
+            .retain(|rb_id, _| rb_id.slot >= keep_from_slot);
+        self.leios
+            .eb_peer_announcements
+            .retain(|id, _| id.slot >= keep_from_slot || incomplete_onchain_ebs.contains(id));
+        self.leios.votes.retain(|id, _| id.slot >= keep_from_slot);
+        self.leios
+            .votes_by_eb
+            .retain(|id, _| id.slot >= keep_from_slot || incomplete_onchain_ebs.contains(id));
+        self.leios
+            .certified_ebs
+            .retain(|id| id.slot >= keep_from_slot || incomplete_onchain_ebs.contains(id));
+        self.leios.missing_txs.retain(|_, eb_ids| {
+            eb_ids.retain(|id| id.slot >= keep_from_slot || incomplete_onchain_ebs.contains(id));
+            !eb_ids.is_empty()
+        });
     }
 
     fn resolve_ledger_state(&mut self, rb_ref: Option<BlockId>) -> Arc<LedgerState> {
@@ -2437,10 +2564,15 @@ impl LinearLeiosNode {
             return state.clone();
         };
 
-        let mut state = self
-            .ledger_states
-            .last_key_value()
-            .map(|(_, v)| v.as_ref().clone())
+        let parent = self
+            .praos
+            .blocks
+            .get(&block_id)
+            .and_then(|view| view.received_rb())
+            .and_then(|rb| rb.header.parent);
+        let mut state = parent
+            .and_then(|parent| self.ledger_states.get(&parent))
+            .map(|state| state.as_ref().clone())
             .unwrap_or_default();
 
         let mut block_queue = vec![block_id];
@@ -2483,6 +2615,14 @@ impl LinearLeiosNode {
 
         let state = Arc::new(state);
         if complete {
+            // `LedgerState` contains the cumulative spent-input set.
+            // Keeping one full snapshot per RB makes memory grow with
+            // chain length times ledger size under overload. The only
+            // production caller asks for the current chain tip, and
+            // the cached state's `seen_blocks` lets the next tip be
+            // computed incrementally from this snapshot, so retain just
+            // the newest complete snapshot.
+            self.ledger_states.clear();
             self.ledger_states.insert(block_id, state.clone());
         }
         state
@@ -2516,10 +2656,7 @@ impl LinearLeiosNode {
 
     /// Test-only inspection: the consumer-visible chain-tip quote for
     /// `lane`. Mirrors what admission, lane choice, EB endorsement
-    /// validation, and EB inclusion charging actually read. Used by
-    /// the chain-derived "post-step quote at admission" regression
-    /// test to guard against re-introducing the one-step lag bug
-    /// (fixed 2026-05-14).
+    /// validation, and EB inclusion charging actually read.
     #[cfg(test)]
     pub(crate) fn current_chain_tip_quote_for_test(&self, lane: Lane) -> u64 {
         self.current_chain_tip_quote(lane)
@@ -2527,11 +2664,10 @@ impl LinearLeiosNode {
 
     /// Test-only inspection: the chain tip's stored `derived_quote`
     /// for `lane` — i.e., the value computed at the tip's production
-    /// (stepped from its parent's samples), NOT the post-step state
-    /// after the tip's own samples. Used by the regression test to
-    /// demonstrate that this value differs from
-    /// `current_chain_tip_quote_for_test` (the consumer-visible quote)
-    /// once non-empty samples have flowed.
+    /// and carried on chain. Used by the regression test to
+    /// demonstrate that `current_chain_tip_quote_for_test` reads the
+    /// canonical block value rather than recomputing a hypothetical
+    /// child quote from node-local cached samples.
     #[cfg(test)]
     pub(crate) fn chain_tip_stored_derived_quote_for_test(&self, lane: Lane) -> Option<u64> {
         let tip = self.latest_rb_id()?;
@@ -2807,6 +2943,24 @@ impl LinearLeiosNode {
             partition_activated: false,
         };
         self.eb_endorsement_valid(&eb)
+    }
+
+    /// Test-only entry point for the EB served-lane policy.
+    #[cfg(test)]
+    pub(crate) fn test_eb_served_lanes(
+        &self,
+        txs: &[Arc<Transaction>],
+        rb_reserved: bool,
+        partition_activated: bool,
+    ) -> Vec<Lane> {
+        let eb = EndorserBlock {
+            slot: 0,
+            producer: self.id,
+            bytes: self.sim_config.sizes.linear_eb(txs),
+            txs: txs.to_vec(),
+            partition_activated,
+        };
+        self.assign_served_lanes(&eb, rb_reserved)
     }
 
     /// Test-only mirror of `try_generate_rb`'s endorsement-and-apply

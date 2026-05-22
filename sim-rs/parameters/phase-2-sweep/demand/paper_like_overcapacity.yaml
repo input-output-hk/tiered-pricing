@@ -1,0 +1,86 @@
+# Phase-2 paper-like over-capacity demand.
+#
+# Same three-component value-decay mix and component-share ratios as
+# `paper_like_congested.yaml`, but with a burst-then-recovery envelope
+# whose first phase deliberately exceeds the CIP-0164 EB throughput
+# capacity. The intent is to surface mechanism-level urgency
+# separation by forcing the controller through a sustained
+# over-saturation regime (where pricing actually drifts and the four
+# menu arms differentiate) rather than the edge-of-collapse regime
+# `paper_like_congested.yaml` produces at exactly 1× capacity.
+#
+#   slots    0-400   burst overload: 800 tx/slot (~1.3× capacity)
+#   slots  400-1200  sustained:      400 tx/slot (~0.67× capacity)
+#   slots 1200-2000  recovery:       200 tx/slot
+#
+# Per CIP-0164 Table 7 with rb-prob = 0.05 (one priced block ≈ every
+# 20 slots), EB body capacity ≈ 12 MB referenced per EB / 20 slots
+# ≈ 600 KB/slot. With ~1 KB weighted-mean transaction size that is
+# ~600 tx/slot of throughput capacity. The 800-tx/slot burst sits
+# ~1.3× above capacity — sustained over-saturation that exercises
+# controller drift, mempool-gate revalidation, and the priority
+# partition under sustained backlog without driving the system into
+# the collapse regime `paper_like_congested.yaml` produces with a
+# 600-tx/slot peak that exactly equals capacity.
+#
+# Component share within each phase preserves the
+# `paper_like_congested.yaml` ratios (1% hard-deadline / 34.4%
+# active DeFi / 64.6% patient) so per-component urgency mixes are
+# directly comparable across the two profiles.
+
+actors:
+  components:
+    # Component 0: hard-deadline / arb tail (~1% of total demand).
+    - arrival-rate-per-slot:
+        phases:
+          - { start-slot: 0, end-slot: 400, rate: 8.0 }
+          - { start-slot: 400, end-slot: 1200, rate: 4.0 }
+          - { start-slot: 1200, end-slot: 2000, rate: 2.0 }
+      size-bytes:
+        distribution: log-normal
+        mu: 6.833
+        sigma: 0.5
+      value-lovelace:
+        distribution: log-normal
+        mu: 17.0
+        sigma: 0.4
+      half-life-seconds:
+        distribution: log-normal
+        mu: 4.094345    # median 60s
+        sigma: 0.5
+    # Component 1: active DeFi (~34.4% of total demand).
+    - arrival-rate-per-slot:
+        phases:
+          - { start-slot: 0, end-slot: 400, rate: 275.4 }
+          - { start-slot: 400, end-slot: 1200, rate: 137.7 }
+          - { start-slot: 1200, end-slot: 2000, rate: 68.9 }
+      size-bytes:
+        distribution: log-normal
+        mu: 6.833
+        sigma: 0.5
+      value-lovelace:
+        distribution: log-normal
+        mu: 15.0
+        sigma: 0.4
+      half-life-seconds:
+        distribution: log-normal
+        mu: 5.703782    # median 5 minutes
+        sigma: 0.6
+    # Component 2: patient traffic (~64.6% of total demand).
+    - arrival-rate-per-slot:
+        phases:
+          - { start-slot: 0, end-slot: 400, rate: 516.6 }
+          - { start-slot: 400, end-slot: 1200, rate: 258.3 }
+          - { start-slot: 1200, end-slot: 2000, rate: 129.1 }
+      size-bytes:
+        distribution: log-normal
+        mu: 6.833
+        sigma: 0.5
+      value-lovelace:
+        distribution: log-normal
+        mu: 13.0
+        sigma: 0.4
+      half-life-seconds:
+        distribution: log-normal
+        mu: 8.188689    # median 1 hour
+        sigma: 1.0

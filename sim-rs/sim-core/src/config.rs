@@ -131,6 +131,7 @@ pub struct RawParameters {
     pub eb_body_validation_cpu_time_ms_per_byte: f64,
     pub eb_size_bytes_constant: u64,
     pub eb_size_bytes_per_ib: u64,
+    pub eb_max_size_bytes: u64,
     pub eb_max_age_slots: u64,
     pub eb_referenced_txs_max_size_bytes: u64,
     pub eb_body_avg_size_bytes: u64,
@@ -180,7 +181,7 @@ pub const DEFAULT_MIN_FEE_A: u64 = 44;
 pub const DEFAULT_MIN_FEE_B: u64 = 155_381;
 
 /// Pricing-mechanism config selector. M1 supports the two single-lane
-/// backends; M2 adds the four two-lane variants.
+/// backends; M2 adds the two-lane variants.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum RawPricingConfig {
@@ -207,6 +208,7 @@ pub struct RawEip1559Config {
 pub enum RawTwoLaneVariant {
     RbReservedPriorityOnly,
     RbReservedBothDynamic,
+    GiorgosRbReservedBothDynamic,
     UnreservedPriorityOnly,
     UnreservedBothDynamic,
 }
@@ -216,6 +218,9 @@ impl From<RawTwoLaneVariant> for TwoLaneVariant {
         match v {
             RawTwoLaneVariant::RbReservedPriorityOnly => TwoLaneVariant::RbReservedPriorityOnly,
             RawTwoLaneVariant::RbReservedBothDynamic => TwoLaneVariant::RbReservedBothDynamic,
+            RawTwoLaneVariant::GiorgosRbReservedBothDynamic => {
+                TwoLaneVariant::GiorgosRbReservedBothDynamic
+            }
             RawTwoLaneVariant::UnreservedPriorityOnly => TwoLaneVariant::UnreservedPriorityOnly,
             RawTwoLaneVariant::UnreservedBothDynamic => TwoLaneVariant::UnreservedBothDynamic,
         }
@@ -753,6 +758,19 @@ impl BlockSizeConfig {
         self.eb_constant + body_size
     }
 
+    pub fn linear_eb_reference_count_limit(&self, max_eb_wire_size: u64) -> Option<usize> {
+        if !matches!(self.variant, LeiosVariant::LinearWithTxReferences) {
+            return None;
+        }
+        let body_bytes = max_eb_wire_size.saturating_sub(self.eb_constant);
+        let max_refs = if self.eb_per_ib == 0 {
+            usize::MAX as u64
+        } else {
+            body_bytes / self.eb_per_ib
+        };
+        Some(usize::try_from(max_refs).unwrap_or(usize::MAX))
+    }
+
     pub fn vote_bundle(&self, ebs: usize) -> u64 {
         self.vote_constant + self.vote_per_eb * ebs as u64
     }
@@ -1002,6 +1020,7 @@ pub struct SimConfiguration {
     pub(crate) linear_eb_propagation_criteria: EBPropagationCriteria,
     pub(crate) max_block_size: u64,
     pub(crate) max_ib_size: u64,
+    pub(crate) max_eb_wire_size: u64,
     pub(crate) max_eb_size: u64,
     pub(crate) ib_diffusion_strategy: DiffusionStrategy,
     pub(crate) max_ib_requests_per_peer: usize,
@@ -1207,6 +1226,7 @@ impl SimConfiguration {
             linear_eb_propagation_criteria: params.linear_eb_propagation_criteria,
             max_block_size: params.rb_body_max_size_bytes,
             max_ib_size: params.ib_body_max_size_bytes,
+            max_eb_wire_size: params.eb_max_size_bytes,
             max_eb_size: params.eb_referenced_txs_max_size_bytes,
             ib_diffusion_strategy: params.ib_diffusion_strategy,
             max_ib_requests_per_peer: params.ib_diffusion_max_bodies_to_request as usize,
@@ -1300,5 +1320,72 @@ impl NodeBehaviours {
             }
         }
         result
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use crate::{
+        model::{Transaction, TransactionId},
+        tx_pricing::Lane,
+    };
+
+    use super::{BlockSizeConfig, LeiosVariant};
+
+    fn size_config(variant: LeiosVariant) -> BlockSizeConfig {
+        BlockSizeConfig {
+            variant,
+            block_header: 1_024,
+            cert_constant: 0,
+            cert_per_node: 0,
+            ib_header: 304,
+            eb_constant: 240,
+            eb_per_ib: 32,
+            vote_constant: 0,
+            vote_per_eb: 105,
+        }
+    }
+
+    fn tx(id: u64, bytes: u64) -> Arc<Transaction> {
+        Arc::new(Transaction {
+            id: TransactionId::new(id),
+            shard: 0,
+            bytes,
+            input_id: id,
+            overcollateralization_factor: 0,
+            max_fee_lovelace: u64::MAX,
+            posted_lane: Lane::Standard,
+            value_lovelace: 0,
+            urgency: 1.0,
+            urgency_component_index: 0,
+        })
+    }
+
+    #[test]
+    fn linear_with_tx_references_sizes_eb_by_references_not_payload_bytes() {
+        let txs = [tx(1, 1_000), tx(2, 2_000)];
+
+        assert_eq!(
+            size_config(LeiosVariant::Linear).linear_eb(&txs),
+            240 + 3_000
+        );
+        assert_eq!(
+            size_config(LeiosVariant::LinearWithTxReferences).linear_eb(&txs),
+            240 + 2 * 32
+        );
+    }
+
+    #[test]
+    fn linear_with_tx_references_derives_reference_count_from_eb_wire_cap() {
+        let cfg = size_config(LeiosVariant::LinearWithTxReferences);
+
+        assert_eq!(cfg.linear_eb_reference_count_limit(512_000), Some(15_992));
+        assert_eq!(cfg.linear_eb_reference_count_limit(240), Some(0));
+        assert_eq!(
+            size_config(LeiosVariant::Linear).linear_eb_reference_count_limit(512_000),
+            None
+        );
     }
 }

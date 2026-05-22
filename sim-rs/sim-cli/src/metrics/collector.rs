@@ -378,6 +378,9 @@ impl MetricsCollector {
                     },
                 );
             }
+            Event::TXLost { id, .. } => {
+                self.tx_meta.remove(id);
+            }
             Event::TXIncluded {
                 id,
                 slot,
@@ -776,7 +779,7 @@ mod tests {
     use sim_core::{
         config::NodeId,
         events::{Event, Node},
-        model::TransactionId,
+        model::{TransactionId, TransactionLostReason},
     };
 
     use super::*;
@@ -858,6 +861,13 @@ mod tests {
         }
     }
 
+    fn tx_lost(id: u64) -> Event {
+        Event::TXLost {
+            id: TransactionId::new(id),
+            reason: TransactionLostReason::MempoolRejected,
+        }
+    }
+
     fn linear_pricing_sample_applied(node_name: &str, slot: u64, producer_name: &str) -> Event {
         Event::LinearPricingSampleApplied {
             node: node(0, node_name),
@@ -908,6 +918,34 @@ mod tests {
         let (_, summary) = c.finalise();
         assert_eq!(summary.slot_battles_count, 0);
         assert_eq!(summary.orphaned_pricing_samples, 0);
+    }
+
+    /// Locally rejected transactions are terminal for welfare
+    /// metrics: their submission stays in the denominator, but their
+    /// per-tx metadata is dropped so overloaded runs do not retain
+    /// rejected txs until finalisation.
+    #[test]
+    fn tx_lost_drops_pending_welfare_metadata() {
+        let mut c = MetricsCollector::new(0.05);
+        c.set_representative_node("n0");
+        c.ingest(&tx_generated(1, 7, 1_000_000, 1.0, 1024));
+        c.ingest(&tx_lost(1));
+
+        // Defensive check: once the tx is terminal, any stale or
+        // duplicate include event must not resurrect component-level
+        // welfare accounting.
+        c.ingest(&tx_included(1, 10, 1024, Lane::Priority, 200, 0));
+
+        let (_, summary) = c.finalise();
+        let component = summary
+            .components
+            .iter()
+            .find(|component| component.component_index == 7)
+            .expect("component 7 should have the submitted tx");
+        assert_eq!(component.txs_submitted, 1);
+        assert_eq!(component.txs_included, 0);
+        assert_eq!(summary.total_txs_submitted, 1);
+        assert_eq!(summary.total_txs_included, 0);
     }
 
     /// Slot-boundary flush: when an event for slot N+1 arrives, the

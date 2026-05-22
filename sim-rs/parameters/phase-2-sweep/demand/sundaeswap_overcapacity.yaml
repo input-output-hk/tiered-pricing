@@ -1,0 +1,128 @@
+# SundaeSwap-style DEX launch — scaled into sustained over-capacity.
+#
+# Derived from `sundaeswap_moderate.yaml` by holding the background
+# transfers and background DeFi components at their empirically-anchored
+# rates (since those reflect underlying mainnet activity) and scaling
+# the DEX-launch retail + arbitrage-bot components by 20× so the
+# spike-phase peak crosses the CIP-0164 EB throughput capacity. This
+# gives a phased burst-over-capacity / recovery shape whose narrative
+# is "SundaeSwap-style DEX launch but on a network whose Cardano-side
+# adoption is ~20× the Jan-2022 baseline", while preserving every
+# per-component urgency / value / size distribution from the moderate
+# profile so per-tier comparisons across {moderate, overcapacity} are
+# isolated to the rate scaling alone.
+#
+# Phase structure (2000-slot run):
+#
+#   slots    0 –  400  baseline:        ~10 tx/slot    (background only)
+#   slots  400 –  800  DEX spike:      ~810 tx/slot    (~1.35× capacity)
+#   slots  800 – 1200  cooldown:       ~350 tx/slot    (~0.58× capacity)
+#   slots 1200 – 2000  recovery:       ~70 tx/slot
+#
+# Per CIP-0164 Table 7 + rb-prob = 0.05 (one priced block ≈ every
+# 20 slots), EB body capacity ≈ 12 MB / 20 slots ≈ 600 KB/slot ≈ 600
+# tx/slot at the moderate's ~1 KB weighted-mean tx size. The
+# 810-tx/slot spike sits ~1.35× above that — sustained over-saturation
+# long enough for the controller to drift, the priority partition to
+# saturate, and quote-drift evictions to start firing — without
+# driving the system into the edge-of-collapse regime that
+# `sundaeswap_moderate.yaml` cannot exercise (its 50-tx/slot peak is
+# 8% of capacity, well below the threshold at which any mechanism
+# would distinguish itself from flat-fee).
+#
+# Scaling factor: 20× on the DEX-launch retail (components 6/7/8) and
+# arbitrage-bot (components 9/10) rates only. Background components
+# 0–5 are unchanged. The 1.35× factor at peak is derived as
+# (background 10 + scaled spike 800) / 600 capacity.
+#
+# Origin: SundaeSwap launch data, see CoinTelegraph / CoinDesk
+# coverage Jan 2022; rate scaling is `paper_like_overcapacity.yaml`-
+# equivalent calibration to the EB throughput limit.
+#
+# Run length: this profile expects `slots: 2000`. Use a suite job
+# override or the `--slots 2000` CLI flag.
+
+actors:
+  components:
+    # --- background_transfers (6 tx/slot, slots 0-2000) — unchanged ---
+    # 60% simple transfer
+    - arrival-rate-per-slot: 3.6
+      size-bytes: { distribution: normal, mean: 350.0, std_dev: 80.0 }
+      value-lovelace: { distribution: normal, mean: 1000000.0, std_dev: 400000.0 }
+      half-life-seconds: { distribution: log-normal, mu: 11.366743, sigma: 1.0 } # median 1 day
+    # 25% staking / governance
+    - arrival-rate-per-slot: 1.5
+      size-bytes: { distribution: normal, mean: 350.0, std_dev: 80.0 }
+      value-lovelace: { distribution: normal, mean: 600000.0, std_dev: 250000.0 }
+      half-life-seconds: { distribution: log-normal, mu: 12.05989, sigma: 1.0 } # median 2 days
+    # 15% moderate transfer
+    - arrival-rate-per-slot: 0.9
+      size-bytes: { distribution: normal, mean: 350.0, std_dev: 80.0 }
+      value-lovelace: { distribution: normal, mean: 3000000.0, std_dev: 1500000.0 }
+      half-life-seconds: { distribution: log-normal, mu: 9.980449, sigma: 1.0 } # median 6 hours
+
+    # --- background_defi (4 tx/slot, slots 0-2000) — unchanged ---
+    # 50% routine swap
+    - arrival-rate-per-slot: 2.0
+      size-bytes: { distribution: normal, mean: 1000.0, std_dev: 400.0 }
+      value-lovelace: { distribution: normal, mean: 4000000.0, std_dev: 2000000.0 }
+      half-life-seconds: { distribution: log-normal, mu: 7.495542, sigma: 0.8 } # median 30 minutes
+    # 30% larger DeFi op
+    - arrival-rate-per-slot: 1.2
+      size-bytes: { distribution: normal, mean: 1000.0, std_dev: 400.0 }
+      value-lovelace: { distribution: normal, mean: 10000000.0, std_dev: 4000000.0 }
+      half-life-seconds: { distribution: log-normal, mu: 6.802395, sigma: 0.7 } # median 15 minutes
+    # 20% small yield farm
+    - arrival-rate-per-slot: 0.8
+      size-bytes: { distribution: normal, mean: 1000.0, std_dev: 400.0 }
+      value-lovelace: { distribution: normal, mean: 2000000.0, std_dev: 800000.0 }
+      half-life-seconds: { distribution: log-normal, mu: 8.188689, sigma: 0.8 } # median 1 hour
+
+    # --- dex_launch_retail (phased; scaled 20× from moderate) ---
+    # Phase totals at peak: 280 + 245 + 175 = 700 tx/slot
+    # 40% casual swapper
+    - arrival-rate-per-slot:
+        phases:
+          - { start-slot: 400, end-slot: 800, rate: 280.0 }
+          - { start-slot: 800, end-slot: 1200, rate: 120.0 }
+          - { start-slot: 1200, end-slot: 2000, rate: 24.0 }
+      size-bytes: { distribution: normal, mean: 800.0, std_dev: 200.0 }
+      value-lovelace: { distribution: normal, mean: 1500000.0, std_dev: 600000.0 }
+      half-life-seconds: { distribution: log-normal, mu: 7.495542, sigma: 0.7 } # median 30 minutes
+    # 35% eager early adopter
+    - arrival-rate-per-slot:
+        phases:
+          - { start-slot: 400, end-slot: 800, rate: 245.0 }
+          - { start-slot: 800, end-slot: 1200, rate: 105.0 }
+          - { start-slot: 1200, end-slot: 2000, rate: 21.0 }
+      size-bytes: { distribution: normal, mean: 800.0, std_dev: 200.0 }
+      value-lovelace: { distribution: normal, mean: 5000000.0, std_dev: 2000000.0 }
+      half-life-seconds: { distribution: log-normal, mu: 5.703782, sigma: 0.6 } # median 5 minutes
+    # 25% FOMO buyer
+    - arrival-rate-per-slot:
+        phases:
+          - { start-slot: 400, end-slot: 800, rate: 175.0 }
+          - { start-slot: 800, end-slot: 1200, rate: 75.0 }
+          - { start-slot: 1200, end-slot: 2000, rate: 15.0 }
+      size-bytes: { distribution: normal, mean: 800.0, std_dev: 200.0 }
+      value-lovelace: { distribution: normal, mean: 1000000.0, std_dev: 400000.0 }
+      half-life-seconds: { distribution: log-normal, mu: 6.39693, sigma: 0.7 } # median 10 minutes
+
+    # --- arbitrage_bots (phased; scaled 20× from moderate) ---
+    # Phase totals at peak: 70 + 30 = 100 tx/slot
+    # 70% DEX arbitrage
+    - arrival-rate-per-slot:
+        phases:
+          - { start-slot: 400, end-slot: 800, rate: 70.0 }
+          - { start-slot: 800, end-slot: 1200, rate: 28.0 }
+      size-bytes: { distribution: normal, mean: 1200.0, std_dev: 300.0 }
+      value-lovelace: { distribution: normal, mean: 30000000.0, std_dev: 15000000.0 }
+      half-life-seconds: { distribution: log-normal, mu: 4.094345, sigma: 0.5 } # median 60s
+    # 30% whale swap
+    - arrival-rate-per-slot:
+        phases:
+          - { start-slot: 400, end-slot: 800, rate: 30.0 }
+          - { start-slot: 800, end-slot: 1200, rate: 12.0 }
+      size-bytes: { distribution: normal, mean: 1200.0, std_dev: 300.0 }
+      value-lovelace: { distribution: normal, mean: 80000000.0, std_dev: 30000000.0 }
+      half-life-seconds: { distribution: log-normal, mu: 4.787492, sigma: 0.5 } # median 120s

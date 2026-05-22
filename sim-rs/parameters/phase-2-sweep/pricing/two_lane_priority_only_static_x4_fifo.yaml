@@ -1,0 +1,23 @@
+# RB-reserved priority-only premium with multiplier_floor = 4.
+# FIFO sensitivity variant of two_lane_priority_only_static_x4.yaml:
+# identical controller settings, but block-build scanning preserves
+# mempool order instead of sorting priority-fee txs first.
+
+pricing:
+  kind: two-lane
+  variant: rb-reserved-priority-only
+  priority:
+    initial-quote-per-byte: 176     # 4 x min_fee_a; the floor pins this anyway.
+    target-num: 1
+    target-den: 2
+    max-change-denominator: 8
+    window-length: 1
+  standard:
+    initial-quote-per-byte: 44       # ignored when variant is priority-only.
+    target-num: 1
+    target-den: 2
+    max-change-denominator: 8
+    window-length: 32
+  multiplier-floor-num: 4
+  multiplier-floor-den: 1
+  lane-selection-order: fifo

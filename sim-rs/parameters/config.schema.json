@@ -273,6 +273,12 @@
       "properties": {},
       "type": "number"
     },
+    "eb-max-size-bytes": {
+      "additionalProperties": false,
+      "description": "Maximum serialized EB object size. For linear-with-tx-references this bounds the transaction-reference structure separately from the total referenced transaction bytes.",
+      "properties": {},
+      "type": "number"
+    },
     "eb-referenced-txs-max-size-bytes": {
       "additionalProperties": false,
       "description": "The maximum size of transactions (in bytes) which an EB can reference.\nOnly relevant when running with the \"full-without-ibs\" variant.\n\nOnly supported by Rust simulation.",

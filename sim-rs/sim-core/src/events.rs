@@ -11,7 +11,18 @@ use crate::{
         Block, BlockId, CpuTaskId, EndorserBlockId, InputBlockId, LinearRankingBlock, NoVoteReason,
         Transaction, TransactionId, TransactionLostReason, VoteBundle, VoteBundleId,
     },
+    tx_pricing::Lane,
 };
+
+// Phase-2 `TXGenerated` carries `posted_lane`; for serde
+// deserialisation of older trace files that don't have the field,
+// default to `Standard`. The `#[allow(dead_code)]` suppresses the
+// false-positive — the function is used by serde via the
+// `#[serde(default = "default_lane_standard")]` attribute.
+#[allow(dead_code)]
+fn default_lane_standard() -> Lane {
+    Lane::Standard
+}
 
 #[derive(Debug, Clone)]
 pub struct Node {
@@ -105,6 +116,25 @@ pub enum Event {
         shard: u64,
         input_id: u64,
         overcollateralization_factor: u64,
+        // Phase-2 welfare-metric fields (M3+). Default to 0/0.0 for
+        // legacy non-actor txs.
+        #[serde(default)]
+        urgency_component_index: u32,
+        #[serde(default)]
+        value_lovelace: u64,
+        #[serde(default)]
+        urgency: f64,
+        // Phase-2 lane intent (M3+). Default `Lane::Standard` for
+        // legacy non-actor txs (single-lane assumption).
+        #[serde(default = "default_lane_standard")]
+        posted_lane: Lane,
+        #[serde(default)]
+        max_fee_lovelace: u64,
+        // Phase-2 submit-slot (M4+). Carried on the event so the
+        // metrics collector can compute latency without depending
+        // on a slot-tick-before-actor-arrival ordering invariant.
+        #[serde(default)]
+        slot: u64,
     },
     TXSent {
         id: TransactionId,
@@ -276,6 +306,66 @@ pub enum Event {
         producer: Node,
         sender: Node,
         recipient: Node,
+    },
+    /// Phase-2 inclusion event. Emitted by the producer of the block that
+    /// commits this transaction to the chain (the RB body's producer for
+    /// RB-resident txs; the cert RB's producer for endorsed-EB txs).
+    /// `actual_fee_lovelace` is computed at the producer's current quote
+    /// for `served_lane`; `refund_lovelace = max_fee_lovelace −
+    /// actual_fee_lovelace`.
+    TXIncluded {
+        id: TransactionId,
+        producer: Node,
+        slot: u64,
+        bytes: u64,
+        posted_lane: Lane,
+        served_lane: Lane,
+        max_fee_lovelace: u64,
+        actual_fee_lovelace: u64,
+        refund_lovelace: u64,
+    },
+    /// Phase-2 quote-drift eviction event. Emitted on the node that evicts
+    /// the tx during post-block revalidation.
+    TXEvictedQuoteDrift {
+        id: TransactionId,
+        node: Node,
+        slot: u64,
+        bytes: u64,
+        posted_lane: Lane,
+        current_quote_per_byte: u64,
+        max_fee_lovelace: u64,
+    },
+    /// Phase-2 fork-resolution metric (M6). Emitted on every node
+    /// `publish_rb` invocation (i.e. once per RB this node sees
+    /// canonicalised on its chain). Under chain-derivation (spike 007)
+    /// this counter is no longer a contamination-bound signal —
+    /// sibling RBs produce identical `derived_quote` by pure-function
+    /// reasoning, so fully-validated orphans cannot contaminate the
+    /// canonical chain's controller trajectory. The metrics layer
+    /// still counts (slot, producer) collisions for orphan-rate
+    /// observability. Unlike `RBReceived`, this is also emitted for
+    /// the node's own locally-produced RB.
+    LinearPricingSampleApplied {
+        node: Node,
+        slot: u64,
+        producer: Node,
+    },
+    /// Phase-2 per-slot pricing snapshot (M3+). Emitted by every
+    /// node at the start of each slot tick. The metrics layer uses
+    /// the snapshot from a designated node (typically the lowest-id
+    /// producer) to populate the per-slot `time_series.csv` rows
+    /// (`c_priority`, `c_standard`, `mempool_bytes_*`,
+    /// `util_*_window_x_1e9`).
+    PricingTick {
+        node: Node,
+        slot: u64,
+        priority_quote_per_byte: u64,
+        standard_quote_per_byte: u64,
+        priority_window_util_x_1e9: Option<u64>,
+        standard_window_util_x_1e9: Option<u64>,
+        mempool_bytes_total: u64,
+        mempool_bytes_priority: u64,
+        mempool_bytes_standard: u64,
     },
 }
 
@@ -479,7 +569,12 @@ impl EventTracker {
         });
     }
 
-    pub fn track_transaction_generated(&self, transaction: &Transaction, publisher: NodeId) {
+    pub fn track_transaction_generated(
+        &self,
+        transaction: &Transaction,
+        publisher: NodeId,
+        submit_slot: u64,
+    ) {
         self.send(Event::TXGenerated {
             id: transaction.id,
             publisher: self.to_node(publisher),
@@ -487,6 +582,12 @@ impl EventTracker {
             shard: transaction.shard,
             input_id: transaction.input_id,
             overcollateralization_factor: transaction.overcollateralization_factor,
+            urgency_component_index: transaction.urgency_component_index,
+            value_lovelace: transaction.value_lovelace,
+            urgency: transaction.urgency,
+            posted_lane: transaction.posted_lane,
+            max_fee_lovelace: transaction.max_fee_lovelace,
+            slot: submit_slot,
         });
     }
 
@@ -509,6 +610,95 @@ impl EventTracker {
             id,
             sender: self.to_node(sender),
             recipient: self.to_node(recipient),
+        });
+    }
+
+    /// Phase-2: emitted at the producer when a tx commits to the chain.
+    #[allow(clippy::too_many_arguments)]
+    pub fn track_tx_included(
+        &self,
+        id: TransactionId,
+        producer: NodeId,
+        slot: u64,
+        bytes: u64,
+        posted_lane: Lane,
+        served_lane: Lane,
+        max_fee_lovelace: u64,
+        actual_fee_lovelace: u64,
+        refund_lovelace: u64,
+    ) {
+        self.send(Event::TXIncluded {
+            id,
+            producer: self.to_node(producer),
+            slot,
+            bytes,
+            posted_lane,
+            served_lane,
+            max_fee_lovelace,
+            actual_fee_lovelace,
+            refund_lovelace,
+        });
+    }
+
+    /// Phase-2: per-slot pricing-state snapshot (M3+). One per node
+    /// per slot; the metrics layer picks a representative node.
+    #[allow(clippy::too_many_arguments)]
+    pub fn track_pricing_tick(
+        &self,
+        node: NodeId,
+        slot: u64,
+        priority_quote_per_byte: u64,
+        standard_quote_per_byte: u64,
+        priority_window_util_x_1e9: Option<u64>,
+        standard_window_util_x_1e9: Option<u64>,
+        mempool_bytes_total: u64,
+        mempool_bytes_priority: u64,
+        mempool_bytes_standard: u64,
+    ) {
+        self.send(Event::PricingTick {
+            node: self.to_node(node),
+            slot,
+            priority_quote_per_byte,
+            standard_quote_per_byte,
+            priority_window_util_x_1e9,
+            standard_window_util_x_1e9,
+            mempool_bytes_total,
+            mempool_bytes_priority,
+            mempool_bytes_standard,
+        });
+    }
+
+    /// Phase-2 M6: emitted once per node `publish_rb` invocation
+    /// (chain-derivation, spike 007). Powers the fork-resolution
+    /// metric — now a pure orphan-rate observability signal rather
+    /// than a contamination bound.
+    pub fn track_linear_pricing_sample_applied(&self, node: NodeId, slot: u64, producer: NodeId) {
+        self.send(Event::LinearPricingSampleApplied {
+            node: self.to_node(node),
+            slot,
+            producer: self.to_node(producer),
+        });
+    }
+
+    /// Phase-2: emitted on the node that evicts a quote-drift tx.
+    pub fn track_tx_evicted_quote_drift(
+        &self,
+        id: TransactionId,
+        node: NodeId,
+        slot: u64,
+        bytes: u64,
+        posted_lane: Lane,
+        current_quote_per_byte: u64,
+        max_fee_lovelace: u64,
+    ) {
+        self.send(Event::TXEvictedQuoteDrift {
+            id,
+            node: self.to_node(node),
+            slot,
+            bytes,
+            posted_lane,
+            current_quote_per_byte,
+            max_fee_lovelace,
         });
     }
 

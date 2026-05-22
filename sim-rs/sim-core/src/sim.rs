@@ -26,6 +26,7 @@ mod driver;
 mod leios;
 mod linear_leios;
 mod lottery;
+pub mod mempool_gate;
 mod slot;
 mod stracciatella;
 #[cfg(test)]

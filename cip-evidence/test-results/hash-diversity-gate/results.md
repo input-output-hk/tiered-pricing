@@ -1,5 +1,12 @@
 # Wave 3 — COV-05 Hash-Diversity Gate Report
 
+
+> **⚠️ SUPERSEDED 2026-05-21** — numerical claims below were computed under the
+> pre-Cardano Improvement Proposal (CIP)-0164 EB-sizing simulator variant
+> (`linear`, 12 megabyte (MB) EB wire object). Endorser Block (EB) certification
+> failed under that variant, biasing every inclusion-rate / latency / welfare
+> measurement. See [`../../../docs/phase-2/eb-sizing-fix-postmortem.md`](../../../docs/phase-2/eb-sizing-fix-postmortem.md) for the diagnosis and the re-run schedule.
+
 **Run id:** `20260518-084846`
 **Gate semantics (CONTEXT.md D-19 + REQUIREMENTS.md COV-05):** for every
 `BACKED`-labelled row in `../../audit-documents/coverage-check.md`, the count of
@@ -72,8 +79,8 @@ at multiplier_floor=16 under `paper_like_congested` demand, the partitioned-
 both-dynamic mechanism degenerates to priority-only-static because the
 standard controller never sees enough standard-lane demand to drift.
 
-The Phase-3 deliverable that BACKED rows have N distinct hashes (per
-COV-05) holds at 17/17. No further action required for Phase 3 closure.
+The robustness-suite deliverable that BACKED rows have N distinct hashes (per
+COV-05) holds at 17/17. No further action required for robustness-suite closure.
 
 ## Cross-reference for Phase 4
 

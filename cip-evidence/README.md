@@ -23,7 +23,7 @@ cip-evidence/
 │   ├── methodology-overview.md              #   Methodology: ODD index + worked example
 │   └── latency-by-urgency.md                #   Operational user-experience axis: latency × urgency × mechanism
 │
-├── test-results/                            # Phase-3 empirical evidence
+├── test-results/                            # Robustness-suite empirical evidence
 │   ├── multi-seed-variance/                 #   TEST-03 + TEST-04 N=20 BCa Confidence Intervals
 │   ├── multiplier-floor-16-companion/       #   TEST-07a regime-dependence finding
 │   ├── hash-diversity-gate/                 #   COV-05 17/17 BACKED-eligible pass
@@ -49,10 +49,10 @@ A reader of the CIP can:
 
 ## Headline empirical findings
 
-From Phase-3 evidence at N=20 seeds with Bias-corrected and accelerated (BCa) 95% Confidence Intervals (per [`test-results/multi-seed-variance/results.md`](test-results/multi-seed-variance/results.md)):
+From robustness-suite evidence at N=20 seeds with Bias-corrected and accelerated (BCa) 95% Confidence Intervals (per [`test-results/multi-seed-variance/results.md`](test-results/multi-seed-variance/results.md)):
 
 - **Un-reserved two-lane mechanisms outperform single-lane Ethereum Improvement Proposal 1559 (EIP-1559)** at `multiplier_floor = 4` under `sundaeswap_moderate` demand. CIs strictly positive; sign-coherence 0.90.
-- **Ranking-block-reserved (RB-reserved) two-lane mechanisms underperform single-lane EIP-1559** under the same calibration. This refutes the pre-Phase-3 single-seed framing that "two-lane mechanisms outperform single-lane EIP-1559" generally — that ordering holds only for the un-reserved variants.
+- **Ranking-block-reserved (RB-reserved) two-lane mechanisms underperform single-lane EIP-1559** under the same calibration. This refutes the pre-robustness single-seed framing that "two-lane mechanisms outperform single-lane EIP-1559" generally — that ordering holds only for the un-reserved variants.
 - **The `multiplier_floor = 4` calibration is regime-dependent** at `multiplier_floor = 16` (per [`test-results/multiplier-floor-16-companion/results.md`](test-results/multiplier-floor-16-companion/results.md)): the rb-scarcity finding inverts and the urgency-inversion finding weakly reverses.
 
 ## Reproducing the audit
@@ -83,5 +83,4 @@ These items are elsewhere in the repo or out of scope; see [`cip-author-summary.
 - **Simulator source code** — `sim-rs/sim-core/`, `sim-rs/sim-cli/`. The CIP cites the simulator by repo Uniform Resource Locator (URL) and the citable tag.
 - **Simulator parameters** — `sim-rs/parameters/phase-2-sweep/suites/`. The coverage-check references these YAML files; they live with the simulator.
 - **GSD planning artefacts** — `.planning/` (PROJECT.md, ROADMAP.md, phase-by-phase PLAN.md / SUMMARY.md / VERIFICATION.md records). These are the audit trail of how the evidence was produced, not the evidence itself.
-- **Upstream Leios documents** — the `ImpactAnalysis.md` precedent cited for the RSK-NN / CLM-NN identifier conventions lives in `input-output-hk/ouroboros-leios`, not in this repo.
 - **The CIP draft itself** — written separately by the CIP author from this paste guide.

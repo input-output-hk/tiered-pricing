@@ -99,7 +99,7 @@ identifiers and do not collide.
   Plot panes (controller quote per lane, mempool bytes per lane, fees +
   refunds per slot). When the per-(job, seed) JSON has no
   `time_series`, a `(no time-series available)` placeholder renders in
-  place of the charts so phase-3 / non-time-series suites do not crash
+  place of the charts so robustness / non-time-series suites do not crash
   the view.
 - **Latency is reported per demand component**, not per lane — see Notes
   below for why this distinction matters.

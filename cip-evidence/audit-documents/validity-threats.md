@@ -1,5 +1,12 @@
 # Validity threats — phase-2 dynamic-pricing simulator
 
+
+> **⚠️ SUPERSEDED 2026-05-21** — numerical claims below were computed under the
+> pre-Cardano Improvement Proposal (CIP)-0164 EB-sizing simulator variant
+> (`linear`, 12 megabyte (MB) EB wire object). Endorser Block (EB) certification
+> failed under that variant, biasing every inclusion-rate / latency / welfare
+> measurement. See [`../../docs/phase-2/eb-sizing-fix-postmortem.md`](../../docs/phase-2/eb-sizing-fix-postmortem.md) for the diagnosis and the re-run schedule.
+
 Date: 2026-05-18
 Branch: dynamic-experiment
 Scope: per-claim trust assessment for all 19 phase-2 suite YAMLs in
@@ -35,8 +42,7 @@ faithful, one step per canonical block) per
 which closes WR-1 (controller contamination on slot-battle reorg) by
 construction.
 
-Phase 3's cheap tests
-([`04-03-phase3-evidence-summary.md`](../../.planning/phases/04-refresh-and-anchor/04-03-phase3-evidence-summary.md))
+the robustness suites' cheap tests
 produced multi-seed evidence at N=20 BCa CIs:
 
 - **Un-reserved menu arms outperform single-lane EIP-1559** at
@@ -47,7 +53,7 @@ produced multi-seed evidence at N=20 BCa CIs:
 - **RB-reserved menu arms underperform single-lane EIP-1559** under
   the same calibration: priority-only RB-reserved Δ = −4.15e+09 (CI
   [−6.02e+09, −1.00e+09]); both-dynamic partitioned Δ = −4.15e+09
-  (CI [−5.95e+09, −8.87e+08]). REFUTES the pre-Phase-3 single-seed
+  (CI [−5.95e+09, −8.87e+08]). REFUTES the pre-robustness single-seed
   framing that "two-lane mechanisms outperform single-lane EIP-1559"
   for the RB-reserved variants under this calibration.
 - **`multiplier_floor = 4` is regime-dependent**: at floor=16 the
@@ -57,13 +63,13 @@ produced multi-seed evidence at N=20 BCa CIs:
 - **Hash-diversity gate**: 17 of 17 BACKED-eligible cells pass the
   COV-05 strict gate.
 
-Aggregate count: **2 HIGH** (un-reserved menu arms Phase 3 confirms
+Aggregate count: **2 HIGH** (un-reserved menu arms the robustness suites confirm
 at N=20), **13 MEDIUM** (defensible with the standard footer + 1–2
 specific caveats; includes the four formerly-UNRESOLVED suites whose
 verdicts are now derived from Phase 2's output-read per
 [`coverage-check.md`](coverage-check.md)), **4 LOW** (conclusions
-condition on `multiplier_floor = 4` being load-bearing or on Phase 3
-having statistically refuted the pre-Phase-3 framing). No suite
+condition on the robustness suites
+having statistically refuted the pre-robustness framing). No suite
 carries UNRESOLVED today.
 
 ## Family B decision
@@ -79,9 +85,8 @@ the M5 suite-level goldens were regenerated against the chain-derived
 implementation that day and all 7 goldens-pinned suites verify
 bit-identically intra-arch.
 
-Welfare-impact across mechanisms (Phase 3 N=20 BCa CIs per
-[`04-03-phase3-evidence-summary.md`](../../.planning/phases/04-refresh-and-anchor/04-03-phase3-evidence-summary.md),
-superseding the earlier N=1 33-job characterisation in
+Welfare-impact across mechanisms (robustness N=20 BCa CIs, superseding
+the earlier N=1 33-job characterisation in
 [`.planning/mechanism-welfare-impact-2026-05-14.md`](../../.planning/mechanism-welfare-impact-2026-05-14.md)):
 
 - **Un-reserved arms** outperform single-lane EIP-1559 with tight CIs
@@ -120,7 +125,7 @@ Three validity layers, interpreted per-claim:
   calibration, topology / actor model, demand). The standard footer
   applies universally and is not re-listed inline.
 - **Conclusion-specific validity.** The unpinned demand-regime
-  suites run at 3 seeds × 2000 slots; Phase 3 promoted 5 directly-
+  suites run at 3 seeds × 2000 slots; the robustness suites promoted 5 directly-
   tested canonical cells to N=20 BCa CIs. Determinism intra-arch
   only. *Shape* claims (sign, ordering) are well-supported at 3
   seeds for any suite passing the hash-diversity gate; *magnitude*
@@ -128,13 +133,13 @@ Three validity layers, interpreted per-claim:
 
 **4-level scale.**
 
-- **HIGH** — Phase 3 N=20 BCa CI evidence; CI excludes zero;
+- **HIGH** — robustness N=20 BCa CI evidence; CI excludes zero;
   publication-ready with the standard footer only.
 - **MEDIUM** — robust against most threats; 1–2 specific caveats.
 - **LOW** — direction or shape materially sensitive to a disclosure
   item; recast as exploratory or pair with sensitivity sweep. Also
-  applies to suites whose pre-Phase-3 framing was statistically
-  refuted by Phase 3 (the RB-reserved underperform finding at
+  applies to suites whose pre-robustness framing was statistically
+  refuted by the robustness suites (the RB-reserved underperform finding at
   TEST-04).
 - **UNRESOLVED** — historically used for suites awaiting output
   read. **No suite carries UNRESOLVED in this refresh**: the four
@@ -146,7 +151,7 @@ Three validity layers, interpreted per-claim:
 **Common cross-suite facts** (true of all 19 unless noted):
 
 - Seeds: `[1, 2, 3]` for unpinned demand-regime suites and the M3 /
-  M4 goldens-pinned suites; the 5 canonical Phase 3 cells run at
+  M4 goldens-pinned suites; the 5 canonical robustness cells run at
   N=20 with BCa CIs.
 - Slots: 2000 (~10 min simulated time at 0.5 s/slot).
 - Topology:
@@ -179,7 +184,7 @@ Three validity layers, interpreted per-claim:
   `RSK-three-seed-statistical-power`, `RSK-single-seed-precision`,
   `RSK-substrate-scope`, `RSK-leios-spec-pre-deployment`.
 - **Related CLM:** CLM-05, CLM-10, CLM-11, CLM-18.
-- **Phase 3 evidence:** `cell_eip1559_d4_t50_w32` **BACKED** (BCa
+- **robustness-suite evidence:** `cell_eip1559_d4_t50_w32` **BACKED** (BCa
   CI [+3.38e+09, +1.35e+10], median +5.37e+09 vs the d8_t50_w32
   baseline, sign-coherence 0.75, hash-diversity 20/20);
   `cell_eip1559_d8_t25_w32` **BACKED** (CI [+4.68e+08, +5.66e+09],
@@ -188,7 +193,7 @@ Three validity layers, interpreted per-claim:
   both cells resolve welfare-positive at N=20 vs the canonical
   baseline.
 - **Trust:** **MEDIUM** for the suite as a whole; the two specific
-  cells Phase 3 directly tested carry **BACKED** rows.
+  cells the robustness suites directly tested carry **BACKED** rows.
 - **Caveats:** (a) window length 32 sub-knob unanchored; (b) the 3
   un-tested jobs (`d8_t50_w32` baseline, `d8_t75_w32`,
   `d16_t50_w32`) carry 3-seed evidence only; (c) WR-1 RESOLVED via
@@ -208,13 +213,13 @@ Three validity layers, interpreted per-claim:
   partially answers audit external item #1 (window length 32
   unanchored); the sweep does not bracket `window = 1` (Ethereum
   unwindowed) or `window = 128` (over-smoothed).
-- **Statistical:** 3 jobs × 3 seeds = 9 runs. Phase 3 did not re-run
+- **Statistical:** 3 jobs × 3 seeds = 9 runs. the robustness suites did not re-run
   at N=20.
 - **Related RSK:** `RSK-un-anchored-controller-knobs`,
   `RSK-three-seed-statistical-power`, `RSK-substrate-scope`.
 - **Related CLM:** (no direct backing-suite row; informs CLM-05 /
   CLM-18 framing).
-- **Phase 3 evidence:** Indirectly informed by TEST-03's resolution
+- **robustness-suite evidence:** Indirectly informed by TEST-03's resolution
   of the `d8_t25_w32` and `d4_t50_w32` cells (both BACKED at N=20).
 - **Trust:** **MEDIUM**.
 - **Caveats:** (a) endpoints `window = 1` and `window = 128`
@@ -248,11 +253,11 @@ Three validity layers, interpreted per-claim:
   `RSK-three-seed-statistical-power`, `RSK-substrate-scope`.
 - **Related CLM:** CLM-02, CLM-06, CLM-12, CLM-16, CLM-19, CLM-24,
   CLM-29, CLM-34, CLM-41.
-- **Phase 3 evidence:** `menu_rb_reserved_priority_only_static_x4`
+- **robustness-suite evidence:** `menu_rb_reserved_priority_only_static_x4`
   **BACKED** at N=20: BCa CI [−6.02e+09, −1.00e+09], median Δ =
   −4.15e+09 vs single-lane EIP-1559 control at `sundaeswap_moderate
   × multiplier_floor=4`. Sign-coherence 0.65. **REFUTES the
-  pre-Phase-3 framing that RB-reserved priority-only outperforms
+  pre-robustness framing that RB-reserved priority-only outperforms
   single-lane EIP-1559** — the arm UNDERPERFORMS by ~4e+09 retained
   value (CLM-06). `cell_rb_reserved_x4_rb_quarter` **WEAK** (CI
   [−1.50e+09, +2.18e+09] crosses zero; CLM-12).
@@ -290,10 +295,10 @@ Three validity layers, interpreted per-claim:
   `RSK-substrate-scope`.
 - **Related CLM:** CLM-01, CLM-07, CLM-14, CLM-20, CLM-25, CLM-30,
   CLM-35, CLM-42.
-- **Phase 3 evidence:** `menu_unreserved_priority_only_static_x4`
+- **robustness-suite evidence:** `menu_unreserved_priority_only_static_x4`
   **BACKED** at N=20: BCa CI [+4.28e+09, +8.49e+09], median Δ =
   +6.66e+09 vs single-lane control at `sundaeswap_moderate × floor=4`.
-  Sign-coherence 0.90. The pre-Phase-3 "un-reserved priority-only
+  Sign-coherence 0.90. The pre-robustness "un-reserved priority-only
   outperforms single-lane EIP-1559" framing is **confirmed** at N=20
   (CLM-07).
 - **Trust:** **HIGH** for the welfare-vs-single-lane claim shape at
@@ -335,7 +340,7 @@ Three validity layers, interpreted per-claim:
 - **Related CLM:** CLM-03, CLM-04, CLM-08, CLM-09, CLM-13, CLM-15,
   CLM-17, CLM-21, CLM-22, CLM-26, CLM-27, CLM-31, CLM-32, CLM-36,
   CLM-37, CLM-43, CLM-44.
-- **Phase 3 evidence:** `menu_unreserved_both_dynamic_x4`
+- **robustness-suite evidence:** `menu_unreserved_both_dynamic_x4`
   **BACKED**: BCa CI [+5.65e+09, +1.09e+10], median Δ = +7.95e+09 vs
   single-lane control (sign-coherence 0.90; CLM-09 confirmed).
   `menu_rb_reserved_both_dynamic_x4` (partitioned) **BACKED**: CI
@@ -381,7 +386,7 @@ Three validity layers, interpreted per-claim:
   `RSK-three-seed-statistical-power`, `RSK-substrate-scope`.
 - **Related CLM:** (no direct backing-suite citation; informs the
   regime-dependence framing for CLM-06, CLM-08, CLM-12, CLM-13).
-- **Phase 3 evidence:** TEST-07a found the rb-scarcity finding is
+- **robustness-suite evidence:** TEST-07a found the rb-scarcity finding is
   regime-dependent: floor=4 → "standard dominates welfare, RB
   scarcity mostly invisible"; floor=16 → "priority captures
   everything; total welfare drops 93–98%; RB scarcity is the binding
@@ -426,7 +431,7 @@ Three validity layers, interpreted per-claim:
   `RSK-three-seed-statistical-power`, `RSK-substrate-scope`.
 - **Related CLM:** (no direct backing-suite citation; informs the
   regime-dependence narrative).
-- **Phase 3 evidence:** TEST-07a found the finding **weakly reverses**
+- **robustness-suite evidence:** TEST-07a found the finding **weakly reverses**
   at floor=16: at floor=4, mispriced (`{1,1}`) > correctly-priced
   (`{4,1}`) because priority quote barely rises above the floor; at
   floor=16, high-urgency over-spending is more expensive, so
@@ -561,7 +566,7 @@ settings); `priority-only` 16 jobs (rb-reserved × {4,8,16} ×
 - **Related CLM:** CLM-47.
 - **Trust:** **MEDIUM** (refreshed from UNRESOLVED via Phase 2
   output-read; CLM-47 WEAK; further upgrade requires N≥20 BCa
-  evidence Phase 3 did not produce).
+  evidence the robustness suites did not produce).
 - **Caveats:** rows are WEAK in `coverage-check.md` pending
   multi-seed evidence; WR-1 RESOLVED.
 
@@ -585,7 +590,7 @@ settings); `priority-only` 16 jobs (rb-reserved × {4,8,16} ×
 - **Related CLM:** CLM-40.
 - **Trust:** **MEDIUM** (refreshed from UNRESOLVED via Phase 2
   output-read; CLM-40 WEAK; further upgrade requires multi-seed
-  evidence Phase 3 did not produce).
+  evidence the robustness suites did not produce).
 - **Caveats:** standard-user drift bound is a disclosed gap; WR-1
   RESOLVED.
 
@@ -725,7 +730,7 @@ settings); `priority-only` 16 jobs (rb-reserved × {4,8,16} ×
 
 | Trust level | Suite count | Suites |
 |---|---|---|
-| HIGH | 2 | `phase-2-priority-only-unreserved` (for the CLM-07 claim shape at `sundaeswap_moderate × floor=4`), `phase-2-two-lane-both-dynamic` (for the CLM-09 un-partitioned claim shape at `sundaeswap_moderate × floor=4`) — Phase 3 TEST-04 BACKED at N=20 BCa CI with sign-coherence 0.90 |
+| HIGH | 2 | `phase-2-priority-only-unreserved` (for the CLM-07 claim shape at `sundaeswap_moderate × floor=4`), `phase-2-two-lane-both-dynamic` (for the CLM-09 un-partitioned claim shape at `sundaeswap_moderate × floor=4`) — robustness TEST-04 BACKED at N=20 BCa CI with sign-coherence 0.90 |
 | MEDIUM | 13 | M3: `phase-2-eip1559-robustness`, `phase-2-eip1559-smoothing`. M4 (structural / partial): `phase-2-priority-only-unreserved` (broader floor sweep; HIGH only for the canonical cell), `phase-2-two-lane-both-dynamic` (structural multiplier-floor-invariant claim; HIGH only for the un-partitioned canonical cell). Demand-regime: `phase-2-congested-singlelane`, `phase-2-congested-priority-only`, `phase-2-congested-both-dynamic`, `phase-2-moderate-singlelane`, `phase-2-realistic-singlelane`, `phase-2-realistic-priority-only`, `phase-2-sundaeswap-singlelane`, `phase-2-sundaeswap-priority-only`. Formerly-UNRESOLVED, refreshed via Phase 2 output-read: `phase-2-moderate-priority-only`, `phase-2-moderate-both-dynamic`, `phase-2-realistic-both-dynamic`, `phase-2-sundaeswap-both-dynamic`. |
 | LOW | 4 | `phase-2-priority-only-rb-reserved` (CLM-06 REFUTED at N=20 BCa: the arm underperforms single-lane EIP-1559 at `sundaeswap_moderate × floor=4`), `phase-2-two-lane-both-dynamic` (CLM-08 REFUTED at N=20 BCa for the partitioned variant under the same calibration), `phase-2-rb-scarcity` (regime-dependent on `multiplier_floor = 4`; TEST-07a inversion at floor=16), `phase-2-urgency-inversion` (regime-dependent on `multiplier_floor = 4`; TEST-07a weak reversal at floor=16). |
 | UNRESOLVED | 0 | None — the previously-UNRESOLVED suites (`moderate-priority-only`, `moderate-both-dynamic`, `realistic-both-dynamic`, `sundaeswap-both-dynamic`) carry refreshed MEDIUM verdicts derived from Phase 2's output-read. |
@@ -751,11 +756,11 @@ level.
   floor=16. `RSK-multiplier-floor-4-suite-coverage` LIVE →
   DISCLOSED with reframe per Phase 4 plan 04-06.
 - **Three-seed statistical power is the dominant conclusion-validity
-  limit for 14 of 19 suites.** Phase 3 promoted 9 cell-runs to N=20
+  limit for 14 of 19 suites.** the robustness suites promoted 9 cell-runs to N=20
   BCa CIs; the rest carry 3-seed evidence only. Shape claims are
   well-supported for any suite passing the hash-diversity gate
   (17/17 BACKED-eligible pass); magnitude claims are
-  publication-grade only for the 9 cells Phase 3 directly tested.
+  publication-grade only for the 9 cells the robustness suites directly tested.
 - **CR-1 (`f64::sqrt`)** asterisks cross-arch reproducibility;
   `RSK-cross-arch-determinism` DISCLOSED.
 - **WR-2 (no `AdmissionRejected` event —
@@ -810,7 +815,7 @@ two TEST-07a suites). Example for
 multiplier_floor = 4` and N=20 paired bootstrap, the RB-reserved
 priority-only-static arm UNDERPERFORMS single-lane EIP-1559 by
 median −4.15e+09 retained_value (95% BCa CI [−6.02e+09, −1.00e+09],
-sign-coherence 0.65). The pre-Phase-3 single-seed framing that
+sign-coherence 0.65). The pre-robustness single-seed framing that
 'two-lane mechanisms outperform single-lane EIP-1559' is
 statistically refuted for the RB-reserved variant under this
 calibration; structural anti-bribery
@@ -830,7 +835,7 @@ CLM-48 license the four MEDIUM verdicts).
 > nodes; mass-stratified epoch-582 Cardano mainnet snapshot retrieved
 > 2026-05-14), at 2000 slots × N seeds per job (N=3 for unpinned
 > demand-regime suites; N=20 with BCa 95% paired-bootstrap CIs for
-> the 5 canonical Phase 3 cells). The pricing kernel and mempool
+> the 5 canonical robustness cells). The pricing kernel and mempool
 > gate are integer / rational / u128 disciplined; reporting outputs
 > are f64. Intra-arch determinism pinned by golden hashes against
 > the Family B chain-derived controller; cross-arch reproducibility

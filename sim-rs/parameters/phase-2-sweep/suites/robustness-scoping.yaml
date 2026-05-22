@@ -1,6 +1,6 @@
-# Phase-3 scoping suite (TEST-02 — wall-clock measurement for N selection).
+# Robustness scoping suite (TEST-02 — wall-clock measurement for N selection).
 #
-# Purpose: measure per-(job, seed) wall-clock at the canonical Phase-3
+# Purpose: measure per-(job, seed) wall-clock at the canonical robustness
 # configuration (topology-realistic-100, protocol-base, paper_like_congested)
 # so Wave 2 can pick N from {10, 15, 18, 20} subject to a ~30 min × parallelism
 # total-compute budget per cell.
@@ -17,7 +17,7 @@
 #     here would bias the scoping measurement toward the very variance
 #     TEST-03 needs to characterise.
 #
-# Per CONTEXT.md D-25: Phase-3 suites are NOT goldens-pinned (no entry in
+# Per CONTEXT.md D-25: Robustness suites are NOT goldens-pinned (no entry in
 # parameters/phase-2-sweep/suites/.goldens/, no row in sim-cli/tests/determinism.rs).
 #
 # Per CONTEXT.md D-26: seeds are sequential [1, 2, 3, 4, 5]. Wave 2's
@@ -26,10 +26,10 @@
 #
 # Run from sim-rs/:
 #   cargo run --release --bin experiment-suite -- run \
-#       parameters/phase-2-sweep/suites/phase-3-scoping.yaml -P 8
+#       parameters/phase-2-sweep/suites/robustness-scoping.yaml -P 8
 #
-suite-name: phase-3-scoping
-output-dir: output/phase-3/scoping
+suite-name: robustness-scoping
+output-dir: output/robustness/scoping
 seeds: [1, 2, 3, 4, 5]
 default-slots: 2000
 default-topology: parameters/phase-2-sweep/topology-realistic-100.yaml

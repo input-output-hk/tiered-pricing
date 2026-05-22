@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Phase-3 analysis pass.
+Robustness analysis pass.
 
-Reads per-(job, seed) run_summary.json from sim-rs/output/phase-3/<suite>-<run-id>/
+Reads per-(job, seed) run_summary.json from sim-rs/output/robustness/<suite>-<run-id>/
 and emits per-cell .json artefacts + a results.md per test under
 .planning/realism-tests/<test>/.
 
@@ -18,7 +18,7 @@ Algorithms:
     over the N seeds; required == N for BACKED.
 
 Usage:
-  python3 scripts/analyse-phase-3.py <run-id>
+  python3 scripts/analyse-robustness.py <run-id>
 
 Run from sim-rs/.
 """
@@ -190,7 +190,7 @@ def paired_bootstrap_test(suite_dir, cells, control, seeds, out_dir, bootstrap_s
 
 def main():
     run_id = sys.argv[1] if len(sys.argv) > 1 else "20260518-084846"
-    base = Path("output/phase-3")
+    base = Path("output/robustness")
     realism = Path("../.planning/realism-tests")
 
     # TEST-03 sign-flip variance (6 jobs × 20 seeds)

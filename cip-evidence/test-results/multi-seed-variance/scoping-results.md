@@ -1,9 +1,16 @@
 # TEST-02 Scoping Results — Wall-clock Calibration for Wave 2
 
+
+> **⚠️ SUPERSEDED 2026-05-21** — numerical claims below were computed under the
+> pre-Cardano Improvement Proposal (CIP)-0164 EB-sizing simulator variant
+> (`linear`, 12 megabyte (MB) EB wire object). Endorser Block (EB) certification
+> failed under that variant, biasing every inclusion-rate / latency / welfare
+> measurement. See [`../../../docs/phase-2/eb-sizing-fix-postmortem.md`](../../../docs/phase-2/eb-sizing-fix-postmortem.md) for the diagnosis and the re-run schedule.
+
 **Run date:** 2026-05-18
-**Source:** Phase 3 Plan 03-01 Task 2 (TEST-02 scoping run)
-**Suite:** `parameters/phase-2-sweep/suites/phase-3-scoping.yaml`
-**Manifest:** `sim-rs/output/phase-3/scoping-20260518-083210/manifest.json`
+**Source:** the robustness suites Plan 03-01 Task 2 (TEST-02 scoping run)
+**Suite:** `parameters/phase-2-sweep/suites/robustness-scoping.yaml`
+**Manifest:** `sim-rs/output/robustness/scoping-20260518-083210/manifest.json`
 
 ## Canonical-job choice
 
@@ -28,7 +35,7 @@ wall-clock measurement by the very cells TEST-03 is designed to characterise.
 
 Suite started at `2026-05-18T08:32:10Z`. Five seeds ran in parallel under
 `experiment-suite run -P 8` (intra-suite parallelism = 8, cross-suite = 1 via
-`scripts/run-phase-3-suites.sh`). Per-(job, seed) wall-clock derived from
+`scripts/run-robustness-suites.sh`). Per-(job, seed) wall-clock derived from
 manifest completion timestamps:
 
 | seed | completed_at_utc | wall-clock from suite start | included | evicted | pricing_event_stream.sha256 (12-char prefix) |
@@ -103,8 +110,8 @@ confidence intervals:
   + N=20 seeds × 5 canonical cells (TEST-04) gives roughly 200 (job, seed) runs
   in the paired-bootstrap suites. Total predicted wall-clock at -P 8:
   ~40 min. TEST-05's 33 jobs × 5 demand profiles × 2 pool counts × 5 seeds =
-  1650 runs dominate Phase-3 compute and are the load-bearing budget item.
-- Phase 3 suite designation: this suite is NOT goldens-pinned per D-25. Phase 3
+  1650 runs dominate robustness-suite compute and are the load-bearing budget item.
+- Robustness suite designation: this suite is NOT goldens-pinned per D-25. The robustness suites
   outputs land in `../`, not in
   `parameters/phase-2-sweep/suites/.goldens/`. The M5 suite goldens are
   unaffected by this scoping run or any Wave 2 suites.

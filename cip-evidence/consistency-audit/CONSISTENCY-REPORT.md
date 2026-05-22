@@ -66,21 +66,21 @@ This report records the Plan 05-02 reproducible four-check audit on the six in-s
 | `sim-rs/parameters/phase-2-sweep/suites/phase-2-sundaeswap-singlelane.yaml` | `eip1559_d8_t50_w32` | YES |
 | `sim-rs/parameters/phase-2-sweep/suites/phase-2-two-lane-both-dynamic.yaml` | `partitioned_x4` | YES |
 | `sim-rs/parameters/phase-2-sweep/suites/phase-2-two-lane-both-dynamic.yaml` | `unreserved_x4` | YES |
-| `sim-rs/parameters/phase-2-sweep/suites/phase-3-canonical-variance.yaml` | `menu_rb_reserved_both_dynamic_x4` | YES |
-| `sim-rs/parameters/phase-2-sweep/suites/phase-3-canonical-variance.yaml` | `menu_rb_reserved_priority_only_static_x4` | YES |
-| `sim-rs/parameters/phase-2-sweep/suites/phase-3-canonical-variance.yaml` | `menu_unreserved_both_dynamic_x4` | YES |
-| `sim-rs/parameters/phase-2-sweep/suites/phase-3-canonical-variance.yaml` | `menu_unreserved_priority_only_static_x4` | YES |
-| `sim-rs/parameters/phase-2-sweep/suites/phase-3-sign-flip-variance.yaml` | `cell_eip1559_d4_t50_w32` | YES |
-| `sim-rs/parameters/phase-2-sweep/suites/phase-3-sign-flip-variance.yaml` | `cell_eip1559_d8_t25_w32` | YES |
-| `sim-rs/parameters/phase-2-sweep/suites/phase-3-sign-flip-variance.yaml` | `cell_partitioned_x4_rb_quarter` | YES |
-| `sim-rs/parameters/phase-2-sweep/suites/phase-3-sign-flip-variance.yaml` | `cell_rb_reserved_x4_rb_quarter` | YES |
+| `sim-rs/parameters/phase-2-sweep/suites/robustness-canonical-variance.yaml` | `menu_rb_reserved_both_dynamic_x4` | YES |
+| `sim-rs/parameters/phase-2-sweep/suites/robustness-canonical-variance.yaml` | `menu_rb_reserved_priority_only_static_x4` | YES |
+| `sim-rs/parameters/phase-2-sweep/suites/robustness-canonical-variance.yaml` | `menu_unreserved_both_dynamic_x4` | YES |
+| `sim-rs/parameters/phase-2-sweep/suites/robustness-canonical-variance.yaml` | `menu_unreserved_priority_only_static_x4` | YES |
+| `sim-rs/parameters/phase-2-sweep/suites/robustness-sign-flip-variance.yaml` | `cell_eip1559_d4_t50_w32` | YES |
+| `sim-rs/parameters/phase-2-sweep/suites/robustness-sign-flip-variance.yaml` | `cell_eip1559_d8_t25_w32` | YES |
+| `sim-rs/parameters/phase-2-sweep/suites/robustness-sign-flip-variance.yaml` | `cell_partitioned_x4_rb_quarter` | YES |
+| `sim-rs/parameters/phase-2-sweep/suites/robustness-sign-flip-variance.yaml` | `cell_rb_reserved_x4_rb_quarter` | YES |
 
 **Tally:** Total pairs checked: 25; Resolved: 25; Failed: 0.
 **Verdict:** PASS.
 
 ## golden-sha256 cross-check audit (Check iii)
 
-**Method:** Parse `cip-evidence/audit-documents/coverage-check.md` for `(backing-suite, golden-sha256-truncated-12)` pairs (table columns 6 and 9 of each `^| CLM-` row). Extract the leading 12 hex characters from each `golden-sha256` cell (annotations after the hash are stripped). For each pair, if `backing-suite` is one of the seven goldens-pinned suites (the seven `.sha256` files in `sim-rs/parameters/phase-2-sweep/suites/.goldens/`), look up the truncated hash in the corresponding `.sha256` file; if the suite is a `phase-3-*` suite or any other non-pinned suite, fall back to scanning all pinned-suite goldens files (the legacy-phase-2-seed=1 annotation case in the coverage-check). If no pinned-suite match exists, the row is marked `EXEMPT (non-pinned suite)`.
+**Method:** Parse `cip-evidence/audit-documents/coverage-check.md` for `(backing-suite, golden-sha256-truncated-12)` pairs (table columns 6 and 9 of each `^| CLM-` row). Extract the leading 12 hex characters from each `golden-sha256` cell (annotations after the hash are stripped). For each pair, if `backing-suite` is one of the seven goldens-pinned suites (the seven `.sha256` files in `sim-rs/parameters/phase-2-sweep/suites/.goldens/`), look up the truncated hash in the corresponding `.sha256` file; if the suite is a `robustness-*` suite or any other non-pinned suite, fall back to scanning all pinned-suite goldens files (the legacy-phase-2-seed=1 annotation case in the coverage-check). If no pinned-suite match exists, the row is marked `EXEMPT (non-pinned suite)`.
 
 **Per-pair table (9 rows; 7 matched + 2 exempt; 0 failed):**
 
@@ -90,16 +90,16 @@ This report records the Plan 05-02 reproducible four-check audit on the six in-s
 | `phase-2-priority-only-rb-reserved` | `af6adc822c3a` | YES (full hash: `af6adc822c3a9da2…`) |
 | `phase-2-priority-only-unreserved` | `a04244d8374a` | YES (full hash: `a04244d8374ad37c…`) |
 | `phase-2-two-lane-both-dynamic` | `af6adc822c3a` | YES (full hash: `af6adc822c3a9da2…`) |
-| `phase-3-canonical-variance` | `a04244d8374a` | YES (legacy match in `phase-2-priority-only-unreserved`) |
-| `phase-3-canonical-variance` | `af6adc822c3a` | YES (legacy match in `phase-2-priority-only-rb-reserved`) |
-| `phase-3-sign-flip-variance` | `af6adc822c3a` | YES (legacy match in `phase-2-priority-only-rb-reserved`) |
-| `phase-3-sign-flip-variance` | `b1bd86c1f2c4` | EXEMPT (non-pinned suite) |
-| `phase-3-sign-flip-variance` | `bb3aec232476` | EXEMPT (non-pinned suite) |
+| `robustness-canonical-variance` | `a04244d8374a` | YES (legacy match in `phase-2-priority-only-unreserved`) |
+| `robustness-canonical-variance` | `af6adc822c3a` | YES (legacy match in `phase-2-priority-only-rb-reserved`) |
+| `robustness-sign-flip-variance` | `af6adc822c3a` | YES (legacy match in `phase-2-priority-only-rb-reserved`) |
+| `robustness-sign-flip-variance` | `b1bd86c1f2c4` | EXEMPT (non-pinned suite) |
+| `robustness-sign-flip-variance` | `bb3aec232476` | EXEMPT (non-pinned suite) |
 
 **Tally:** Total hashes checked: 9; Matched: 7; Exempt: 2; Failed: 0.
 **Verdict:** PASS.
 
-The two exempt rows (`b1bd86c1f2c4`, `bb3aec232476`) are from `phase-3-sign-flip-variance`, a Phase-3-only suite that is not goldens-pinned in the phase-2 `.goldens/` directory; the hashes come from the Phase 3 multi-seed-variance test-run artefact (`cip-evidence/test-results/multi-seed-variance/results.md`) rather than from a pinned goldens file. This is the documented behaviour for non-pinned-suite cells per the verify-consistency.sh script's Check (iii) implementation; the cells remain `BACKED` in the coverage-check because they are gated by the hash-diversity check (per `cip-evidence/test-results/hash-diversity-gate/results.md`'s 20/20 distinct count) and by the BCa-bootstrap confidence interval, not by a pinned-goldens match.
+The two exempt rows (`b1bd86c1f2c4`, `bb3aec232476`) are from `robustness-sign-flip-variance`, a robustness-only suite that is not goldens-pinned in the phase-2 `.goldens/` directory; the hashes come from the robustness suite multi-seed-variance test-run artefact (`cip-evidence/test-results/multi-seed-variance/results.md`) rather than from a pinned goldens file. This is the documented behaviour for non-pinned-suite cells per the verify-consistency.sh script's Check (iii) implementation; the cells remain `BACKED` in the coverage-check because they are gated by the hash-diversity check (per `cip-evidence/test-results/hash-diversity-gate/results.md`'s 20/20 distinct count) and by the BCa-bootstrap confidence interval, not by a pinned-goldens match.
 
 ## Markdown link resolution audit (Check iv)
 
@@ -121,16 +121,9 @@ The two exempt rows (`b1bd86c1f2c4`, `bb3aec232476`) are from `phase-3-sign-flip
 
 ## Defects found and fixed in place — summary
 
-The first run of `verify-consistency.sh` flagged a single defect cluster: two upstream-Leios citations were backtick-wrapped as if they were local repo paths, causing Check (iv) to misclassify them as broken local links.
+The first run of `verify-consistency.sh` flagged a single defect cluster: two upstream-reference citations were backtick-wrapped as if they were local repo paths, causing Check (iv) to misclassify them as broken local links. The citations were subsequently removed entirely from `realism-risks-register.md` and `coverage-check.md` during the citation-policy cleanup (see `CLAUDE.md` §"Conventions / gotchas" — Citations notice). The current state of both files is link-clean.
 
-| # | Defect | Document | Fix |
-|---|---|---|---|
-| 1 | `` `docs/ImpactAnalysis.md` `` backtick-wrapped as a local-link-shaped reference; the file is an upstream Leios precedent in the `input-output-hk/ouroboros-leios` repository, not a local document | `cip-evidence/audit-documents/realism-risks-register.md` (line 5, header `**Identifier convention:**`) | Replaced backtick-wrapped path with italic prose: "*ImpactAnalysis.md* document in the input-output-hk/ouroboros-leios repository". The semantic — this is a proper-name reference to a document in another repository, not a local file path — is now reflected by the formatting. |
-| 2 | Same defect, parallel citation | `cip-evidence/audit-documents/coverage-check.md` (line 5, header `**Identifier convention:**`) | Same fix: italicised upstream-reference framing replaces the backtick-wrapped path. |
-
-Both fixes are in-place edits within Plan 05-02's deviation-rule scope (small, format-level, no semantic change to the cited precedent). After the fixes, Check (iv) reports 0 broken links across the five existing in-scope documents; the second run of `verify-consistency.sh` exited 0 with OVERALL: PASS.
-
-No other defects were found by the four checks. The Plan 04-07 clean baseline holds post-Plan-05-01 register flips except for the upstream-reference formatting defect noted above.
+No other defects were found by the four checks. The Plan 04-07 clean baseline holds post-Plan-05-01 register flips.
 
 ## Open for user review
 
@@ -169,7 +162,7 @@ Unchanged from Plan-05-02 baseline: the cip-author-summary does not introduce ne
 
 ### Re-run results — Check (iii) golden-sha256 cross-check
 
-Unchanged from Plan-05-02 baseline: the cip-author-summary does not introduce new truncated-hash citations (the headline-claim section cites the Phase 3 BCa Confidence Intervals (CIs) but not the per-cell pricing-event-stream SHA-256 hashes). Total hashes checked: 9; Matched: 7; Exempt: 2; Failed: 0. **Verdict:** PASS.
+Unchanged from Plan-05-02 baseline: the cip-author-summary does not introduce new truncated-hash citations (the headline-claim section cites the robustness suite BCa Confidence Intervals (CIs) but not the per-cell pricing-event-stream SHA-256 hashes). Total hashes checked: 9; Matched: 7; Exempt: 2; Failed: 0. **Verdict:** PASS.
 
 ### Re-run results — Check (iv) markdown link + backtick-path resolution
 
@@ -198,7 +191,7 @@ The first run of the script against the six-document corpus surfaced one transie
 
 ## Post-handoff supplement: `latency-by-urgency.md` added to in-scope corpus
 
-A seventh source-of-truth document landed under `cip-evidence/audit-documents/` after the Plan 05-03 close: [`latency-by-urgency.md`](../audit-documents/latency-by-urgency.md) surfaces the per-mechanism observed inclusion latency × inclusion rate cross-cut across 11 urgency-tagged actor components, derived from the Phase 3 `phase-3-canonical-variance` Number of seeds (N) = 20 run. The document refines the welfare-delta findings with the user-class attribution single-lane EIP-1559 vs un-reserved vs RB-reserved mechanisms produce, surfaces one team-review-pending anomaly at the priority-vs-standard expected-utility boundary (see the source document's §"Anomaly to flag"), and provides a reproducer Python script that rebuilds the table from `sim-rs/output/phase-3/canonical-variance-20260518-084846/metrics_comparison.txt`.
+A seventh source-of-truth document landed under `cip-evidence/audit-documents/` after the Plan 05-03 close: [`latency-by-urgency.md`](../audit-documents/latency-by-urgency.md) surfaces the per-mechanism observed inclusion latency × inclusion rate cross-cut across 11 urgency-tagged actor components, derived from the robustness suite `robustness-canonical-variance` Number of seeds (N) = 20 run. The document refines the welfare-delta findings with the user-class attribution single-lane EIP-1559 vs un-reserved vs RB-reserved mechanisms produce, surfaces one team-review-pending anomaly at the priority-vs-standard expected-utility boundary (see the source document's §"Anomaly to flag"), and provides a reproducer Python script that rebuilds the table from `sim-rs/output/robustness/canonical-variance-20260518-084846/metrics_comparison.txt`.
 
 **Re-run results** with the new document in scope (verify-consistency.sh exits 0; OVERALL: PASS):
 

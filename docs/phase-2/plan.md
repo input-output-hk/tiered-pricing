@@ -116,7 +116,7 @@ This phase will be formalisation of mechanism-agnostic properties. These are the
 
 Once this is complete, we can verify that our experimental designs satisfy these properties.
 
-Mechanism-specific properties (derived from the recommended experiment candidates) are deferred to phase 3.
+Mechanism-specific properties (derived from the recommended experiment candidates) are deferred to future work.
 
 Dependencies: None.
 
@@ -235,7 +235,7 @@ Risk mitigation:
 * Experiments narrowing too late: If the robustness sweep takes longer than expected, we should prioritise getting at least a preliminary parameter ranking to the team rather than waiting for complete results.
 * Prototype outpacing formal work: Nicolas's block 1 is intentionally lighter (prep and familiarisation) to give Polina time to get the spec into a state that the prototype can build on. The weekly tech discussion should surface any divergence early.
 * Tooling delay: if the batch orchestration or suspendable-run tooling overruns block 1, Will can begin the dynamic-pricing sweep manually (one config at a time) while finishing the tooling in parallel. The tooling is a throughput optimisation, not a blocker - individual runs can be launched without it.
-* Andre's mechanism-agnostic formalisation has no dependency on the experiment results, but the 12-week timeline means Andre may finish well before the phase ends. If so, he can begin scoping mechanism-specific properties (to be completed in phase 3) using the reduced dynamic-pricing candidate set from milestone 1.
+* Andre's mechanism-agnostic formalisation has no dependency on the experiment results, but the 12-week timeline means Andre may finish well before the phase ends. If so, he can begin scoping mechanism-specific properties (deferred to future work) using the reduced dynamic-pricing candidate set from milestone 1.
 
 -----
 
@@ -268,15 +268,15 @@ A CIP skeleton (+ tech report) that doubles as the phase-2 wrap-up document. It 
 CIP:
 * Architecture of remaining dynamic-pricing candidates, with justification for why they survived and what was eliminated
 * Analysis dimensions (UX, security, revenue, throughput, fairness, implementation complexity) for recommended candidates
-* A recommendation for which candidates to carry forward into phase 3 (might not be all of the viable candidates due to implementation complexity)
+* A recommendation for which candidates to carry forward into future work (might not be all of the viable candidates due to implementation complexity)
 * Spec changes and mempool feasibility assessment
 * Reference to fee change return mechanism CIP (Polina's separate deliverable)
 * Statistical formalisation: mechanism-agnostic properties
 * Status of the Praos (or Leios) prototype
-* Updated open questions for research and experiments, to be addressed in phase 3 - Ideally we won't have any open questions at this point though?
+* Updated open questions for research and experiments, to be addressed in future work - Ideally we won't have any open questions at this point though?
 * Concretely identified implementation challenges
 
 Experiment report:
 * Summary of experiment results: what was tested, per-axis comparisons, stress test outcomes
 
-Some sections (experiment results, eliminated candidates, analysis dimensions) should be substantive by the end of phase 2. Others (final recommendation, complete formal spec, community feedback) will be filled in during phase 3.
+Some sections (experiment results, eliminated candidates, analysis dimensions) should be substantive by the end of phase 2. Others (final recommendation, complete formal spec, community feedback) are deferred to future work.

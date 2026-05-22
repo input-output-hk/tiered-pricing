@@ -1,4 +1,4 @@
-# Phase-3 TEST-05 — Pool-number sensitivity (150 vs existing 100 pools).
+# Robustness TEST-05 — Pool-number sensitivity (150 vs existing 100 pools).
 #
 # Scope cut from the over-scoped original (330 cells × 5 seeds = 1650 runs).
 # The plan's literal text is: "topology-realistic-150.yaml rerun of (33-job
@@ -25,8 +25,8 @@
 # N = 5 seeds per cell. NOT goldens-pinned.
 
 
-suite-name: phase-3-pool-number-sensitivity
-output-dir: output/phase-3/pool-number-sensitivity
+suite-name: robustness-pool-number-sensitivity
+output-dir: output/robustness/pool-number-sensitivity
 seeds:
 - 1
 - 2

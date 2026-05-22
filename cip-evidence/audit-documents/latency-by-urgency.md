@@ -1,14 +1,14 @@
 # Latency-by-Urgency × Mechanism
 
 **Status:** Phase 5 post-handoff supplement; landed 2026-05-18.
-**Scope:** Per-(actor-component, mechanism-arm) observed inclusion latency + inclusion-rate cross-cut, derived from the Phase 3 `phase-3-canonical-variance` Number of seeds (N) = 20 run. Complements the welfare-delta findings in [`../test-results/multi-seed-variance/results.md`](../test-results/multi-seed-variance/results.md) with the operational user-experience axis the four non-welfare columns of [`coverage-check.md`](coverage-check.md) do not surface.
+**Scope:** Per-(actor-component, mechanism-arm) observed inclusion latency + inclusion-rate cross-cut, derived from the robustness suite `robustness-canonical-variance` Number of seeds (N) = 20 run. Complements the welfare-delta findings in [`../test-results/multi-seed-variance/results.md`](../test-results/multi-seed-variance/results.md) with the operational user-experience axis the four non-welfare columns of [`coverage-check.md`](coverage-check.md) do not surface.
 **Reading guide:** Section §"Headline finding" gives the table + two-paragraph interpretation; §"Per-tier reading" walks each urgency tier; §"Anomaly to flag" surfaces one non-monotone row that needs team attention before the Cardano Improvement Proposal (CIP) cites it; §"Methodology" + §"Reproducibility" let a reviewer rebuild the table from the same raw inputs.
 
 **Abbreviations on first use** (per `CLAUDE.md` §"Conventions / gotchas"): Cardano Improvement Proposal (CIP), Ranking Block (RB), Ethereum Improvement Proposal 1559 (EIP-1559), Bias-corrected and accelerated (BCa) bootstrap, Inter-Quartile Range (IQR), Exponentially-Weighted Moving Average (EMA), decentralised finance (DeFi), Realism Risk identifier (RSK), Claim identifier (CLM).
 
 ## Headline finding
 
-The table splits into two views — latency conditional on inclusion (Table A), and inclusion rate (Table B) — across the same `(urgency tier × component × mechanism)` cells. Both are derived from the same Phase 3 `phase-3-canonical-variance` Number of seeds (N) = 20 run.
+The table splits into two views — latency conditional on inclusion (Table A), and inclusion rate (Table B) — across the same `(urgency tier × component × mechanism)` cells. Both are derived from the same the robustness suites `robustness-canonical-variance` Number of seeds (N) = 20 run.
 
 ### Table A — Latency (blocks to inclusion, median across 20 seeds, conditional on inclusion)
 
@@ -90,9 +90,9 @@ The welfare findings ([`../test-results/multi-seed-variance/results.md`](../test
 
 ## Caveats
 
-1. **One cell of the (demand × multiplier_floor) matrix.** This table covers `sundaeswap_moderate × multiplier_floor = 4` only. The Phase 3 TEST-07a finding (see [`../test-results/multiplier-floor-16-companion/results.md`](../test-results/multiplier-floor-16-companion/results.md) and `RSK-multiplier-floor-4-suite-coverage` in the [`realism-risks-register.md`](realism-risks-register.md)) is that `multiplier_floor = 16` shifts the picture substantially (priority captures more of the supply, total welfare collapses 93–98%); the latency-by-urgency cross-cut at `floor = 16` is not built here and would require either re-using existing TEST-07a outputs (3 seeds; ordering-level only) or a fresh run. Other demand profiles (`paper_like_congested`, `paper_like_uniform`, etc.) are likewise unrepresented in this table.
+1. **One cell of the (demand × multiplier_floor) matrix.** This table covers `sundaeswap_moderate × multiplier_floor = 4` only. The robustness TEST-07a finding (see [`../test-results/multiplier-floor-16-companion/results.md`](../test-results/multiplier-floor-16-companion/results.md) and `RSK-multiplier-floor-4-suite-coverage` in the [`realism-risks-register.md`](realism-risks-register.md)) is that `multiplier_floor = 16` shifts the picture substantially (priority captures more of the supply, total welfare collapses 93–98%); the latency-by-urgency cross-cut at `floor = 16` is not built here and would require either re-using existing TEST-07a outputs (3 seeds; ordering-level only) or a fresh run. Other demand profiles (`paper_like_congested`, `paper_like_uniform`, etc.) are likewise unrepresented in this table.
 
-2. **Median across seeds, not Bias-corrected and accelerated (BCa) Confidence Intervals (CIs).** We report the median of per-seed `latency_blocks_mean` and `inclusion_rate` across the 20 seeds. This is sufficient for ordering claims and for the qualitative story above. If any specific cell becomes load-bearing for a CIP claim, that cell should be re-run with BCa CIs on the paired latency delta (per the Phase 3 N=20 BCa stack documented in [`methodology-overview.md`](methodology-overview.md) §"(5) Confidence intervals"). The COV-05 hash-diversity gate (per [`../test-results/hash-diversity-gate/results.md`](../test-results/hash-diversity-gate/results.md)) already establishes that all 20 seeds in the canonical-variance run produce distinct pricing-event-stream Secure Hash Algorithm 256-bit hashes — so the latency observations are not artefacts of seed collapse.
+2. **Median across seeds, not Bias-corrected and accelerated (BCa) Confidence Intervals (CIs).** We report the median of per-seed `latency_blocks_mean` and `inclusion_rate` across the 20 seeds. This is sufficient for ordering claims and for the qualitative story above. If any specific cell becomes load-bearing for a CIP claim, that cell should be re-run with BCa CIs on the paired latency delta (per the robustness N=20 BCa stack documented in [`methodology-overview.md`](methodology-overview.md) §"(5) Confidence intervals"). The COV-05 hash-diversity gate (per [`../test-results/hash-diversity-gate/results.md`](../test-results/hash-diversity-gate/results.md)) already establishes that all 20 seeds in the canonical-variance run produce distinct pricing-event-stream Secure Hash Algorithm 256-bit hashes — so the latency observations are not artefacts of seed collapse.
 
 3. **`target_inclusion_blocks` defaults seed the actor's lane choice for the first ~50 simulated slots** ([`realism-risks-register.md`](realism-risks-register.md) `RSK-target-inclusion-blocks-default`). The observed-latency Exponentially-Weighted Moving Average (EMA) overwrites the seed once inclusion events arrive, so the seeded defaults (priority = 1 block, standard = 4 blocks) influence early-run dynamics only. The latency means in this table are averages over the full 2000-slot run, so they integrate over both the seeded-defaults regime and the observed-latency regime.
 
@@ -109,7 +109,7 @@ The welfare findings ([`../test-results/multi-seed-variance/results.md`](../test
 
 ## Methodology
 
-**Source data.** `sim-rs/output/phase-3/canonical-variance-20260518-084846/metrics_comparison.txt`. The Phase 3 `phase-3-canonical-variance` suite (see [`../../sim-rs/parameters/phase-2-sweep/suites/phase-3-canonical-variance.yaml`](../../sim-rs/parameters/phase-2-sweep/suites/phase-3-canonical-variance.yaml)) ran 5 jobs (the 4 menu options + the single-lane EIP-1559 control) × 20 seeds against `sundaeswap_moderate.yaml` demand on the 100-node realistic topology at `multiplier_floor = 4`. The metrics collector emits one `## job=<name> seed=<n>` block per (job, seed), each with an indented `- per-component:` section listing per-component `latency_blocks_mean=<X>` and `inclusion_rate=<Y>` (plus other fields; see [`sim-rs/sim-cli/src/metrics/collector.rs`](../../sim-rs/sim-cli/src/metrics/collector.rs) for the full schema).
+**Source data.** `sim-rs/output/robustness/canonical-variance-20260518-084846/metrics_comparison.txt`. The the robustness suites `robustness-canonical-variance` suite (see [`../../sim-rs/parameters/phase-2-sweep/suites/robustness-canonical-variance.yaml`](../../sim-rs/parameters/phase-2-sweep/suites/robustness-canonical-variance.yaml)) ran 5 jobs (the 4 menu options + the single-lane EIP-1559 control) × 20 seeds against `sundaeswap_moderate.yaml` demand on the 100-node realistic topology at `multiplier_floor = 4`. The metrics collector emits one `## job=<name> seed=<n>` block per (job, seed), each with an indented `- per-component:` section listing per-component `latency_blocks_mean=<X>` and `inclusion_rate=<Y>` (plus other fields; see [`sim-rs/sim-cli/src/metrics/collector.rs`](../../sim-rs/sim-cli/src/metrics/collector.rs) for the full schema).
 
 **Urgency-tier mapping.** The `sundaeswap_moderate` demand profile carries 11 components (indices 0–10) with `half-life-seconds: log-normal` distributions; the medians are extracted from the profile's `mu` parameter via `exp(mu)`. The tier assignment in the table is by median half-life:
 
@@ -127,11 +127,11 @@ The tier names are descriptive only; they are not parameters of the simulator. T
 
 ## Reproducibility
 
-The table above is generated from `sim-rs/output/phase-3/canonical-variance-20260518-084846/metrics_comparison.txt` by the Python script below. To rebuild against a fresh run, re-execute the suite via `cargo run --release --bin experiment-suite -- run sim-rs/parameters/phase-2-sweep/suites/phase-3-canonical-variance.yaml` and re-run the script against the new run-id output directory.
+The table above is generated from `sim-rs/output/robustness/canonical-variance-20260518-084846/metrics_comparison.txt` by the Python script below. To rebuild against a fresh run, re-execute the suite via `cargo run --release --bin experiment-suite -- run sim-rs/parameters/phase-2-sweep/suites/robustness-canonical-variance.yaml` and re-run the script against the new run-id output directory.
 
 ```python
 #!/usr/bin/env python3
-"""Build the latency-by-urgency × mechanism table from a phase-3-canonical-variance
+"""Build the latency-by-urgency × mechanism table from a robustness-canonical-variance
 metrics_comparison.txt. Outputs a markdown table to stdout."""
 import re, statistics
 from collections import defaultdict
@@ -162,7 +162,7 @@ TIER_ORDER = ['very-high', 'high', 'medium', 'low', 'very-low']
 
 import sys
 text = open(sys.argv[1] if len(sys.argv) > 1 else
-           "sim-rs/output/phase-3/canonical-variance-20260518-084846/metrics_comparison.txt").read()
+           "sim-rs/output/robustness/canonical-variance-20260518-084846/metrics_comparison.txt").read()
 
 data = defaultdict(list)
 for block in re.split(r'^## job=', text, flags=re.MULTILINE)[1:]:
@@ -198,4 +198,4 @@ for tier in TIER_ORDER:
         print("| **" + tier + "** | " + " | ".join(cells) + " |")
 ```
 
-**Commit + tag.** The table reflects `sim-rs/output/phase-3/canonical-variance-20260518-084846/` outputs from the Phase-3 run at the post-`phase-2-cip-evidence-v1` tag. Future re-runs supersede this table; the tag-pinned snapshot is the citable reference.
+**Commit + tag.** The table reflects `sim-rs/output/robustness/canonical-variance-20260518-084846/` outputs from the robustness run at the post-`phase-2-cip-evidence-v1` tag. Future re-runs supersede this table; the tag-pinned snapshot is the citable reference.

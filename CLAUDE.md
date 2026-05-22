@@ -471,11 +471,29 @@ refreshing the vendored Observable Plot + D3 bundles.
   in `.planning/`, `docs/phase-2/`, `CLAUDE.md`, or any documentation
   written for this project must be spelled out in full the first time
   it appears in a given document, with the abbreviation in parentheses
-  immediately after — e.g. "Paired Seed Evaluation (PSE)", "Overview,
-  Design concepts, Details (ODD) protocol", "Bias-corrected and
-  accelerated (BCa) bootstrap". Subsequent uses can use the
-  abbreviation alone. This applies regardless of how common the
-  abbreviation is in the surrounding literature.
+  immediately after — e.g. "Paired Seed Evaluation (PSE)",
+  "Bias-corrected and accelerated (BCa) bootstrap", "Inter-Quartile
+  Range (IQR)". Subsequent uses can use the abbreviation alone. This
+  applies regardless of how common the abbreviation is in the
+  surrounding literature.
+- **Citations notice.** The publication-track artefacts in
+  `cip-evidence/` and `docs/phase-2/` cite only sources Will has
+  actually read or factual data sources (deployed-spec parameter
+  tables, on-chain queries, raw source files, software dependencies).
+  The only intellectual-influence citation kept is Kiayias et al.
+  *"Tiered Mechanisms for Blockchain Transaction Fees"* (arXiv:2304.06014),
+  which is the source of the `retained_value` formula and the
+  namesake of this repo. **Do not introduce academic citations to
+  motivate design choices, anchor calibration values, or justify
+  methodology decisions unless Will explicitly confirms he has read
+  the source.** Past phases ran literature searches that retroactively
+  cited papers whose findings resembled rationale already written;
+  those have been stripped from the publication track. The `.planning/`
+  directory retains the historical record for audit purposes; do not
+  reintroduce those citations into publication-track docs. See
+  `~/.claude/projects/-home-will-git-arc-tiered-pricing/memory/feedback_no_retroactive_citations.md`
+  for the operational test ("can Will defend the claim in a meeting
+  without having read the cited work?").
 - **No `pricing-sim-base` content.** That branch is observable as
   prior art only — no file, type, or function moved across. Hard rule
   from [implementation-plan.md](docs/phase-2/implementation-plan.md).

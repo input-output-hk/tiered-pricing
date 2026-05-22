@@ -1,8 +1,15 @@
 # TEST-05 — Pool-Number Sensitivity Results
 
+
+> **⚠️ SUPERSEDED 2026-05-21** — numerical claims below were computed under the
+> pre-Cardano Improvement Proposal (CIP)-0164 EB-sizing simulator variant
+> (`linear`, 12 megabyte (MB) EB wire object). Endorser Block (EB) certification
+> failed under that variant, biasing every inclusion-rate / latency / welfare
+> measurement. See [`../../../docs/phase-2/eb-sizing-fix-postmortem.md`](../../../docs/phase-2/eb-sizing-fix-postmortem.md) for the diagnosis and the re-run schedule.
+
 **Status:** DATA-GAP (insufficient coverage; defer to Phase 4 disclosure)
 **Run id:** `20260518-084846`
-**Suite:** `phase-3-pool-number-sensitivity.yaml`
+**Suite:** `robustness-pool-number-sensitivity.yaml`
 
 ## Coverage
 
@@ -45,14 +52,14 @@ see RSK-pool-count disclosure"`).
 **Option B — Re-run the cut TEST-05 suite (165 runs).** From `sim-rs/`:
 
 ```bash
-scripts/run-phase-3-suites.sh 1 \
-    parameters/phase-2-sweep/suites/phase-3-pool-number-sensitivity.yaml
+scripts/run-robustness-suites.sh 1 \
+    parameters/phase-2-sweep/suites/robustness-pool-number-sensitivity.yaml
 ```
 
 Expected wall-clock: ~50 min at `-P 8` on a 32-core box. The 150-pool
 side runs ~1.5× slower than 100-pool (1.5× nodes, gossip cost
 approximately `O(N log N)` per slot). After the run completes, re-run
-`python3 scripts/analyse-phase-3.py <run-id>` to update this file with
+`python3 scripts/analyse-robustness.py <run-id>` to update this file with
 proper Δ%-vs-IQR analysis.
 
 **If Option B is chosen, the comparison is:**
@@ -67,7 +74,7 @@ to the LIVE-going-to-DISCLOSED downgrade Option A imposes.
 ## Coverage-check impact
 
 The CLM-NN rows referencing `RSK-pool-count` /
-`RSK-calibration-stale-stake-snapshot` keep their existing pre-Phase-3
+`RSK-calibration-stale-stake-snapshot` keep their existing pre-robustness
 status (`UNBACKED` / `WEAK`) until Option B's data lands, OR are downgraded
 explicitly to `UNBACKED` with annotation in Phase 4 if Option A is chosen.
 

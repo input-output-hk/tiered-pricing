@@ -1,16 +1,13 @@
 //! Paired-sample Bias-corrected and accelerated (BCa) bootstrap confidence
 //! intervals on the mean of paired deltas `delta[i] = samples_a[i] - samples_b[i]`.
 //!
-//! Phase-3 multi-seed evidence layer. Pure post-processing on `RunSummary`
+//! Robustness-suite multi-seed evidence layer. Pure post-processing on `RunSummary`
 //! reporting scalars; this module does not feed back into simulation, so it
 //! cannot perturb M2/M3/M5 goldens (CLAUDE.md §"Numeric representation contract").
 //!
-//! References: DiCiccio & Efron, "Bootstrap confidence intervals" (Statist.
-//! Sci. 1996); Hesterberg, "What Teachers Should Know About the Bootstrap"
-//! (American Statistician 2015). Resampling RNG: `rand::rngs::StdRng`
-//! (ChaCha-based, value-stable within `rand` 0.9.x — CLAUDE.md §"Determinism
-//! scope"). The bootstrap-seed namespace is disjoint from simulator seeds
-//! (CONTEXT.md D-23).
+//! Resampling RNG: `rand::rngs::StdRng` (ChaCha-based, value-stable within
+//! `rand` 0.9.x — CLAUDE.md §"Determinism scope"). The bootstrap-seed
+//! namespace is disjoint from simulator seeds (CONTEXT.md D-23).
 
 use rand::Rng;
 use rand::SeedableRng;
@@ -192,14 +189,28 @@ mod tests {
         let b: Vec<f64> = (0..n).map(|_| standard_normal(&mut rng)).collect();
         let r = paired_bca_ci(&a, &b, 0.05, 99);
         // Tolerance: at n=200, SE(mean delta) ≈ sqrt(2/200) ≈ 0.1; point within 0.2 is generous.
-        assert!(r.lower < 1.0 && r.upper > 1.0, "95% CI [{}, {}] must straddle true mean 1.0", r.lower, r.upper);
-        assert!((r.point - 1.0).abs() < 0.2, "point estimate {} must be within 0.2 of 1.0", r.point);
+        assert!(
+            r.lower < 1.0 && r.upper > 1.0,
+            "95% CI [{}, {}] must straddle true mean 1.0",
+            r.lower,
+            r.upper
+        );
+        assert!(
+            (r.point - 1.0).abs() < 0.2,
+            "point estimate {} must be within 0.2 of 1.0",
+            r.point
+        );
     }
 
     #[test]
     #[should_panic(expected = "paired samples must have equal lengths")]
     fn paired_bca_ci_panics_on_length_mismatch() {
-        let _ = paired_bca_ci(&[1.0, 2.0, 3.0, 4.0, 5.0], &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0], 0.05, 1);
+        let _ = paired_bca_ci(
+            &[1.0, 2.0, 3.0, 4.0, 5.0],
+            &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+            0.05,
+            1,
+        );
     }
 
     #[test]
@@ -232,7 +243,14 @@ mod tests {
 
     #[test]
     fn ci_result_serializes_to_json() {
-        let r = CiResult { point: 1.0, lower: 0.5, upper: 1.5, alpha: 0.05, n_bootstrap: N_BOOTSTRAP, bootstrap_seed: 42 };
+        let r = CiResult {
+            point: 1.0,
+            lower: 0.5,
+            upper: 1.5,
+            alpha: 0.05,
+            n_bootstrap: N_BOOTSTRAP,
+            bootstrap_seed: 42,
+        };
         let json = serde_json::to_string(&r).unwrap();
         assert!(json.contains("\"bootstrap_seed\":42"));
         assert!(json.contains("\"alpha\":0.05"));

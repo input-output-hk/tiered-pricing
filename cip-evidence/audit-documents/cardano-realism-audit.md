@@ -1,20 +1,25 @@
 # Cardano-realism audit — phase-2 dynamic-pricing simulator
 
+
+> **⚠️ SUPERSEDED 2026-05-21** — numerical claims below were computed under the
+> pre-Cardano Improvement Proposal (CIP)-0164 EB-sizing simulator variant
+> (`linear`, 12 megabyte (MB) EB wire object). Endorser Block (EB) certification
+> failed under that variant, biasing every inclusion-rate / latency / welfare
+> measurement. See [`../../docs/phase-2/eb-sizing-fix-postmortem.md`](../../docs/phase-2/eb-sizing-fix-postmortem.md) for the diagnosis and the re-run schedule.
+
 Date: 2026-05-18
 Branch: dynamic-experiment
 Scope: every calibration choice in `parameters/phase-2-sweep/` and every
 modeling assumption in `sim-rs/sim-core/`.
-Evidence: 4 spike READMEs under `.planning/spikes/`, cited inline; Phase 3
+Evidence: 4 spike READMEs under `.planning/spikes/`, cited inline; the robustness suites
 multi-seed evidence under `../test-results/`, cited inline.
 Abbreviations on first use: Cardano Improvement Proposal (CIP), Ethereum
 Improvement Proposal 1559 (EIP-1559), ranking block (RB), endorser block
 (EB), Stake Pool Operator (SPO), Bias-corrected and accelerated (BCa)
 bootstrap, confidence interval (CI), Inter-Quartile Range (IQR),
-Conference on Computer and Communications Security (CCS), Advances in
-Financial Technologies (AFT), Symposium on Discrete Algorithms (SODA),
 Maximum Extractable Value (MEV), extended unspent-transaction-output
-(eUTxO), additive-increase / multiplicative-decrease (AIMD), Coordinated
-Universal Time (UTC), exponential-moving-average (EMA).
+(eUTxO), Coordinated Universal Time (UTC), exponential-moving-average
+(EMA).
 
 ## TL;DR
 
@@ -41,16 +46,14 @@ reinterpreted as a `max_fee_lovelace` envelope and the refund path
 depends on a separate fee-change-return CIP; (ii) four pricing-
 controller knobs (window length 32; multiplier-floor 4 in two of
 seven suites; multiplier-floor 16 as the spec default; lane-signal-
-source choices) addressed under the anchor-or-disclose discipline of
-Plan 04-01 (one ANCHORED via Reijsbergen / Leonardos / Liu; three
-DISCLOSED with sub-knob granularity in
-`RSK-un-anchored-controller-knobs`); (iii) substrate-scope umbrella
+source choices) are disclosed per-knob with rationale in
+`RSK-un-anchored-controller-knobs`; (iii) substrate-scope umbrella
 for inherited upstream limitations (`f64` in non-pricing code paths,
 propagation fidelity, utility-maximising actor model) per
 `RSK-substrate-scope` in
 [`realism-risks-register.md`](realism-risks-register.md).
 
-Phase 3 multi-seed evidence (N = 20 seeds, sundaeswap_moderate
+robustness-suite multi-seed evidence (N = 20 seeds, sundaeswap_moderate
 demand, multiplier_floor = 4) establishes the welfare ranking among
 the four CIP menu options: un-reserved arms outperform single-lane
 EIP-1559 (Δ `retained_value` ≈ +6.66e+09 to +7.95e+09; 95% BCa CI
@@ -68,7 +71,7 @@ calibration is regime-dependent.
 |---|---|---|
 | RB cadence and capacity | VALIDATED | None — matches mainnet exactly |
 | Fee structure and mempool sizing | NEEDS-DISCLOSURE | 3 reinterpretations to state |
-| Pricing-controller calibration | NEEDS-DISCLOSURE | Anchor-or-disclose at sub-knob granularity per Plan 04-01: 1 ANCHORED + 3 DISCLOSED (umbrella verdict DISCLOSED) |
+| Pricing-controller calibration | NEEDS-DISCLOSURE | Per-knob rationale for four un-anchored controller knobs (window length 32; multiplier-floor 4 in two of seven suites; multiplier-floor 16 as spec default; lane-signal-source choices) |
 | Topology and actor model | NEEDS-DISCLOSURE | Substrate-scope umbrella (`RSK-substrate-scope`): 100-node topology vs mainnet ~3,000 SPOs; honest-producer assumption; demand-mix not bit-calibrated |
 
 ## What lines up with mainnet
@@ -120,15 +123,28 @@ triple.
   rows 1–3.
 - **Leios-specific knobs cite CIP-0164 Table 7.**
   `(linear-vote-stage-length-slots = 4; linear-diffuse-stage-length-slots
-  = 7; eb-referenced-txs-max-size-bytes = 12000000;
-  eb-body-validation-cpu-time-ms-per-byte = 2.15e-5; n = 600; τ = 75%;
-  source: CIP-0164 Table 7, date-retrieved: 2026-05-13)`. None are
-  cross-checkable against deployed mainnet (Leios is pre-deployment);
-  each has an explicit "CIP-0164 Table 7" comment in the YAML and the
-  Leios Frequently Asked Questions (RB ~20 seconds, EB ~5 seconds)
-  corroborates the cadence shape. Values are conditional on the Leios
-  substrate reaching deployment with the specified parameters; see
-  `RSK-leios-spec-pre-deployment` in the register. Spike 001 §Findings.
+  = 7; eb-referenced-txs-max-size-bytes = 12000000 (S_EB-tx = 12 MB);
+  eb-max-size-bytes = 512000 (S_EB = 512 kB); eb-body-validation-cpu-time-ms-per-byte
+  = 2.15e-5; n = 600; τ = 75%; source: CIP-0164 Table 7, date-retrieved:
+  2026-05-13 for the first six; 2026-05-21 for eb-max-size-bytes)`.
+  None are cross-checkable against deployed mainnet (Leios is
+  pre-deployment); each has an explicit "CIP-0164 Table 7" comment in
+  the YAML and the Leios Frequently Asked Questions (RB ~20 seconds,
+  EB ~5 seconds) corroborates the cadence shape. Values are
+  conditional on the Leios substrate reaching deployment with the
+  specified parameters; see `RSK-leios-spec-pre-deployment` in the
+  register. Spike 001 §Findings.
+
+  The `eb-max-size-bytes = 512 kB` triple was added 2026-05-21 alongside
+  the simulator's switch to the `linear-with-tx-references` Leios variant.
+  Under the previous `linear` variant the EB wire object scaled with the
+  full referenced-transaction payload (up to 12 MB), bottlenecking EB
+  diffusion within `L_vote` and collapsing inclusion to 16–30 % across
+  every mechanism arm; the 512 kB / 12 MB split matches CIP-0164's
+  S_EB / S_EB-tx distinction and brings the simulator's EB diffusion
+  model into spec alignment. See
+  [`docs/phase-2/eb-sizing-fix-postmortem.md`](../../docs/phase-2/eb-sizing-fix-postmortem.md)
+  for the full diagnosis and the inventory of superseded outputs.
 - **Operational topology is mainnet-curve-stratified.**
   `(topology = parameters/phase-2-sweep/topology-realistic-100.yaml;
   100-node multi-producer; mass-stratified downsample of the 1,510
@@ -186,31 +202,23 @@ Core parameters match Ethereum mainnet bit-exact (`D = 8`,
 `target = 0.5`, per-priced-block update cadence; under Family B the
 controller advances exactly once per canonical block, reorg-safe by
 construction). Four controller knobs are not anchored to deployed-
-system data and were graded under Plan 04-01's anchor-or-disclose
-discipline (see
-[`.planning/phases/04-refresh-and-anchor/04-01-DOC-03-anchor-search.md`](../../.planning/phases/04-refresh-and-anchor/04-01-DOC-03-anchor-search.md)
-for the per-sub-knob audit trail and rejected-citations list).
+system data and are disclosed per-knob below.
 
-1. **Window length 32 for capacity-varying signals — ANCHORED.**
+1. **Window length 32 for capacity-varying signals.**
    `(window length = 32 priced blocks for capacity-varying signals;
-   window length = 1 for the RB-reserved priority controller;
-   motivating citation: Reijsbergen et al. AFT 2021 §"Short-term
-   oscillation"; date-retrieved: 2026-05-13)`. Reijsbergen et al.
-   AFT 2021 (chaotic-oscillation finding) + Leonardos et al. AFT
-   2021 (bounded-oscillation theoretical) + Liu et al. CCS 2022
-   (empirical counter-bound) motivate the *kind* of choice (a
-   smoothing layer beyond the unwindowed Ethereum baseline). Phase-2
-   picks a capacity-weighted window over the literature's preferred
-   AIMD response because the linear-Leios block-mix (RBs ~90 KB
-   versus EBs up to 12 MB; ratio ≈ 133×) requires capacity-weighting.
-   Length 32 is a round-number choice; the
-   `phase-2-eip1559-smoothing` suite sweeps {16, 32, 64} for
-   sensitivity. See `RSK-un-anchored-controller-knobs` sub-knob (a)
-   in
+   window length = 1 for the RB-reserved priority controller; source:
+   arbitrary round-number choice within the smoothing band;
+   date-retrieved: —)`. The window-length-1 case for RB-reserved
+   priority mathematically reduces to per-block fill rate, which is
+   what the spec prescribes since RB-reserved priority capacity is
+   uniform per block. Length 32 for the capacity-varying signals was
+   picked arbitrarily as a round number; the
+   `phase-2-eip1559-smoothing` suite sweeps {16, 32, 64} to bracket
+   the choice. See `RSK-un-anchored-controller-knobs` sub-knob (a) in
    [`realism-risks-register.md`](realism-risks-register.md).
 
-2. **Multiplier-floor 4 in two suites — DISCLOSED; regime-dependent
-   at floor 16.** TEST-07a (Phase 3,
+2. **Multiplier-floor 4 in two suites; regime-dependent at floor 16.**
+   TEST-07a (robustness suite,
    [`../test-results/multiplier-floor-16-companion/results.md`](../test-results/multiplier-floor-16-companion/results.md))
    found that at multiplier-floor 16, the `phase-2-rb-scarcity`
    finding inverts ("standard dominates welfare" → "priority captures
@@ -221,54 +229,39 @@ for the per-sub-knob audit trail and rejected-citations list).
    multiplier-floor = 4 calibration. `(multiplier-floor = 4 in
    phase-2-rb-scarcity and phase-2-urgency-inversion;
    multiplier-floor ∈ {4, 8, 16} swept in priority-only suites;
-   multiplier-floor ∈ {4, 16} in both-dynamic suite; source: no
-   external anchor — internal calibration accommodation per CLAUDE.md
-   §"Calibration choices"; date-retrieved: —)`. **Defensible because**
-   5 of 7 suites independently cover the spec default 16, and the
-   floor-16 regime-dependence is itself disclosed. See
-   `RSK-un-anchored-controller-knobs` sub-knob (b) and
+   multiplier-floor ∈ {4, 16} in both-dynamic suite; source: internal
+   calibration accommodation chosen so urgency≥2 components self-
+   select into priority and surface controller drift; date-retrieved:
+   —)`. **Defensible because** 5 of 7 suites independently cover the
+   spec default 16, and the floor-16 regime-dependence is itself
+   disclosed. See `RSK-un-anchored-controller-knobs` sub-knob (b) and
    `RSK-multiplier-floor-4-suite-coverage` in the register.
 
-3. **Multiplier-floor 16 (spec default) — DISCLOSED.**
-   `(multiplier-floor default = 16 in the spec; source: no external
-   anchor — spec-internal "strong price-discrimination" rationale per
-   docs/phase-2/mechanism-design.md line 155 and the Calibration-vs-
-   Invariant table at line 290; date-retrieved: —)`. The EIP-1559
-   academic-critique literature does not extend to second-lane
-   controllers and Ethereum has no comparable multiplier floor; the
-   spec declares 16 as the default without citing calibration data.
-   This is a spec-level disclosure — the simulator faithfully
-   implements the open-question framing. See
+3. **Multiplier-floor 16 (spec default).**
+   `(multiplier-floor default = 16 in the spec; source:
+   docs/phase-2/mechanism-design.md line 155 "strong price-
+   discrimination" rationale and the Calibration-vs-Invariant table
+   at line 290; date-retrieved: —)`. The spec declares 16 as the
+   default without external calibration data. The simulator
+   faithfully implements the spec choice. See
    `RSK-un-anchored-controller-knobs` sub-knob (c).
 
-4. **Lane-signal-source choices — DISCLOSED.**
+4. **Lane-signal-source choices.**
    `(un-reserved priority signal source = priority_paying_bytes /
    total_block_capacity (option 1 of three open candidates in
    docs/phase-2/mechanism-design.md lines 207–211); both-dynamic
    standard signal source = standard_paying_bytes /
    eb_referenced_txs_max_size_bytes over endorser blocks (EBs), with
-   no standard sample fired on RB-reserved RBs; source: no external
-   anchor — simplest-choice rationale per spike 003; date-retrieved:
-   —)`. The EIP-1559 academic-critique literature (Liu CCS 2022;
-   Reijsbergen AFT 2021; Leonardos AFT 2021; Roughgarden EC 2021)
-   analyses single-lane controllers only; no deployed system (Sui,
-   Solana, NEAR) has a comparable second-lane signal-source choice.
-   The spec leaves both choices open (lines 207–211 and 238). The
-   simulator's option-1 choice is motivated by simplicity; the
-   both-dynamic standard side is forced by the lane-isolation
-   invariant. Welfare findings are conditional on these specific
+   no standard sample fired on RB-reserved RBs; source: simplest-
+   choice rationale; date-retrieved: —)`. The spec leaves both
+   choices open (lines 207–211 and 238). The simulator's option-1
+   choice for un-reserved priority is motivated by simplicity (no
+   notional-share knob; no delay-EMA infrastructure); the both-
+   dynamic standard side is forced by the lane-isolation invariant
+   (RB-reserved RBs cannot signal standard congestion without leaking
+   the partition). Welfare findings are conditional on these specific
    signal-source definitions. See `RSK-un-anchored-controller-knobs`
    sub-knob (d).
-
-**Umbrella anchor verdict per Plan 04-01:** 1 ANCHORED (window
-length 32) + 3 DISCLOSED (multiplier-floor 4; multiplier-floor 16;
-lane-signal-source). The umbrella entry verdict for
-`RSK-un-anchored-controller-knobs` flips from LIVE to DISCLOSED
-rather than to MITIGATED because only one of four sub-knobs anchors;
-see
-[`realism-risks-register.md`](realism-risks-register.md)
-`RSK-un-anchored-controller-knobs` for the per-sub-knob disclosure
-paragraph.
 
 ### Topology and actor model
 
@@ -281,7 +274,7 @@ paragraph.
    coefficient = 35, Gini = 0.253; source: epoch-582 mainnet snapshot
    per .planning/spikes/006-curve-design/README.md, date-retrieved:
    2026-05-14)`. Pool-count sensitivity within the 100-to-150 range
-   is currently disclose-only via `RSK-pool-count` per the Phase 3
+   is currently disclose-only via `RSK-pool-count` per the the robustness suites
    TEST-05 data-gap disposition (re-run not in Phase 4 scope);
    behaviour at deployed-mainnet pool counts (~3,000) is DISCLOSED
    there. Snapshot freshness over a six-month CIP review horizon is
@@ -325,13 +318,10 @@ paragraph.
    governance-deadline pile-ons.
    Cardano's eUTxO model is structurally MEV-resistant (no global
    mempool), so the absence of strategic-actor modelling is mainnet-
-   faithful in shape. Chung and Shi's *Foundations of Transaction
-   Fee Mechanism Design* (SODA 2023) is relevant only as the formal
-   frame for the unmodelled strategic-bidder regime: joint
-   user-incentive-compatibility, miner/proposer-incentive-
-   compatibility, and side-contract-proofness. See
-   `RSK-demand-non-stationarity` and `RSK-substrate-scope` sub-point
-   (c).
+   faithful in shape. The strategic-bidder regime (joint user- and
+   proposer-incentive-compatibility under side-contract-proofness) is
+   out of scope. See `RSK-demand-non-stationarity` and
+   `RSK-substrate-scope` sub-point (c).
 
 **Substrate-scope umbrella disclosure.** Phase-2's pricing kernel
 and mempool gate are integer / rational / 128-bit unsigned (`u128`)
@@ -386,7 +376,7 @@ of-capacity, per-priced-block update cadence under Family B per
 [`.planning/family-b-decision-2026-05-14.md`](../../.planning/family-b-decision-2026-05-14.md))
 match Ethereum's deployed EIP-1559 exactly; reorg-safety holds by
 construction because every RB carries its own derived quote as a
-pure function of canonical predecessors. Phase 3 multi-seed evidence
+pure function of canonical predecessors. robustness-suite multi-seed evidence
 at multiplier-floor 16 (TEST-07a;
 [`../test-results/multiplier-floor-16-companion/results.md`](../test-results/multiplier-floor-16-companion/results.md))
 establishes that the multiplier-floor 4 calibration in
@@ -395,18 +385,18 @@ dependent: at floor 16 the rb-scarcity finding inverts ("standard
 dominates welfare" → "priority captures everything; total retained
 value collapses 93–98%") and the urgency-inversion finding weakly
 reverses ("mispriced > correctly priced" → "correctly priced >
-mispriced by ~13%"). Four controller knobs were graded under Plan
-04-01's anchor-or-disclose discipline: window length 32 ANCHORED via
-Reijsbergen et al. AFT 2021 + Leonardos et al. AFT 2021 + Liu et al.
-CCS 2022; multiplier-floor 4 DISCLOSED (calibration accommodation;
-regime-dependent at floor 16); multiplier-floor 16 DISCLOSED (spec-
-internal "strong price-discrimination" rationale; no deployed system
-has a comparable second-lane multiplier); lane-signal-source
-DISCLOSED (specification leaves the choice open at
-`mechanism-design.md` lines 207–211 and 238). See
+mispriced by ~13%"). Four controller knobs are disclosed per-knob:
+window length 32 (arbitrary round-number choice; suite sweeps {16,
+32, 64} to bracket); multiplier-floor 4 (calibration accommodation
+chosen so urgency≥2 components self-select into priority and surface
+controller drift; regime-dependent at floor 16); multiplier-floor 16
+(spec default per `mechanism-design.md` line 155 and the
+Calibration-vs-Invariant table at line 290); lane-signal-source
+choices (specification leaves these open at `mechanism-design.md`
+lines 207–211 and 238; simulator picks the simplest options). See
 `RSK-un-anchored-controller-knobs` and
 `RSK-multiplier-floor-4-suite-coverage` in the register for the
-canonical per-sub-knob disclosure paragraphs.
+canonical per-knob disclosure paragraphs.
 
 **On topology.** This phase uses a 100-node mass-stratified mainnet
 stake-curve topology (`topology-realistic-100.yaml`), a downsample of
@@ -442,7 +432,7 @@ full overflow). The divergence is driven entirely by Leios's 12 MB
 EB target (CIP-0164 Table 7) replacing Praos's 90 KB RB as the
 bearer block. See `RSK-mempool-cap-magnitude` in the register.
 
-**On the menu-item welfare distinction.** Phase 3 multi-seed evidence
+**On the menu-item welfare distinction.** robustness-suite multi-seed evidence
 (TEST-04 at N=20 seeds, sundaeswap_moderate demand, multiplier_floor =
 4; results at
 [`../test-results/multi-seed-variance/results.md`](../test-results/multi-seed-variance/results.md))
@@ -457,7 +447,7 @@ establishes the welfare ranking among the four CIP menu options:
 - **RB-reserved menu arms underperform single-lane EIP-1559 under
   the same calibration**: priority-only RB-reserved Δ = −4.15e+09
   (CI [−6.02e+09, −1.00e+09]); both-dynamic RB-reserved (partitioned)
-  Δ = −4.15e+09 (CI [−5.95e+09, −8.87e+08]). The pre-Phase-3 single-
+  Δ = −4.15e+09 (CI [−5.95e+09, −8.87e+08]). The pre-robustness single-
   seed framing "two-lane mechanisms outperform single-lane EIP-1559"
   held only for the un-reserved variants under this calibration.
 - **The cross-arm duplicate-job artefact** (partitioned ≡
@@ -465,7 +455,7 @@ establishes the welfare ranking among the four CIP menu options:
   replicates at N = 20 because the standard-lane controller never
   drifts off the multiplier floor under this demand profile —
   calibration-conditional menu indistinguishability worth disclosing.
-- Phase 3 hash-diversity gate: 17 of 17 BACKED-eligible cells pass
+- robustness hash-diversity gate: 17 of 17 BACKED-eligible cells pass
   at distinct-hash count = N. See
   [`coverage-check.md`](coverage-check.md) and
   `RSK-single-seed-precision` in the register.

@@ -1,5 +1,5 @@
 {
-  "suite-name": "phase-3-no-time-series",
+  "suite-name": "robustness-no-time-series",
   "started-at-utc": "2026-05-20T10:30:00.000000000Z",
   "jobs": {
     "job_a": {

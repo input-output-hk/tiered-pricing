@@ -1,11 +1,18 @@
 # Multi-Seed Variance Bands — TEST-03 + TEST-04 Results
 
+
+> **⚠️ SUPERSEDED 2026-05-21** — numerical claims below were computed under the
+> pre-Cardano Improvement Proposal (CIP)-0164 EB-sizing simulator variant
+> (`linear`, 12 megabyte (MB) EB wire object). Endorser Block (EB) certification
+> failed under that variant, biasing every inclusion-rate / latency / welfare
+> measurement. See [`../../../docs/phase-2/eb-sizing-fix-postmortem.md`](../../../docs/phase-2/eb-sizing-fix-postmortem.md) for the diagnosis and the re-run schedule.
+
 **Run id:** `20260518-084846`
-**Suites:** `phase-3-sign-flip-variance.yaml`, `phase-3-canonical-variance.yaml`
+**Suites:** `robustness-sign-flip-variance.yaml`, `robustness-canonical-variance.yaml`
 **N seeds:** 20 (chosen per [scoping-results.md](scoping-results.md))
 **Per-seed scalar:** `retained_value` = `priority_retained_value_total + standard_retained_value_total` (per CONTEXT.md D-24)
 **Confidence interval method:** paired-sample Bias-corrected and accelerated (BCa) bootstrap, 9999 iterations
-**Analyser:** `sim-rs/scripts/analyse-phase-3.py` (Python port of `sim-cli/src/metrics/paired_bootstrap.rs`; documented bootstrap seeds; deterministic given seed within `random` module version)
+**Analyser:** `sim-rs/scripts/analyse-robustness.py` (Python port of `sim-cli/src/metrics/paired_bootstrap.rs`; documented bootstrap seeds; deterministic given seed within `random` module version)
 **Per-cell raw artefacts:** [`sign-flip/`](sign-flip/), [`canonical/`](canonical/)
 
 ---
@@ -103,7 +110,7 @@ bootstrap-seed namespace is disjoint from the simulator-seed namespace
 (CONTEXT.md D-23); seeds are recorded in every cell JSON.
 
 **Comparison to Rust library:** the Python analyser
-(`sim-rs/scripts/analyse-phase-3.py`) is an algorithmic port of
+(`sim-rs/scripts/analyse-robustness.py`) is an algorithmic port of
 `sim-rs/sim-cli/src/metrics/paired_bootstrap.rs`. Python uses
 `random.Random(seed)` (Mersenne Twister) and Rust uses `StdRng::seed_from_u64`
 (ChaCha12); the two RNGs produce different bootstrap resamples even for

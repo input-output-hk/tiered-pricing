@@ -279,7 +279,7 @@ while IFS=$'\t' read -r suite trunc; do
       fi
     fi
   else
-    # Suite is not pinned (e.g. phase-3-* or phase-2-{moderate,realistic,sundaeswap,congested}-*).
+    # Suite is not pinned (e.g. robustness-* or phase-2-{moderate,realistic,sundaeswap,congested}-*).
     # Try fallback against all pinned goldens (legacy phase-2 seed=1 annotation case).
     legacy_match=$(awk -F '\t' -v t="$trunc" '$2 ~ "^" t { print $0 }' "$ALL_PINNED_HASHES" | head -1 || true)
     if [ -n "$legacy_match" ]; then

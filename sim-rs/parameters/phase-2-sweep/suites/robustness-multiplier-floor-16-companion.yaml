@@ -1,4 +1,4 @@
-# Phase-3 TEST-07a — Multiplier-floor-16 companion runs.
+# Robustness TEST-07a — Multiplier-floor-16 companion runs.
 #
 # Like-for-like re-runs of the two phase-2 suites that pin multiplier_floor = 4
 # (phase-2-rb-scarcity and phase-2-urgency-inversion) at multiplier_floor = 16
@@ -18,8 +18,8 @@
 #
 # N = 5 seeds. NOT goldens-pinned.
 
-suite-name: phase-3-multiplier-floor-16-companion
-output-dir: output/phase-3/multiplier-floor-16-companion
+suite-name: robustness-multiplier-floor-16-companion
+output-dir: output/robustness/multiplier-floor-16-companion
 seeds: [1, 2, 3, 4, 5]
 default-slots: 2000
 default-topology: parameters/phase-2-sweep/topology-realistic-100.yaml

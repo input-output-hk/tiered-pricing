@@ -1,4 +1,4 @@
-# Phase-3 TEST-06 — Run-length / steady-state validation.
+# Robustness TEST-06 — Run-length / steady-state validation.
 #
 # Four canonical menu-option jobs (one per Cardano Improvement Proposal (CIP)
 # menu arm — NOT the single-lane EIP-1559 control; this test is about menu
@@ -19,8 +19,8 @@
 #
 # N = 10 seeds (per scoping-results.md). NOT goldens-pinned.
 
-suite-name: phase-3-run-length
-output-dir: output/phase-3/run-length
+suite-name: robustness-run-length
+output-dir: output/robustness/run-length
 seeds: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
 default-slots: 2000
 default-topology: parameters/phase-2-sweep/topology-realistic-100.yaml

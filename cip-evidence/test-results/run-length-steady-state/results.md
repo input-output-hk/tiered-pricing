@@ -1,8 +1,15 @@
 # TEST-06 — Run-Length / Steady-State Results
 
+
+> **⚠️ SUPERSEDED 2026-05-21** — numerical claims below were computed under the
+> pre-Cardano Improvement Proposal (CIP)-0164 EB-sizing simulator variant
+> (`linear`, 12 megabyte (MB) EB wire object). Endorser Block (EB) certification
+> failed under that variant, biasing every inclusion-rate / latency / welfare
+> measurement. See [`../../../docs/phase-2/eb-sizing-fix-postmortem.md`](../../../docs/phase-2/eb-sizing-fix-postmortem.md) for the diagnosis and the re-run schedule.
+
 **Status:** PARTIAL (only 1 of 4 menu arms has data)
 **Run id:** `20260518-084846`
-**Suite:** `phase-3-run-length.yaml`
+**Suite:** `robustness-run-length.yaml`
 
 ## Coverage
 
@@ -38,8 +45,8 @@ the suite default-raise recommendation would be partial.
 **Re-run the full suite.** From `sim-rs/`:
 
 ```bash
-scripts/run-phase-3-suites.sh 1 \
-    parameters/phase-2-sweep/suites/phase-3-run-length.yaml
+scripts/run-robustness-suites.sh 1 \
+    parameters/phase-2-sweep/suites/robustness-run-length.yaml
 ```
 
 Expected wall-clock at `-P 8`: 12 jobs × 10 seeds × variable wall-clock
@@ -60,7 +67,7 @@ to support requires coverage of all four arms.
 
 A full re-run will populate this section with per-(job, length) STEADY
 verdicts and any suite-default-raise recommendations. The analyser
-(`sim-rs/scripts/analyse-phase-3.py`) does NOT currently parse
+(`sim-rs/scripts/analyse-robustness.py`) does NOT currently parse
 `time_series.csv` for the D-33 rolling-mean computation — that logic will
 be added when the data is in hand and the comparison can run across all
 4 menu arms.
@@ -68,7 +75,7 @@ be added when the data is in hand and the comparison can run across all
 ## Coverage-check impact
 
 The CLM-NN rows referencing `RSK-steady-state-run-length` keep their
-existing pre-Phase-3 status until the re-run completes.
+existing pre-robustness status until the re-run completes.
 
 ## Abbreviations on first use
 

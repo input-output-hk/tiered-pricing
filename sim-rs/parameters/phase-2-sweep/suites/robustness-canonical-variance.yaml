@@ -1,4 +1,4 @@
-# Phase-3 TEST-04 — Canonical menu-item welfare variance bands.
+# Robustness TEST-04 — Canonical menu-item welfare variance bands.
 #
 # Five paired cells: one canonical job per Cardano Improvement Proposal (CIP)
 # menu option (4 arms) plus the single-lane Ethereum Improvement Proposal 1559
@@ -12,8 +12,8 @@
 #
 # N = 20 seeds (per scoping-results.md). NOT goldens-pinned.
 
-suite-name: phase-3-canonical-variance
-output-dir: output/phase-3/canonical-variance
+suite-name: robustness-canonical-variance
+output-dir: output/robustness/canonical-variance
 seeds: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
 default-slots: 2000
 default-topology: parameters/phase-2-sweep/topology-realistic-100.yaml

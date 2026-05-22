@@ -875,7 +875,7 @@ async function renderJob(suiteId, job, seed) {
   const timeSeries = Array.isArray(payload.time_series) ? payload.time_series : [];
 
   if (timeSeries.length === 0) {
-    // Pitfall 8 / phase-3 suites: soft-fail with a single placeholder
+    // Pitfall 8 / robustness suites: soft-fail with a single placeholder
     // instead of three blank chart panes.
     const tsSection = el("section");
     tsSection.append(el("h2", { text: "Time-series" }));

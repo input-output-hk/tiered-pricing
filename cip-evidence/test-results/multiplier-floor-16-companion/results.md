@@ -1,7 +1,14 @@
 # TEST-07a — Multiplier-Floor-16 Companion Results
 
+
+> **⚠️ SUPERSEDED 2026-05-21** — numerical claims below were computed under the
+> pre-Cardano Improvement Proposal (CIP)-0164 EB-sizing simulator variant
+> (`linear`, 12 megabyte (MB) EB wire object). Endorser Block (EB) certification
+> failed under that variant, biasing every inclusion-rate / latency / welfare
+> measurement. See [`../../../docs/phase-2/eb-sizing-fix-postmortem.md`](../../../docs/phase-2/eb-sizing-fix-postmortem.md) for the diagnosis and the re-run schedule.
+
 **Run id:** `20260518-084846`
-**Suite:** `phase-3-multiplier-floor-16-companion.yaml`
+**Suite:** `robustness-multiplier-floor-16-companion.yaml`
 **N seeds:** 5 (per scoping-results.md — qualitative replication test, no paired bootstrap)
 **Comparison:** floor = 16 (this suite) vs existing floor = 4 baselines in
 `output/phase-2/{rb-scarcity, urgency-inversion}/<cell>/<seed>/run_summary.json`

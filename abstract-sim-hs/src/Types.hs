@@ -1,0 +1,40 @@
+{- | Shared domain types.
+
+Value/time units and the urgency signal. These are domain-wide concepts (a
+transaction carries an 'Urgency'; balances and fees are 'Lovelace'), so they
+live here rather than in any single consumer like "Metrics".
+-}
+module Types (
+  Lovelace (..),
+  Duration (..),
+  Urgency (..),
+  SlotNo (..),
+  addDuration,
+  diffSlots,
+) where
+
+-- | Value in lovelace (integral; 1 ADA = 1e6 lovelace).
+newtype Lovelace = Lovelace {unLovelace :: Integer}
+  deriving (Eq, Ord, Show)
+
+-- | A duration or latency measured in slots.
+newtype Duration = Duration Int
+  deriving (Eq, Ord, Show)
+
+{- | An absolute slot number — a point in time. Differences between slots are
+'Duration's, so 'SlotNo' deliberately has no 'Num' instance (slot × slot,
+slot + slot, and negate are nonsense); use 'addDuration' and 'diffSlots'.
+-}
+newtype SlotNo = SlotNo Int
+  deriving (Eq, Ord, Show)
+
+-- | Advance a slot by a duration: @addDuration d s == s + d@.
+addDuration :: Duration -> SlotNo -> SlotNo
+addDuration (Duration d) (SlotNo s) = SlotNo (s + d)
+
+-- | The signed gap between two slots: @diffSlots a b == a - b@.
+diffSlots :: SlotNo -> SlotNo -> Duration
+diffSlots (SlotNo a) (SlotNo b) = Duration (a - b)
+
+data Urgency = Linear Double | Exponential Double
+  deriving (Eq, Ord, Show)

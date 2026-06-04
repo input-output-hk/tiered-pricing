@@ -1,0 +1,14 @@
+# Haskell build output
+**/.stack-work/
+**/dist-newstyle/
+**/dist/
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+
+# Local generated evidence/cache data
+cip-evidence/**/.cache/
+
+# Editor backups
+*~

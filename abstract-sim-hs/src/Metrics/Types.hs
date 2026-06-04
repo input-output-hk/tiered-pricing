@@ -1,0 +1,102 @@
+{- | Shared metric aliases, aggregate result, and metric configuration.
+
+Individual metric-family result types and calculations live in their own
+modules under "Metrics.*".
+-}
+module Metrics.Types (
+  Metrics (..),
+  MetricsConfig (..),
+  metricsConfigDefault,
+
+  -- * Sliced breakdowns
+  ByUrgency,
+  ByLane,
+  ByUrgencyLane,
+  InclusionStats (..),
+  ValueOutcome (..),
+  LatencyStats (..),
+
+  -- * Aggregate measures
+  PriceShock (..),
+  PriceChange (..),
+  Revenue (..),
+  Throughput (..),
+  RankingBlockCounts (..),
+  Fairness (..),
+  PriceStability (..),
+
+  -- * Invariants
+  InvariantBreach (..),
+  InvariantKind (..),
+) where
+
+import Data.Map.Strict (Map)
+import Load (ArrivalProcess (ConstantLoad))
+import Metrics.Fairness (Fairness (..))
+import Metrics.Inclusion (InclusionStats (..))
+import Metrics.Invariants (InvariantBreach (..), InvariantKind (..))
+import Metrics.Latency (LatencyStats (..))
+import Metrics.Price (PriceChange (..), PriceShock (..), PriceStability (..))
+import Metrics.Revenue (Revenue (..))
+import Metrics.Throughput (RankingBlockCounts (..), Throughput (..))
+import Metrics.Value (ValueOutcome (..))
+import Transaction (Lane)
+import Types (Urgency)
+
+-- | A metric sliced by urgency class.
+type ByUrgency a = Map Urgency a
+
+-- | A metric sliced by submitted lane.
+type ByLane a = Map Lane a
+
+-- | A metric sliced by urgency class and submitted lane.
+type ByUrgencyLane a = Map (Urgency, Lane) a
+
+-- | Aggregate metrics for one simulation run.
+data Metrics = Metrics
+  { inclusion :: ByUrgency InclusionStats
+  -- ^ (1) transaction inclusion, by urgency
+  , value :: ByUrgency ValueOutcome
+  -- ^ (2) retained\/lost value, by urgency
+  , latency :: ByUrgency LatencyStats
+  -- ^ (3) inclusion latency, by urgency
+  , laneInclusion :: ByLane InclusionStats
+  -- ^ Diagnostic transaction inclusion, by submitted lane
+  , laneLatency :: ByLane LatencyStats
+  -- ^ Diagnostic inclusion latency, by submitted lane
+  , urgencyLaneInclusion :: ByUrgencyLane InclusionStats
+  -- ^ Diagnostic transaction inclusion, by urgency and submitted lane
+  , urgencyLaneLatency :: ByUrgencyLane LatencyStats
+  -- ^ Diagnostic inclusion latency, by urgency and submitted lane
+  , priceShock :: PriceShock
+  -- ^ (4) price shock
+  , priceChanges :: [PriceChange]
+  -- ^ Dynamic price update trace, in event order
+  , revenue :: Revenue
+  -- ^ (5) revenue\/fees + refunds
+  , throughput :: Throughput
+  -- ^ (6) aggregate throughput \/ EB utilization
+  , rankingBlocks :: RankingBlockCounts
+  -- ^ Diagnostic counts of tx-containing and EB-certifying RBs
+  , fairness :: Fairness
+  -- ^ (7) fairness\/starvation
+  , priceStability :: PriceStability
+  -- ^ (8) price convergence\/oscillation
+  , invariantBreaches :: [InvariantBreach]
+  -- ^ (9) invariant breaches
+  }
+  deriving (Eq, Show)
+
+data MetricsConfig = MetricsConfig
+  { metricsLoad :: ArrivalProcess
+  , metricsPriceConvergenceBandPct :: Double
+  , metricsLoadChangePct :: Double
+  }
+
+metricsConfigDefault :: MetricsConfig
+metricsConfigDefault =
+  MetricsConfig
+    { metricsLoad = ConstantLoad 0
+    , metricsPriceConvergenceBandPct = 0.05
+    , metricsLoadChangePct = 0.10
+    }

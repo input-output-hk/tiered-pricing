@@ -20,7 +20,9 @@ extra-source-files:
 description:         Please see the README on GitHub at <https://github.com/githubuser/abstract-sim-hs#readme>
 
 dependencies:
+- aeson
 - base >= 4.7 && < 5
+- bytestring
 - containers
 - mtl
 - random

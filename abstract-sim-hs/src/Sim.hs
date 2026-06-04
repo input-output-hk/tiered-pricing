@@ -25,7 +25,7 @@ import Load (arrivalRateAt)
 import Mempool (Mempool (..), admitToMempool, emptyMempool, removeFromMempool, setMempoolTxIds)
 import Pricing (PriceUpdate (..), Prices (..), initialPrices, quotedFee, updatePrices)
 import System.Random (StdGen, uniformR)
-import Transaction (RejectReason (..), Tx (..), TxBody (..), TxId (..), TxSample (..))
+import Transaction (EvictionReason (..), RejectReason (..), Tx (..), TxBody (..), TxId (..), TxSample (..))
 import Types (Duration (Duration), Lovelace (..), SlotNo (SlotNo), addDuration, diffSlots)
 
 data SimSt = SimSt
@@ -283,6 +283,7 @@ produceRankingBlock = do
   ebEvents <- announceEndorserBlock slot rbPriorityTxBytesCap rbExUnitsCap simTxs mempoolAfterRb
   pure (rbEvents >< ebEvents)
  where
+  -- P(EB certifies) = (1 - f)^(D - 1)
   ebCertifiedAt :: SlotNo -> PendingEb -> SimM s Bool
   ebCertifiedAt slot pending = do
     d <- asks simConfigD
@@ -326,8 +327,11 @@ produceRankingBlock = do
 
   producePraosBlock :: Design s -> SlotNo -> Int -> Int -> Map TxId Tx -> Mempool -> SimM s (Mempool, Seq SimEvent)
   producePraosBlock design slot rbTxBytesCap rbExUnitsCap simTxs mempool = do
-    let (selectedTxs, remainingMempool, (_usedBytes, _usedExUnits)) =
-          selectRankingBlockTxs design rbTxBytesCap rbExUnitsCap simTxs mempool.mempoolTxIds
+    prices <- gets _simPrices
+    let (feeCheckedMempool, evictionEvents) =
+          evictStaleFees slot prices simTxs mempool
+        (selectedTxs, remainingMempool, (_usedBytes, _usedExUnits)) =
+          selectRankingBlockTxs design rbTxBytesCap rbExUnitsCap simTxs feeCheckedMempool.mempoolTxIds
         selectedTxIds = toList selectedTxs
         selectedTxBodyList = selectedTxBodies simTxs selectedTxs
         mempool' = setMempoolTxIds simTxs remainingMempool
@@ -340,7 +344,7 @@ produceRankingBlock = do
             : fmap (\txId -> TxIncluded slot txId IncludedInRb) selectedTxIds
     appendRankingBlock slot block
     modify' \st -> st{_simMempool = mempool'}
-    pure (mempool', Seq.fromList events)
+    pure (mempool', evictionEvents >< Seq.fromList events)
 
   selectRankingBlockTxs ::
     Design s ->
@@ -371,12 +375,17 @@ produceRankingBlock = do
     ebTxBytesCap <- asks simConfigEbTxBytesCap
     ebExUnitsCap <- asks simConfigEbExUnitsCap
     ebs <- gets _simEbs
-    let (selectedTxs, _remainingMempool, (_usedBytes, _usedExUnits)) =
-          selectByBlockCapacity ebTxBytesCap ebExUnitsCap simTxs mempool.mempoolTxIds
+    prices <- gets _simPrices
+    let (feeCheckedMempool, evictionEvents) =
+          evictStaleFees slot prices simTxs mempool
+        (selectedTxs, _remainingMempool, (_usedBytes, _usedExUnits)) =
+          selectByBlockCapacity ebTxBytesCap ebExUnitsCap simTxs feeCheckedMempool.mempoolTxIds
         selectedTxIds = toList selectedTxs
         selectedTxBodyList = selectedTxBodies simTxs selectedTxs
     if null selectedTxIds
-      then pure Seq.Empty
+      then do
+        modify' \st -> st{_simMempool = feeCheckedMempool}
+        pure evictionEvents
       else do
         let ebId = nextEbId ebs
             eb =
@@ -389,10 +398,30 @@ produceRankingBlock = do
                 (mkEndorserBlockSummary ebId ebTxBytesCap ebExUnitsCap rbPriorityTxBytesCap rbExUnitsCap selectedTxBodyList)
         modify' \st ->
           st
-            { _simEbs = Map.insert ebId eb st._simEbs
+            { _simMempool = feeCheckedMempool
+            , _simEbs = Map.insert ebId eb st._simEbs
             , _simPendingEb = Just (PendingEb ebId slot)
             }
-        pure $ singleton (BlockProduced slot summary)
+        pure $ evictionEvents |> BlockProduced slot summary
+
+  evictStaleFees :: SlotNo -> Prices -> Map TxId Tx -> Mempool -> (Mempool, Seq SimEvent)
+  evictStaleFees slot prices simTxs mempool =
+    (setMempoolTxIds simTxs keptTxIds, evictions)
+   where
+    (keptTxIds, evictions) =
+      foldl' checkTx (mempty, mempty) mempool.mempoolTxIds
+
+    checkTx (kept, events) txId =
+      case Map.lookup txId simTxs of
+        Nothing ->
+          (kept |> txId, events)
+        Just tx
+          | tx.txBody._txFee < requiredFee ->
+              (kept, events |> TxEvicted slot txId (FeeTooLowAtSelection tx.txBody._txFee requiredFee))
+          | otherwise ->
+              (kept |> txId, events)
+         where
+          requiredFee = quotedFee prices tx
 
   nextEbId :: Map EbId EndorserBlock -> EbId
   nextEbId ebs =

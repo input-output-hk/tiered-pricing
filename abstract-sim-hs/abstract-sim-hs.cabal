@@ -103,7 +103,9 @@ library
       UndecidableInstances
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints
   build-depends:
-      base >=4.7 && <5
+      aeson
+    , base >=4.7 && <5
+    , bytestring
     , containers
     , mtl
     , random
@@ -162,7 +164,9 @@ executable abstract-sim-hs-exe
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       abstract-sim-hs
+    , aeson
     , base >=4.7 && <5
+    , bytestring
     , containers
     , mtl
     , random
@@ -222,7 +226,9 @@ test-suite abstract-sim-hs-test
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       abstract-sim-hs
+    , aeson
     , base >=4.7 && <5
+    , bytestring
     , containers
     , mtl
     , random

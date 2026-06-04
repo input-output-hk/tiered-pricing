@@ -10,12 +10,16 @@ module Actor (
 ) where
 
 import Curve (Curves (..), ExUnitsCurve (..), ScriptSizeCurve (..), TxSizeCurve (..), TxValueCurve (..), sampleCurve)
+import Data.Aeson (ToJSON (..))
 import Data.Set qualified as Set
 import Pricing (Prices, quotedFeeFor)
 import Transaction (Lane (..), Script (..), Tx (..), TxBody (..), TxSample (..), hash, retainedValueFor)
 import Types (Duration, Lovelace (Lovelace), SlotNo, Urgency (..))
 
 newtype ActorId = ActorId Int deriving (Eq, Ord, Show)
+
+instance ToJSON ActorId where
+  toJSON (ActorId n) = toJSON n
 
 -- A transaction-submitting entity
 data Actor = Actor

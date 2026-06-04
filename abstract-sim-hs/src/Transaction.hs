@@ -1,6 +1,7 @@
 module Transaction where
 
 import Data.Bits (shiftR, xor, (.&.))
+import Data.Aeson (ToJSON (..), object, (.=))
 import Data.Char (ord)
 import Data.Set (Set)
 import Data.Set qualified as Set
@@ -12,7 +13,17 @@ data Script = Script
   , _scriptExUnits :: Int
   }
 
+instance ToJSON Script where
+  toJSON script =
+    object
+      [ "sizeBytes" .= script._scriptSize
+      , "exUnits" .= script._scriptExUnits
+      ]
+
 newtype TxId = TxId Int deriving (Eq, Ord, Show)
+
+instance ToJSON TxId where
+  toJSON (TxId n) = toJSON n
 
 data Tx = Tx
   { txId :: TxId
@@ -23,12 +34,32 @@ data Tx = Tx
   , txLane :: Lane
   }
 
+instance ToJSON Tx where
+  toJSON tx =
+    object
+      [ "id" .= tx.txId
+      , "body" .= tx.txBody
+      , "submitted" .= tx.txSubmitted
+      , "value" .= tx.txValue
+      , "urgency" .= tx.txUrgency
+      , "lane" .= tx.txLane
+      ]
+
 data TxBody = TxBody
   { _txSize :: Int -- Bytes
   , _txScript :: Script
   , _txDependsOn :: Set TxId
   , _txFee :: Lovelace
   }
+
+instance ToJSON TxBody where
+  toJSON body =
+    object
+      [ "sizeBytes" .= body._txSize
+      , "script" .= body._txScript
+      , "dependsOn" .= Set.toAscList body._txDependsOn
+      , "fee" .= body._txFee
+      ]
 
 data TxSample = TxSample
   { sampleTxSizeP :: Double
@@ -38,14 +69,56 @@ data TxSample = TxSample
   , sampleUrgencyP :: Double
   }
 
+instance ToJSON TxSample where
+  toJSON sample =
+    object
+      [ "txSizeP" .= sample.sampleTxSizeP
+      , "scriptSizeP" .= sample.sampleScriptSizeP
+      , "exUnitsP" .= sample.sampleExUnitsP
+      , "txValueP" .= sample.sampleTxValueP
+      , "urgencyP" .= sample.sampleUrgencyP
+      ]
+
 data Lane = Priority | Standard deriving stock (Eq, Ord, Show)
+
+instance ToJSON Lane where
+  toJSON = \case
+    Priority -> toJSON ("Priority" :: String)
+    Standard -> toJSON ("Standard" :: String)
 
 data RejectReason
   = FeeTooLow Lovelace Lovelace -- submitted, required
   | MempoolFull Int Int Int -- current mempool bytes, tx bytes, cap bytes
   deriving stock (Eq, Show)
 
-data EvictionReason = EvictionReason
+instance ToJSON RejectReason where
+  toJSON = \case
+    FeeTooLow submitted required ->
+      object
+        [ "tag" .= ("FeeTooLow" :: String)
+        , "submitted" .= submitted
+        , "required" .= required
+        ]
+    MempoolFull currentBytes txBytes capBytes ->
+      object
+        [ "tag" .= ("MempoolFull" :: String)
+        , "currentBytes" .= currentBytes
+        , "txBytes" .= txBytes
+        , "capBytes" .= capBytes
+        ]
+
+data EvictionReason
+  = FeeTooLowAtSelection Lovelace Lovelace -- submitted, required
+  deriving stock (Eq, Show)
+
+instance ToJSON EvictionReason where
+  toJSON = \case
+    FeeTooLowAtSelection submitted required ->
+      object
+        [ "tag" .= ("FeeTooLowAtSelection" :: String)
+        , "submitted" .= submitted
+        , "required" .= required
+        ]
 
 retainedValue :: Duration -> Tx -> Lovelace
 retainedValue duration tx =

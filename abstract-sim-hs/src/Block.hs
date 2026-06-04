@@ -18,37 +18,97 @@ module Block
   )
 where
 
+import Data.Aeson (ToJSON (..), object, (.=))
 import Data.Foldable qualified as Foldable
 import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Maybe (mapMaybe)
 import Data.Sequence (Seq (..), (|>))
 import Data.Set (Set)
+import Data.Set qualified as Set
 import Transaction (Lane (..), Script (_scriptExUnits), Tx (..), TxBody (..), TxId)
 import Types (SlotNo)
 
 data EbId = EbId Int deriving (Eq, Ord, Show)
+
+instance ToJSON EbId where
+  toJSON (EbId n) = toJSON n
 
 data EndorserBlock = EndorserBlock
   { _ebTxs :: Set TxId
   , _ebId :: EbId
   }
 
+instance ToJSON EndorserBlock where
+  toJSON eb =
+    object
+      [ "id" .= eb._ebId
+      , "txIds" .= Set.toAscList eb._ebTxs
+      ]
+
 data InclusionPoint
   = IncludedInRb
   | IncludedInEb EbId
   deriving stock (Eq, Show)
 
+instance ToJSON InclusionPoint where
+  toJSON = \case
+    IncludedInRb ->
+      object ["tag" .= ("IncludedInRb" :: String)]
+    IncludedInEb ebId ->
+      object
+        [ "tag" .= ("IncludedInEb" :: String)
+        , "ebId" .= ebId
+        ]
+
 data PendingEb = PendingEb {pendingEbId :: EbId, pendingEbAnnounced :: SlotNo}
+
+instance ToJSON PendingEb where
+  toJSON pending =
+    object
+      [ "id" .= pending.pendingEbId
+      , "announced" .= pending.pendingEbAnnounced
+      ]
 
 data RankingBlock = CertifyingBlock EbId | PraosBlock [TxId]
   deriving stock (Eq, Show)
+
+instance ToJSON RankingBlock where
+  toJSON = \case
+    CertifyingBlock ebId ->
+      object
+        [ "tag" .= ("CertifyingBlock" :: String)
+        , "ebId" .= ebId
+        ]
+    PraosBlock txIds ->
+      object
+        [ "tag" .= ("PraosBlock" :: String)
+        , "txIds" .= txIds
+        ]
 
 data BlockSummary
   = RankingBlockProduced RankingBlockSummary
   | EndorserBlockAnnounced EndorserBlockSummary
   | EndorserBlockCertified EndorserBlockSummary
   deriving stock (Eq, Show)
+
+instance ToJSON BlockSummary where
+  toJSON = \case
+    RankingBlockProduced summary ->
+      object
+        [ "tag" .= ("RankingBlockProduced" :: String)
+        , "summary" .= summary
+        ]
+    EndorserBlockAnnounced summary ->
+      object
+        [ "tag" .= ("EndorserBlockAnnounced" :: String)
+        , "summary" .= summary
+        ]
+    EndorserBlockCertified summary ->
+      object
+        [ "tag" .= ("EndorserBlockCertified" :: String)
+        , "summary" .= summary
+        ]
 
 data RankingBlockSummary = RankingBlockSummary
   { rankingBlock :: RankingBlock
@@ -65,6 +125,22 @@ data RankingBlockSummary = RankingBlockSummary
   }
   deriving stock (Eq, Show)
 
+instance ToJSON RankingBlockSummary where
+  toJSON summary =
+    object
+      [ "block" .= summary.rankingBlock
+      , "capacityBytes" .= summary.rankingBlockCapacityBytes
+      , "capacityExUnits" .= summary.rankingBlockCapacityExUnits
+      , "usedBytes" .= summary.rankingBlockUsedBytes
+      , "usedExUnits" .= summary.rankingBlockUsedExUnits
+      , "priorityBytes" .= summary.rankingBlockPriorityBytes
+      , "priorityExUnits" .= summary.rankingBlockPriorityExUnits
+      , "standardBytes" .= summary.rankingBlockStandardBytes
+      , "standardExUnits" .= summary.rankingBlockStandardExUnits
+      , "priorityCapacityBytes" .= summary.rankingBlockPriorityCapacityBytes
+      , "priorityCapacityExUnits" .= summary.rankingBlockPriorityCapacityExUnits
+      ]
+
 data EndorserBlockSummary = EndorserBlockSummary
   { endorserBlockId :: EbId
   , endorserBlockCapacityBytes :: Int
@@ -79,6 +155,22 @@ data EndorserBlockSummary = EndorserBlockSummary
   , endorserBlockPrioritySignalCapacityExUnits :: Int
   }
   deriving stock (Eq, Show)
+
+instance ToJSON EndorserBlockSummary where
+  toJSON summary =
+    object
+      [ "id" .= summary.endorserBlockId
+      , "capacityBytes" .= summary.endorserBlockCapacityBytes
+      , "capacityExUnits" .= summary.endorserBlockCapacityExUnits
+      , "usedBytes" .= summary.endorserBlockUsedBytes
+      , "usedExUnits" .= summary.endorserBlockUsedExUnits
+      , "priorityBytes" .= summary.endorserBlockPriorityBytes
+      , "priorityExUnits" .= summary.endorserBlockPriorityExUnits
+      , "standardBytes" .= summary.endorserBlockStandardBytes
+      , "standardExUnits" .= summary.endorserBlockStandardExUnits
+      , "prioritySignalCapacityBytes" .= summary.endorserBlockPrioritySignalCapacityBytes
+      , "prioritySignalCapacityExUnits" .= summary.endorserBlockPrioritySignalCapacityExUnits
+      ]
 
 data SelectionStep acc
   = Select acc

@@ -13,13 +13,21 @@ module Types (
   diffSlots,
 ) where
 
+import Data.Aeson (ToJSON (..), object, (.=))
+
 -- | Value in lovelace (integral; 1 ADA = 1e6 lovelace).
 newtype Lovelace = Lovelace {unLovelace :: Integer}
   deriving (Eq, Ord, Show)
 
+instance ToJSON Lovelace where
+  toJSON (Lovelace n) = toJSON n
+
 -- | A duration or latency measured in slots.
 newtype Duration = Duration Int
   deriving (Eq, Ord, Show)
+
+instance ToJSON Duration where
+  toJSON (Duration n) = toJSON n
 
 {- | An absolute slot number — a point in time. Differences between slots are
 'Duration's, so 'SlotNo' deliberately has no 'Num' instance (slot × slot,
@@ -27,6 +35,9 @@ slot + slot, and negate are nonsense); use 'addDuration' and 'diffSlots'.
 -}
 newtype SlotNo = SlotNo Int
   deriving (Eq, Ord, Show)
+
+instance ToJSON SlotNo where
+  toJSON (SlotNo n) = toJSON n
 
 -- | Advance a slot by a duration: @addDuration d s == s + d@.
 addDuration :: Duration -> SlotNo -> SlotNo
@@ -38,3 +49,16 @@ diffSlots (SlotNo a) (SlotNo b) = Duration (a - b)
 
 data Urgency = Linear Double | Exponential Double
   deriving (Eq, Ord, Show)
+
+instance ToJSON Urgency where
+  toJSON = \case
+    Linear rate ->
+      object
+        [ "tag" .= ("Linear" :: String)
+        , "rate" .= rate
+        ]
+    Exponential rate ->
+      object
+        [ "tag" .= ("Exponential" :: String)
+        , "rate" .= rate
+        ]

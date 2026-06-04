@@ -19,3 +19,19 @@ def quantile(q, sorted_xs):
         return 0
     idx = min(n - 1, max(0, math.ceil(q * n) - 1))
     return sorted_xs[idx]
+
+
+def histogram_bins(values, bin_width):
+    """Fixed-width bins over [0, max(values)]; returns [{lo, hi, n}]."""
+    if not values or bin_width <= 0:
+        return []
+    n_bins = int(max(values) // bin_width) + 1
+    counts = [0] * n_bins
+    for v in values:
+        idx = int(v // bin_width)
+        idx = 0 if idx < 0 else min(idx, n_bins - 1)
+        counts[idx] += 1
+    return [
+        {"lo": i * bin_width, "hi": (i + 1) * bin_width, "n": counts[i]}
+        for i in range(n_bins)
+    ]

@@ -1,4 +1,4 @@
-from simviz.stats import quantile, mean, relative_jump
+from simviz.stats import quantile, mean, relative_jump, histogram_bins
 
 
 def test_quantile_matches_haskell_rule():
@@ -22,3 +22,16 @@ def test_relative_jump():
     assert relative_jump(16, 10) == 0.375
     assert relative_jump(0, 5) == 0.0      # old <= 0 -> 0
     assert relative_jump(4, 4) == 0.0
+
+
+def test_histogram_bins_basic():
+    bins = histogram_bins([0, 1, 5, 9], 5)
+    assert bins == [
+        {"lo": 0, "hi": 5, "n": 2},    # 0, 1
+        {"lo": 5, "hi": 10, "n": 2},   # 5, 9
+    ]
+
+
+def test_histogram_bins_empty():
+    assert histogram_bins([], 5) == []
+    assert histogram_bins([1, 2], 0) == []

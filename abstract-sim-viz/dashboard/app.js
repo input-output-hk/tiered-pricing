@@ -380,6 +380,25 @@ function setupCrosshair() {
   });
 }
 
+function setupControls() {
+  el("toggle-theme").onclick = () => {
+    const root = document.documentElement;
+    root.dataset.theme = root.dataset.theme === "dark" ? "light" : "dark";
+    renderAll();                          // re-render so plot colors follow the theme
+  };
+  el("toggle-price-view").onclick = () => {
+    state.priceView = state.priceView === "log" ? "perlane" : "log";
+    el("toggle-price-view").textContent =
+      "Price view: " + (state.priceView === "log" ? "overlaid (log)" : "per lane");
+    renderFocus();
+  };
+  el("toggle-p95").onclick = () => {
+    state.p95Band = !state.p95Band;
+    el("toggle-p95").textContent = "p95 band: " + (state.p95Band ? "on" : "off");
+    renderFocus();
+  };
+}
+
 function renderAll() {
   renderHeader();
   renderKpis();
@@ -390,5 +409,6 @@ function renderAll() {
   if (typeof renderDistribution === "function") renderDistribution();
 }
 
+setupControls();
 renderAll();
 setupCrosshair();

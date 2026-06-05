@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Linear-Leios Dynamic Pricing — Run Dashboard</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header>
+    <div>
+      <h1 id="title">Linear-Leios Dynamic Pricing — Run Dashboard</h1>
+      <div id="subtitle" class="subtitle"></div>
+    </div>
+    <div id="controls">
+      <button id="toggle-price-view" type="button">Price view: overlaid (log)</button>
+      <button id="toggle-p95" type="button">p95 band: on</button>
+      <button id="toggle-theme" type="button">◐ Theme</button>
+    </div>
+  </header>
+
+  <section id="kpis" class="kpis"></section>
+
+  <main>
+    <div class="left-col">
+      <div id="focus" class="focus">
+        <figure id="panel-price" class="panel"></figure>
+        <figure id="panel-shock" class="panel"></figure>
+        <figure id="panel-latency" class="panel"></figure>
+        <div id="crosshair" class="crosshair"></div>
+        <div id="crosshair-readout" class="crosshair-readout"></div>
+      </div>
+      <figure id="panel-load" class="panel context"></figure>
+    </div>
+    <aside class="right-col">
+      <figure id="panel-dist" class="panel"></figure>
+      <div id="latency-table"></div>
+    </aside>
+  </main>
+
+  <footer class="subtitle" id="footnote"></footer>
+
+  <script src="vendor/d3.min.js"></script>
+  <script src="vendor/plot.umd.min.js"></script>
+  <script src="data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

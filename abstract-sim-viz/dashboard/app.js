@@ -336,6 +336,50 @@ function attachBrush(svgNode) {
   }
 }
 
+function focusXMapping() {
+  // all focus panels share the same x domain + left/right margins + width,
+  // so one mapping (taken from the price panel's svg) applies to all.
+  const svg = el("panel-price").querySelector("svg");
+  if (!svg) return null;
+  const x = svg.scale("x");
+  const rect = el("focus").getBoundingClientRect();
+  const svgRect = svg.getBoundingClientRect();
+  const offsetLeft = svgRect.left - rect.left;        // svg position within #focus
+  const [r0, r1] = x.range, [d0, d1] = x.domain;
+  return {
+    pxToSlot: (clientX) => {
+      const local = clientX - svgRect.left;
+      return d0 + ((local - r0) / (r1 - r0)) * (d1 - d0);
+    },
+    slotToLocal: (s) => offsetLeft + r0 + ((s - d0) / (d1 - d0)) * (r1 - r0),
+    inRange: (clientX) => {
+      const local = clientX - svgRect.left;
+      return local >= r0 && local <= r1;
+    },
+  };
+}
+
+function setupCrosshair() {
+  const focus = el("focus");
+  const line = el("crosshair");
+  const readout = el("crosshair-readout");
+  focus.addEventListener("pointermove", (ev) => {
+    const m = focusXMapping();
+    if (!m || !m.inRange(ev.clientX)) { line.style.display = "none"; readout.style.display = "none"; return; }
+    const slot = Math.round(m.pxToSlot(ev.clientX));
+    const localX = m.slotToLocal(slot);
+    line.style.left = `${localX}px`;
+    line.style.height = `${focus.clientHeight}px`;
+    line.style.display = "block";
+    readout.style.left = `${localX + 4}px`;
+    readout.textContent = `slot ${slot}`;
+    readout.style.display = "block";
+  });
+  focus.addEventListener("pointerleave", () => {
+    line.style.display = "none"; readout.style.display = "none";
+  });
+}
+
 function renderAll() {
   renderHeader();
   renderKpis();
@@ -347,3 +391,4 @@ function renderAll() {
 }
 
 renderAll();
+setupCrosshair();

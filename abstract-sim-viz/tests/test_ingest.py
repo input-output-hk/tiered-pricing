@@ -55,6 +55,21 @@ def test_accumulator_records_state():
     assert acc.total_events == 3
 
 
+def _rb(slot, block_tag):
+    return {"tag": "BlockProduced", "slot": slot,
+            "summary": {"tag": "RankingBlockProduced", "summary": {"block": {"tag": block_tag}}}}
+
+
+def test_accumulator_counts_rb_content():
+    acc = Accumulator()
+    acc.ingest(_rb(10, "PraosBlock"))       # carries txs
+    acc.ingest(_rb(20, "CertifyingBlock"))  # certifies an EB
+    acc.ingest(_rb(30, "PraosBlock"))
+    assert acc.rb_count == 3
+    assert acc.rb_tx_count == 2
+    assert acc.rb_cert_count == 1
+
+
 def test_accumulator_last_wins_on_duplicate_txid():
     acc = Accumulator()
     acc.ingest(_submitted(1, 0, "Standard", 5.0e-4))

@@ -103,6 +103,17 @@ def test_build_sim_data_structure_and_values():
     assert data["latency"]["byClass"][cls_id]["max"] == 2
 
 
+def test_blocks_section_counts_rb_tx_vs_cert():
+    acc = Accumulator()
+    acc.ingest(_submitted(1, 0.01))
+    acc.ingest({"tag": "BlockProduced", "slot": 10, "summary": {
+        "tag": "RankingBlockProduced", "summary": {"block": {"tag": "PraosBlock", "txIds": [1, 2]}}}})
+    acc.ingest({"tag": "BlockProduced", "slot": 20, "summary": {
+        "tag": "RankingBlockProduced", "summary": {"block": {"tag": "CertifyingBlock", "ebId": 3}}}})
+    data = build_sim_data(acc, f=0.05)
+    assert data["blocks"] == {"rbTotal": 2, "rbWithTxs": 1, "rbWithCert": 1}
+
+
 def test_write_data_js_roundtrip(tmp_path):
     sim_data = {"meta": {"slotCount": 3}, "price": {"byLane": {}}}
     out = tmp_path / "data.js"

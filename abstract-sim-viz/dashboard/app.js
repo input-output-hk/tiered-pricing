@@ -337,6 +337,42 @@ function renderDistribution() {
   fig.appendChild(node);
 }
 
+function renderRb() {
+  const t = theme();
+  const fig = el("panel-rb");
+  fig.innerHTML = "";
+  panelHead("panel-rb", "RB content", "ranking blocks: carry txs vs certify an EB", "rb-content.svg");
+  const b = DATA.blocks || {};
+  const total = b.rbTotal || 0;
+  if (!total) {
+    const p = document.createElement("div");
+    p.className = "subtitle"; p.style.fontSize = "11px";
+    p.textContent = "no ranking blocks in trace";
+    fig.appendChild(p);
+    return;
+  }
+  const TX = "#16a34a", CERT = "#d97706";
+  const rows = [
+    { kind: "carry txs", n: b.rbWithTxs, color: TX },
+    { kind: "certify EB", n: b.rbWithCert, color: CERT },
+  ];
+  const node = Plot.plot({
+    width: distWidth(), height: 58, marginLeft: 8, marginRight: 8, marginTop: 6, marginBottom: 26,
+    style: { color: t.text, fontSize: "11px" },
+    x: { domain: [0, total], label: `ranking blocks (n=${total})` },
+    color: { domain: rows.map((r) => r.kind), range: rows.map((r) => r.color) },
+    marks: [Plot.barX(rows, Plot.stackX({ x: "n", fill: "kind" }))],
+  });
+  fig.appendChild(node);
+  const pct = (n) => Math.round((100 * n) / total);
+  const summary = document.createElement("div");
+  summary.className = "subtitle"; summary.style.fontSize = "10px"; summary.style.marginTop = "2px";
+  summary.innerHTML = rows
+    .map((r) => `<span style="color:${r.color}">■</span> ${r.kind}: <b>${r.n}</b> (${pct(r.n)}%)`)
+    .join(" &nbsp; ");
+  fig.appendChild(summary);
+}
+
 const LOAD_DIMS = { width: 760, height: 70, marginLeft: 44, marginRight: 12, marginTop: 6, marginBottom: 18 };
 
 function renderContext() {
@@ -468,6 +504,7 @@ function renderAll() {
   if (typeof renderFocus === "function") renderFocus();
   if (typeof renderContext === "function") renderContext();
   if (typeof renderDistribution === "function") renderDistribution();
+  if (typeof renderRb === "function") renderRb();
 }
 
 setupControls();

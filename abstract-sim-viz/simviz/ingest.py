@@ -23,7 +23,9 @@ class Accumulator:
         self.price_changes = defaultdict(list)     # lane -> [PriceUpdated event]
         self.submissions_per_slot = defaultdict(int)
         self.inclusions_per_slot = defaultdict(int)
-        self.rb_count = 0                   # ranking (Praos) blocks produced
+        self.rb_count = 0                   # ranking blocks produced (total)
+        self.rb_tx_count = 0                # RBs carrying txs directly (PraosBlock)
+        self.rb_cert_count = 0              # RBs carrying an EB certificate (CertifyingBlock)
         self.max_slot = 0
         self.total_events = 0
 
@@ -49,9 +51,16 @@ class Accumulator:
         elif tag == "PriceUpdated":
             self.price_changes[event["lane"]].append(event)
         elif tag == "BlockProduced":
-            # ranking (Praos) blocks set the chain's slots-per-block cadence
-            if event.get("summary", {}).get("tag") == "RankingBlockProduced":
+            summary = event.get("summary", {})
+            if summary.get("tag") == "RankingBlockProduced":
+                # ranking blocks set the chain's slots-per-block cadence; each carries
+                # either txs directly (PraosBlock) or an EB certificate (CertifyingBlock)
                 self.rb_count += 1
+                block_tag = summary.get("summary", {}).get("block", {}).get("tag")
+                if block_tag == "PraosBlock":
+                    self.rb_tx_count += 1
+                elif block_tag == "CertifyingBlock":
+                    self.rb_cert_count += 1
         # all other tags ignored (this iteration)
 
     @property

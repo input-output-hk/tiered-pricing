@@ -145,6 +145,11 @@ def build_sim_data(acc, params=None, target_buckets=300, source="events.jsonl", 
         "convergence": {"loadRegimes": regimes, "byLane": conv_by_lane},
         "latency": {"byClass": latency_by_class, "byLane": latency_by_lane},
         "load": load_obj,
+        "blocks": {
+            "rbTotal": acc.rb_count,
+            "rbWithTxs": acc.rb_tx_count,     # RBs carrying transactions (PraosBlock)
+            "rbWithCert": acc.rb_cert_count,  # RBs certifying an EB (CertifyingBlock)
+        },
     }
 
 

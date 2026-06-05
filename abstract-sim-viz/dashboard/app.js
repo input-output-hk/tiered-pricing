@@ -4,6 +4,7 @@ const DATA = window.SIM_DATA;
 const state = {
   priceView: "log",     // "log" | "perlane"
   p95Band: true,
+  convBand: true,       // show ±5% convergence bands on the price panel
   xDomain: null,        // null = full run
   hiddenLanes: new Set(),
   hiddenClasses: new Set(),
@@ -121,6 +122,7 @@ function laneLegend(figureId, lanes, hiddenSet, onToggle) {
 }
 
 function convergenceBandMarks(lane) {
+  if (!state.convBand) return [];
   const regimes = (DATA.convergence.byLane[lane] || {}).regimes || [];
   return regimes
     .filter((r) => r.band)
@@ -175,7 +177,8 @@ function renderPricePanel() {
   const fig = el("panel-price");
   fig.innerHTML = "";
   panelHead("panel-price", "Price coefficient / lane",
-    state.priceView === "log" ? "log axis · ±5% convergence band" : "per lane · ±5% convergence band",
+    (state.priceView === "log" ? "log axis" : "per lane") +
+      (state.convBand ? " · ±5% convergence band per regime" : ""),
     "price.svg");
   const lanes = DATA.meta.lanes.filter((l) => !state.hiddenLanes.has(l));
   laneLegend("panel-price", DATA.meta.lanes, state.hiddenLanes, (lane) => {
@@ -406,6 +409,11 @@ function setupControls() {
   el("toggle-p95").onclick = () => {
     state.p95Band = !state.p95Band;
     el("toggle-p95").textContent = "p95 band: " + (state.p95Band ? "on" : "off");
+    renderFocus();
+  };
+  el("toggle-conv-band").onclick = () => {
+    state.convBand = !state.convBand;
+    el("toggle-conv-band").textContent = "Conv. band: " + (state.convBand ? "on" : "off");
     renderFocus();
   };
 }

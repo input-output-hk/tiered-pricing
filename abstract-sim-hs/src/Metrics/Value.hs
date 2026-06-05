@@ -9,7 +9,7 @@ import Data.Maybe (mapMaybe)
 import Metrics.Accumulator
 import Transaction (Tx (..))
 import Transaction qualified
-import Types (Lovelace, Urgency)
+import Types (BlockDelay (..), Lovelace, Urgency)
 
 -- | Metric (2): retained vs lost transaction value.
 data ValueOutcome = ValueOutcome
@@ -42,8 +42,9 @@ valueOutcomeWhere acc predicate =
     evictedTxsWhere acc predicate
 
   includedValueOutcome (txId, tx) = do
-    latency <- includedLatency acc txId
+    latency <- includedBlockLatency acc txId
+    let blockDelay = BlockDelay (fromIntegral latency)
     pure
-      ( Transaction.retainedValue latency tx
-      , Transaction.lostValue latency tx
+      ( Transaction.retainedValue blockDelay tx
+      , Transaction.lostValue blockDelay tx
       )

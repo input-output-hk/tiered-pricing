@@ -14,7 +14,7 @@ import Data.Aeson (ToJSON (..))
 import Data.Set qualified as Set
 import Pricing (Prices, quotedFeeFor)
 import Transaction (Lane (..), Script (..), Tx (..), TxBody (..), TxSample (..), hash, retainedValueFor)
-import Types (Duration, Lovelace (Lovelace), SlotNo, Urgency (..))
+import Types (Duration, Lovelace (Lovelace), SlotNo, Urgency (..), expectedBlockDelay)
 
 newtype ActorId = ActorId Int deriving (Eq, Ord, Show)
 
@@ -52,9 +52,9 @@ defaultHonestPolicy =
 
 data TxSubmission = TxSubmission {submissionActor :: ActorId, submissionTx :: Tx}
 
-generateTransaction :: SlotNo -> Actor -> Prices -> LaneLatencyEstimate -> Curves -> TxSample -> Maybe Tx
-generateTransaction slot (Actor (Honest policy) _) prices latencyEstimate (Curves{..}) (TxSample{..}) = do
-  lane <- chooseLane policy latencyEstimate urgency txValue standardFee priorityFee
+generateTransaction :: Double -> SlotNo -> Actor -> Prices -> LaneLatencyEstimate -> Curves -> TxSample -> Maybe Tx
+generateTransaction f slot (Actor (Honest policy) _) prices latencyEstimate (Curves{..}) (TxSample{..}) = do
+  lane <- chooseLane policy f latencyEstimate urgency txValue standardFee priorityFee
   let quotedFee = quotedFeeFor prices lane txSize
       txBody =
         TxBody
@@ -89,15 +89,15 @@ generateTransaction slot (Actor (Honest policy) _) prices latencyEstimate (Curve
   sampleExUnits (ExUnitsCurve c) = round (sampleCurve c sampleExUnitsP)
   sampleTxValue (TxValueCurve c) = round (sampleCurve c sampleTxValueP)
 
-chooseLane :: ActorPolicy -> LaneLatencyEstimate -> Urgency -> Lovelace -> Lovelace -> Lovelace -> Maybe Lane
-chooseLane policy latencyEstimate urgency value standardFee priorityFee
+chooseLane :: ActorPolicy -> Double -> LaneLatencyEstimate -> Urgency -> Lovelace -> Lovelace -> Lovelace -> Maybe Lane
+chooseLane policy f latencyEstimate urgency value standardFee priorityFee
   | priorityUtility > standardUtility && priorityUtility >= 0 = Just Priority
   | standardUtility >= 0 = Just Standard
   | priorityUtility >= 0 = Just Priority
   | otherwise = Nothing
  where
   retainedValueAfter latency =
-    retainedValueFor latency urgency value
+    retainedValueFor (expectedBlockDelay f latency) urgency value
 
   standardUtility =
     lovelaceDifference
@@ -119,11 +119,13 @@ scaleLovelace coefficient (Lovelace lovelace) =
 
 sampleUrgency :: Double -> Urgency
 sampleUrgency p
-  | p < veryLowCutoff = Exponential 0.0005
-  | p < mediumCutoff = Exponential 0.002
-  | p < highCutoff = Exponential 0.006
-  | otherwise = Exponential 0.015
+  | p < veryLowCutoff = Exponential 0.01
+  | p < mediumCutoff = Exponential 0.04
+  | p < highCutoff = Exponential 0.12
+  | otherwise = Exponential 0.30
  where
+  -- Rates are per expected ranking block. These preserve the old approximate
+  -- half-lives after converting from slot delay with f = 0.05.
   veryLowPct = 75.0
   mediumPct = 17.0
   highPct = 6.5

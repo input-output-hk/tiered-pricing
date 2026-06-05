@@ -15,6 +15,7 @@ module Metrics.Types (
   InclusionStats (..),
   ValueOutcome (..),
   LatencyStats (..),
+  BlockLatencyStats (..),
 
   -- * Aggregate measures
   PriceShock (..),
@@ -35,7 +36,7 @@ import Load (ArrivalProcess (ConstantLoad))
 import Metrics.Fairness (Fairness (..))
 import Metrics.Inclusion (InclusionStats (..))
 import Metrics.Invariants (InvariantBreach (..), InvariantKind (..))
-import Metrics.Latency (LatencyStats (..))
+import Metrics.Latency (BlockLatencyStats (..), LatencyStats (..))
 import Metrics.Price (PriceChange (..), PriceShock (..), PriceStability (..))
 import Metrics.Revenue (Revenue (..))
 import Metrics.Throughput (RankingBlockCounts (..), Throughput (..))
@@ -60,14 +61,20 @@ data Metrics = Metrics
   -- ^ (2) retained\/lost value, by urgency
   , latency :: ByUrgency LatencyStats
   -- ^ (3) inclusion latency, by urgency
+  , actualBlockLatency :: ByUrgency BlockLatencyStats
+  -- ^ (3) inclusion latency in actual ranking blocks, by urgency
   , laneInclusion :: ByLane InclusionStats
   -- ^ Diagnostic transaction inclusion, by submitted lane
   , laneLatency :: ByLane LatencyStats
   -- ^ Diagnostic inclusion latency, by submitted lane
+  , laneActualBlockLatency :: ByLane BlockLatencyStats
+  -- ^ Diagnostic inclusion latency in actual ranking blocks, by submitted lane
   , urgencyLaneInclusion :: ByUrgencyLane InclusionStats
   -- ^ Diagnostic transaction inclusion, by urgency and submitted lane
   , urgencyLaneLatency :: ByUrgencyLane LatencyStats
   -- ^ Diagnostic inclusion latency, by urgency and submitted lane
+  , urgencyLaneActualBlockLatency :: ByUrgencyLane BlockLatencyStats
+  -- ^ Diagnostic inclusion latency in actual ranking blocks, by urgency and submitted lane
   , priceShock :: PriceShock
   -- ^ (4) price shock
   , priceChanges :: [PriceChange]

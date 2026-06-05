@@ -14,7 +14,7 @@ import Metrics.Accumulator
 import Metrics.Fairness (fairnessFrom)
 import Metrics.Inclusion (inclusionByLane, inclusionByUrgency, inclusionByUrgencyLane)
 import Metrics.Invariants (invariantBreachesFrom)
-import Metrics.Latency (latencyByLane, latencyByUrgency, latencyByUrgencyLane)
+import Metrics.Latency (blockLatencyByLane, blockLatencyByUrgency, blockLatencyByUrgencyLane, latencyByLane, latencyByUrgency, latencyByUrgencyLane)
 import Metrics.Price (priceChangesFrom, priceShockFrom, priceStabilityFrom)
 import Metrics.Revenue (revenueFrom)
 import Metrics.Throughput (rankingBlocksFrom, throughputFrom)
@@ -36,10 +36,13 @@ finalizeMetrics metricsConfig slots acc =
     { inclusion = inclusionByUrgency acc
     , value = valueByUrgency acc
     , latency = latencyByUrgency acc
+    , actualBlockLatency = blockLatencyByUrgency acc
     , laneInclusion = inclusionByLane acc
     , laneLatency = latencyByLane acc
+    , laneActualBlockLatency = blockLatencyByLane acc
     , urgencyLaneInclusion = inclusionByUrgencyLane acc
     , urgencyLaneLatency = latencyByUrgencyLane acc
+    , urgencyLaneActualBlockLatency = blockLatencyByUrgencyLane acc
     , priceShock = priceShockFrom acc
     , priceChanges = priceChangesFrom acc
     , revenue = revenueFrom acc

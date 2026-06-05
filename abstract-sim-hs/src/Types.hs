@@ -7,10 +7,12 @@ live here rather than in any single consumer like "Metrics".
 module Types (
   Lovelace (..),
   Duration (..),
+  BlockDelay (..),
   Urgency (..),
   SlotNo (..),
   addDuration,
   diffSlots,
+  expectedBlockDelay,
 ) where
 
 import Data.Aeson (ToJSON (..), object, (.=))
@@ -29,6 +31,13 @@ newtype Duration = Duration Int
 instance ToJSON Duration where
   toJSON (Duration n) = toJSON n
 
+-- | A duration measured in expected ranking blocks.
+newtype BlockDelay = BlockDelay Double
+  deriving (Eq, Ord, Show)
+
+instance ToJSON BlockDelay where
+  toJSON (BlockDelay n) = toJSON n
+
 {- | An absolute slot number — a point in time. Differences between slots are
 'Duration's, so 'SlotNo' deliberately has no 'Num' instance (slot × slot,
 slot + slot, and negate are nonsense); use 'addDuration' and 'diffSlots'.
@@ -46,6 +55,11 @@ addDuration (Duration d) (SlotNo s) = SlotNo (s + d)
 -- | The signed gap between two slots: @diffSlots a b == a - b@.
 diffSlots :: SlotNo -> SlotNo -> Duration
 diffSlots (SlotNo a) (SlotNo b) = Duration (a - b)
+
+-- | Convert slot latency to expected ranking-block latency.
+expectedBlockDelay :: Double -> Duration -> BlockDelay
+expectedBlockDelay f (Duration slots) =
+  BlockDelay (max 0 f * fromIntegral (max 0 slots))
 
 data Urgency = Linear Double | Exponential Double
   deriving (Eq, Ord, Show)

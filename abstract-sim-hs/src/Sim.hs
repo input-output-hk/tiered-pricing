@@ -16,7 +16,7 @@ import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Maybe (catMaybes, mapMaybe)
-import Data.Sequence (Seq, singleton, (><), (|>))
+import Data.Sequence (Seq, singleton, (<|), (><), (|>))
 import Data.Sequence qualified as Seq
 import Data.Set qualified as Set
 import Design (ControllerConfig (..), ControllerSignal (..), Design (..), Eip1559Controller (..), LaneStructure (Two), ReservationPolicy (..))
@@ -148,10 +148,11 @@ actorStep = do
   curves <- asks simConfigCurves
   prices <- gets _simPrices
   latencyEstimate <- asks simConfigLaneLatencyEstimate
+  f <- asks simConfigF
   catMaybes <$> replicateM n do
     actor <- pickActor actors
     txSample <- drawTxSample
-    pure (TxSubmission actor._actorId <$> generateTransaction slot actor prices latencyEstimate curves txSample)
+    pure (TxSubmission actor._actorId <$> generateTransaction f slot actor prices latencyEstimate curves txSample)
 
 pickActor :: [Actor] -> SimM s Actor
 pickActor [] = error "pickActor: no actors configured"
@@ -304,10 +305,13 @@ produceRankingBlock = do
     ebTxBytesCap <- asks simConfigEbTxBytesCap
     ebExUnitsCap <- asks simConfigEbExUnitsCap
     ebs <- gets _simEbs
+    prices <- gets _simPrices
     let ebTxIdSet =
           maybe mempty _ebTxs (Map.lookup pending.pendingEbId ebs)
         ebTxIds = Set.toList ebTxIdSet
-        ebTxs = selectedTxBodies simTxs (Seq.fromList ebTxIds)
+        (validEbTxIds, staleFeeEvents) =
+          feeValidTxIds slot prices simTxs ebTxIds
+        ebTxs = selectedTxBodies simTxs (Seq.fromList validEbTxIds)
         block = CertifyingBlock pending.pendingEbId
         mempool' = removeFromMempool simTxs ebTxIdSet mempool
         summary =
@@ -317,10 +321,12 @@ produceRankingBlock = do
           EndorserBlockCertified
             (mkEndorserBlockSummary pending.pendingEbId ebTxBytesCap ebExUnitsCap rbPriorityTxBytesCap rbExUnitsCap ebTxs)
         events =
-          Seq.fromList $
-            BlockProduced slot summary
-              : BlockProduced slot certifiedEbSummary
-              : fmap (\txId -> TxIncluded slot txId (IncludedInEb pending.pendingEbId)) ebTxIds
+          Seq.fromList [BlockProduced slot summary]
+            >< staleFeeEvents
+            >< Seq.fromList
+              ( BlockProduced slot certifiedEbSummary
+                  : fmap (\txId -> TxIncluded slot txId (IncludedInEb pending.pendingEbId)) validEbTxIds
+              )
     appendRankingBlock slot block
     modify' \st -> st{_simMempool = mempool'}
     pure (mempool', events)
@@ -416,12 +422,32 @@ produceRankingBlock = do
         Nothing ->
           (kept |> txId, events)
         Just tx
-          | tx.txBody._txFee < requiredFee ->
-              (kept, events |> TxEvicted slot txId (FeeTooLowAtSelection tx.txBody._txFee requiredFee))
-          | otherwise ->
+          | txFeeStillValid prices tx ->
               (kept |> txId, events)
-         where
-          requiredFee = quotedFee prices tx
+          | otherwise ->
+              (kept, events |> staleFeeEviction slot prices txId tx)
+
+  feeValidTxIds :: SlotNo -> Prices -> Map TxId Tx -> [TxId] -> ([TxId], Seq SimEvent)
+  feeValidTxIds slot prices simTxs =
+    foldr checkTx ([], mempty)
+   where
+    checkTx txId (validTxIds, events) =
+      case Map.lookup txId simTxs of
+        Nothing ->
+          (validTxIds, events)
+        Just tx
+          | txFeeStillValid prices tx ->
+              (txId : validTxIds, events)
+          | otherwise ->
+              (validTxIds, staleFeeEviction slot prices txId tx <| events)
+
+  txFeeStillValid :: Prices -> Tx -> Bool
+  txFeeStillValid prices tx =
+    tx.txBody._txFee >= quotedFee prices tx
+
+  staleFeeEviction :: SlotNo -> Prices -> TxId -> Tx -> SimEvent
+  staleFeeEviction slot prices txId tx =
+    TxEvicted slot txId (FeeTooLowAtSelection tx.txBody._txFee (quotedFee prices tx))
 
   nextEbId :: Map EbId EndorserBlock -> EbId
   nextEbId ebs =

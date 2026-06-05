@@ -10,5 +10,12 @@ __pycache__/
 # Local generated evidence/cache data
 cip-evidence/**/.cache/
 
+# Local simulation traces
+events.jsonl
+abstract-sim-hs/events.jsonl
+
+# Brainstorming visual companion
+.superpowers/
+
 # Editor backups
 *~

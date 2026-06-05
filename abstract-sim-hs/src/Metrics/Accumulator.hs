@@ -12,6 +12,8 @@ module Metrics.Accumulator (
   evictedTxsWhere,
   latenciesWhere,
   includedLatency,
+  blockLatenciesWhere,
+  includedBlockLatency,
   matchesUrgencyLane,
   sumLovelace,
   maximumOrZero,
@@ -21,7 +23,7 @@ module Metrics.Accumulator (
 ) where
 
 import Actor (ActorId)
-import Block (BlockSummary)
+import Block (BlockSummary (..))
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (mapMaybe)
@@ -36,6 +38,9 @@ data MetricsAcc = MetricsAcc
   , accSubmittedByActor :: Map TxId ActorId
   , accAdmitted :: Set.Set TxId
   , accIncludedAt :: Map TxId SlotNo
+  , accSubmittedAtBlock :: Map TxId Int
+  , accIncludedAtBlock :: Map TxId Int
+  , accRankingBlockCount :: Int
   , accEvicted :: Set.Set TxId
   , accBlocks :: [BlockSummary]
   , accPriceJumps :: [Double]
@@ -59,6 +64,9 @@ emptyMetricsAcc =
     , accSubmittedByActor = mempty
     , accAdmitted = mempty
     , accIncludedAt = mempty
+    , accSubmittedAtBlock = mempty
+    , accIncludedAtBlock = mempty
+    , accRankingBlockCount = 0
     , accEvicted = mempty
     , accBlocks = mempty
     , accPriceJumps = mempty
@@ -76,17 +84,27 @@ stepMetrics acc = \case
       { accSubmitted = Map.insert tx.txId tx acc.accSubmitted
       , accSubmittedAt = Map.insert tx.txId slot acc.accSubmittedAt
       , accSubmittedByActor = Map.insert tx.txId actorId acc.accSubmittedByActor
+      , accSubmittedAtBlock = Map.insert tx.txId acc.accRankingBlockCount acc.accSubmittedAtBlock
       }
   TxAdmitted _ txId ->
     acc{accAdmitted = Set.insert txId acc.accAdmitted}
   TxRejected{} ->
     acc
   TxIncluded slot txId _ ->
-    acc{accIncludedAt = Map.insert txId slot acc.accIncludedAt}
+    acc
+      { accIncludedAt = Map.insert txId slot acc.accIncludedAt
+      , accIncludedAtBlock = Map.insert txId acc.accRankingBlockCount acc.accIncludedAtBlock
+      }
   TxEvicted _ txId _ ->
     acc{accEvicted = Set.insert txId acc.accEvicted}
   BlockProduced _ summary ->
-    acc{accBlocks = summary : acc.accBlocks}
+    acc
+      { accBlocks = summary : acc.accBlocks
+      , accRankingBlockCount =
+          if isRankingBlock summary
+            then acc.accRankingBlockCount + 1
+            else acc.accRankingBlockCount
+      }
   PriceUpdated slot lane oldCoeff newCoeff utilisation ->
     acc
       { accPriceJumps = relativeJump oldCoeff newCoeff : acc.accPriceJumps
@@ -128,6 +146,16 @@ includedLatency acc txId = do
   submittedAt <- Map.lookup txId acc.accSubmittedAt
   includedAt <- Map.lookup txId acc.accIncludedAt
   pure (diffSlots includedAt submittedAt)
+
+blockLatenciesWhere :: MetricsAcc -> (Tx -> Bool) -> [Int]
+blockLatenciesWhere acc predicate =
+  mapMaybe (includedBlockLatency acc . fst) (filter (predicate . snd) (Map.toList acc.accSubmitted))
+
+includedBlockLatency :: MetricsAcc -> TxId -> Maybe Int
+includedBlockLatency acc txId = do
+  submittedAt <- Map.lookup txId acc.accSubmittedAtBlock
+  includedAt <- Map.lookup txId acc.accIncludedAtBlock
+  pure (max 0 (includedAt - submittedAt))
 
 matchesUrgencyLane :: Urgency -> Lane -> Tx -> Bool
 matchesUrgencyLane urgency lane tx =
@@ -175,6 +203,10 @@ relativeJump :: Double -> Double -> Double
 relativeJump oldCoeff newCoeff
   | oldCoeff <= 0 = 0
   | otherwise = abs (newCoeff - oldCoeff) / oldCoeff
+
+isRankingBlock :: BlockSummary -> Bool
+isRankingBlock RankingBlockProduced{} = True
+isRankingBlock _ = False
 
 maximumOrZero :: [Double] -> Double
 maximumOrZero [] = 0

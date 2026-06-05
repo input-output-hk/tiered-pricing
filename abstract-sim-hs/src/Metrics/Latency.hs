@@ -1,8 +1,12 @@
 module Metrics.Latency (
   LatencyStats (..),
+  BlockLatencyStats (..),
   latencyByUrgency,
   latencyByLane,
   latencyByUrgencyLane,
+  blockLatencyByUrgency,
+  blockLatencyByLane,
+  blockLatencyByUrgencyLane,
 ) where
 
 import Data.List (sort)
@@ -29,6 +33,25 @@ data LatencyStats = LatencyStats
   }
   deriving (Eq, Show)
 
+{- | Inclusion latency measured in actual ranking blocks.
+
+Only 'RankingBlockProduced' events advance this count; EB announcements and
+certified EB summaries do not.
+-}
+data BlockLatencyStats = BlockLatencyStats
+  { blockLatencyCount :: Int
+  -- ^ number of included txs contributing to this summary
+  , blockLatencyMean :: Double
+  -- ^ mean inclusion latency, in actual ranking blocks
+  , blockLatencyMedian :: Int
+  -- ^ median inclusion latency, in actual ranking blocks
+  , blockLatencyP95 :: Int
+  -- ^ 95th-percentile inclusion latency, in actual ranking blocks
+  , blockLatencyMax :: Int
+  -- ^ worst-case inclusion latency, in actual ranking blocks
+  }
+  deriving (Eq, Show)
+
 latencyByUrgency :: MetricsAcc -> Map Urgency LatencyStats
 latencyByUrgency acc =
   Map.fromList (fmap latencyForUrgency (observedUrgencies acc))
@@ -49,6 +72,27 @@ latencyByUrgencyLane acc =
  where
   latencyForUrgencyLane key@(urgency, lane) =
     (key, summarizeLatencies (latenciesWhere acc (matchesUrgencyLane urgency lane)))
+
+blockLatencyByUrgency :: MetricsAcc -> Map Urgency BlockLatencyStats
+blockLatencyByUrgency acc =
+  Map.fromList (fmap latencyForUrgency (observedUrgencies acc))
+ where
+  latencyForUrgency urgency =
+    (urgency, summarizeBlockLatencies (blockLatenciesWhere acc ((== urgency) . txUrgency)))
+
+blockLatencyByLane :: MetricsAcc -> Map Lane BlockLatencyStats
+blockLatencyByLane acc =
+  Map.fromList (fmap latencyForLane allLanes)
+ where
+  latencyForLane lane =
+    (lane, summarizeBlockLatencies (blockLatenciesWhere acc ((== lane) . txLane)))
+
+blockLatencyByUrgencyLane :: MetricsAcc -> Map (Urgency, Lane) BlockLatencyStats
+blockLatencyByUrgencyLane acc =
+  Map.fromList (fmap latencyForUrgencyLane (observedUrgencyLanes acc))
+ where
+  latencyForUrgencyLane key@(urgency, lane) =
+    (key, summarizeBlockLatencies (blockLatenciesWhere acc (matchesUrgencyLane urgency lane)))
 
 summarizeLatencies :: [Duration] -> LatencyStats
 summarizeLatencies durations =
@@ -81,3 +125,25 @@ quantile q xs =
  where
   n = length xs
   index = min (n - 1) (max 0 (ceiling (q * fromIntegral n) - 1))
+
+summarizeBlockLatencies :: [Int] -> BlockLatencyStats
+summarizeBlockLatencies latencies =
+  case sort latencies of
+    [] ->
+      BlockLatencyStats
+        { blockLatencyCount = 0
+        , blockLatencyMean = 0
+        , blockLatencyMedian = 0
+        , blockLatencyP95 = 0
+        , blockLatencyMax = 0
+        }
+    xs ->
+      BlockLatencyStats
+        { blockLatencyCount = n
+        , blockLatencyMean = fromIntegral (sum xs) / fromIntegral n
+        , blockLatencyMedian = quantile 0.50 xs
+        , blockLatencyP95 = quantile 0.95 xs
+        , blockLatencyMax = last xs
+        }
+     where
+      n = length xs

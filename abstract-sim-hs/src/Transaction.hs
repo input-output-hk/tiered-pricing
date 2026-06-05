@@ -6,7 +6,7 @@ import Data.Char (ord)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Word (Word64, Word8)
-import Types (Duration (..), Lovelace (..), SlotNo (..), Urgency (..), diffSlots)
+import Types (BlockDelay (..), Lovelace (..), SlotNo (..), Urgency (..), diffSlots, expectedBlockDelay)
 
 data Script = Script
   { _scriptSize :: Int -- Bytes
@@ -120,33 +120,33 @@ instance ToJSON EvictionReason where
         , "required" .= required
         ]
 
-retainedValue :: Duration -> Tx -> Lovelace
-retainedValue duration tx =
-  retainedValueFor duration tx.txUrgency tx.txValue
+retainedValue :: BlockDelay -> Tx -> Lovelace
+retainedValue delay tx =
+  retainedValueFor delay tx.txUrgency tx.txValue
 
-retainedValueFor :: Duration -> Urgency -> Lovelace -> Lovelace
-retainedValueFor duration urgency =
-  scaleRetainedValue (retentionRatio duration urgency)
+retainedValueFor :: BlockDelay -> Urgency -> Lovelace -> Lovelace
+retainedValueFor delay urgency =
+  scaleRetainedValue (retentionRatio delay urgency)
 
-lostValue :: Duration -> Tx -> Lovelace
-lostValue duration tx =
-  subtractLovelace tx.txValue (retainedValue duration tx)
+lostValue :: BlockDelay -> Tx -> Lovelace
+lostValue delay tx =
+  subtractLovelace tx.txValue (retainedValue delay tx)
 
-valueAt :: SlotNo -> Tx -> Lovelace
-valueAt slot tx =
-  retainedValue (diffSlots slot tx.txSubmitted) tx
+valueAt :: Double -> SlotNo -> Tx -> Lovelace
+valueAt f slot tx =
+  retainedValue (expectedBlockDelay f (diffSlots slot tx.txSubmitted)) tx
 
-retentionRatio :: Duration -> Urgency -> Double
-retentionRatio duration urgency =
+retentionRatio :: BlockDelay -> Urgency -> Double
+retentionRatio delay urgency =
   case urgency of
     Linear rate ->
-      max 0 (1 - decayRate rate * durationSlots duration)
+      max 0 (1 - decayRate rate * blockDelay delay)
     Exponential rate ->
-      exp (negate (decayRate rate * durationSlots duration))
+      exp (negate (decayRate rate * blockDelay delay))
 
-durationSlots :: Duration -> Double
-durationSlots (Duration slots) =
-  fromIntegral (max 0 slots)
+blockDelay :: BlockDelay -> Double
+blockDelay (BlockDelay blocks) =
+  max 0 blocks
 
 decayRate :: Double -> Double
 decayRate =

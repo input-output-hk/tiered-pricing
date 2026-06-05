@@ -1,5 +1,6 @@
+import json
 from simviz.ingest import Accumulator
-from simviz.contract import urgency_classes, build_sim_data
+from simviz.contract import urgency_classes, build_sim_data, write_data_js
 
 
 def _submitted(tx_id, rate, tag="Exponential"):
@@ -64,3 +65,14 @@ def test_build_sim_data_structure_and_values():
     cls_id = data["meta"]["urgencyClasses"][0]["id"]
     assert data["latency"]["byClass"][cls_id]["count"] == 1
     assert data["latency"]["byClass"][cls_id]["max"] == 2
+
+
+def test_write_data_js_roundtrip(tmp_path):
+    sim_data = {"meta": {"slotCount": 3}, "price": {"byLane": {}}}
+    out = tmp_path / "data.js"
+    write_data_js(sim_data, str(out))
+    text = out.read_text()
+    assert text.startswith("window.SIM_DATA = ")
+    assert text.rstrip().endswith(";")
+    payload = text[len("window.SIM_DATA = "):].rstrip().rstrip(";")
+    assert json.loads(payload) == sim_data

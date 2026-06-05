@@ -101,3 +101,10 @@ def build_sim_data(acc, params=None, target_buckets=300, source="events.jsonl"):
         "latency": {"byClass": latency_by_class},
         "load": load_obj,
     }
+
+
+def write_data_js(sim_data, path):
+    """Serialise SIM_DATA as a JS global so the dashboard works from file://."""
+    payload = json.dumps(sim_data, separators=(",", ":"))
+    with open(path, "w") as fh:
+        fh.write("window.SIM_DATA = " + payload + ";\n")

@@ -33,3 +33,25 @@ def test_join_latencies_groups_by_class_and_skips_unincluded():
     assert grouped["Exponential:0.006"] == [(0, 3)]
     # Verify tx 4 (never included) is absent - only txes with both submit+include appear
     assert len(grouped) == 2  # only 2 classes present
+
+
+def test_class_stats():
+    from simviz.latency import class_stats
+    stats = class_stats([1, 2])
+    assert stats["count"] == 2
+    assert stats["mean"] == 1.5
+    assert stats["median"] == 1          # quantile(0.5, [1,2]) -> idx 0
+    assert stats["p95"] == 2
+    assert stats["max"] == 2
+    empty = class_stats([])
+    assert empty["count"] == 0 and empty["max"] == 0
+
+
+def test_over_time_buckets_by_submit_slot():
+    from simviz.latency import over_time
+    pairs = [(0, 5), (1, 7), (4, 1), (5, 3)]   # (submit_slot, latency)
+    out = over_time(pairs, width=2, slot_count=6)
+    assert out == [
+        {"slot": 0, "median": 5, "p95": 7, "n": 2},   # bucket 0: latencies [5,7]
+        {"slot": 4, "median": 1, "p95": 3, "n": 2},   # bucket 4: latencies [1,3]
+    ]

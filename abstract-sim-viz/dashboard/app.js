@@ -288,6 +288,54 @@ function renderDistribution() {
   fig.appendChild(node);
 }
 
+const LOAD_DIMS = { width: 760, height: 70, marginLeft: 44, marginRight: 12, marginTop: 6, marginBottom: 18 };
+
+function renderContext() {
+  const t = theme();
+  const fig = el("panel-load");
+  fig.innerHTML = "";
+  panelHead("panel-load", "Load (submissions/slot)", "brush to zoom the panels above · double-click to reset", "load.svg");
+  const node = Plot.plot({
+    width: LOAD_DIMS.width, height: LOAD_DIMS.height,
+    marginLeft: LOAD_DIMS.marginLeft, marginRight: LOAD_DIMS.marginRight,
+    marginTop: LOAD_DIMS.marginTop, marginBottom: LOAD_DIMS.marginBottom,
+    style: { color: t.text, fontSize: "10px" },
+    x: { domain: fullDomain(), label: "slot →" },
+    y: { axis: null },
+    marks: [
+      Plot.areaY(DATA.load.buckets, { x: "slot", y: "submissions", fill: t.axis, fillOpacity: 0.25 }),
+      Plot.ruleX((DATA.convergence.loadRegimes || []).slice(1).map((r) => r.start),
+        { stroke: t.axis, strokeDasharray: "2 2" }),
+    ],
+  });
+  fig.appendChild(node);
+  attachBrush(node);
+}
+
+function attachBrush(svgNode) {
+  const x = svgNode.scale("x");                       // { domain:[d0,d1], range:[r0,r1] }
+  const [r0, r1] = x.range, [d0, d1] = x.domain;
+  const pxToSlot = (px) => d0 + ((px - r0) / (r1 - r0)) * (d1 - d0);
+  const slotToPx = (s) => r0 + ((s - d0) / (d1 - d0)) * (r1 - r0);
+
+  const brush = d3.brushX()
+    .extent([[r0, LOAD_DIMS.marginTop], [r1, LOAD_DIMS.height - LOAD_DIMS.marginBottom]])
+    .on("end", (event) => {
+      if (!event.selection) {                         // cleared (e.g. double-click)
+        if (state.xDomain) { state.xDomain = null; renderFocus(); }
+        return;
+      }
+      const [a, b] = event.selection;
+      state.xDomain = [Math.max(d0, pxToSlot(a)), Math.min(d1, pxToSlot(b))];
+      renderFocus();
+    });
+
+  const g = d3.select(svgNode).append("g").attr("class", "brush").call(brush);
+  if (state.xDomain) {                                // preserve current selection on re-render
+    g.call(brush.move, [slotToPx(state.xDomain[0]), slotToPx(state.xDomain[1])]);
+  }
+}
+
 function renderAll() {
   renderHeader();
   renderKpis();

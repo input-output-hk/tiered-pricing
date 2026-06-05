@@ -16,11 +16,35 @@ def test_urgency_classes_ordered_low_to_high_rate():
     acc.ingest(_submitted(1, 6.0e-3))
     acc.ingest(_submitted(2, 5.0e-4))
     acc.ingest(_submitted(3, 5.0e-4))   # duplicate class
-    classes = urgency_classes(acc)
+    classes = urgency_classes(acc)      # no block cadence -> half-life shown in slots
     assert [c["rate"] for c in classes] == [5.0e-4, 6.0e-3]
     assert classes[0]["id"] == "Exponential:0.0005"
-    assert classes[0]["label"] == "Exp λ=0.0005"
     assert classes[0]["tag"] == "Exponential"
+    # half-life = ln(2)/rate slots; 0.0005 -> 1386 slots, 0.006 -> 116 slots
+    assert round(classes[0]["halfLifeSlots"]) == 1386
+    assert classes[0]["halfLifeBlocks"] is None
+    assert classes[0]["label"] == "t½≈1386 sl"
+
+
+def _ranking_block(slot):
+    return {"tag": "BlockProduced", "slot": slot,
+            "summary": {"tag": "RankingBlockProduced", "summary": {}}}
+
+
+def test_half_life_in_blocks_uses_ranking_block_cadence():
+    acc = Accumulator()
+    acc.ingest(_submitted(1, 5.0e-4))                 # half-life 1386 slots
+    for slot in range(0, 100, 20):                    # 5 ranking blocks over 100 slots
+        acc.ingest(_ranking_block(slot))
+    acc.ingest(_submitted(2, 5.0e-4, tag="Exponential"))
+    # force slot_count = 100 via a late event
+    acc.ingest(_included(1, 99))
+    data = build_sim_data(acc)
+    assert data["meta"]["rbCount"] == 5
+    assert data["meta"]["slotsPerBlock"] == 20.0      # 100 slots / 5 RBs
+    cls = data["meta"]["urgencyClasses"][0]
+    assert round(cls["halfLifeBlocks"], 1) == 69.3     # 1386.3 / 20
+    assert cls["label"] == "t½≈69 blk"
 
 
 def _price(lane, slot, old, new, util=0.0):

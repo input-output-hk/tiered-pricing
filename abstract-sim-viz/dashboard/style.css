@@ -15,7 +15,8 @@ header { display: flex; justify-content: space-between; align-items: flex-end;
   border-bottom: 1px solid var(--border); padding-bottom: 12px; }
 h1 { font-size: 18px; margin: 0; font-weight: 600; }
 .subtitle { color: var(--muted); font-size: 12px; }
-#controls { display: flex; gap: 8px; }
+.muted { color: var(--muted); }
+#controls { display: flex; gap: 8px; flex-wrap: wrap; }
 #controls button {
   font-size: 12px; padding: 6px 10px; border: 1px solid var(--border);
   border-radius: 6px; background: var(--panel-bg); color: var(--text); cursor: pointer;

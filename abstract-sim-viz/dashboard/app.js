@@ -98,14 +98,21 @@ function renderKpis() {
 }
 
 function renderLatencyTable() {
+  const spb = DATA.meta.slotsPerBlock;
+  const blk = (sl) => (spb ? ` <span class="muted">(${(sl / spb).toFixed(1)})</span>` : "");
   const rows = DATA.meta.urgencyClasses.map((c) => {
     const s = DATA.latency.byClass[c.id];
     return `<tr><td style="color:${classColors[c.id]}">${c.label}</td>
-      <td>${s.median}</td><td>${s.p95}</td><td>${s.max}</td><td>${s.count.toLocaleString()}</td></tr>`;
+      <td>${s.median}${blk(s.median)}</td><td>${s.p95}${blk(s.p95)}</td><td>${s.max}${blk(s.max)}</td>
+      <td>${s.count.toLocaleString()}</td></tr>`;
   }).join("");
+  const note = spb
+    ? `latency in slots <span class="muted">(blocks)</span> · 1 block ≈ ${spb.toFixed(1)} slots`
+    : "latency in slots";
   el("latency-table").innerHTML =
-    `<table class="lat"><thead><tr><th>class</th><th>med</th><th>p95</th><th>max</th><th>n</th></tr></thead>
-     <tbody>${rows}</tbody></table>`;
+    `<table class="lat"><thead><tr><th>value ½-life</th><th>med</th><th>p95</th><th>max</th><th>n</th></tr></thead>
+     <tbody>${rows}</tbody></table>
+     <div class="subtitle" style="font-size:10px;margin-top:3px">${note}</div>`;
 }
 
 function laneLegend(figureId, lanes, hiddenSet, onToggle) {
@@ -243,8 +250,10 @@ function renderLatencyTimePanel() {
   const t = theme();
   const fig = el("panel-latency");
   fig.innerHTML = "";
+  const spb = DATA.meta.slotsPerBlock;
   panelHead("panel-latency", "Latency / urgency class",
-    "median, slots · " + (state.p95Band ? "median→p95 band on" : "median only"),
+    (spb ? "median · slots (left) · blocks (right)" : "median · slots")
+      + " · " + (state.p95Band ? "median→p95 band" : "median only"),
     "latency-time.svg");
   classLegend("panel-latency");
   const classes = DATA.meta.urgencyClasses.filter((c) => !state.hiddenClasses.has(c.id));
@@ -257,8 +266,11 @@ function renderLatencyTimePanel() {
   classes.forEach((c) => marks.push(Plot.line(DATA.latency.byClass[c.id].overTime, {
     x: "slot", y: "median", stroke: classColors[c.id], strokeWidth: 2.6, curve: "monotone-x",
   })));
+  if (spb) {
+    marks.push(Plot.axisY({ anchor: "right", tickFormat: (d) => (d / spb).toFixed(1), label: "blocks ↑" }));
+  }
   const node = Plot.plot({
-    width: focusWidth(), height: 190, marginLeft: 44, marginRight: 12, marginBottom: 26,
+    width: focusWidth(), height: 190, marginLeft: 44, marginRight: spb ? 48 : 12, marginBottom: 26,
     style: { color: t.text, fontSize: "11px" },
     x: { domain: xDomain(), label: "slot →" },
     y: { grid: false, label: "latency (slots) ↑" },

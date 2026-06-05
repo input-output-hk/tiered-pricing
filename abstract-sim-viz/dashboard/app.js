@@ -98,7 +98,7 @@ function renderKpis() {
 }
 
 function renderLatencyTable() {
-  const spb = DATA.meta.slotsPerBlock;
+  const spb = DATA.meta.expectedSlotsPerBlock;   // 1/f, expected (matches expectedBlockDelay)
   const blk = (sl) => (spb ? ` <span class="muted">(${(sl / spb).toFixed(1)})</span>` : "");
   const rows = DATA.meta.urgencyClasses.map((c) => {
     const s = DATA.latency.byClass[c.id];
@@ -107,7 +107,7 @@ function renderLatencyTable() {
       <td>${s.count.toLocaleString()}</td></tr>`;
   }).join("");
   const note = spb
-    ? `latency in slots <span class="muted">(blocks)</span> · 1 block ≈ ${spb.toFixed(1)} slots`
+    ? `latency in slots <span class="muted">(expected blocks)</span> · 1 block = ${spb.toFixed(0)} slots (f=${DATA.meta.f})`
     : "latency in slots";
   el("latency-table").innerHTML =
     `<table class="lat"><thead><tr><th>value ½-life</th><th>med</th><th>p95</th><th>max</th><th>n</th></tr></thead>
@@ -250,9 +250,9 @@ function renderLatencyTimePanel() {
   const t = theme();
   const fig = el("panel-latency");
   fig.innerHTML = "";
-  const spb = DATA.meta.slotsPerBlock;
+  const spb = DATA.meta.expectedSlotsPerBlock;   // 1/f, expected (matches expectedBlockDelay)
   panelHead("panel-latency", "Latency / urgency class",
-    (spb ? "median · slots (left) · blocks (right)" : "median · slots")
+    (spb ? "median · slots (left) · expected blocks (right)" : "median · slots")
       + " · " + (state.p95Band ? "median→p95 band" : "median only"),
     "latency-time.svg");
   classLegend("panel-latency");

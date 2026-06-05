@@ -15,6 +15,8 @@ def main(argv=None):
     parser.add_argument("--band-pct", type=float, default=0.05)
     parser.add_argument("--load-change-pct", type=float, default=0.10)
     parser.add_argument("--target-buckets", type=int, default=300)
+    parser.add_argument("--f", type=float, default=0.05,
+                        help="active-slot coefficient for slot<->block conversion (default 0.05)")
     args = parser.parse_args(argv)
 
     acc = Accumulator()
@@ -30,6 +32,7 @@ def main(argv=None):
         },
         target_buckets=args.target_buckets,
         source=os.path.basename(args.events),
+        f=args.f,
     )
     out_dir = os.path.dirname(args.output)
     if out_dir:

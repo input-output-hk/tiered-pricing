@@ -10,12 +10,14 @@ from simviz.stats import quantile, histogram_bins
 DEFAULT_PARAMS = {"shockThreshold": 0.10, "convergenceBandPct": 0.05, "loadChangePct": 0.10}
 
 
-def half_life_slots(tag, rate):
-    """Slots for a tx's retained value to fall to 50%, from the decay model in
-    Transaction.retentionRatio. None if undefined (rate <= 0).
+def half_life_blocks(tag, rate):
+    """Ranking blocks for a tx's retained value to fall to 50%, from
+    Transaction.retentionRatio. The urgency rate is per expected ranking block, so
+    the half-life is native in blocks (no slot conversion). None if undefined
+    (rate <= 0).
 
-    Exponential: value = exp(-rate * slots) -> 50% at ln(2)/rate.
-    Linear:      value = 1 - rate * slots   -> 50% at 0.5/rate.
+    Exponential: value = exp(-rate * blocks) -> 50% at ln(2)/rate.
+    Linear:      value = 1 - rate * blocks   -> 50% at 0.5/rate.
     """
     if rate is None or rate <= 0:
         return None
@@ -30,28 +32,30 @@ def _fmt_halflife(value):
     return f"{value:.0f}" if value >= 10 else f"{value:.1f}"
 
 
-def urgency_label(half_life_blocks, half_life_slots_val):
-    """Class label as value half-life: blocks when block cadence is known, else slots."""
-    if half_life_blocks is not None:
-        return f"t½≈{_fmt_halflife(half_life_blocks)} blk"
-    if half_life_slots_val is not None:
-        return f"t½≈{_fmt_halflife(half_life_slots_val)} sl"
+def urgency_label(hl_blocks, hl_slots):
+    """Class label as value half-life: blocks (native) when defined, else slots."""
+    if hl_blocks is not None:
+        return f"t½≈{_fmt_halflife(hl_blocks)} blk"
+    if hl_slots is not None:
+        return f"t½≈{_fmt_halflife(hl_slots)} sl"
     return "t½ n/a"
 
 
-def urgency_classes(acc, slots_per_block=None):
+def urgency_classes(acc, f=None):
     """Distinct urgency classes present, ordered by rate low -> high, labelled by
-    value half-life (in blocks when the block cadence is known)."""
+    value half-life in blocks (rate is per expected ranking block). The slot
+    equivalent uses the active-slot coefficient f, mirroring expectedBlockDelay:
+    blocks = f * slots, so slots = blocks / f."""
     keys = {(m["tag"], m["rate"]) for m in acc.tx_meta.values()}
     classes = []
     for tag, rate in sorted(keys, key=lambda k: k[1]):
-        hl_slots = half_life_slots(tag, rate)
-        hl_blocks = (hl_slots / slots_per_block) if (hl_slots is not None and slots_per_block) else None
+        hl_blocks = half_life_blocks(tag, rate)
+        hl_slots = (hl_blocks / f) if (hl_blocks is not None and f) else None
         classes.append({
             "id": latency_mod.class_id(tag, rate),
             "tag": tag, "rate": rate,
-            "halfLifeSlots": hl_slots,
             "halfLifeBlocks": hl_blocks,
+            "halfLifeSlots": hl_slots,
             "label": urgency_label(hl_blocks, hl_slots),
         })
     return classes
@@ -64,15 +68,19 @@ def _shared_bin_width(all_latencies):
     return max(1, math.ceil(p99 / 30))
 
 
-def build_sim_data(acc, params=None, target_buckets=300, source="events.jsonl"):
+def build_sim_data(acc, params=None, target_buckets=300, source="events.jsonl", f=0.05):
     params = {**DEFAULT_PARAMS, **(params or {})}
     slot_count = acc.slot_count
     width = load_mod.bucket_width(slot_count, target_buckets)
-    slots_per_block = (slot_count / acc.rb_count) if acc.rb_count else None
+    # Slots <-> blocks uses the configured active-slot coefficient f (expected),
+    # matching the sim's expectedBlockDelay (blocks = f * slots). The realized RB
+    # cadence is kept only as a sanity check, not used for conversions.
+    expected_spb = (1.0 / f) if f else None
+    realized_spb = (slot_count / acc.rb_count) if acc.rb_count else None
 
     present = set(acc.price_changes.keys())
     lanes = [l for l in ["Standard", "Priority"] if l in present] or sorted(present)
-    classes = urgency_classes(acc, slots_per_block)
+    classes = urgency_classes(acc, f)
 
     price_by_lane = {lane: price_mod.price_series(acc, lane) for lane in lanes}
     shock_by_lane = {
@@ -117,8 +125,10 @@ def build_sim_data(acc, params=None, target_buckets=300, source="events.jsonl"):
             "generatedAt": datetime.now(timezone.utc).isoformat(),
             "slotCount": slot_count,
             "totalEvents": acc.total_events,
+            "f": f,
+            "expectedSlotsPerBlock": expected_spb,    # 1/f, used for slot<->block conversion
             "rbCount": acc.rb_count,
-            "slotsPerBlock": slots_per_block,
+            "realizedSlotsPerBlock": realized_spb,     # sanity check only
             "lanes": lanes,
             "urgencyClasses": classes,
         },

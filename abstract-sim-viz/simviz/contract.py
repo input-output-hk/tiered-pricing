@@ -106,18 +106,25 @@ def build_sim_data(acc, params=None, target_buckets=300, source="events.jsonl", 
             "regimes": regime_results,
         }
 
-    grouped = latency_mod.join_latencies(acc)
-    all_lat = [lat for pairs in grouped.values() for (_, lat) in pairs]
-    bin_w = _shared_bin_width(all_lat)
-    latency_by_class = {}
-    for cls in classes:
-        cid = cls["id"]
-        pairs = grouped.get(cid, [])
-        lats = [lat for (_, lat) in pairs]
-        stats = latency_mod.class_stats(lats)
-        stats["histogram"] = {"binWidth": bin_w, "bins": histogram_bins(lats, bin_w)}
-        stats["overTime"] = latency_mod.over_time(pairs, width, slot_count)
-        latency_by_class[cid] = stats
+    grouped_class = latency_mod.join_latencies(acc)
+    grouped_lane = latency_mod.join_latencies_by_lane(acc)
+    all_lat = [lat for pairs in grouped_class.values() for (_, lat) in pairs]
+    bin_w = _shared_bin_width(all_lat)  # shared across class AND lane groupings for comparability
+
+    def stats_for(grouped, keys):
+        # iterate the known keys so every class/lane appears (zero-filled if no inclusions)
+        out = {}
+        for key in keys:
+            pairs = grouped.get(key, [])
+            lats = [lat for (_, lat) in pairs]
+            s = latency_mod.class_stats(lats)
+            s["histogram"] = {"binWidth": bin_w, "bins": histogram_bins(lats, bin_w)}
+            s["overTime"] = latency_mod.over_time(pairs, width, slot_count)
+            out[key] = s
+        return out
+
+    latency_by_class = stats_for(grouped_class, [c["id"] for c in classes])
+    latency_by_lane = stats_for(grouped_lane, lanes)
 
     return {
         "meta": {
@@ -136,7 +143,7 @@ def build_sim_data(acc, params=None, target_buckets=300, source="events.jsonl", 
         "price": {"byLane": price_by_lane},
         "shock": {"byLane": shock_by_lane},
         "convergence": {"loadRegimes": regimes, "byLane": conv_by_lane},
-        "latency": {"byClass": latency_by_class},
+        "latency": {"byClass": latency_by_class, "byLane": latency_by_lane},
         "load": load_obj,
     }
 

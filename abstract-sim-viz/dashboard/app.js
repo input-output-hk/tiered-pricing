@@ -3,11 +3,13 @@ const DATA = window.SIM_DATA;
 
 const state = {
   priceView: "log",     // "log" | "perlane"
+  latencyBy: "lane",    // "lane" | "class" — lane answers "does Priority serve faster?"
   p95Band: true,
   convBand: true,       // show ±5% convergence bands on the price panel
   xDomain: null,        // null = full run
   hiddenLanes: new Set(),
   hiddenClasses: new Set(),
+  hiddenLatLanes: new Set(),
 };
 
 const LANE_COLOR = { Standard: "#2563eb", Priority: "#7c3aed" };
@@ -97,12 +99,33 @@ function renderKpis() {
   ].join("");
 }
 
+// Latency grouping descriptor — drives the over-time panel, distribution, and table.
+function latencyGrouping() {
+  if (state.latencyBy === "lane") {
+    return {
+      title: "Latency / lane",
+      tableHead: "lane",
+      items: DATA.meta.lanes.map((l) => ({ id: l, label: l, color: LANE_COLOR[l] || "#888" })),
+      data: DATA.latency.byLane,
+      hidden: state.hiddenLatLanes,
+    };
+  }
+  return {
+    title: "Latency / urgency class",
+    tableHead: "value ½-life",
+    items: DATA.meta.urgencyClasses.map((c) => ({ id: c.id, label: c.label, color: classColors[c.id] })),
+    data: DATA.latency.byClass,
+    hidden: state.hiddenClasses,
+  };
+}
+
 function renderLatencyTable() {
+  const g = latencyGrouping();
   const spb = DATA.meta.expectedSlotsPerBlock;   // 1/f, expected (matches expectedBlockDelay)
   const blk = (sl) => (spb ? ` <span class="muted">(${(sl / spb).toFixed(1)})</span>` : "");
-  const rows = DATA.meta.urgencyClasses.map((c) => {
-    const s = DATA.latency.byClass[c.id];
-    return `<tr><td style="color:${classColors[c.id]}">${c.label}</td>
+  const rows = g.items.map((it) => {
+    const s = g.data[it.id];
+    return `<tr><td style="color:${it.color}">${it.label}</td>
       <td>${s.median}${blk(s.median)}</td><td>${s.p95}${blk(s.p95)}</td><td>${s.max}${blk(s.max)}</td>
       <td>${s.count.toLocaleString()}</td></tr>`;
   }).join("");
@@ -110,7 +133,7 @@ function renderLatencyTable() {
     ? `latency in slots <span class="muted">(expected blocks)</span> · 1 block = ${spb.toFixed(0)} slots (f=${DATA.meta.f})`
     : "latency in slots";
   el("latency-table").innerHTML =
-    `<table class="lat"><thead><tr><th>value ½-life</th><th>med</th><th>p95</th><th>max</th><th>n</th></tr></thead>
+    `<table class="lat"><thead><tr><th>${g.tableHead}</th><th>med</th><th>p95</th><th>max</th><th>n</th></tr></thead>
      <tbody>${rows}</tbody></table>
      <div class="subtitle" style="font-size:10px;margin-top:3px">${note}</div>`;
 }
@@ -230,16 +253,16 @@ function renderShockPanel() {
   fig.appendChild(node);
 }
 
-function classLegend(figureId) {
+function latencyLegend(figureId, g) {
   const div = document.createElement("div");
   div.className = "legend";
-  DATA.meta.urgencyClasses.forEach((c) => {
+  g.items.forEach((it) => {
     const item = document.createElement("span");
-    item.className = "item" + (state.hiddenClasses.has(c.id) ? " off" : "");
-    item.innerHTML = `<span class="swatch" style="background:${classColors[c.id]}"></span>${c.label}`;
+    item.className = "item" + (g.hidden.has(it.id) ? " off" : "");
+    item.innerHTML = `<span class="swatch" style="background:${it.color}"></span>${it.label}`;
     item.onclick = () => {
-      state.hiddenClasses.has(c.id) ? state.hiddenClasses.delete(c.id) : state.hiddenClasses.add(c.id);
-      renderFocus(); renderDistribution();
+      g.hidden.has(it.id) ? g.hidden.delete(it.id) : g.hidden.add(it.id);
+      renderLatencyTimePanel(); renderDistribution(); renderLatencyTable();
     };
     div.appendChild(item);
   });
@@ -250,21 +273,22 @@ function renderLatencyTimePanel() {
   const t = theme();
   const fig = el("panel-latency");
   fig.innerHTML = "";
+  const g = latencyGrouping();
   const spb = DATA.meta.expectedSlotsPerBlock;   // 1/f, expected (matches expectedBlockDelay)
-  panelHead("panel-latency", "Latency / urgency class",
+  panelHead("panel-latency", g.title,
     (spb ? "median · slots (left) · expected blocks (right)" : "median · slots")
       + " · " + (state.p95Band ? "median→p95 band" : "median only"),
     "latency-time.svg");
-  classLegend("panel-latency");
-  const classes = DATA.meta.urgencyClasses.filter((c) => !state.hiddenClasses.has(c.id));
+  latencyLegend("panel-latency", g);
+  const items = g.items.filter((it) => !g.hidden.has(it.id));
   const marks = [Plot.gridY({ stroke: t.grid })];
   if (state.p95Band) {
-    classes.forEach((c) => marks.push(Plot.areaY(DATA.latency.byClass[c.id].overTime, {
-      x: "slot", y1: "median", y2: "p95", fill: classColors[c.id], fillOpacity: 0.1, curve: "monotone-x",
+    items.forEach((it) => marks.push(Plot.areaY(g.data[it.id].overTime, {
+      x: "slot", y1: "median", y2: "p95", fill: it.color, fillOpacity: 0.1, curve: "monotone-x",
     })));
   }
-  classes.forEach((c) => marks.push(Plot.line(DATA.latency.byClass[c.id].overTime, {
-    x: "slot", y: "median", stroke: classColors[c.id], strokeWidth: 2.6, curve: "monotone-x",
+  items.forEach((it) => marks.push(Plot.line(g.data[it.id].overTime, {
+    x: "slot", y: "median", stroke: it.color, strokeWidth: 2.6, curve: "monotone-x",
   })));
   if (spb) {
     marks.push(Plot.axisY({ anchor: "right", tickFormat: (d) => (d / spb).toFixed(1), label: "blocks ↑" }));
@@ -290,10 +314,10 @@ function renderDistribution() {
   const fig = el("panel-dist");
   fig.innerHTML = "";
   panelHead("panel-dist", "Latency distribution", "IQR · median · p95 · max", "latency-dist.svg");
-  const classes = DATA.meta.urgencyClasses.filter((c) => !state.hiddenClasses.has(c.id));
-  const rows = classes.map((c) => {
-    const s = DATA.latency.byClass[c.id];
-    return { id: c.id, label: c.label, color: classColors[c.id],
+  const g = latencyGrouping();
+  const rows = g.items.filter((it) => !g.hidden.has(it.id)).map((it) => {
+    const s = g.data[it.id];
+    return { id: it.id, label: it.label, color: it.color,
              p25: s.p25, p75: s.p75, median: s.median, p95: s.p95, max: s.max };
   });
   const node = Plot.plot({
@@ -417,6 +441,12 @@ function setupControls() {
     el("toggle-price-view").textContent =
       "Price view: " + (state.priceView === "log" ? "overlaid (log)" : "per lane");
     renderFocus();
+  };
+  el("toggle-latency-by").onclick = () => {
+    state.latencyBy = state.latencyBy === "lane" ? "class" : "lane";
+    el("toggle-latency-by").textContent =
+      "Latency by: " + (state.latencyBy === "lane" ? "lane" : "urgency class");
+    renderLatencyTimePanel(); renderDistribution(); renderLatencyTable();
   };
   el("toggle-p95").onclick = () => {
     state.p95Band = !state.p95Band;

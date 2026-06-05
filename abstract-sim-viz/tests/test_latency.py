@@ -35,6 +35,20 @@ def test_join_latencies_groups_by_class_and_skips_unincluded():
     assert len(grouped) == 2  # only 2 classes present
 
 
+def test_join_latencies_by_lane():
+    from simviz.latency import join_latencies_by_lane
+    acc = Accumulator()
+    for e in [
+        _submitted(1, 0, "Standard", 0.01), _included(1, 10),   # latency 10
+        _submitted(2, 0, "Priority", 0.01), _included(2, 3),    # latency 3
+        _submitted(3, 5, "Priority", 0.04), _included(3, 7),    # latency 2
+    ]:
+        acc.ingest(e)
+    grouped = join_latencies_by_lane(acc)
+    assert sorted(grouped["Standard"]) == [(0, 10)]
+    assert sorted(grouped["Priority"]) == [(0, 3), (5, 2)]
+
+
 def test_class_stats():
     from simviz.latency import class_stats
     stats = class_stats([1, 2])

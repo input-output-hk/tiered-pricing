@@ -3,17 +3,26 @@ def class_id(tag, rate):
     return f"{tag}:{rate}"
 
 
-def join_latencies(acc):
-    """Map class_id -> list of (submit_slot, latency_slots) for txs with both events."""
+def _join(acc, key_of):
+    """Map key_of(meta) -> list of (submit_slot, latency_slots) for txs with both events."""
     out = {}
     for tx_id, submit_slot in acc.submitted_at.items():
         inc = acc.included_at.get(tx_id)
         meta = acc.tx_meta.get(tx_id)
         if inc is None or meta is None:
             continue
-        cid = class_id(meta["tag"], meta["rate"])
-        out.setdefault(cid, []).append((submit_slot, inc - submit_slot))
+        out.setdefault(key_of(meta), []).append((submit_slot, inc - submit_slot))
     return out
+
+
+def join_latencies(acc):
+    """Latencies grouped by urgency class id (tests actor bidding logic)."""
+    return _join(acc, lambda m: class_id(m["tag"], m["rate"]))
+
+
+def join_latencies_by_lane(acc):
+    """Latencies grouped by lane (tests whether the Priority lane serves faster)."""
+    return _join(acc, lambda m: m["lane"])
 
 
 from simviz.stats import quantile, mean

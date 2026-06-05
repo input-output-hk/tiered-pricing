@@ -145,7 +145,7 @@ function renderPricePerLane(t, lanes) {
       width: 760, height: 90, marginLeft: 44, marginRight: 12, marginBottom: 16,
       style: { color: t.text, fontSize: "10px" },
       x: { domain: xDomain(), axis: null },
-      y: { grid: true, label: `${lane} ↑` },
+      y: { grid: false, label: `${lane} ↑` },
       marks: [
         Plot.gridY({ stroke: t.grid }),
         ...convergenceBandMarks(lane),
@@ -200,7 +200,7 @@ function renderShockPanel() {
     width: 760, height: 90, marginLeft: 44, marginRight: 12, marginBottom: 16,
     style: { color: t.text, fontSize: "10px" },
     x: { domain: xDomain(), axis: null },
-    y: { grid: true, label: "jump ↑", percent: false },
+    y: { grid: false, label: "jump ↑", percent: false },
     marks: [
       Plot.gridY({ stroke: t.grid }),
       Plot.ruleY([DATA.params.shockThreshold], { stroke: "#ef4444", strokeDasharray: "3 3" }),
@@ -275,7 +275,7 @@ function renderDistribution() {
     width: 230, height: 260, marginLeft: 36, marginBottom: 50, marginRight: 8,
     style: { color: t.text, fontSize: "10px" },
     x: { domain: rows.map((r) => r.label), label: null, tickRotate: -30 },
-    y: { grid: true, label: "latency ↑" },
+    y: { grid: false, label: "latency ↑" },
     marks: [
       Plot.gridY({ stroke: t.grid }),
       Plot.ruleX(rows, { x: "label", y1: "p75", y2: "p95", stroke: (d) => d.color, strokeWidth: 1 }),
@@ -321,6 +321,7 @@ function attachBrush(svgNode) {
   const brush = d3.brushX()
     .extent([[r0, LOAD_DIMS.marginTop], [r1, LOAD_DIMS.height - LOAD_DIMS.marginBottom]])
     .on("end", (event) => {
+      if (!event.sourceEvent) return;
       if (!event.selection) {                         // cleared (e.g. double-click)
         if (state.xDomain) { state.xDomain = null; renderFocus(); }
         return;

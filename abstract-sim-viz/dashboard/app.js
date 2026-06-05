@@ -260,6 +260,34 @@ function renderFocus() {
   renderLatencyTimePanel();
 }
 
+function renderDistribution() {
+  const t = theme();
+  const fig = el("panel-dist");
+  fig.innerHTML = "";
+  panelHead("panel-dist", "Latency distribution", "IQR · median · p95 · max", "latency-dist.svg");
+  const classes = DATA.meta.urgencyClasses.filter((c) => !state.hiddenClasses.has(c.id));
+  const rows = classes.map((c) => {
+    const s = DATA.latency.byClass[c.id];
+    return { id: c.id, label: c.label, color: classColors[c.id],
+             p25: s.p25, p75: s.p75, median: s.median, p95: s.p95, max: s.max };
+  });
+  const node = Plot.plot({
+    width: 230, height: 260, marginLeft: 36, marginBottom: 50, marginRight: 8,
+    style: { color: t.text, fontSize: "10px" },
+    x: { domain: rows.map((r) => r.label), label: null, tickRotate: -30 },
+    y: { grid: true, label: "latency ↑" },
+    marks: [
+      Plot.gridY({ stroke: t.grid }),
+      Plot.ruleX(rows, { x: "label", y1: "p75", y2: "p95", stroke: (d) => d.color, strokeWidth: 1 }),
+      Plot.barY(rows, { x: "label", y1: "p25", y2: "p75", fill: (d) => d.color, fillOpacity: 0.3,
+        stroke: (d) => d.color }),
+      Plot.tickY(rows, { x: "label", y: "median", stroke: (d) => d.color, strokeWidth: 2 }),
+      Plot.dot(rows, { x: "label", y: "max", fill: (d) => d.color, r: 2 }),
+    ],
+  });
+  fig.appendChild(node);
+}
+
 function renderAll() {
   renderHeader();
   renderKpis();

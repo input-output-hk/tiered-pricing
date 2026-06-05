@@ -178,8 +178,41 @@ function renderPricePanel() {
   fig.appendChild(node);
 }
 
+function renderShockPanel() {
+  const t = theme();
+  const fig = el("panel-shock");
+  fig.innerHTML = "";
+  panelHead("panel-shock", "Price shock",
+    `|Δ|/old per update · ${(DATA.params.shockThreshold * 100).toFixed(0)}% threshold`,
+    "shock.svg");
+  const lanes = DATA.meta.lanes.filter((l) => !state.hiddenLanes.has(l));
+  const stems = [];
+  lanes.forEach((lane) => {
+    const data = DATA.price.byLane[lane];
+    stems.push(Plot.ruleX(data, {
+      x: "slot", y1: 0, y2: "jump", stroke: LANE_COLOR[lane] || "#888", strokeWidth: 1.5,
+    }));
+    stems.push(Plot.dot(data.filter((p) => p.jump > DATA.params.shockThreshold), {
+      x: "slot", y: "jump", r: 2.5, fill: "#ef4444",
+    }));
+  });
+  const node = Plot.plot({
+    width: 760, height: 90, marginLeft: 44, marginRight: 12, marginBottom: 16,
+    style: { color: t.text, fontSize: "10px" },
+    x: { domain: xDomain(), axis: null },
+    y: { grid: true, label: "jump ↑", percent: false },
+    marks: [
+      Plot.gridY({ stroke: t.grid }),
+      Plot.ruleY([DATA.params.shockThreshold], { stroke: "#ef4444", strokeDasharray: "3 3" }),
+      ...stems,
+    ],
+  });
+  fig.appendChild(node);
+}
+
 function renderFocus() {
   renderPricePanel();
+  renderShockPanel();
 }
 
 function renderAll() {

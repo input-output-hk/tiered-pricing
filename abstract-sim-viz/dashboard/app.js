@@ -97,6 +97,91 @@ function renderLatencyTable() {
      <tbody>${rows}</tbody></table>`;
 }
 
+function laneLegend(figureId, lanes, hiddenSet, onToggle) {
+  const div = document.createElement("div");
+  div.className = "legend";
+  lanes.forEach((lane) => {
+    const item = document.createElement("span");
+    item.className = "item" + (hiddenSet.has(lane) ? " off" : "");
+    item.innerHTML = `<span class="swatch" style="background:${LANE_COLOR[lane] || "#888"}"></span>${lane}`;
+    item.onclick = () => { onToggle(lane); };
+    div.appendChild(item);
+  });
+  el(figureId).appendChild(div);
+}
+
+function convergenceBandMarks(lane) {
+  const regimes = (DATA.convergence.byLane[lane] || {}).regimes || [];
+  return regimes
+    .filter((r) => r.band)
+    .map((r) => Plot.rect([r], {
+      x1: "start", x2: "end", y1: () => r.band[0], y2: () => r.band[1],
+      fill: LANE_COLOR[lane] || "#888", fillOpacity: 0.08,
+    }));
+}
+
+function renderPriceOverlaid(t, lanes) {
+  const marks = [Plot.gridY({ stroke: t.grid })];
+  lanes.forEach((lane) => marks.push(...convergenceBandMarks(lane)));
+  lanes.forEach((lane) =>
+    marks.push(Plot.line(DATA.price.byLane[lane], {
+      x: "slot", y: "newCoeff", stroke: LANE_COLOR[lane] || "#888",
+      strokeWidth: 1.8, curve: "step-after",
+    })));
+  return Plot.plot({
+    width: 760, height: 150, marginLeft: 44, marginRight: 12, marginBottom: 18,
+    style: { color: t.text, fontSize: "10px" },
+    x: { domain: xDomain(), axis: null },
+    y: { type: "log", grid: false, label: "coeff ↑", ticks: [1, 2, 4, 8, 16] },
+    marks,
+  });
+}
+
+function renderPricePerLane(t, lanes) {
+  // small multiples: stacked sub-plots, one per lane, each own linear y
+  const wrap = document.createElement("div");
+  lanes.forEach((lane) => {
+    const sub = Plot.plot({
+      width: 760, height: 90, marginLeft: 44, marginRight: 12, marginBottom: 16,
+      style: { color: t.text, fontSize: "10px" },
+      x: { domain: xDomain(), axis: null },
+      y: { grid: true, label: `${lane} ↑` },
+      marks: [
+        Plot.gridY({ stroke: t.grid }),
+        ...convergenceBandMarks(lane),
+        Plot.line(DATA.price.byLane[lane], {
+          x: "slot", y: "newCoeff", stroke: LANE_COLOR[lane] || "#888",
+          strokeWidth: 1.8, curve: "step-after",
+        }),
+      ],
+    });
+    wrap.appendChild(sub);
+  });
+  return wrap;
+}
+
+function renderPricePanel() {
+  const t = theme();
+  const fig = el("panel-price");
+  fig.innerHTML = "";
+  panelHead("panel-price", "Price coefficient / lane",
+    state.priceView === "log" ? "log axis · ±5% convergence band" : "per lane · ±5% convergence band",
+    "price.svg");
+  const lanes = DATA.meta.lanes.filter((l) => !state.hiddenLanes.has(l));
+  laneLegend("panel-price", DATA.meta.lanes, state.hiddenLanes, (lane) => {
+    state.hiddenLanes.has(lane) ? state.hiddenLanes.delete(lane) : state.hiddenLanes.add(lane);
+    renderFocus();
+  });
+  const node = state.priceView === "log"
+    ? renderPriceOverlaid(t, lanes)
+    : renderPricePerLane(t, lanes);
+  fig.appendChild(node);
+}
+
+function renderFocus() {
+  renderPricePanel();
+}
+
 function renderAll() {
   renderHeader();
   renderKpis();

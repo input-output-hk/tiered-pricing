@@ -311,7 +311,7 @@ function renderRbTime() {
   const fig = el("panel-rb-time");
   fig.innerHTML = "";
   panelHead("panel-rb-time", "RB content over time",
-    "each ranking block · txs (green) vs cert (amber) · runs show as solid stretches",
+    "each ranking block · txs green (darker = fuller) · cert amber · runs = solid stretches",
     "rb-time.svg");
   const series = (DATA.blocks || {}).rbSeries || [];
   if (!series.length) {
@@ -321,12 +321,18 @@ function renderRbTime() {
     fig.appendChild(p);
     return;
   }
-  const TX = "#16a34a", CERT = "#d97706";
-  // each RB occupies the span until the next RB, so adjacent same-kind blocks read as one run
+  const CERT = "#d97706";
+  // tx-carrying blocks: green shaded by fullness (binding bytes/ex-units utilisation);
+  // cert blocks carry no txs, so they stay a solid amber.
+  const segColor = (d) =>
+    d.kind === "cert"
+      ? CERT
+      : d3.interpolateGreens(0.35 + 0.6 * Math.max(0, Math.min(1, d.fill == null ? 0 : d.fill)));
+  // each RB spans until the next RB, so adjacent same-kind blocks read as one run
   const segs = series.map((d, i) => ({
     x1: d.slot,
     x2: i + 1 < series.length ? series[i + 1].slot : DATA.meta.slotCount,
-    kind: d.kind,
+    color: segColor(d),
   }));
   const node = Plot.plot({
     width: focusWidth(), height: 34, marginLeft: 44, marginRight: focusRight(),
@@ -334,8 +340,9 @@ function renderRbTime() {
     style: { color: t.text, fontSize: "11px" },
     x: { domain: xDomain(), axis: null },
     y: { axis: null, domain: [0, 1] },
-    color: { domain: ["txs", "cert"], range: [TX, CERT] },
-    marks: [Plot.rect(segs, { x1: "x1", x2: "x2", y1: 0, y2: 1, fill: "kind" })],
+    color: { type: "identity" },
+    // stroke = fill closes the sub-pixel seams between adjacent segments
+    marks: [Plot.rect(segs, { x1: "x1", x2: "x2", y1: 0, y2: 1, fill: "color", stroke: "color", strokeWidth: 1 })],
   });
   fig.appendChild(node);
 }

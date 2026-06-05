@@ -115,7 +115,7 @@ def test_blocks_section_counts_rb_tx_vs_cert():
     assert data["blocks"]["rbWithTxs"] == 1
     assert data["blocks"]["rbWithCert"] == 1
     assert data["blocks"]["rbSeries"] == [
-        {"slot": 10, "kind": "txs"}, {"slot": 20, "kind": "cert"}]
+        {"slot": 10, "kind": "txs", "fill": None}, {"slot": 20, "kind": "cert", "fill": None}]
 
 
 def test_write_data_js_roundtrip(tmp_path):

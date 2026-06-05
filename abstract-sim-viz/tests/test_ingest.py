@@ -69,10 +69,20 @@ def test_accumulator_counts_rb_content():
     assert acc.rb_tx_count == 2
     assert acc.rb_cert_count == 1
     assert acc.rb_series == [
-        {"slot": 10, "kind": "txs"},
-        {"slot": 20, "kind": "cert"},
-        {"slot": 30, "kind": "txs"},
+        {"slot": 10, "kind": "txs", "fill": None},   # no capacity in fixture -> fill None
+        {"slot": 20, "kind": "cert", "fill": None},
+        {"slot": 30, "kind": "txs", "fill": None},
     ]
+
+
+def test_rb_fullness_is_binding_utilisation():
+    acc = Accumulator()
+    acc.ingest({"tag": "BlockProduced", "slot": 5, "summary": {
+        "tag": "RankingBlockProduced", "summary": {
+            "block": {"tag": "PraosBlock"},
+            "usedBytes": 45, "capacityBytes": 90,        # 0.5 by bytes
+            "usedExUnits": 20, "capacityExUnits": 100}}})  # 0.2 by ex-units
+    assert acc.rb_series[0]["fill"] == 0.5               # binding = max(0.5, 0.2)
 
 
 def test_accumulator_last_wins_on_duplicate_txid():

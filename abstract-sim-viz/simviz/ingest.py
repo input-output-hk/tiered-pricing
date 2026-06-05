@@ -2,6 +2,20 @@ import json
 from collections import defaultdict
 
 
+def _ratio(used, cap):
+    return (used / cap) if (cap and cap > 0) else None
+
+
+def _rb_fullness(inner):
+    """Ranking-block fullness in [0,1]: the binding of bytes / ex-units utilisation.
+    None when there is no capacity (e.g. a certifying block carries no txs)."""
+    ratios = [r for r in (
+        _ratio(inner.get("usedBytes", 0), inner.get("capacityBytes", 0)),
+        _ratio(inner.get("usedExUnits", 0), inner.get("capacityExUnits", 0)),
+    ) if r is not None]
+    return max(0.0, min(1.0, max(ratios))) if ratios else None
+
+
 def iter_events(path):
     """Stream a JSONL trace, yielding each line's inner `event` object in order."""
     with open(path, "r") as fh:
@@ -57,13 +71,14 @@ class Accumulator:
                 # ranking blocks set the chain's slots-per-block cadence; each carries
                 # either txs directly (PraosBlock) or an EB certificate (CertifyingBlock)
                 self.rb_count += 1
-                block_tag = summary.get("summary", {}).get("block", {}).get("tag")
+                inner = summary.get("summary", {})
+                block_tag = inner.get("block", {}).get("tag")
                 if block_tag == "PraosBlock":
                     self.rb_tx_count += 1
-                    self.rb_series.append({"slot": slot, "kind": "txs"})
+                    self.rb_series.append({"slot": slot, "kind": "txs", "fill": _rb_fullness(inner)})
                 elif block_tag == "CertifyingBlock":
                     self.rb_cert_count += 1
-                    self.rb_series.append({"slot": slot, "kind": "cert"})
+                    self.rb_series.append({"slot": slot, "kind": "cert", "fill": None})
         # all other tags ignored (this iteration)
 
     @property

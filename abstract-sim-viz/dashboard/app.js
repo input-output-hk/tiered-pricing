@@ -11,12 +11,18 @@ const state = {
 
 const LANE_COLOR = { Standard: "#2563eb", Priority: "#7c3aed" };
 
-// ordered blue ramp: index 0 (lowest rate) darkest
+// Ordered, distinguishable palette for urgency classes (low → high decay rate).
+// Mid-lightness hues that read on both light and dark backgrounds and avoid the
+// lane colors (blue/purple) and the shock red. Falls back to a generated ramp if a
+// run ever has more classes than the curated set.
 const classColors = (() => {
-  const n = DATA.meta.urgencyClasses.length;
-  const ramp = d3.quantize(d3.interpolateBlues, Math.max(n, 2)).reverse();
+  const classes = DATA.meta.urgencyClasses;
+  const base = ["#0d9488", "#22c55e", "#f59e0b", "#db2777"]; // teal → green → amber → pink
+  const ramp = classes.length <= base.length
+    ? base
+    : d3.quantize((t) => d3.interpolateTurbo(0.1 + 0.8 * t), classes.length);
   const map = {};
-  DATA.meta.urgencyClasses.forEach((c, i) => { map[c.id] = ramp[i] || "#3182bd"; });
+  classes.forEach((c, i) => { map[c.id] = ramp[i] || base[0]; });
   return map;
 })();
 
@@ -30,6 +36,10 @@ function theme() {
 function fullDomain() { return [0, DATA.meta.slotCount]; }
 function xDomain() { return state.xDomain || fullDomain(); }
 function fmt(n, d = 2) { return n == null ? "—" : (+n).toFixed(d); }
+
+// Responsive widths: charts fill their column instead of a fixed 760px.
+function focusWidth() { return Math.max(360, el("focus").clientWidth || 760); }
+function distWidth() { return Math.max(200, el("panel-dist").clientWidth || 230); }
 
 function panelHead(figureId, titleHtml, hintHtml, exportName) {
   const fig = el(figureId);
@@ -129,8 +139,8 @@ function renderPriceOverlaid(t, lanes) {
       strokeWidth: 1.8, curve: "step-after",
     })));
   return Plot.plot({
-    width: 760, height: 150, marginLeft: 44, marginRight: 12, marginBottom: 18,
-    style: { color: t.text, fontSize: "10px" },
+    width: focusWidth(), height: 170, marginLeft: 44, marginRight: 12, marginBottom: 18,
+    style: { color: t.text, fontSize: "11px" },
     x: { domain: xDomain(), axis: null },
     y: { type: "log", grid: false, label: "coeff ↑", ticks: [1, 2, 4, 8, 16] },
     marks,
@@ -142,8 +152,8 @@ function renderPricePerLane(t, lanes) {
   const wrap = document.createElement("div");
   lanes.forEach((lane) => {
     const sub = Plot.plot({
-      width: 760, height: 90, marginLeft: 44, marginRight: 12, marginBottom: 16,
-      style: { color: t.text, fontSize: "10px" },
+      width: focusWidth(), height: 110, marginLeft: 44, marginRight: 12, marginBottom: 16,
+      style: { color: t.text, fontSize: "11px" },
       x: { domain: xDomain(), axis: null },
       y: { grid: false, label: `${lane} ↑` },
       marks: [
@@ -197,10 +207,10 @@ function renderShockPanel() {
     }));
   });
   const node = Plot.plot({
-    width: 760, height: 90, marginLeft: 44, marginRight: 12, marginBottom: 16,
-    style: { color: t.text, fontSize: "10px" },
+    width: focusWidth(), height: 110, marginLeft: 44, marginRight: 12, marginBottom: 16,
+    style: { color: t.text, fontSize: "11px" },
     x: { domain: xDomain(), axis: null },
-    y: { grid: false, label: "jump ↑", percent: false },
+    y: { grid: false, label: "jump ↑" },
     marks: [
       Plot.gridY({ stroke: t.grid }),
       Plot.ruleY([DATA.params.shockThreshold], { stroke: "#ef4444", strokeDasharray: "3 3" }),
@@ -238,17 +248,17 @@ function renderLatencyTimePanel() {
   const marks = [Plot.gridY({ stroke: t.grid })];
   if (state.p95Band) {
     classes.forEach((c) => marks.push(Plot.areaY(DATA.latency.byClass[c.id].overTime, {
-      x: "slot", y1: "median", y2: "p95", fill: classColors[c.id], fillOpacity: 0.12, curve: "monotone-x",
+      x: "slot", y1: "median", y2: "p95", fill: classColors[c.id], fillOpacity: 0.1, curve: "monotone-x",
     })));
   }
   classes.forEach((c) => marks.push(Plot.line(DATA.latency.byClass[c.id].overTime, {
-    x: "slot", y: "median", stroke: classColors[c.id], strokeWidth: 1.6, curve: "monotone-x",
+    x: "slot", y: "median", stroke: classColors[c.id], strokeWidth: 2.6, curve: "monotone-x",
   })));
   const node = Plot.plot({
-    width: 760, height: 130, marginLeft: 44, marginRight: 12, marginBottom: 26,
-    style: { color: t.text, fontSize: "10px" },
+    width: focusWidth(), height: 190, marginLeft: 44, marginRight: 12, marginBottom: 26,
+    style: { color: t.text, fontSize: "11px" },
     x: { domain: xDomain(), label: "slot →" },
-    y: { grid: false, label: "latency ↑" },
+    y: { grid: false, label: "latency (slots) ↑" },
     marks,
   });
   fig.appendChild(node);
@@ -272,10 +282,10 @@ function renderDistribution() {
              p25: s.p25, p75: s.p75, median: s.median, p95: s.p95, max: s.max };
   });
   const node = Plot.plot({
-    width: 230, height: 260, marginLeft: 36, marginBottom: 50, marginRight: 8,
-    style: { color: t.text, fontSize: "10px" },
+    width: distWidth(), height: 300, marginLeft: 40, marginBottom: 56, marginRight: 8,
+    style: { color: t.text, fontSize: "11px" },
     x: { domain: rows.map((r) => r.label), label: null, tickRotate: -30 },
-    y: { grid: false, label: "latency ↑" },
+    y: { grid: false, label: "latency (slots) ↑" },
     marks: [
       Plot.gridY({ stroke: t.grid }),
       Plot.ruleX(rows, { x: "label", y1: "p75", y2: "p95", stroke: (d) => d.color, strokeWidth: 1 }),
@@ -296,10 +306,10 @@ function renderContext() {
   fig.innerHTML = "";
   panelHead("panel-load", "Load (submissions/slot)", "brush to zoom the panels above · double-click to reset", "load.svg");
   const node = Plot.plot({
-    width: LOAD_DIMS.width, height: LOAD_DIMS.height,
+    width: focusWidth(), height: LOAD_DIMS.height,
     marginLeft: LOAD_DIMS.marginLeft, marginRight: LOAD_DIMS.marginRight,
     marginTop: LOAD_DIMS.marginTop, marginBottom: LOAD_DIMS.marginBottom,
-    style: { color: t.text, fontSize: "10px" },
+    style: { color: t.text, fontSize: "11px" },
     x: { domain: fullDomain(), label: "slot →" },
     y: { axis: null },
     marks: [
@@ -413,3 +423,10 @@ function renderAll() {
 setupControls();
 renderAll();
 setupCrosshair();
+
+// Re-fit charts to the window when it resizes (debounced).
+let _resizeTimer;
+window.addEventListener("resize", () => {
+  clearTimeout(_resizeTimer);
+  _resizeTimer = setTimeout(renderAll, 150);
+});

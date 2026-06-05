@@ -210,9 +210,54 @@ function renderShockPanel() {
   fig.appendChild(node);
 }
 
+function classLegend(figureId) {
+  const div = document.createElement("div");
+  div.className = "legend";
+  DATA.meta.urgencyClasses.forEach((c) => {
+    const item = document.createElement("span");
+    item.className = "item" + (state.hiddenClasses.has(c.id) ? " off" : "");
+    item.innerHTML = `<span class="swatch" style="background:${classColors[c.id]}"></span>${c.label}`;
+    item.onclick = () => {
+      state.hiddenClasses.has(c.id) ? state.hiddenClasses.delete(c.id) : state.hiddenClasses.add(c.id);
+      renderFocus(); renderDistribution();
+    };
+    div.appendChild(item);
+  });
+  el(figureId).appendChild(div);
+}
+
+function renderLatencyTimePanel() {
+  const t = theme();
+  const fig = el("panel-latency");
+  fig.innerHTML = "";
+  panelHead("panel-latency", "Latency / urgency class",
+    "median, slots · " + (state.p95Band ? "median→p95 band on" : "median only"),
+    "latency-time.svg");
+  classLegend("panel-latency");
+  const classes = DATA.meta.urgencyClasses.filter((c) => !state.hiddenClasses.has(c.id));
+  const marks = [Plot.gridY({ stroke: t.grid })];
+  if (state.p95Band) {
+    classes.forEach((c) => marks.push(Plot.areaY(DATA.latency.byClass[c.id].overTime, {
+      x: "slot", y1: "median", y2: "p95", fill: classColors[c.id], fillOpacity: 0.12, curve: "monotone-x",
+    })));
+  }
+  classes.forEach((c) => marks.push(Plot.line(DATA.latency.byClass[c.id].overTime, {
+    x: "slot", y: "median", stroke: classColors[c.id], strokeWidth: 1.6, curve: "monotone-x",
+  })));
+  const node = Plot.plot({
+    width: 760, height: 130, marginLeft: 44, marginRight: 12, marginBottom: 26,
+    style: { color: t.text, fontSize: "10px" },
+    x: { domain: xDomain(), label: "slot →" },
+    y: { grid: false, label: "latency ↑" },
+    marks,
+  });
+  fig.appendChild(node);
+}
+
 function renderFocus() {
   renderPricePanel();
   renderShockPanel();
+  renderLatencyTimePanel();
 }
 
 function renderAll() {

@@ -1,5 +1,10 @@
 import json
+import os
 from preprocess import main
+from preprocess import main as run_main
+
+
+FIXTURE = os.path.join(os.path.dirname(__file__), "fixtures", "tiny.jsonl")
 
 
 def _line(obj, n):
@@ -24,3 +29,29 @@ def test_cli_writes_data_js(tmp_path):
     payload = json.loads(text[len("window.SIM_DATA = "):].rstrip().rstrip(";"))
     assert payload["meta"]["slotCount"] == 3
     assert payload["meta"]["totalEvents"] == 2
+
+
+def test_tiny_fixture_end_to_end(tmp_path):
+    import json
+    out = tmp_path / "data.js"
+    run_main([FIXTURE, "-o", str(out)])
+    data = json.loads(out.read_text()[len("window.SIM_DATA = "):].rstrip().rstrip(";"))
+
+    assert data["meta"]["slotCount"] == 6
+    assert data["meta"]["totalEvents"] == 9
+    assert data["meta"]["lanes"] == ["Standard", "Priority"]
+    assert [c["id"] for c in data["meta"]["urgencyClasses"]] == \
+        ["Exponential:0.0005", "Exponential:0.006"]
+
+    assert data["shock"]["byLane"]["Priority"]["maxJump"] == 0.375
+    assert data["shock"]["byLane"]["Priority"]["shockCount"] == 1
+    assert data["shock"]["byLane"]["Standard"]["shockCount"] == 0
+
+    lat = data["latency"]["byClass"]
+    assert lat["Exponential:0.0005"]["count"] == 2
+    assert lat["Exponential:0.0005"]["median"] == 1
+    assert lat["Exponential:0.0005"]["max"] == 2
+    assert lat["Exponential:0.006"]["count"] == 1
+    assert lat["Exponential:0.006"]["median"] == 3
+
+    assert len(data["convergence"]["loadRegimes"]) >= 1   # regimes present (noisy at width=1)

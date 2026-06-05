@@ -1,0 +1,9 @@
+{"event":{"actorId":0,"slot":0,"tag":"TxSubmitted","tx":{"body":{"dependsOn":[],"fee":100,"script":{"exUnits":0,"sizeBytes":0},"sizeBytes":300},"id":1,"lane":"Standard","submitted":0,"urgency":{"rate":5.0e-4,"tag":"Exponential"},"value":1000}},"eventNo":0}
+{"event":{"actorId":0,"slot":0,"tag":"TxSubmitted","tx":{"body":{"dependsOn":[],"fee":200,"script":{"exUnits":0,"sizeBytes":0},"sizeBytes":400},"id":2,"lane":"Priority","submitted":0,"urgency":{"rate":6.0e-3,"tag":"Exponential"},"value":2000}},"eventNo":1}
+{"event":{"lane":"Standard","newCoeff":1,"oldCoeff":1,"slot":1,"tag":"PriceUpdated","utilisation":0.2},"eventNo":2}
+{"event":{"lane":"Priority","newCoeff":10,"oldCoeff":16,"slot":1,"tag":"PriceUpdated","utilisation":0.4},"eventNo":3}
+{"event":{"inclusionPoint":{"tag":"IncludedInRb"},"slot":2,"tag":"TxIncluded","txId":1},"eventNo":4}
+{"event":{"lane":"Priority","newCoeff":10.5,"oldCoeff":10,"slot":2,"tag":"PriceUpdated","utilisation":0.5},"eventNo":5}
+{"event":{"inclusionPoint":{"tag":"IncludedInRb"},"slot":3,"tag":"TxIncluded","txId":2},"eventNo":6}
+{"event":{"actorId":1,"slot":4,"tag":"TxSubmitted","tx":{"body":{"dependsOn":[],"fee":100,"script":{"exUnits":0,"sizeBytes":0},"sizeBytes":300},"id":3,"lane":"Standard","submitted":4,"urgency":{"rate":5.0e-4,"tag":"Exponential"},"value":1000}},"eventNo":7}
+{"event":{"inclusionPoint":{"tag":"IncludedInRb"},"slot":5,"tag":"TxIncluded","txId":3},"eventNo":8}

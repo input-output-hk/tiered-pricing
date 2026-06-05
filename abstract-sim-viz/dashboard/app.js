@@ -43,6 +43,9 @@ function fmt(n, d = 2) { return n == null ? "—" : (+n).toFixed(d); }
 // Responsive widths: charts fill their column instead of a fixed 760px.
 function focusWidth() { return Math.max(360, el("focus").clientWidth || 760); }
 function distWidth() { return Math.max(200, el("panel-dist").clientWidth || 230); }
+// Shared right margin for all focus panels so they align on the slot axis (the
+// latency panel reserves room here for its right-hand blocks axis).
+function focusRight() { return DATA.meta.expectedSlotsPerBlock ? 48 : 12; }
 
 function panelHead(figureId, titleHtml, hintHtml, exportName) {
   const fig = el(figureId);
@@ -171,7 +174,7 @@ function renderPriceOverlaid(t, lanes) {
       strokeWidth: 1.8, curve: "step-after",
     })));
   return Plot.plot({
-    width: focusWidth(), height: 170, marginLeft: 44, marginRight: 12, marginBottom: 18,
+    width: focusWidth(), height: 170, marginLeft: 44, marginRight: focusRight(), marginBottom: 18,
     style: { color: t.text, fontSize: "11px" },
     x: { domain: xDomain(), axis: null },
     y: { type: "log", grid: false, label: "coeff ↑", ticks: [1, 2, 4, 8, 16] },
@@ -184,7 +187,7 @@ function renderPricePerLane(t, lanes) {
   const wrap = document.createElement("div");
   lanes.forEach((lane) => {
     const sub = Plot.plot({
-      width: focusWidth(), height: 110, marginLeft: 44, marginRight: 12, marginBottom: 16,
+      width: focusWidth(), height: 110, marginLeft: 44, marginRight: focusRight(), marginBottom: 16,
       style: { color: t.text, fontSize: "11px" },
       x: { domain: xDomain(), axis: null },
       y: { grid: false, label: `${lane} ↑` },
@@ -240,7 +243,7 @@ function renderShockPanel() {
     }));
   });
   const node = Plot.plot({
-    width: focusWidth(), height: 110, marginLeft: 44, marginRight: 12, marginBottom: 16,
+    width: focusWidth(), height: 110, marginLeft: 44, marginRight: focusRight(), marginBottom: 16,
     style: { color: t.text, fontSize: "11px" },
     x: { domain: xDomain(), axis: null },
     y: { grid: false, label: "jump ↑" },
@@ -294,7 +297,7 @@ function renderLatencyTimePanel() {
     marks.push(Plot.axisY({ anchor: "right", tickFormat: (d) => (d / spb).toFixed(1), label: "blocks ↑" }));
   }
   const node = Plot.plot({
-    width: focusWidth(), height: 190, marginLeft: 44, marginRight: spb ? 48 : 12, marginBottom: 26,
+    width: focusWidth(), height: 190, marginLeft: 44, marginRight: focusRight(), marginBottom: 26,
     style: { color: t.text, fontSize: "11px" },
     x: { domain: xDomain(), label: "slot →" },
     y: { grid: false, label: "latency (slots) ↑" },
@@ -303,9 +306,44 @@ function renderLatencyTimePanel() {
   fig.appendChild(node);
 }
 
+function renderRbTime() {
+  const t = theme();
+  const fig = el("panel-rb-time");
+  fig.innerHTML = "";
+  panelHead("panel-rb-time", "RB content over time",
+    "each ranking block · txs (green) vs cert (amber) · runs show as solid stretches",
+    "rb-time.svg");
+  const series = (DATA.blocks || {}).rbSeries || [];
+  if (!series.length) {
+    const p = document.createElement("div");
+    p.className = "subtitle"; p.style.fontSize = "10px";
+    p.textContent = "no ranking blocks in trace";
+    fig.appendChild(p);
+    return;
+  }
+  const TX = "#16a34a", CERT = "#d97706";
+  // each RB occupies the span until the next RB, so adjacent same-kind blocks read as one run
+  const segs = series.map((d, i) => ({
+    x1: d.slot,
+    x2: i + 1 < series.length ? series[i + 1].slot : DATA.meta.slotCount,
+    kind: d.kind,
+  }));
+  const node = Plot.plot({
+    width: focusWidth(), height: 34, marginLeft: 44, marginRight: focusRight(),
+    marginTop: 2, marginBottom: 4,
+    style: { color: t.text, fontSize: "11px" },
+    x: { domain: xDomain(), axis: null },
+    y: { axis: null, domain: [0, 1] },
+    color: { domain: ["txs", "cert"], range: [TX, CERT] },
+    marks: [Plot.rect(segs, { x1: "x1", x2: "x2", y1: 0, y2: 1, fill: "kind" })],
+  });
+  fig.appendChild(node);
+}
+
 function renderFocus() {
   renderPricePanel();
   renderShockPanel();
+  renderRbTime();
   renderLatencyTimePanel();
 }
 

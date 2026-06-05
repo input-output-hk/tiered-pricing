@@ -26,6 +26,7 @@ class Accumulator:
         self.rb_count = 0                   # ranking blocks produced (total)
         self.rb_tx_count = 0                # RBs carrying txs directly (PraosBlock)
         self.rb_cert_count = 0              # RBs carrying an EB certificate (CertifyingBlock)
+        self.rb_series = []                 # [{slot, kind}] per RB, in order (for the over-time strip)
         self.max_slot = 0
         self.total_events = 0
 
@@ -59,8 +60,10 @@ class Accumulator:
                 block_tag = summary.get("summary", {}).get("block", {}).get("tag")
                 if block_tag == "PraosBlock":
                     self.rb_tx_count += 1
+                    self.rb_series.append({"slot": slot, "kind": "txs"})
                 elif block_tag == "CertifyingBlock":
                     self.rb_cert_count += 1
+                    self.rb_series.append({"slot": slot, "kind": "cert"})
         # all other tags ignored (this iteration)
 
     @property

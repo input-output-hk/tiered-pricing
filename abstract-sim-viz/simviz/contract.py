@@ -149,6 +149,7 @@ def build_sim_data(acc, params=None, target_buckets=300, source="events.jsonl", 
             "rbTotal": acc.rb_count,
             "rbWithTxs": acc.rb_tx_count,     # RBs carrying transactions (PraosBlock)
             "rbWithCert": acc.rb_cert_count,  # RBs certifying an EB (CertifyingBlock)
+            "rbSeries": acc.rb_series,        # [{slot, kind}] per RB, in order (over-time strip)
         },
     }
 

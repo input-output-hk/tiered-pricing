@@ -111,7 +111,11 @@ def test_blocks_section_counts_rb_tx_vs_cert():
     acc.ingest({"tag": "BlockProduced", "slot": 20, "summary": {
         "tag": "RankingBlockProduced", "summary": {"block": {"tag": "CertifyingBlock", "ebId": 3}}}})
     data = build_sim_data(acc, f=0.05)
-    assert data["blocks"] == {"rbTotal": 2, "rbWithTxs": 1, "rbWithCert": 1}
+    assert data["blocks"]["rbTotal"] == 2
+    assert data["blocks"]["rbWithTxs"] == 1
+    assert data["blocks"]["rbWithCert"] == 1
+    assert data["blocks"]["rbSeries"] == [
+        {"slot": 10, "kind": "txs"}, {"slot": 20, "kind": "cert"}]
 
 
 def test_write_data_js_roundtrip(tmp_path):

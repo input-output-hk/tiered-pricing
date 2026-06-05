@@ -68,6 +68,11 @@ def test_accumulator_counts_rb_content():
     assert acc.rb_count == 3
     assert acc.rb_tx_count == 2
     assert acc.rb_cert_count == 1
+    assert acc.rb_series == [
+        {"slot": 10, "kind": "txs"},
+        {"slot": 20, "kind": "cert"},
+        {"slot": 30, "kind": "txs"},
+    ]
 
 
 def test_accumulator_last_wins_on_duplicate_txid():

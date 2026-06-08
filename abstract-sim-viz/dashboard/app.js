@@ -488,8 +488,8 @@ function renderFlow() {
   const flow = DATA.flow || {};
   const links = flow.links || [];
   panelHead("panel-flow", "Submission ⇄ inclusion",
-    "select a window above · top = submitted, bottom = included · shows txs submitted-in (→ later) and included-in (← earlier) · green RB / amber EB · EB sampled (~"
-      + (100 * (flow.ebSampleRate || 0)).toFixed(1) + "%)",
+    "select a window above · top = submitted, bottom = included · shows txs submitted-in (→ later) and included-in (← earlier) · green RB / amber EB · uniform ~"
+      + (100 * (flow.sampleRate || 0)).toFixed(0) + "% sample",
     "flow.svg");
   // shares the focus x-axis exactly (same margins + xDomain) so it aligns with the column
   const W = focusWidth(), H = 150, ml = 44, mr = focusRight(), topY = 26, botY = H - 28;

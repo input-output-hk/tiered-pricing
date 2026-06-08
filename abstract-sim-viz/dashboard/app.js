@@ -487,8 +487,8 @@ function renderFlow() {
   fig.innerHTML = "";
   const flow = DATA.flow || {};
   const links = flow.links || [];
-  panelHead("panel-flow", "Submission → inclusion",
-    "select a submit window on the panels above · green = via RB, amber = via EB · RB in full, EB sampled (~"
+  panelHead("panel-flow", "Submission ⇄ inclusion",
+    "select a window above · top = submitted, bottom = included · shows txs submitted-in (→ later) and included-in (← earlier) · green RB / amber EB · EB sampled (~"
       + (100 * (flow.ebSampleRate || 0)).toFixed(1) + "%)",
     "flow.svg");
   // shares the focus x-axis exactly (same margins + xDomain) so it aligns with the column
@@ -503,20 +503,26 @@ function renderFlow() {
     `<text x="${x0 + 2}" y="${topY - 4}" font-size="9" fill="${t.text}">submitted ↧</text>`,
     `<text x="${x0 + 2}" y="${botY + 13}" font-size="9" fill="${t.text}">included</text>`,
   ];
-  let note = "drag across the time panels above to pick a submit window";
+  let note = "drag across the time panels above to pick a window";
   const sel = state.flowSel;
   if (sel && links.length) {
     const lo = Math.min(sel[0], sel[1]), hi = Math.max(sel[0], sel[1]);
-    let win = links.filter((dd) => dd[0] >= lo && dd[0] <= hi);
-    const rbN = win.reduce((a, dd) => a + (dd[2] === 0 ? 1 : 0), 0), ebN = win.length - rbN;
+    const inSub = (dd) => dd[0] >= lo && dd[0] <= hi;   // submitted in window
+    const inInc = (dd) => dd[1] >= lo && dd[1] <= hi;   // included in window
+    let win = links.filter((dd) => inSub(dd) || inInc(dd));
+    const subN = win.reduce((a, dd) => a + (inSub(dd) ? 1 : 0), 0);
+    const incN = win.reduce((a, dd) => a + (inInc(dd) ? 1 : 0), 0);
     if (win.length > CAP) { const k = Math.ceil(win.length / CAP); win = win.filter((_, i) => i % k === 0); }
+    const cy = (topY + botY) / 2 + 18;
     for (const dd of win) {
-      const a = sx(dd[0]); if (a < x0 - 1 || a > x1 + 1) continue;
-      const b = sx(dd[1]), col = dd[2] === 0 ? RB : EB, cy = (topY + botY) / 2 + 18;
-      p.push(`<path d="M${a.toFixed(1)},${topY} Q${((a + b) / 2).toFixed(1)},${cy.toFixed(1)} ${b.toFixed(1)},${botY}" fill="none" stroke="${col}" stroke-width="1" stroke-opacity="0.3"/>`);
-      p.push(`<circle cx="${b.toFixed(1)}" cy="${botY}" r="1.5" fill="${col}"/>`);
+      const a = sx(dd[0]), b = sx(dd[1]);
+      if ((a < x0 - 1 || a > x1 + 1) && (b < x0 - 1 || b > x1 + 1)) continue;
+      const col = dd[2] === 0 ? RB : EB;
+      p.push(`<path d="M${a.toFixed(1)},${topY} Q${((a + b) / 2).toFixed(1)},${cy.toFixed(1)} ${b.toFixed(1)},${botY}" fill="none" stroke="${col}" stroke-width="1" stroke-opacity="0.28"/>`);
+      p.push(`<circle cx="${a.toFixed(1)}" cy="${topY}" r="1.3" fill="${col}" fill-opacity="0.7"/>`);
+      p.push(`<circle cx="${b.toFixed(1)}" cy="${botY}" r="1.3" fill="${col}" fill-opacity="0.7"/>`);
     }
-    note = `submitted ${Math.round(lo)}–${Math.round(hi)}: ${rbN} via RB, ${ebN} via EB (sampled)`;
+    note = `${subN} submitted in-window (→ incl. later) · ${incN} included in-window (← subm. earlier)`;
   }
   p.push(`<text x="${x1}" y="13" font-size="9" fill="${t.text}" text-anchor="end">${note}</text>`);
   fig.insertAdjacentHTML("beforeend",

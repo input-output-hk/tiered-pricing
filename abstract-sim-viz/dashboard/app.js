@@ -5,6 +5,7 @@ const state = {
   priceView: "log",     // "log" | "perlane"
   latencyBy: "lane",    // "lane" | "class" — lane answers "does Priority serve faster?"
   latencyX: "submit",   // "submit" | "incl" — bucket latency by submission or inclusion slot
+  flowLane: "all",      // "all" | "Priority" | "Standard" — filter the flow panel by lane
   p95Band: true,
   convBand: true,       // show ±5% convergence bands on the price panel
   xDomain: null,        // null = full run
@@ -41,6 +42,15 @@ function theme() {
 function fullDomain() { return [0, DATA.meta.slotCount]; }
 function xDomain() { return state.xDomain || fullDomain(); }
 function fmt(n, d = 2) { return n == null ? "—" : (+n).toFixed(d); }
+
+// step lookup: a lane's price coefficient in effect at a given slot
+function priceAt(lane, slot) {
+  const s = DATA.price.byLane[lane] || [];
+  if (!s.length) return null;
+  let v = s[0].oldCoeff;
+  for (const p of s) { if (p.slot <= slot) v = p.newCoeff; else break; }
+  return v;
+}
 
 // Responsive widths: charts fill their column instead of a fixed 760px.
 function focusWidth() { return Math.max(360, el("focus").clientWidth || 760); }
@@ -97,12 +107,21 @@ function renderKpis() {
   const shocks = lanes.reduce((a, l) => a + s[l].shockCount, 0);
   const prio = c.Priority || c[lanes[lanes.length - 1]];
   const std = c.Standard || c[lanes[0]];
-  el("kpis").innerHTML = [
+  const lat = DATA.latency.byLane || {};
+  const sub = DATA.meta.submittedByLane || {};
+  const spb = DATA.meta.expectedSlotsPerBlock;
+  const blk = (sl) => (spb ? ` (${(sl / spb).toFixed(1)} blk)` : "");
+  const drop = (l) => { const tot = sub[l] || 0, inc = (lat[l] || {}).count || 0; return tot ? Math.round(100 * (tot - inc) / tot) : 0; };
+  const cards = [
     kpi("Priority conv. time", prio.convergenceTime == null ? "—" : `${prio.convergenceTime} slots`, "#7c3aed"),
     kpi("Max price jump", `${(maxJump * 100).toFixed(1)}%`, "#f59e0b"),
     kpi("# shocks (>10%)", String(shocks), "#ef4444"),
     kpi("Std oscillation", `±${fmt(std.oscillationAmplitude, 3)}`, "#2563eb"),
-  ].join("");
+  ];
+  if (lat.Priority) cards.push(kpi("Priority median latency", `${lat.Priority.median} sl${blk(lat.Priority.median)}`, "#7c3aed"));
+  if (lat.Standard) cards.push(kpi("Standard median latency", `${lat.Standard.median} sl${blk(lat.Standard.median)}`, "#2563eb"));
+  cards.push(kpi("Drop rate · Pri / Std", `${drop("Priority")}% / ${drop("Standard")}%`, "#ef4444"));
+  el("kpis").innerHTML = cards.join("");
 }
 
 // Latency grouping descriptor — drives the over-time panel, distribution, and table.
@@ -515,6 +534,10 @@ function renderFlow() {
     const inSub = (dd) => dd[0] >= lo && dd[0] <= hi;   // submitted in window
     const inInc = (dd) => dd[1] >= lo && dd[1] <= hi;   // included in window
     let win = links.filter((dd) => inSub(dd) || inInc(dd));
+    if (state.flowLane !== "all") {
+      const lc = state.flowLane === "Priority" ? 1 : 0;
+      win = win.filter((dd) => dd[3] === lc);
+    }
     const subN = win.reduce((a, dd) => a + (inSub(dd) ? 1 : 0), 0);
     const incN = win.reduce((a, dd) => a + (inInc(dd) ? 1 : 0), 0);
     if (win.length > CAP) { const k = Math.ceil(win.length / CAP); win = win.filter((_, i) => i % k === 0); }
@@ -527,7 +550,8 @@ function renderFlow() {
       p.push(`<circle cx="${a.toFixed(1)}" cy="${topY}" r="1.3" fill="${col}" fill-opacity="0.7"/>`);
       p.push(`<circle cx="${b.toFixed(1)}" cy="${botY}" r="1.3" fill="${col}" fill-opacity="0.7"/>`);
     }
-    note = `${subN} submitted in-window (→ incl. later) · ${incN} included in-window (← subm. earlier)`;
+    note = `${subN} submitted in-window (→ incl. later) · ${incN} included in-window (← subm. earlier)`
+      + (state.flowLane !== "all" ? ` · ${state.flowLane} only` : "");
   }
   p.push(`<text x="${x1}" y="13" font-size="9" fill="${t.text}" text-anchor="end">${note}</text>`);
   fig.insertAdjacentHTML("beforeend",
@@ -581,7 +605,10 @@ function setupFocusInteractions() {
     if (m.inRange(ev.clientX)) {
       const slot = Math.round(m.pxToSlot(ev.clientX)), lx = m.slotToLocal(slot);
       line.style.left = `${lx}px`; line.style.height = `${focus.clientHeight}px`; line.style.display = "block";
-      readout.style.left = `${lx + 4}px`; readout.textContent = `slot ${slot}`; readout.style.display = "block";
+      const px = DATA.meta.lanes.map((l) => { const v = priceAt(l, slot); return `${l[0]} ${v == null ? "—" : v.toFixed(2)}`; }).join(" · ");
+      readout.style.left = `${lx + 4}px`;
+      readout.textContent = `slot ${slot} · price ${px}`;
+      readout.style.display = "block";
     } else { line.style.display = "none"; readout.style.display = "none"; }
     if (dragging) {
       const a = m.slotToLocal(startSlot), b = m.slotToLocal(m.pxToSlot(ev.clientX));
@@ -632,6 +659,11 @@ function setupControls() {
     el("toggle-latency-x").textContent =
       "Latency x: " + (state.latencyX === "submit" ? "submission" : "inclusion");
     renderLatencyTimePanel();
+  };
+  el("toggle-flow-lane").onclick = () => {
+    state.flowLane = state.flowLane === "all" ? "Priority" : state.flowLane === "Priority" ? "Standard" : "all";
+    el("toggle-flow-lane").textContent = "Flow: " + (state.flowLane === "all" ? "all lanes" : state.flowLane);
+    renderFlow();
   };
   el("toggle-p95").onclick = () => {
     state.p95Band = !state.p95Band;

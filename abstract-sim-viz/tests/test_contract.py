@@ -83,6 +83,7 @@ def test_build_sim_data_structure_and_values():
     assert data["meta"]["slotCount"] == 3       # max slot 2 + 1
     assert data["meta"]["totalEvents"] == 4
     assert data["meta"]["lanes"] == ["Standard", "Priority"]
+    assert data["meta"]["submittedByLane"] == {"Standard": 1}
     assert len(data["meta"]["urgencyClasses"]) == 1
     assert "generatedAt" in data["meta"]
 

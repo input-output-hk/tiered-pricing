@@ -110,6 +110,10 @@ def build_sim_data(acc, params=None, target_buckets=300, source="events.jsonl", 
     lanes = [l for l in ["Standard", "Priority"] if l in present] or sorted(present)
     classes = urgency_classes(acc, f)
 
+    submitted_by_lane = {}
+    for m in acc.tx_meta.values():
+        submitted_by_lane[m["lane"]] = submitted_by_lane.get(m["lane"], 0) + 1
+
     price_by_lane = {lane: price_mod.price_series(acc, lane) for lane in lanes}
     shock_by_lane = {
         lane: price_mod.shock_stats(price_by_lane[lane], params["shockThreshold"])
@@ -167,6 +171,7 @@ def build_sim_data(acc, params=None, target_buckets=300, source="events.jsonl", 
             "rbCount": acc.rb_count,
             "realizedSlotsPerBlock": realized_spb,     # sanity check only
             "lanes": lanes,
+            "submittedByLane": submitted_by_lane,      # for drop-rate KPIs
             "urgencyClasses": classes,
         },
         "params": params,

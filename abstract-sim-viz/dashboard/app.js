@@ -6,6 +6,7 @@ const state = {
   latencyBy: "lane",    // "lane" | "class" — lane answers "does Priority serve faster?"
   latencyX: "submit",   // "submit" | "incl" — bucket latency by submission or inclusion slot
   flowLane: "all",      // "all" | "Priority" | "Standard" — filter the flow panel by lane
+  composeBy: "laneclass", // "laneclass" | "aggregate" — fate/value composition breakdown
   p95Band: true,
   convBand: true,       // show ±5% convergence bands on the price panel
   xDomain: null,        // null = full run
@@ -456,6 +457,67 @@ function renderRb() {
   fig.appendChild(summary);
 }
 
+// shared 100%-stacked-bar composition (fate, value). Two modes:
+//  - "laneclass": Priority vs Standard within each urgency class (de-confounds selection bias)
+//  - "aggregate": by lane and by class separately (lane rows are composition-confounded)
+function renderComposition(figId, title, hint, exportName, src, cats, colors, pctLabel) {
+  const t = theme();
+  const fig = el(figId);
+  fig.innerHTML = "";
+  const laneClass = state.composeBy === "laneclass";
+  panelHead(figId, title,
+    hint + (laneClass ? " · Priority vs Standard within each class" : " · ⚠ lane rows are composition-confounded"),
+    exportName);
+  const rows = [];
+  const add = (label, d) => cats.forEach((k) => rows.push({ group: label, kind: k, n: d[k] }));
+  let groups;
+  if (laneClass) {
+    const abbr = (l) => (l === "Priority" ? "Pri" : l === "Standard" ? "Std" : l);
+    groups = [];
+    DATA.meta.urgencyClasses.forEach((c) => {
+      const short = c.halfLifeBlocks == null ? c.label : `${Math.round(c.halfLifeBlocks)}b`;
+      DATA.meta.lanes.forEach((l) => {
+        const lbl = `${abbr(l)} ${short}`;
+        groups.push(lbl);
+        add(lbl, src.byClassLane[c.id][l]);
+      });
+    });
+  } else {
+    groups = [...DATA.meta.lanes, ...DATA.meta.urgencyClasses.map((c) => c.label)];
+    DATA.meta.lanes.forEach((l) => add(l, src.byLane[l]));
+    DATA.meta.urgencyClasses.forEach((c) => add(c.label, src.byClass[c.id]));
+  }
+  const node = Plot.plot({
+    width: distWidth(), height: 42 + 22 * groups.length,
+    marginLeft: laneClass ? 56 : 84, marginRight: 8, marginTop: 6, marginBottom: 26,
+    style: { color: t.text, fontSize: "11px" },
+    x: { percent: true, label: pctLabel },
+    y: { domain: groups, label: null },
+    color: { domain: cats, range: cats.map((k) => colors[k]), legend: true },
+    marks: [
+      Plot.barX(rows, { y: "group", x: "n", fill: "kind", offset: "normalize", order: cats }),
+      Plot.ruleX([0, 1]),
+    ],
+  });
+  fig.appendChild(node);
+}
+
+function renderFate() {
+  renderComposition("panel-fate", "Inclusion / fate",
+    "share of submitted txs · included vs evicted (fee) / rejected (mempool) / unresolved", "fate.svg",
+    DATA.fate, ["included", "evicted", "rejected", "unresolved"],
+    { included: "#16a34a", evicted: "#d97706", rejected: "#ef4444", unresolved: "#9ca3af" },
+    "% of submitted");
+}
+
+function renderValue() {
+  renderComposition("panel-value", "Value retained vs lost",
+    "share of submitted value · retained at inclusion vs lost (decay + drops)", "value.svg",
+    DATA.value, ["retained", "lost"],
+    { retained: "#16a34a", lost: "#ef4444" },
+    "% of value");
+}
+
 const LOAD_DIMS = { width: 760, height: 70, marginLeft: 44, marginRight: 12, marginTop: 6, marginBottom: 18 };
 
 function renderContext() {
@@ -665,6 +727,11 @@ function setupControls() {
     el("toggle-flow-lane").textContent = "Flow: " + (state.flowLane === "all" ? "all lanes" : state.flowLane);
     renderFlow();
   };
+  el("toggle-compose").onclick = () => {
+    state.composeBy = state.composeBy === "laneclass" ? "aggregate" : "laneclass";
+    el("toggle-compose").textContent = "Compose: " + (state.composeBy === "laneclass" ? "lane×class" : "aggregate");
+    renderFate(); renderValue();
+  };
   el("toggle-p95").onclick = () => {
     state.p95Band = !state.p95Band;
     el("toggle-p95").textContent = "p95 band: " + (state.p95Band ? "on" : "off");
@@ -686,6 +753,8 @@ function renderAll() {
   if (typeof renderContext === "function") renderContext();
   if (typeof renderDistribution === "function") renderDistribution();
   if (typeof renderRb === "function") renderRb();
+  if (typeof renderFate === "function") renderFate();
+  if (typeof renderValue === "function") renderValue();
 }
 
 setupControls();

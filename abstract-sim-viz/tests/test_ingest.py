@@ -100,6 +100,18 @@ def test_cert_block_shaded_by_certified_eb_fullness():
     assert acc.rb_series[0] == {"slot": 18, "kind": "cert", "fill": 0.3}
 
 
+def test_accumulator_records_value_rejected_evicted():
+    acc = Accumulator()
+    acc.ingest(_submitted(1, 0, "Standard", 0.01))   # helper sets value=1
+    acc.ingest(_submitted(2, 0, "Priority", 0.01))
+    acc.ingest(_submitted(3, 0, "Standard", 0.01))
+    acc.ingest({"tag": "TxRejected", "slot": 1, "txId": 2, "reasons": [{"tag": "MempoolFull"}]})
+    acc.ingest({"tag": "TxEvicted", "slot": 2, "txId": 3, "reason": {"tag": "FeeTooLowAtSelection"}})
+    assert acc.tx_value[1] == 100   # _submitted helper sets value=100
+    assert acc.rejected == {2}
+    assert acc.evicted == {3}
+
+
 def test_accumulator_last_wins_on_duplicate_txid():
     acc = Accumulator()
     acc.ingest(_submitted(1, 0, "Standard", 5.0e-4))

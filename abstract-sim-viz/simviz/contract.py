@@ -69,6 +69,74 @@ def _shared_bin_width(all_latencies):
     return max(1, math.ceil(p99 / 30))
 
 
+def retention_ratio(tag, rate, blocks):
+    """Fraction of value retained after `blocks` block-delay, per Transaction.retentionRatio."""
+    b = max(0.0, blocks)
+    if tag == "Exponential":
+        return math.exp(-rate * b)
+    if tag == "Linear":
+        return max(0.0, 1.0 - rate * b)
+    return 1.0
+
+
+def build_fate(acc, lanes, classes):
+    """Per submitted tx: included / evicted (fee) / rejected (mempool full) / unresolved,
+    tallied by lane, by urgency class, and by lane x class (to separate selection bias
+    from any lane effect)."""
+    cats = ("submitted", "included", "evicted", "rejected", "unresolved")
+    def blank():
+        return {k: 0 for k in cats}
+    by_lane = {l: blank() for l in lanes}
+    by_class = {c["id"]: blank() for c in classes}
+    by_class_lane = {c["id"]: {l: blank() for l in lanes} for c in classes}
+    for tx_id, meta in acc.tx_meta.items():
+        if tx_id in acc.included_at:
+            fate = "included"
+        elif tx_id in acc.evicted:
+            fate = "evicted"
+        elif tx_id in acc.rejected:
+            fate = "rejected"
+        else:
+            fate = "unresolved"
+        cid, lane = latency_mod.class_id(meta["tag"], meta["rate"]), meta["lane"]
+        for d in (by_lane.get(lane), by_class.get(cid), by_class_lane.get(cid, {}).get(lane)):
+            if d is not None:
+                d["submitted"] += 1
+                d[fate] += 1
+    return {"byLane": by_lane, "byClass": by_class, "byClassLane": by_class_lane}
+
+
+def build_value(acc, lanes, classes, f):
+    """Retained vs lost value by lane and urgency class. Included txs retain
+    value * retentionRatio(f * latency_slots); dropped txs lose their full value."""
+    def blank():
+        return {"total": 0, "retained": 0, "lost": 0}
+    by_lane = {l: blank() for l in lanes}
+    by_class = {c["id"]: blank() for c in classes}
+    by_class_lane = {c["id"]: {l: blank() for l in lanes} for c in classes}
+    for tx_id, meta in acc.tx_meta.items():
+        v = acc.tx_value.get(tx_id) or 0
+        inc = acc.included_at.get(tx_id)
+        if inc is not None:
+            blocks = f * max(0, inc - acc.submitted_at[tx_id])
+            r = retention_ratio(meta["tag"], meta["rate"], blocks)
+            ret, lost = round(v * r), round(v * (1.0 - r))
+        else:
+            ret, lost = 0, v
+        cid, lane = latency_mod.class_id(meta["tag"], meta["rate"]), meta["lane"]
+        for d in (by_lane.get(lane), by_class.get(cid), by_class_lane.get(cid, {}).get(lane)):
+            if d is not None:
+                d["total"] += v
+                d["retained"] += ret
+                d["lost"] += lost
+    cells = [*by_lane.values(), *by_class.values()]
+    for per_lane in by_class_lane.values():
+        cells.extend(per_lane.values())
+    for d in cells:
+        d["retainedPct"] = (100.0 * d["retained"] / d["total"]) if d["total"] else 0.0
+    return {"byLane": by_lane, "byClass": by_class, "byClassLane": by_class_lane}
+
+
 def build_flow_sample(acc, cap=15000, seed=0):
     """Per-tx submission->inclusion links for the brush-to-link panel, as compact
     [submitSlot, inclusionSlot, routeCode (0=RB,1=EB), laneCode (0=Standard,1=Priority)].
@@ -181,6 +249,8 @@ def build_sim_data(acc, params=None, target_buckets=300, source="events.jsonl", 
         "latency": {"byClass": latency_by_class, "byLane": latency_by_lane},
         "load": load_obj,
         "flow": build_flow_sample(acc),
+        "fate": build_fate(acc, lanes, classes),
+        "value": build_value(acc, lanes, classes, f),
         "blocks": {
             "rbTotal": acc.rb_count,
             "rbWithTxs": acc.rb_tx_count,     # RBs carrying transactions (PraosBlock)

@@ -110,6 +110,16 @@ def test_build_sim_data_structure_and_values():
     assert data["flow"]["total"] == 1
     assert data["flow"]["sampleRate"] == 1.0
 
+    # fate: the one tx was included
+    assert data["fate"]["byLane"]["Standard"] == {
+        "submitted": 1, "included": 1, "evicted": 0, "rejected": 0, "unresolved": 0}
+    assert data["fate"]["byClassLane"][cls_id]["Standard"]["included"] == 1
+    assert data["fate"]["byClassLane"][cls_id]["Priority"]["submitted"] == 0
+    # value: tx value 1, included after ~2 slots -> almost fully retained
+    v = data["value"]["byClass"][cls_id]
+    assert v["total"] == 1 and v["retained"] == 1 and v["lost"] == 0
+    assert round(v["retainedPct"]) == 100
+
 
 def test_blocks_section_counts_rb_tx_vs_cert():
     acc = Accumulator()

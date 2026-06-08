@@ -33,8 +33,11 @@ class Accumulator:
     def __init__(self):
         self.submitted_at = {}              # txId -> submit slot
         self.tx_meta = {}                   # txId -> {"tag", "rate", "lane"}
+        self.tx_value = {}                  # txId -> value (lovelace), for retained/lost value
         self.included_at = {}               # txId -> inclusion slot
         self.included_route = {}            # txId -> "IncludedInRb" | "IncludedInEb"
+        self.rejected = set()               # txIds rejected at admission (mempool full)
+        self.evicted = set()                # txIds evicted at selection (fee too low)
         self.price_changes = defaultdict(list)     # lane -> [PriceUpdated event]
         self.submissions_per_slot = defaultdict(int)
         self.inclusions_per_slot = defaultdict(int)
@@ -61,11 +64,16 @@ class Accumulator:
                 "rate": tx["urgency"]["rate"],
                 "lane": tx["lane"],
             }
+            self.tx_value[tx_id] = tx.get("value")
             self.submissions_per_slot[tx["submitted"]] += 1
         elif tag == "TxIncluded":
             self.included_at[event["txId"]] = slot
             self.included_route[event["txId"]] = event.get("inclusionPoint", {}).get("tag")
             self.inclusions_per_slot[slot] += 1
+        elif tag == "TxRejected":
+            self.rejected.add(event["txId"])
+        elif tag == "TxEvicted":
+            self.evicted.add(event["txId"])
         elif tag == "PriceUpdated":
             self.price_changes[event["lane"]].append(event)
         elif tag == "BlockProduced":

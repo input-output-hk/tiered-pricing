@@ -7,10 +7,15 @@ from simviz.ingest import iter_events, Accumulator
 from simviz.contract import build_sim_data, write_data_js
 
 
+DEFAULT_OUTPUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dashboard", "data.js")
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("events", help="path to events.jsonl")
-    parser.add_argument("-o", "--output", default=os.path.join("dashboard", "data.js"))
+    parser.add_argument("-o", "--output", default=DEFAULT_OUTPUT,
+                        help="output JS (default: the dashboard/data.js next to this script, "
+                             "so it works regardless of the directory you run from)")
     parser.add_argument("--shock-threshold", type=float, default=0.10)
     parser.add_argument("--band-pct", type=float, default=0.05)
     parser.add_argument("--load-change-pct", type=float, default=0.10)

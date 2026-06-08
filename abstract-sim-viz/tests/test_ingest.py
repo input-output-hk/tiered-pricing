@@ -85,6 +85,20 @@ def test_rb_fullness_is_binding_utilisation():
     assert acc.rb_series[0]["fill"] == 0.5               # binding = max(0.5, 0.2)
 
 
+def test_cert_block_shaded_by_certified_eb_fullness():
+    acc = Accumulator()
+    # EB id 7 announced 30% full (bytes), 0% by ex-units -> binding 0.3
+    acc.ingest({"tag": "BlockProduced", "slot": 5, "summary": {
+        "tag": "EndorserBlockAnnounced", "summary": {
+            "id": 7, "usedBytes": 30, "capacityBytes": 100,
+            "usedExUnits": 0, "capacityExUnits": 100}}})
+    # a later RB certifies EB 7
+    acc.ingest({"tag": "BlockProduced", "slot": 18, "summary": {
+        "tag": "RankingBlockProduced", "summary": {"block": {"tag": "CertifyingBlock", "ebId": 7}}}})
+    assert acc.eb_fullness[7] == 0.3
+    assert acc.rb_series[0] == {"slot": 18, "kind": "cert", "fill": 0.3}
+
+
 def test_accumulator_last_wins_on_duplicate_txid():
     acc = Accumulator()
     acc.ingest(_submitted(1, 0, "Standard", 5.0e-4))

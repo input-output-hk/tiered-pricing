@@ -311,7 +311,7 @@ function renderRbTime() {
   const fig = el("panel-rb-time");
   fig.innerHTML = "";
   panelHead("panel-rb-time", "RB content over time",
-    "each ranking block · txs green (darker = fuller) · cert amber · runs = solid stretches",
+    "txs green / cert amber · darker = fuller (cert shaded by the EB it certifies) · runs = solid stretches",
     "rb-time.svg");
   const series = (DATA.blocks || {}).rbSeries || [];
   if (!series.length) {
@@ -321,13 +321,12 @@ function renderRbTime() {
     fig.appendChild(p);
     return;
   }
-  const CERT = "#d97706";
-  // tx-carrying blocks: green shaded by fullness (binding bytes/ex-units utilisation);
-  // cert blocks carry no txs, so they stay a solid amber.
-  const segColor = (d) =>
-    d.kind === "cert"
-      ? CERT
-      : d3.interpolateGreens(0.35 + 0.6 * Math.max(0, Math.min(1, d.fill == null ? 0 : d.fill)));
+  // hue by content (green = txs, amber = cert); lightness by fullness (darker = fuller).
+  // tx fullness = the RB's own utilisation; cert fullness = the certified EB's utilisation.
+  const segColor = (d) => {
+    const t = 0.35 + 0.6 * Math.max(0, Math.min(1, d.fill == null ? 0 : d.fill));
+    return d.kind === "cert" ? d3.interpolateOranges(t) : d3.interpolateGreens(t);
+  };
   // each RB spans until the next RB, so adjacent same-kind blocks read as one run
   const segs = series.map((d, i) => ({
     x1: d.slot,

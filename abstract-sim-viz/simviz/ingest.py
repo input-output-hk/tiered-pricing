@@ -40,7 +40,8 @@ class Accumulator:
         self.rb_count = 0                   # ranking blocks produced (total)
         self.rb_tx_count = 0                # RBs carrying txs directly (PraosBlock)
         self.rb_cert_count = 0              # RBs carrying an EB certificate (CertifyingBlock)
-        self.rb_series = []                 # [{slot, kind}] per RB, in order (for the over-time strip)
+        self.rb_series = []                 # [{slot, kind, fill}] per RB, in order (over-time strip)
+        self.eb_fullness = {}               # EB id -> fullness, to shade certifying blocks
         self.max_slot = 0
         self.total_events = 0
 
@@ -67,18 +68,27 @@ class Accumulator:
             self.price_changes[event["lane"]].append(event)
         elif tag == "BlockProduced":
             summary = event.get("summary", {})
-            if summary.get("tag") == "RankingBlockProduced":
+            stag = summary.get("tag")
+            inner = summary.get("summary", {})
+            if stag == "EndorserBlockAnnounced":
+                # record each EB's fullness so a certifying RB can be shaded by the EB it certifies
+                eb_id = inner.get("id")
+                if eb_id is not None:
+                    self.eb_fullness[eb_id] = _rb_fullness(inner)
+            elif stag == "RankingBlockProduced":
                 # ranking blocks set the chain's slots-per-block cadence; each carries
                 # either txs directly (PraosBlock) or an EB certificate (CertifyingBlock)
                 self.rb_count += 1
-                inner = summary.get("summary", {})
-                block_tag = inner.get("block", {}).get("tag")
+                block = inner.get("block", {})
+                block_tag = block.get("tag")
                 if block_tag == "PraosBlock":
                     self.rb_tx_count += 1
                     self.rb_series.append({"slot": slot, "kind": "txs", "fill": _rb_fullness(inner)})
                 elif block_tag == "CertifyingBlock":
+                    # cert blocks carry no txs; shade by the fullness of the EB they certify
                     self.rb_cert_count += 1
-                    self.rb_series.append({"slot": slot, "kind": "cert", "fill": None})
+                    self.rb_series.append(
+                        {"slot": slot, "kind": "cert", "fill": self.eb_fullness.get(block.get("ebId"))})
         # all other tags ignored (this iteration)
 
     @property

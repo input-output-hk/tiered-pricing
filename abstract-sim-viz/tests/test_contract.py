@@ -101,6 +101,8 @@ def test_build_sim_data_structure_and_values():
     cls_id = data["meta"]["urgencyClasses"][0]["id"]
     assert data["latency"]["byClass"][cls_id]["count"] == 1
     assert data["latency"]["byClass"][cls_id]["max"] == 2
+    assert "overTime" in data["latency"]["byClass"][cls_id]      # by submission slot
+    assert "overTimeIncl" in data["latency"]["byClass"][cls_id]  # by inclusion slot
 
     # flow: tx1 submitted slot 0, included slot 2 via RB, lane Standard
     assert data["flow"]["links"] == [[0, 2, 0, 0]]   # [submit, incl, route=RB(0), lane=Standard(0)]

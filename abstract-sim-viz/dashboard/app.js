@@ -4,6 +4,7 @@ const DATA = window.SIM_DATA;
 const state = {
   priceView: "log",     // "log" | "perlane"
   latencyBy: "lane",    // "lane" | "class" — lane answers "does Priority serve faster?"
+  latencyX: "submit",   // "submit" | "incl" — bucket latency by submission or inclusion slot
   p95Band: true,
   convBand: true,       // show ±5% convergence bands on the price panel
   xDomain: null,        // null = full run
@@ -48,11 +49,12 @@ function distWidth() { return Math.max(200, el("panel-dist").clientWidth || 230)
 // latency panel reserves room here for its right-hand blocks axis).
 function focusRight() { return DATA.meta.expectedSlotsPerBlock ? 48 : 12; }
 
-function panelHead(figureId, titleHtml, hintHtml, exportName) {
+function panelHead(figureId, titleHtml, hintHtml, exportName, basis) {
   const fig = el(figureId);
   const head = document.createElement("div");
   head.className = "panel-head";
-  head.innerHTML = `<div><h2>${titleHtml}</h2><span class="hint">${hintHtml}</span></div>`;
+  const basisHtml = basis ? ` <span class="basis">${basis}</span>` : "";
+  head.innerHTML = `<div><h2>${titleHtml}</h2><span class="hint">${hintHtml}${basisHtml}</span></div>`;
   const btn = document.createElement("button");
   btn.className = "export"; btn.textContent = "⭳ SVG";
   btn.onclick = () => exportSvg(fig, exportName);
@@ -213,7 +215,7 @@ function renderPricePanel() {
   panelHead("panel-price", "Price coefficient / lane",
     (state.priceView === "log" ? "log axis" : "per lane") +
       (state.convBand ? " · ±5% convergence band per regime" : ""),
-    "price.svg");
+    "price.svg", "x: production slot");
   const lanes = DATA.meta.lanes.filter((l) => !state.hiddenLanes.has(l));
   laneLegend("panel-price", DATA.meta.lanes, state.hiddenLanes, (lane) => {
     state.hiddenLanes.has(lane) ? state.hiddenLanes.delete(lane) : state.hiddenLanes.add(lane);
@@ -231,7 +233,7 @@ function renderShockPanel() {
   fig.innerHTML = "";
   panelHead("panel-shock", "Price shock",
     `|Δ|/old per update · ${(DATA.params.shockThreshold * 100).toFixed(0)}% threshold`,
-    "shock.svg");
+    "shock.svg", "x: production slot");
   const lanes = DATA.meta.lanes.filter((l) => !state.hiddenLanes.has(l));
   const stems = [];
   lanes.forEach((lane) => {
@@ -279,19 +281,22 @@ function renderLatencyTimePanel() {
   fig.innerHTML = "";
   const g = latencyGrouping();
   const spb = DATA.meta.expectedSlotsPerBlock;   // 1/f, expected (matches expectedBlockDelay)
+  const byIncl = state.latencyX === "incl";
+  const otKey = byIncl ? "overTimeIncl" : "overTime";
   panelHead("panel-latency", g.title,
     (spb ? "median · slots (left) · expected blocks (right)" : "median · slots")
       + " · " + (state.p95Band ? "median→p95 band" : "median only"),
-    "latency-time.svg");
+    "latency-time.svg",
+    "x: " + (byIncl ? "inclusion slot" : "submission slot"));
   latencyLegend("panel-latency", g);
   const items = g.items.filter((it) => !g.hidden.has(it.id));
   const marks = [Plot.gridY({ stroke: t.grid })];
   if (state.p95Band) {
-    items.forEach((it) => marks.push(Plot.areaY(g.data[it.id].overTime, {
+    items.forEach((it) => marks.push(Plot.areaY(g.data[it.id][otKey], {
       x: "slot", y1: "median", y2: "p95", fill: it.color, fillOpacity: 0.1, curve: "monotone-x",
     })));
   }
-  items.forEach((it) => marks.push(Plot.line(g.data[it.id].overTime, {
+  items.forEach((it) => marks.push(Plot.line(g.data[it.id][otKey], {
     x: "slot", y: "median", stroke: it.color, strokeWidth: 2.6, curve: "monotone-x",
   })));
   if (spb) {
@@ -300,7 +305,7 @@ function renderLatencyTimePanel() {
   const node = Plot.plot({
     width: focusWidth(), height: 190, marginLeft: 44, marginRight: focusRight(), marginBottom: 26,
     style: { color: t.text, fontSize: "11px" },
-    x: { domain: xDomain(), label: "slot →" },
+    x: { domain: xDomain(), label: (byIncl ? "inclusion" : "submission") + " slot →" },
     y: { grid: false, label: "latency (slots) ↑" },
     marks,
   });
@@ -313,7 +318,7 @@ function renderRbTime() {
   fig.innerHTML = "";
   panelHead("panel-rb-time", "RB content over time",
     "txs green / cert amber · darker = fuller (cert shaded by the EB it certifies) · runs = solid stretches",
-    "rb-time.svg");
+    "rb-time.svg", "x: production slot");
   const series = (DATA.blocks || {}).rbSeries || [];
   if (!series.length) {
     const p = document.createElement("div");
@@ -438,7 +443,7 @@ function renderContext() {
   const t = theme();
   const fig = el("panel-load");
   fig.innerHTML = "";
-  panelHead("panel-load", "Load (submissions/slot)", "brush to zoom the panels above · double-click to reset", "load.svg");
+  panelHead("panel-load", "Load (submissions/slot)", "brush to zoom the panels above · double-click to reset", "load.svg", "x: production slot");
   const node = Plot.plot({
     width: focusWidth(), height: LOAD_DIMS.height,
     marginLeft: LOAD_DIMS.marginLeft, marginRight: LOAD_DIMS.marginRight,
@@ -490,7 +495,7 @@ function renderFlow() {
   panelHead("panel-flow", "Submission ⇄ inclusion",
     "select a window above · top = submitted, bottom = included · shows txs submitted-in (→ later) and included-in (← earlier) · green RB / amber EB · uniform ~"
       + (100 * (flow.sampleRate || 0)).toFixed(0) + "% sample",
-    "flow.svg");
+    "flow.svg", "links both clocks");
   // shares the focus x-axis exactly (same margins + xDomain) so it aligns with the column
   const W = focusWidth(), H = 150, ml = 44, mr = focusRight(), topY = 26, botY = H - 28;
   const [d0, d1] = xDomain();
@@ -621,6 +626,12 @@ function setupControls() {
     el("toggle-latency-by").textContent =
       "Latency by: " + (state.latencyBy === "lane" ? "lane" : "urgency class");
     renderLatencyTimePanel(); renderDistribution(); renderLatencyTable();
+  };
+  el("toggle-latency-x").onclick = () => {
+    state.latencyX = state.latencyX === "submit" ? "incl" : "submit";
+    el("toggle-latency-x").textContent =
+      "Latency x: " + (state.latencyX === "submit" ? "submission" : "inclusion");
+    renderLatencyTimePanel();
   };
   el("toggle-p95").onclick = () => {
     state.p95Band = !state.p95Band;

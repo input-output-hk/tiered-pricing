@@ -36,6 +36,8 @@ main { display: flex; gap: 16px; align-items: flex-start; }
 .panel .panel-head { display: flex; justify-content: space-between; align-items: baseline; }
 .panel h2 { font-size: 12px; font-weight: 600; margin: 4px 0 2px; }
 .panel .hint { font-size: 11px; color: var(--muted); font-weight: 400; }
+.basis { display: inline-block; margin-left: 4px; padding: 0 5px; border: 1px solid var(--border);
+  border-radius: 4px; color: var(--muted); font-size: 10px; white-space: nowrap; }
 .panel .export { font-size: 10px; padding: 2px 7px; border: 1px solid var(--border);
   border-radius: 5px; background: var(--panel-bg); color: var(--muted); cursor: pointer; }
 .legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 11px; margin: 2px 0 4px; }

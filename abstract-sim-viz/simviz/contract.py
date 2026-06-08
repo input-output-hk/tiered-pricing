@@ -147,7 +147,9 @@ def build_sim_data(acc, params=None, target_buckets=300, source="events.jsonl", 
             lats = [lat for (_, lat) in pairs]
             s = latency_mod.class_stats(lats)
             s["histogram"] = {"binWidth": bin_w, "bins": histogram_bins(lats, bin_w)}
-            s["overTime"] = latency_mod.over_time(pairs, width, slot_count)
+            s["overTime"] = latency_mod.over_time(pairs, width, slot_count)  # by submission slot
+            s["overTimeIncl"] = latency_mod.over_time(   # by inclusion slot (submit + latency)
+                [(sub + lat, lat) for (sub, lat) in pairs], width, slot_count)
             out[key] = s
         return out
 

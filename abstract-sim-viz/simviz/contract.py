@@ -1,5 +1,6 @@
 import json
 import math
+import random
 from datetime import datetime, timezone
 
 from simviz import price as price_mod
@@ -66,6 +67,35 @@ def _shared_bin_width(all_latencies):
         return 1
     p99 = quantile(0.99, sorted(all_latencies))
     return max(1, math.ceil(p99 / 30))
+
+
+def build_flow_sample(acc, cap=10000, seed=0):
+    """Per-tx submission->inclusion links for the brush-to-link panel, as compact
+    [submitSlot, inclusionSlot, routeCode (0=RB,1=EB), laneCode (0=Standard,1=Priority)].
+
+    RB-route txs are kept in full (they're the rare, interesting route); EB-route txs
+    are downsampled to fit `cap`, so proportions are NOT to scale (see RB-content for
+    the true split) — this panel is about routing/timing, not volume.
+    """
+    rb, eb = [], []
+    for tx_id, submit in acc.submitted_at.items():
+        inc = acc.included_at.get(tx_id)
+        meta = acc.tx_meta.get(tx_id)
+        route = acc.included_route.get(tx_id)
+        if inc is None or meta is None or route is None:
+            continue
+        lane_code = 1 if meta["lane"] == "Priority" else 0
+        rec = [submit, inc, (0 if route == "IncludedInRb" else 1), lane_code]
+        (rb if route == "IncludedInRb" else eb).append(rec)
+    cap_eb = max(0, cap - len(rb))
+    eb_sample = random.Random(seed).sample(eb, min(len(eb), cap_eb)) if eb else []
+    links = sorted(rb + eb_sample, key=lambda r: r[0])
+    return {
+        "links": links,
+        "rbCount": len(rb),
+        "ebTotal": len(eb),
+        "ebSampleRate": (len(eb_sample) / len(eb)) if eb else 0.0,
+    }
 
 
 def build_sim_data(acc, params=None, target_buckets=300, source="events.jsonl", f=0.05):
@@ -145,6 +175,7 @@ def build_sim_data(acc, params=None, target_buckets=300, source="events.jsonl", 
         "convergence": {"loadRegimes": regimes, "byLane": conv_by_lane},
         "latency": {"byClass": latency_by_class, "byLane": latency_by_lane},
         "load": load_obj,
+        "flow": build_flow_sample(acc),
         "blocks": {
             "rbTotal": acc.rb_count,
             "rbWithTxs": acc.rb_tx_count,     # RBs carrying transactions (PraosBlock)

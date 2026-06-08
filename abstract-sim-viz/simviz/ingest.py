@@ -34,6 +34,7 @@ class Accumulator:
         self.submitted_at = {}              # txId -> submit slot
         self.tx_meta = {}                   # txId -> {"tag", "rate", "lane"}
         self.included_at = {}               # txId -> inclusion slot
+        self.included_route = {}            # txId -> "IncludedInRb" | "IncludedInEb"
         self.price_changes = defaultdict(list)     # lane -> [PriceUpdated event]
         self.submissions_per_slot = defaultdict(int)
         self.inclusions_per_slot = defaultdict(int)
@@ -63,6 +64,7 @@ class Accumulator:
             self.submissions_per_slot[tx["submitted"]] += 1
         elif tag == "TxIncluded":
             self.included_at[event["txId"]] = slot
+            self.included_route[event["txId"]] = event.get("inclusionPoint", {}).get("tag")
             self.inclusions_per_slot[slot] += 1
         elif tag == "PriceUpdated":
             self.price_changes[event["lane"]].append(event)

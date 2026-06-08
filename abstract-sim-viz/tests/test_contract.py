@@ -102,6 +102,11 @@ def test_build_sim_data_structure_and_values():
     assert data["latency"]["byClass"][cls_id]["count"] == 1
     assert data["latency"]["byClass"][cls_id]["max"] == 2
 
+    # flow: tx1 submitted slot 0, included slot 2 via RB, lane Standard
+    assert data["flow"]["links"] == [[0, 2, 0, 0]]   # [submit, incl, route=RB(0), lane=Standard(0)]
+    assert data["flow"]["rbCount"] == 1
+    assert data["flow"]["ebTotal"] == 0
+
 
 def test_blocks_section_counts_rb_tx_vs_cert():
     acc = Accumulator()

@@ -7,6 +7,7 @@ const state = {
   p95Band: true,
   convBand: true,       // show ±5% convergence bands on the price panel
   xDomain: null,        // null = full run
+  flowSel: null,        // [loSlot, hiSlot] brushed submit window on the flow panel
   hiddenLanes: new Set(),
   hiddenClasses: new Set(),
   hiddenLatLanes: new Set(),
@@ -466,6 +467,73 @@ function attachBrush(svgNode) {
   }
 }
 
+function renderFlow() {
+  const t = theme();
+  const fig = el("panel-flow");
+  fig.innerHTML = "";
+  const flow = DATA.flow || {};
+  const links = flow.links || [];
+  panelHead("panel-flow", "Submission → inclusion (brush to link)",
+    "drag a submit-slot range · green = via RB, amber = via EB · RB shown in full, EB sampled (~"
+      + (100 * (flow.ebSampleRate || 0)).toFixed(1) + "%), so densities aren't to scale",
+    "flow.svg");
+  if (!links.length) {
+    const p = document.createElement("div");
+    p.className = "subtitle"; p.style.fontSize = "10px";
+    p.textContent = "no inclusion data in trace";
+    fig.appendChild(p);
+    return;
+  }
+  const W = focusWidth(), H = 162, ml = 58, mr = focusRight(), topY = 30, botY = H - 30;
+  const x0 = ml, x1 = W - mr, SC = DATA.meta.slotCount;
+  const sx = (slot) => x0 + (slot / SC) * (x1 - x0);
+  const RB = "#16a34a", EB = "#d97706", CAP = 600;
+  const svg = d3.create("svg")
+    .attr("viewBox", `0 0 ${W} ${H}`).attr("width", "100%").attr("height", H).style("color", t.text);
+  for (const [y, lab] of [[topY, "submitted"], [botY, "included"]]) {
+    svg.append("line").attr("x1", x0).attr("x2", x1).attr("y1", y).attr("y2", y).attr("stroke", t.axis);
+    svg.append("text").attr("x", x0 - 6).attr("y", y + 3).attr("font-size", 9)
+      .attr("fill", t.text).attr("text-anchor", "end").text(lab);
+  }
+  d3.range(0, SC + 1, Math.max(1, Math.ceil(SC / 8))).forEach((s) =>
+    svg.append("text").attr("x", sx(s)).attr("y", H - 6).attr("font-size", 8)
+      .attr("fill", t.axis).attr("text-anchor", "middle").text(s));
+  const arcsG = svg.append("g").attr("fill", "none");
+  const dotsG = svg.append("g");
+  const readout = svg.append("text").attr("x", x1).attr("y", 14).attr("font-size", 9)
+    .attr("fill", t.text).attr("text-anchor", "end");
+
+  function draw(lo, hi) {
+    arcsG.selectAll("*").remove(); dotsG.selectAll("*").remove();
+    let sel = links.filter((d) => d[0] >= lo && d[0] <= hi);
+    const rbN = sel.reduce((a, d) => a + (d[2] === 0 ? 1 : 0), 0), ebN = sel.length - rbN;
+    if (sel.length > CAP) { const k = Math.ceil(sel.length / CAP); sel = sel.filter((_, i) => i % k === 0); }
+    for (const d of sel) {
+      const a = sx(d[0]), b = sx(d[1]), col = d[2] === 0 ? RB : EB;
+      arcsG.append("path")
+        .attr("d", `M${a},${topY} Q${(a + b) / 2},${(topY + botY) / 2 + 18} ${b},${botY}`)
+        .attr("stroke", col).attr("stroke-width", 1).attr("stroke-opacity", 0.3);
+      dotsG.append("circle").attr("cx", b).attr("cy", botY).attr("r", 1.5).attr("fill", col);
+    }
+    readout.text(rbN + ebN
+      ? `submitted ${Math.round(lo)}–${Math.round(hi)}: ${rbN} via RB, ${ebN} via EB (sampled)`
+      : "drag to select a submit window");
+  }
+
+  const brush = d3.brushX().extent([[x0, topY - 8], [x1, botY + 8]])
+    .on("brush end", (ev) => {
+      if (!ev.selection) { state.flowSel = null; draw(NaN, NaN); return; }
+      const lo = (ev.selection[0] - x0) / (x1 - x0) * SC;
+      const hi = (ev.selection[1] - x0) / (x1 - x0) * SC;
+      state.flowSel = [lo, hi];
+      draw(lo, hi);
+    });
+  const bg = svg.append("g").attr("class", "brush").call(brush);
+  fig.appendChild(svg.node());
+  const def = state.flowSel || [Math.round(0.17 * SC), Math.round(0.21 * SC)];
+  bg.call(brush.move, [sx(def[0]), sx(def[1])]);
+}
+
 function focusXMapping() {
   // all focus panels share the same x domain + left/right margins + width,
   // so one mapping (taken from the price panel's svg) applies to all.
@@ -547,6 +615,7 @@ function renderAll() {
   // panels added in later tasks:
   if (typeof renderFocus === "function") renderFocus();
   if (typeof renderContext === "function") renderContext();
+  if (typeof renderFlow === "function") renderFlow();
   if (typeof renderDistribution === "function") renderDistribution();
   if (typeof renderRb === "function") renderRb();
 }

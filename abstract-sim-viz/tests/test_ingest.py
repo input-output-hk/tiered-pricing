@@ -47,6 +47,7 @@ def test_accumulator_records_state():
         acc.ingest(e)
     assert acc.submitted_at == {1: 0}
     assert acc.included_at == {1: 2}
+    assert acc.included_route[1] == "IncludedInRb"
     assert acc.tx_meta[1] == {"tag": "Exponential", "rate": 5.0e-4, "lane": "Standard"}
     assert acc.submissions_per_slot[0] == 1
     assert acc.inclusions_per_slot[2] == 1

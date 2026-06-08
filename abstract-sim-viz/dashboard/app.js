@@ -352,6 +352,20 @@ function renderFocus() {
   renderShockPanel();
   renderRbTime();
   renderLatencyTimePanel();
+  renderFlow();
+  positionCohortSel();
+}
+
+function positionCohortSel() {
+  const box = el("cohort-sel");
+  if (!box) return;
+  const sel = state.flowSel, m = focusXMapping();
+  if (!sel || !m) { box.style.display = "none"; return; }
+  const a = m.slotToLocal(Math.min(sel[0], sel[1])), b = m.slotToLocal(Math.max(sel[0], sel[1]));
+  box.style.left = `${a}px`;
+  box.style.width = `${Math.max(1, b - a)}px`;
+  box.style.height = `${el("focus").clientHeight}px`;
+  box.style.display = "block";
 }
 
 function renderDistribution() {
@@ -473,65 +487,40 @@ function renderFlow() {
   fig.innerHTML = "";
   const flow = DATA.flow || {};
   const links = flow.links || [];
-  panelHead("panel-flow", "Submission → inclusion (brush to link)",
-    "drag a submit-slot range · green = via RB, amber = via EB · RB shown in full, EB sampled (~"
-      + (100 * (flow.ebSampleRate || 0)).toFixed(1) + "%), so densities aren't to scale",
+  panelHead("panel-flow", "Submission → inclusion",
+    "select a submit window on the panels above · green = via RB, amber = via EB · RB in full, EB sampled (~"
+      + (100 * (flow.ebSampleRate || 0)).toFixed(1) + "%)",
     "flow.svg");
-  if (!links.length) {
-    const p = document.createElement("div");
-    p.className = "subtitle"; p.style.fontSize = "10px";
-    p.textContent = "no inclusion data in trace";
-    fig.appendChild(p);
-    return;
-  }
-  const W = focusWidth(), H = 162, ml = 58, mr = focusRight(), topY = 30, botY = H - 30;
-  const x0 = ml, x1 = W - mr, SC = DATA.meta.slotCount;
-  const sx = (slot) => x0 + (slot / SC) * (x1 - x0);
+  // shares the focus x-axis exactly (same margins + xDomain) so it aligns with the column
+  const W = focusWidth(), H = 150, ml = 44, mr = focusRight(), topY = 26, botY = H - 28;
+  const [d0, d1] = xDomain();
+  const x0 = ml, x1 = W - mr;
+  const sx = (slot) => x0 + (slot - d0) / (d1 - d0) * (x1 - x0);
   const RB = "#16a34a", EB = "#d97706", CAP = 600;
-  const svg = d3.create("svg")
-    .attr("viewBox", `0 0 ${W} ${H}`).attr("width", "100%").attr("height", H).style("color", t.text);
-  for (const [y, lab] of [[topY, "submitted"], [botY, "included"]]) {
-    svg.append("line").attr("x1", x0).attr("x2", x1).attr("y1", y).attr("y2", y).attr("stroke", t.axis);
-    svg.append("text").attr("x", x0 - 6).attr("y", y + 3).attr("font-size", 9)
-      .attr("fill", t.text).attr("text-anchor", "end").text(lab);
-  }
-  d3.range(0, SC + 1, Math.max(1, Math.ceil(SC / 8))).forEach((s) =>
-    svg.append("text").attr("x", sx(s)).attr("y", H - 6).attr("font-size", 8)
-      .attr("fill", t.axis).attr("text-anchor", "middle").text(s));
-  const arcsG = svg.append("g").attr("fill", "none");
-  const dotsG = svg.append("g");
-  const readout = svg.append("text").attr("x", x1).attr("y", 14).attr("font-size", 9)
-    .attr("fill", t.text).attr("text-anchor", "end");
-
-  function draw(lo, hi) {
-    arcsG.selectAll("*").remove(); dotsG.selectAll("*").remove();
-    let sel = links.filter((d) => d[0] >= lo && d[0] <= hi);
-    const rbN = sel.reduce((a, d) => a + (d[2] === 0 ? 1 : 0), 0), ebN = sel.length - rbN;
-    if (sel.length > CAP) { const k = Math.ceil(sel.length / CAP); sel = sel.filter((_, i) => i % k === 0); }
-    for (const d of sel) {
-      const a = sx(d[0]), b = sx(d[1]), col = d[2] === 0 ? RB : EB;
-      arcsG.append("path")
-        .attr("d", `M${a},${topY} Q${(a + b) / 2},${(topY + botY) / 2 + 18} ${b},${botY}`)
-        .attr("stroke", col).attr("stroke-width", 1).attr("stroke-opacity", 0.3);
-      dotsG.append("circle").attr("cx", b).attr("cy", botY).attr("r", 1.5).attr("fill", col);
+  const p = [
+    `<line x1="${x0}" y1="${topY}" x2="${x1}" y2="${topY}" stroke="${t.axis}"/>`,
+    `<line x1="${x0}" y1="${botY}" x2="${x1}" y2="${botY}" stroke="${t.axis}"/>`,
+    `<text x="${x0 + 2}" y="${topY - 4}" font-size="9" fill="${t.text}">submitted ↧</text>`,
+    `<text x="${x0 + 2}" y="${botY + 13}" font-size="9" fill="${t.text}">included</text>`,
+  ];
+  let note = "drag across the time panels above to pick a submit window";
+  const sel = state.flowSel;
+  if (sel && links.length) {
+    const lo = Math.min(sel[0], sel[1]), hi = Math.max(sel[0], sel[1]);
+    let win = links.filter((dd) => dd[0] >= lo && dd[0] <= hi);
+    const rbN = win.reduce((a, dd) => a + (dd[2] === 0 ? 1 : 0), 0), ebN = win.length - rbN;
+    if (win.length > CAP) { const k = Math.ceil(win.length / CAP); win = win.filter((_, i) => i % k === 0); }
+    for (const dd of win) {
+      const a = sx(dd[0]); if (a < x0 - 1 || a > x1 + 1) continue;
+      const b = sx(dd[1]), col = dd[2] === 0 ? RB : EB, cy = (topY + botY) / 2 + 18;
+      p.push(`<path d="M${a.toFixed(1)},${topY} Q${((a + b) / 2).toFixed(1)},${cy.toFixed(1)} ${b.toFixed(1)},${botY}" fill="none" stroke="${col}" stroke-width="1" stroke-opacity="0.3"/>`);
+      p.push(`<circle cx="${b.toFixed(1)}" cy="${botY}" r="1.5" fill="${col}"/>`);
     }
-    readout.text(rbN + ebN
-      ? `submitted ${Math.round(lo)}–${Math.round(hi)}: ${rbN} via RB, ${ebN} via EB (sampled)`
-      : "drag to select a submit window");
+    note = `submitted ${Math.round(lo)}–${Math.round(hi)}: ${rbN} via RB, ${ebN} via EB (sampled)`;
   }
-
-  const brush = d3.brushX().extent([[x0, topY - 8], [x1, botY + 8]])
-    .on("brush end", (ev) => {
-      if (!ev.selection) { state.flowSel = null; draw(NaN, NaN); return; }
-      const lo = (ev.selection[0] - x0) / (x1 - x0) * SC;
-      const hi = (ev.selection[1] - x0) / (x1 - x0) * SC;
-      state.flowSel = [lo, hi];
-      draw(lo, hi);
-    });
-  const bg = svg.append("g").attr("class", "brush").call(brush);
-  fig.appendChild(svg.node());
-  const def = state.flowSel || [Math.round(0.17 * SC), Math.round(0.21 * SC)];
-  bg.call(brush.move, [sx(def[0]), sx(def[1])]);
+  p.push(`<text x="${x1}" y="13" font-size="9" fill="${t.text}" text-anchor="end">${note}</text>`);
+  fig.insertAdjacentHTML("beforeend",
+    `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" style="color:${t.text}">${p.join("")}</svg>`);
 }
 
 function focusXMapping() {
@@ -557,22 +546,53 @@ function focusXMapping() {
   };
 }
 
-function setupCrosshair() {
+function setupFocusInteractions() {
+  // One column-wide interaction over all the time-aligned panels (incl. the flow panel):
+  //  - hover  -> synced crosshair line + slot readout
+  //  - drag   -> select a submit-slot window that drives the submission->inclusion panel
+  //  - click  -> clear the selection
   const focus = el("focus");
-  const line = el("crosshair");
-  const readout = el("crosshair-readout");
+  const line = el("crosshair"), readout = el("crosshair-readout"), box = el("cohort-sel");
+  let dragging = false, startSlot = null, startClientX = 0;
+  const onPlot = (target) => !target.closest("button, .legend, .panel-head");
+
+  focus.addEventListener("pointerdown", (ev) => {
+    const m = focusXMapping();
+    if (!m || !m.inRange(ev.clientX) || !onPlot(ev.target)) return;
+    ev.preventDefault();
+    dragging = true; startClientX = ev.clientX; startSlot = m.pxToSlot(ev.clientX);
+    focus.setPointerCapture && focus.setPointerCapture(ev.pointerId);
+  });
+
   focus.addEventListener("pointermove", (ev) => {
     const m = focusXMapping();
-    if (!m || !m.inRange(ev.clientX)) { line.style.display = "none"; readout.style.display = "none"; return; }
-    const slot = Math.round(m.pxToSlot(ev.clientX));
-    const localX = m.slotToLocal(slot);
-    line.style.left = `${localX}px`;
-    line.style.height = `${focus.clientHeight}px`;
-    line.style.display = "block";
-    readout.style.left = `${localX + 4}px`;
-    readout.textContent = `slot ${slot}`;
-    readout.style.display = "block";
+    if (!m) return;
+    if (m.inRange(ev.clientX)) {
+      const slot = Math.round(m.pxToSlot(ev.clientX)), lx = m.slotToLocal(slot);
+      line.style.left = `${lx}px`; line.style.height = `${focus.clientHeight}px`; line.style.display = "block";
+      readout.style.left = `${lx + 4}px`; readout.textContent = `slot ${slot}`; readout.style.display = "block";
+    } else { line.style.display = "none"; readout.style.display = "none"; }
+    if (dragging) {
+      const a = m.slotToLocal(startSlot), b = m.slotToLocal(m.pxToSlot(ev.clientX));
+      box.style.left = `${Math.min(a, b)}px`; box.style.width = `${Math.abs(b - a)}px`;
+      box.style.height = `${focus.clientHeight}px`; box.style.display = "block";
+    }
   });
+
+  focus.addEventListener("pointerup", (ev) => {
+    if (!dragging) return;
+    dragging = false;
+    const m = focusXMapping();
+    if (m && Math.abs(ev.clientX - startClientX) > 3) {
+      const end = m.pxToSlot(ev.clientX);
+      state.flowSel = [Math.min(startSlot, end), Math.max(startSlot, end)];
+    } else {
+      state.flowSel = null;   // a click (no drag) clears the selection
+    }
+    renderFlow();
+    positionCohortSel();
+  });
+
   focus.addEventListener("pointerleave", () => {
     line.style.display = "none"; readout.style.display = "none";
   });
@@ -613,16 +633,15 @@ function renderAll() {
   renderKpis();
   renderLatencyTable();
   // panels added in later tasks:
-  if (typeof renderFocus === "function") renderFocus();
+  if (typeof renderFocus === "function") renderFocus();   // includes the flow panel + cohort rect
   if (typeof renderContext === "function") renderContext();
-  if (typeof renderFlow === "function") renderFlow();
   if (typeof renderDistribution === "function") renderDistribution();
   if (typeof renderRb === "function") renderRb();
 }
 
 setupControls();
 renderAll();
-setupCrosshair();
+setupFocusInteractions();
 
 // Re-fit charts to the window when it resizes (debounced).
 let _resizeTimer;

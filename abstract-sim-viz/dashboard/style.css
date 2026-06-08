@@ -29,7 +29,9 @@ h1 { font-size: 18px; margin: 0; font-weight: 600; }
 main { display: flex; gap: 16px; align-items: flex-start; }
 .left-col { flex: 2.2; min-width: 0; }
 .right-col { flex: 1; min-width: 240px; border-left: 1px solid var(--border); padding-left: 14px; }
-.focus { position: relative; }
+.focus { position: relative; user-select: none; cursor: crosshair; }
+.cohort-sel { position: absolute; top: 0; background: rgba(99,102,241,0.12);
+  border-left: 1px solid #6366f1; border-right: 1px solid #6366f1; pointer-events: none; display: none; }
 .panel { margin: 0 0 10px 0; position: relative; }
 .panel .panel-head { display: flex; justify-content: space-between; align-items: baseline; }
 .panel h2 { font-size: 12px; font-weight: 600; margin: 4px 0 2px; }

@@ -287,7 +287,7 @@ function renderLatencyTimePanel() {
     (spb ? "median · slots (left) · expected blocks (right)" : "median · slots")
       + " · " + (state.p95Band ? "median→p95 band" : "median only"),
     "latency-time.svg",
-    "x: " + (byIncl ? "inclusion slot" : "submission slot"));
+    byIncl ? "x: production slot (by inclusion)" : "x: submission slot");
   latencyLegend("panel-latency", g);
   const items = g.items.filter((it) => !g.hidden.has(it.id));
   const marks = [Plot.gridY({ stroke: t.grid })];
@@ -305,7 +305,7 @@ function renderLatencyTimePanel() {
   const node = Plot.plot({
     width: focusWidth(), height: 190, marginLeft: 44, marginRight: focusRight(), marginBottom: 26,
     style: { color: t.text, fontSize: "11px" },
-    x: { domain: xDomain(), label: (byIncl ? "inclusion" : "submission") + " slot →" },
+    x: { domain: xDomain(), label: (byIncl ? "production" : "submission") + " slot →" },
     y: { grid: false, label: "latency (slots) ↑" },
     marks,
   });

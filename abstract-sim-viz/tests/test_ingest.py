@@ -108,6 +108,7 @@ def test_accumulator_records_value_rejected_evicted():
     acc.ingest({"tag": "TxRejected", "slot": 1, "txId": 2, "reasons": [{"tag": "MempoolFull"}]})
     acc.ingest({"tag": "TxEvicted", "slot": 2, "txId": 3, "reason": {"tag": "FeeTooLowAtSelection"}})
     assert acc.tx_value[1] == 100   # _submitted helper sets value=100
+    assert acc.tx_actor[1] == 0     # _submitted helper sets actorId=0
     assert acc.rejected == {2}
     assert acc.evicted == {3}
 

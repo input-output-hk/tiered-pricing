@@ -34,6 +34,7 @@ class Accumulator:
         self.submitted_at = {}              # txId -> submit slot
         self.tx_meta = {}                   # txId -> {"tag", "rate", "lane"}
         self.tx_value = {}                  # txId -> value (lovelace), for retained/lost value
+        self.tx_actor = {}                  # txId -> actorId, for fairness (per-actor inclusion)
         self.included_at = {}               # txId -> inclusion slot
         self.included_route = {}            # txId -> "IncludedInRb" | "IncludedInEb"
         self.rejected = set()               # txIds rejected at admission (mempool full)
@@ -65,6 +66,7 @@ class Accumulator:
                 "lane": tx["lane"],
             }
             self.tx_value[tx_id] = tx.get("value")
+            self.tx_actor[tx_id] = event.get("actorId")
             self.submissions_per_slot[tx["submitted"]] += 1
         elif tag == "TxIncluded":
             self.included_at[event["txId"]] = slot

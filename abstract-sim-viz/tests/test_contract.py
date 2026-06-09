@@ -120,6 +120,11 @@ def test_build_sim_data_structure_and_values():
     assert v["total"] == 1 and v["retained"] == 1 and v["lost"] == 0
     assert round(v["retainedPct"]) == 100
 
+    # fairness: one actor (0), its one tx included -> perfectly fair, none starved
+    fr = data["fairness"]
+    assert fr["nActors"] == 1 and fr["jainIndex"] == 1.0 and fr["starvedTxs"] == 0
+    assert fr["actors"] == [{"id": 0, "submitted": 1, "included": 1, "rate": 1.0}]
+
 
 def test_blocks_section_counts_rb_tx_vs_cert():
     acc = Accumulator()

@@ -137,6 +137,37 @@ def build_value(acc, lanes, classes, f):
     return {"byLane": by_lane, "byClass": by_class, "byClassLane": by_class_lane}
 
 
+def build_fairness(acc):
+    """Metric (7): fairness/starvation, mirroring Metrics.Fairness.
+    fairnessIndex = Jain's index over per-actor inclusion counts; starvedTxs =
+    admitted (submitted - rejected) but never included or evicted."""
+    sub_by_actor, inc_by_actor = {}, {}
+    for tx_id, a in acc.tx_actor.items():
+        if a is None:
+            continue
+        sub_by_actor[a] = sub_by_actor.get(a, 0) + 1
+        if tx_id in acc.included_at:
+            inc_by_actor[a] = inc_by_actor.get(a, 0) + 1
+    actors = sorted(sub_by_actor)
+    counts = [inc_by_actor.get(a, 0) for a in actors]
+    s, ss, n = sum(counts), sum(c * c for c in counts), len(counts)
+    jain = (s * s) / (n * ss) if (n and ss) else 1.0
+    starved = sum(
+        1 for tx_id in acc.tx_meta
+        if tx_id not in acc.included_at and tx_id not in acc.evicted and tx_id not in acc.rejected
+    )
+    return {
+        "jainIndex": jain,
+        "nActors": n,
+        "starvedTxs": starved,
+        "actors": [
+            {"id": a, "submitted": sub_by_actor[a], "included": inc_by_actor.get(a, 0),
+             "rate": (inc_by_actor.get(a, 0) / sub_by_actor[a]) if sub_by_actor[a] else 0.0}
+            for a in actors
+        ],
+    }
+
+
 def build_flow_sample(acc, cap=15000, seed=0):
     """Per-tx submission->inclusion links for the brush-to-link panel, as compact
     [submitSlot, inclusionSlot, routeCode (0=RB,1=EB), laneCode (0=Standard,1=Priority)].
@@ -251,6 +282,7 @@ def build_sim_data(acc, params=None, target_buckets=300, source="events.jsonl", 
         "flow": build_flow_sample(acc),
         "fate": build_fate(acc, lanes, classes),
         "value": build_value(acc, lanes, classes, f),
+        "fairness": build_fairness(acc),
         "blocks": {
             "rbTotal": acc.rb_count,
             "rbWithTxs": acc.rb_tx_count,     # RBs carrying transactions (PraosBlock)

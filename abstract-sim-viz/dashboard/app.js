@@ -518,6 +518,36 @@ function renderValue() {
     "% of value");
 }
 
+function renderFairness() {
+  const t = theme();
+  const fig = el("panel-fairness");
+  fig.innerHTML = "";
+  const F = DATA.fairness || { jainIndex: 1, nActors: 0, starvedTxs: 0, actors: [] };
+  panelHead("panel-fairness", "Fairness / starvation",
+    "Jain index over per-actor inclusion · starved = admitted but never included", "fairness.svg");
+  const head = document.createElement("div");
+  head.className = "subtitle"; head.style.fontSize = "11px"; head.style.margin = "2px 0 4px";
+  head.innerHTML =
+    `<div><b>Jain index ${F.jainIndex.toFixed(3)}</b> over ${F.nActors} actor${F.nActors === 1 ? "" : "s"}</div>`
+    + `<div><span style="color:#ef4444">${(F.starvedTxs || 0).toLocaleString()}</span> transactions starved`
+    + ` <span class="muted">(admitted to the mempool but never included)</span></div>`;
+  fig.appendChild(head);
+  const rows = (F.actors || []).slice().sort((a, b) => a.rate - b.rate)
+    .map((a) => ({ label: `actor ${a.id}`, rate: a.rate }));
+  const node = Plot.plot({
+    width: focusWidth(), height: 24 + 22 * Math.max(1, rows.length),
+    marginLeft: 60, marginRight: 8, marginTop: 4, marginBottom: 24,
+    style: { color: t.text, fontSize: "11px" },
+    x: { domain: [0, 1], percent: true, label: "inclusion rate" },
+    y: { domain: rows.map((r) => r.label), label: null },
+    marks: [
+      Plot.barX(rows, { y: "label", x: "rate", fill: "#2563eb", fillOpacity: 0.6 }),
+      Plot.ruleX([0, 1], { stroke: t.grid }),
+    ],
+  });
+  fig.appendChild(node);
+}
+
 const LOAD_DIMS = { width: 760, height: 70, marginLeft: 44, marginRight: 12, marginTop: 6, marginBottom: 18 };
 
 function renderContext() {
@@ -755,6 +785,7 @@ function renderAll() {
   if (typeof renderRb === "function") renderRb();
   if (typeof renderFate === "function") renderFate();
   if (typeof renderValue === "function") renderValue();
+  if (typeof renderFairness === "function") renderFairness();
 }
 
 setupControls();

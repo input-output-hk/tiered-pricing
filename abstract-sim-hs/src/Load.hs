@@ -5,6 +5,7 @@ import Types (SlotNo (..))
 data ArrivalProcess
   = ConstantLoad Double
   | BurstLoad [Burst]
+  deriving stock (Eq, Show)
 
 moderateLoad :: ArrivalProcess
 moderateLoad = ConstantLoad 2.0
@@ -44,6 +45,7 @@ data Burst = Burst
   , burstEnd :: SlotNo
   , burstEffect :: BurstEffect
   }
+  deriving stock (Eq, Show)
 
 data BurstEffect = BurstEffect
   { valueMultiplier :: Double

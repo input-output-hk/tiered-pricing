@@ -2,45 +2,46 @@ module Design where
 
 import Types (Duration)
 
-data Design (s :: LaneStructure) = Design
-  { designLaneStructure :: SLaneStructure s
-  , designPricing :: LanePricing s
-  , designReservationPolicy :: ReservationPolicy s
-  , designSelection :: SelectionPolicy s
+data Design = Design
+  { designLaneStructure :: LaneStructure
+  , designPricing :: LanePricing
+  , designReservationPolicy :: ReservationPolicy
+  , designSelection :: SelectionPolicy
   , designFeeSemantics :: FeeSemantics
-  , designControllers :: ControllerConfig s
+  , designControllers :: ControllerConfig
   }
+  deriving stock (Eq, Show)
 
-data SelectionPolicy s where
-  Fifo :: SelectionPolicy s
-  PriorityFirst :: SelectionPolicy 'Two
-  FifoWithStandardCap :: Double -> SelectionPolicy 'Two
+data SelectionPolicy
+  = Fifo
+  | PriorityFirst
+  | FifoWithStandardCap Double
+  deriving stock (Eq, Show)
 
 data FeeSemantics
   = FixedFee
   | Eip1559 -- User submits max fee they're willing to pay, node refunds difference,
   | HonourSubmissionQuoteFor Duration
+  deriving stock (Eq, Show)
 
-data ReservationPolicy (s :: LaneStructure) where
-  PriorityReservationRb :: Int -> ReservationPolicy 'Two
-  NoReservation :: ReservationPolicy s
+data ReservationPolicy
+  = PriorityReservationRb Int
+  | NoReservation
+  deriving stock (Eq, Show)
 
 data LaneStructure = One | Two deriving stock (Eq, Show)
 
-data SLaneStructure (s :: LaneStructure) where
-  SOne :: SLaneStructure 'One
-  STwo :: SLaneStructure 'Two
+data LanePricing
+  = NoDynamic
+  | StandardOnlyDynamic
+  | PriorityOnlyDynamic
+  | BothDynamic
+  deriving stock (Eq, Show)
 
-data LanePricing (s :: LaneStructure) where
-  NoDynamic :: LanePricing s
-  StandardOnlyDynamic :: LanePricing s
-  PriorityOnlyDynamic :: LanePricing 'Two
-  BothDynamic :: LanePricing 'Two
-
-defaultDesign :: Design 'Two
+defaultDesign :: Design
 defaultDesign =
   Design
-    { designLaneStructure = STwo
+    { designLaneStructure = Two
     , designPricing = BothDynamic
     , designReservationPolicy = PriorityReservationRb 90_112
     , designSelection = Fifo
@@ -54,19 +55,22 @@ data Eip1559Controller = Eip1559Controller
   , controllerInitialCoefficient :: Double
   , controllerSignal :: ControllerSignal
   }
+  deriving stock (Eq, Show)
 
 data ControllerSignal
   = CapacityWeightedWindow Int
   | PriorityReservationUtil
+  deriving stock (Eq, Show)
 
-data ControllerConfig s = ControllerConfig
+data ControllerConfig = ControllerConfig
   { standardController :: Maybe Eip1559Controller
   , priorityController :: Maybe Eip1559Controller
   , multiplierFloor :: Maybe Double
   , absoluteCoeffFloor :: Double
   }
+  deriving stock (Eq, Show)
 
-defaultControllerConfig :: ControllerConfig 'Two
+defaultControllerConfig :: ControllerConfig
 defaultControllerConfig =
   ControllerConfig
     { standardController =

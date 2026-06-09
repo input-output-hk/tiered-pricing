@@ -18,6 +18,8 @@ build-type:     Simple
 extra-source-files:
     README.md
     CHANGELOG.md
+    config/default-design.json
+    config/default-sim-config.json
 
 source-repository head
   type: git
@@ -47,6 +49,7 @@ library
       Metrics.Throughput
       Metrics.Types
       Metrics.Value
+      Parser
       Pricing
       Result
       Run

@@ -3,7 +3,7 @@
 
 module Sim where
 
-import Actor (Actor (Actor, _actorId), ActorId (..), ActorProfile (..), TxSubmission (TxSubmission), defaultHonestPolicy, generateTransaction)
+import Actor (Actor (..), TxSubmission (TxSubmission), generateTransaction)
 import Block (BlockSummary (..), EbId (..), EndorserBlock (..), InclusionPoint (..), PendingEb (..), RankingBlock (..), mkEndorserBlockSummary, mkRankingBlockSummary, selectByBlockCapacity, selectPriorityByBlockCapacity, selectedTxBodies)
 import Chain (Chain (..), emptyChain)
 import Config (SimConfig (..))
@@ -19,7 +19,7 @@ import Data.Maybe (catMaybes, mapMaybe)
 import Data.Sequence (Seq, singleton, (<|), (><), (|>))
 import Data.Sequence qualified as Seq
 import Data.Set qualified as Set
-import Design (ControllerConfig (..), ControllerSignal (..), Design (..), Eip1559Controller (..), LaneStructure (Two), ReservationPolicy (..))
+import Design (ControllerConfig (..), ControllerSignal (..), Design (..), Eip1559Controller (..), ReservationPolicy (..))
 import Event (SimEvent (..))
 import Load (arrivalRateAt, tryBurstEffectAt)
 import Mempool (Mempool (..), admitToMempool, emptyMempool, removeFromMempool, setMempoolTxIds)
@@ -41,8 +41,8 @@ data SimSt = SimSt
   , _simRecentBlocks :: Seq BlockSummary
   }
 
-newtype SimM s a = SimM {unSimM :: ReaderT (SimConfig s) (State SimSt) a}
-  deriving newtype (Functor, Applicative, Monad, MonadReader (SimConfig s), MonadState SimSt)
+newtype SimM a = SimM {unSimM :: ReaderT SimConfig (State SimSt) a}
+  deriving newtype (Functor, Applicative, Monad, MonadReader SimConfig, MonadState SimSt)
 
 data AdmissionCheck a
   = AdmissionRejected (NonEmpty RejectReason)
@@ -60,18 +60,18 @@ instance Applicative AdmissionCheck where
   AdmissionRejected reasons <*> AdmissionAccepted _ = AdmissionRejected reasons
   AdmissionAccepted _ <*> AdmissionRejected reasons = AdmissionRejected reasons
 
-runSim :: Seq SimEvent -> Int -> SimM 'Two (Seq SimEvent)
+runSim :: Seq SimEvent -> Int -> SimM (Seq SimEvent)
 runSim events 0 = pure events
 runSim events numSlots = do
   simEvents <- step
   runSim (events >< simEvents) (numSlots - 1)
 
-initSimSt :: SimConfig s -> StdGen -> SimSt
+initSimSt :: SimConfig -> StdGen -> SimSt
 initSimSt conf rng =
   SimSt
     { _simChain = emptyChain
     , _simMempool = emptyMempool
-    , _simActors = [Actor (Honest defaultHonestPolicy) (ActorId 0), Actor (Honest defaultHonestPolicy) (ActorId 1)]
+    , _simActors = conf.simConfigActors
     , _simEbs = mempty
     , _simPendingEb = Nothing
     , _simTxs = mempty
@@ -81,7 +81,7 @@ initSimSt conf rng =
     , _simRecentBlocks = mempty
     }
 
-step :: SimM s (Seq SimEvent)
+step :: SimM (Seq SimEvent)
 step = do
   txs <- actorStep
   submittedEvents <- traverse admitTxSubmission txs
@@ -94,12 +94,12 @@ step = do
   advanceSlot
   pure (join (Seq.fromList submittedEvents) <> blockEvents <> priceEvents)
 
-calculateFee :: Tx -> SimM s Lovelace
+calculateFee :: Tx -> SimM Lovelace
 calculateFee tx = do
   prices <- gets _simPrices
   pure (quotedFee prices tx)
 
-admitTxSubmission :: TxSubmission -> SimM s (Seq SimEvent)
+admitTxSubmission :: TxSubmission -> SimM (Seq SimEvent)
 admitTxSubmission (TxSubmission actorId tx) = do
   simSt <- get
   requiredFee <- calculateFee tx
@@ -139,7 +139,7 @@ checkMempoolBytes mempoolBytesCap mempool tx
 reject :: RejectReason -> AdmissionCheck ()
 reject reason = AdmissionRejected (reason :| [])
 
-actorStep :: SimM s [TxSubmission]
+actorStep :: SimM [TxSubmission]
 actorStep = do
   slot <- gets _simSlot
   load <- asks simConfigLoad
@@ -155,13 +155,13 @@ actorStep = do
     txSample <- drawTxSample
     pure (TxSubmission actor._actorId <$> generateTransaction f slot actor prices latencyEstimate curves txSample burstEffect)
 
-pickActor :: [Actor] -> SimM s Actor
+pickActor :: [Actor] -> SimM Actor
 pickActor [] = error "pickActor: no actors configured"
 pickActor actors = do
   i <- draw (uniformR (0, length actors - 1))
   pure (actors !! i)
 
-priceStep :: SimM s (Seq SimEvent)
+priceStep :: SimM (Seq SimEvent)
 priceStep = do
   design <- asks simConfigDesign
   recentBlocks <- gets _simRecentBlocks
@@ -171,7 +171,7 @@ priceStep = do
   modify' \st -> st{_simPrices = newPrices}
   pure $ Seq.fromList (fmap (priceUpdateEvent slot) updates)
 
-recordBlockEvents :: Seq SimEvent -> SimM s ()
+recordBlockEvents :: Seq SimEvent -> SimM ()
 recordBlockEvents events =
   case blockSummaries events of
     Seq.Empty -> pure ()
@@ -186,7 +186,7 @@ controllers consume it, and none looks past its largest window, so we keep
 exactly that many summaries and drop the rest to bound memory and the
 per-update scan cost.
 -}
-retentionWindow :: Design s -> Int
+retentionWindow :: Design -> Int
 retentionWindow design =
   maximum (1 : concatMap controllerWindow [controllers.standardController, controllers.priorityController])
  where
@@ -218,18 +218,18 @@ priceUpdateEvent slot update =
     update.priceUpdateNewCoeff
     update.priceUpdateUtilisation
 
-advanceSlot :: SimM s ()
+advanceSlot :: SimM ()
 advanceSlot = modify' \st ->
   st{_simSlot = addDuration (Duration 1) st._simSlot}
 
-sampleArrivalCount :: Double -> SimM s Int
+sampleArrivalCount :: Double -> SimM Int
 sampleArrivalCount rate = do
   let whole = floor rate
       frac = rate - fromIntegral whole
   extra <- roll frac
   pure (whole + if extra then 1 else 0)
 
-drawTxSample :: SimM s TxSample
+drawTxSample :: SimM TxSample
 drawTxSample =
   TxSample
     <$> draw (uniformR (0, 1))
@@ -238,32 +238,32 @@ drawTxSample =
     <*> draw (uniformR (0, 1))
     <*> draw (uniformR (0, 1))
 
-draw :: (StdGen -> (a, StdGen)) -> SimM s a
+draw :: (StdGen -> (a, StdGen)) -> SimM a
 draw f = do
   g <- gets _simRng
   let (x, g') = f g
   modify' \s -> s{_simRng = g'}
   pure x
 
-roll :: Double -> SimM s Bool
+roll :: Double -> SimM Bool
 roll p = (< p) <$> draw (uniformR (0, 1))
 
-drawCurve :: Curve -> SimM s Double
+drawCurve :: Curve -> SimM Double
 drawCurve c = sampleCurve c <$> draw (uniformR (0, 1))
 
-rollRbProduction :: SimM s Bool
+rollRbProduction :: SimM Bool
 rollRbProduction = do
   f <- asks simConfigF
   roll f
 
-blockStep :: SimM s (Seq SimEvent)
+blockStep :: SimM (Seq SimEvent)
 blockStep = do
   produceRb <- rollRbProduction
   if produceRb
     then produceRankingBlock
     else pure mempty
 
-produceRankingBlock :: SimM s (Seq SimEvent)
+produceRankingBlock :: SimM (Seq SimEvent)
 produceRankingBlock = do
   pendingEb <- gets _simPendingEb
   rbTxBytesCap <- asks simConfigRbTxBytesCap
@@ -286,12 +286,12 @@ produceRankingBlock = do
   pure (rbEvents >< ebEvents)
  where
   -- P(EB certifies) = (1 - f)^(D - 1)
-  ebCertifiedAt :: SlotNo -> PendingEb -> SimM s Bool
+  ebCertifiedAt :: SlotNo -> PendingEb -> SimM Bool
   ebCertifiedAt slot pending = do
     d <- asks simConfigD
     pure (diffSlots slot pending.pendingEbAnnounced >= Duration d)
 
-  appendRankingBlock :: SlotNo -> RankingBlock -> SimM s ()
+  appendRankingBlock :: SlotNo -> RankingBlock -> SimM ()
   appendRankingBlock slot block =
     modify' \st ->
       st
@@ -301,7 +301,7 @@ produceRankingBlock = do
               , _chainTip = Just slot
               }
         }
-  certifyPendingEb :: SlotNo -> Int -> Int -> Map TxId Tx -> PendingEb -> Mempool -> SimM s (Mempool, Seq SimEvent)
+  certifyPendingEb :: SlotNo -> Int -> Int -> Map TxId Tx -> PendingEb -> Mempool -> SimM (Mempool, Seq SimEvent)
   certifyPendingEb slot rbPriorityTxBytesCap rbExUnitsCap simTxs pending mempool = do
     ebTxBytesCap <- asks simConfigEbTxBytesCap
     ebExUnitsCap <- asks simConfigEbExUnitsCap
@@ -332,7 +332,7 @@ produceRankingBlock = do
     modify' \st -> st{_simMempool = mempool'}
     pure (mempool', events)
 
-  producePraosBlock :: Design s -> SlotNo -> Int -> Int -> Map TxId Tx -> Mempool -> SimM s (Mempool, Seq SimEvent)
+  producePraosBlock :: Design -> SlotNo -> Int -> Int -> Map TxId Tx -> Mempool -> SimM (Mempool, Seq SimEvent)
   producePraosBlock design slot rbTxBytesCap rbExUnitsCap simTxs mempool = do
     prices <- gets _simPrices
     let (feeCheckedMempool, evictionEvents) =
@@ -354,7 +354,7 @@ produceRankingBlock = do
     pure (mempool', evictionEvents >< Seq.fromList events)
 
   selectRankingBlockTxs ::
-    Design s ->
+    Design ->
     Int ->
     Int ->
     Map TxId Tx ->
@@ -371,13 +371,13 @@ produceRankingBlock = do
       NoReservation ->
         selectByBlockCapacity rbTxBytesCap rbExUnitsCap simTxs mempool
 
-  priorityTxBytesCap :: Design s -> Int -> Int
+  priorityTxBytesCap :: Design -> Int -> Int
   priorityTxBytesCap design rbTxBytesCap =
     case design.designReservationPolicy of
       PriorityReservationRb reservationBytes -> min rbTxBytesCap reservationBytes
       NoReservation -> rbTxBytesCap
 
-  announceEndorserBlock :: SlotNo -> Int -> Int -> Map TxId Tx -> Mempool -> SimM s (Seq SimEvent)
+  announceEndorserBlock :: SlotNo -> Int -> Int -> Map TxId Tx -> Mempool -> SimM (Seq SimEvent)
   announceEndorserBlock slot rbPriorityTxBytesCap rbExUnitsCap simTxs mempool = do
     ebTxBytesCap <- asks simConfigEbTxBytesCap
     ebExUnitsCap <- asks simConfigEbExUnitsCap

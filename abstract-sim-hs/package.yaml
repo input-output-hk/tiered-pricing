@@ -9,6 +9,8 @@ copyright:           "2026 Author name here"
 extra-source-files:
 - README.md
 - CHANGELOG.md
+- config/default-design.json
+- config/default-sim-config.json
 
 # Metadata used when publishing your package
 # synopsis:            Short description of your package

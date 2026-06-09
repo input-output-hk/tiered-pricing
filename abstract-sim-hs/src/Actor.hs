@@ -5,7 +5,6 @@ module Actor (
   ActorPolicy (..),
   LaneLatencyEstimate (..),
   TxSubmission (..),
-  defaultHonestPolicy,
   generateTransaction,
 ) where
 
@@ -43,13 +42,6 @@ data LaneLatencyEstimate = LaneLatencyEstimate
   , expectedPriorityLatency :: Duration
   }
   deriving (Eq, Show)
-
-defaultHonestPolicy :: ActorPolicy
-defaultHonestPolicy =
-  ActorPolicy
-    { actorFeeBuffer = 1.10
-    , actorMinValueFeeMultiple = 1.0
-    }
 
 data TxSubmission = TxSubmission {submissionActor :: ActorId, submissionTx :: Tx}
 

@@ -1,11 +1,11 @@
-module Pricing
-  ( Prices (..)
-  , PriceUpdate (..)
-  , initialPrices
-  , quotedFee
-  , quotedFeeFor
-  , updatePrices
-  )
+module Pricing (
+  Prices (..),
+  PriceUpdate (..),
+  initialPrices,
+  quotedFee,
+  quotedFeeFor,
+  updatePrices,
+)
 where
 
 import Block (BlockSummary (..), EndorserBlockSummary (..), RankingBlock (..), RankingBlockSummary (..))
@@ -30,7 +30,7 @@ data PriceUpdate = PriceUpdate
   }
   deriving stock (Eq, Show)
 
-initialPrices :: Design s -> Prices
+initialPrices :: Design -> Prices
 initialPrices design =
   applyPriceFloors
     controllers
@@ -64,7 +64,7 @@ minFeeA = 44
 minFeeB :: Integer
 minFeeB = 155_381
 
-updatePrices :: Design s -> Seq BlockSummary -> Prices -> (Prices, [PriceUpdate])
+updatePrices :: Design -> Seq BlockSummary -> Prices -> (Prices, [PriceUpdate])
 updatePrices design recentBlocks prices =
   (finalPrices, updates)
  where
@@ -89,11 +89,11 @@ updatePrices design recentBlocks prices =
   withFinalFloor update =
     update{priceUpdateNewCoeff = laneCoeff finalPrices update.priceUpdateLane}
 
-applyPriceFloors :: ControllerConfig s -> Prices -> Prices
+applyPriceFloors :: ControllerConfig -> Prices -> Prices
 applyPriceFloors controllers =
   applyMultiplierFloor controllers . applyAbsoluteFloor controllers
 
-applyAbsoluteFloor :: ControllerConfig s -> Prices -> Prices
+applyAbsoluteFloor :: ControllerConfig -> Prices -> Prices
 applyAbsoluteFloor controllers prices =
   prices
     { standardCoeff = max floorCoeff prices.standardCoeff
@@ -102,7 +102,7 @@ applyAbsoluteFloor controllers prices =
  where
   floorCoeff = max 0 controllers.absoluteCoeffFloor
 
-applyMultiplierFloor :: ControllerConfig s -> Prices -> Prices
+applyMultiplierFloor :: ControllerConfig -> Prices -> Prices
 applyMultiplierFloor controllers prices =
   case (controllers.priorityController, controllers.multiplierFloor) of
     (Just _, Just floorMultiplier) ->
@@ -114,7 +114,7 @@ applyMultiplierFloor controllers prices =
         }
     _ -> prices
 
-updateLanePrice :: Design s -> Lane -> Seq BlockSummary -> Double -> Eip1559Controller -> PriceUpdate
+updateLanePrice :: Design -> Lane -> Seq BlockSummary -> Double -> Eip1559Controller -> PriceUpdate
 updateLanePrice design lane recentBlocks oldCoeff controller =
   PriceUpdate
     { priceUpdateLane = lane
@@ -125,7 +125,7 @@ updateLanePrice design lane recentBlocks oldCoeff controller =
  where
   utilisationValue = controllerUtilisation design lane recentBlocks controller
 
-controllerUtilisation :: Design s -> Lane -> Seq BlockSummary -> Eip1559Controller -> Double
+controllerUtilisation :: Design -> Lane -> Seq BlockSummary -> Eip1559Controller -> Double
 controllerUtilisation design lane recentBlocks controller =
   case controller.controllerSignal of
     CapacityWeightedWindow windowSize ->
@@ -154,7 +154,7 @@ capacityWeightedWindowUtilisation lane windowSize recentBlocks =
   laneUsed (EndorserBlockCertified _) =
     0
 
-priorityReservationUtilisation :: Design s -> Seq BlockSummary -> Double
+priorityReservationUtilisation :: Design -> Seq BlockSummary -> Double
 priorityReservationUtilisation _ recentBlocks =
   mean (takeLast 1 (mapMaybe prioritySignalSample (Foldable.toList recentBlocks)))
  where
@@ -225,7 +225,7 @@ utilisationRatio used capacity
   totalUsed = sum used
   totalCapacity = sum capacity
 
-takeLast :: Foldable f => Int -> f a -> [a]
+takeLast :: (Foldable f) => Int -> f a -> [a]
 takeLast n xs =
   drop (length ys - n) ys
  where
@@ -235,6 +235,6 @@ mean :: [Double] -> Double
 mean [] = 0
 mean xs = sum xs / fromIntegral (length xs)
 
-clamp :: Ord a => a -> a -> a -> a
+clamp :: (Ord a) => a -> a -> a -> a
 clamp lo hi =
   min hi . max lo

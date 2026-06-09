@@ -1,15 +1,16 @@
 module Run where
 
-import Config (SimConfig (..), simConfigDefault)
+import Config (SimConfig (..))
 import Control.Monad (foldM)
 import Control.Monad.Reader (runReaderT)
 import Control.Monad.State.Strict (runState)
 import Data.Aeson (encode, object, (.=))
 import Data.ByteString.Lazy qualified as BL
 import Data.Foldable (Foldable (toList))
-import Design (Design, LaneStructure (Two))
+import Design (Design)
 import Event (SimEvent)
 import Metrics (MetricsAcc, MetricsConfig (..), emptyMetricsAcc, finalizeMetrics, recordMetricsEvents)
+import Parser (parseSimConfig)
 import Result (Result (..))
 import Sim (SimM, initSimSt, step, unSimM)
 import System.IO (Handle, IOMode (WriteMode), withFile)
@@ -20,59 +21,61 @@ run = run'
 
 run' :: IO ()
 run' = do
-  runResult <- runWithSeedToFile "events.jsonl" 0 2000
+  config <- parseSimConfig defaultSimConfigPath
+  runResult <- runWithSeedToFile config "events.jsonl" 0 2000
   print runResult._runResult
 
-runWithSeed :: Seed -> Int -> Run 'Two
-runWithSeed seed slots =
+defaultSimConfigPath :: FilePath
+defaultSimConfigPath = "config/default-sim-config.json"
+
+runWithSeed :: SimConfig -> Seed -> Int -> Run
+runWithSeed config seed slots =
   Run
     { _runResult = Result [finalizeMetrics metricsConfig slots metricsAcc]
-    , _runDesign = simConfigDefault.simConfigDesign
+    , _runDesign = config.simConfigDesign
     , _runSeed = seed
     }
  where
-  metricsConfig =
-    MetricsConfig
-      { metricsLoad = simConfigDefault.simConfigLoad
-      , metricsPriceConvergenceBandPct = simConfigDefault.simConfigPriceConvergenceBandPct
-      , metricsLoadChangePct = simConfigDefault.simConfigLoadChangePct
-      }
-  st = initSimSt simConfigDefault (mkStdGen (fromInteger seed))
+  metricsConfig = metricsConfigFrom config
+  st = initSimSt config (mkStdGen (fromInteger seed))
   (metricsAcc, _st') =
     runState
-      (runReaderT (unSimM (runMetrics slots)) simConfigDefault)
+      (runReaderT (unSimM (runMetrics slots)) config)
       st
 
-runWithSeedToFile :: FilePath -> Seed -> Int -> IO (Run 'Two)
-runWithSeedToFile eventsPath seed slots = do
-  let st = initSimSt simConfigDefault (mkStdGen (fromInteger seed))
+runWithSeedToFile :: SimConfig -> FilePath -> Seed -> Int -> IO Run
+runWithSeedToFile config eventsPath seed slots = do
+  let st = initSimSt config (mkStdGen (fromInteger seed))
   (metricsAcc, _st') <-
     withFile eventsPath WriteMode \handle ->
       runTrace handle slots emptyMetricsAcc 0 st
   pure
     Run
       { _runResult = Result [finalizeMetrics metricsConfig slots metricsAcc]
-      , _runDesign = simConfigDefault.simConfigDesign
+      , _runDesign = config.simConfigDesign
       , _runSeed = seed
       }
  where
-  metricsConfig =
-    MetricsConfig
-      { metricsLoad = simConfigDefault.simConfigLoad
-      , metricsPriceConvergenceBandPct = simConfigDefault.simConfigPriceConvergenceBandPct
-      , metricsLoadChangePct = simConfigDefault.simConfigLoadChangePct
-      }
+  metricsConfig = metricsConfigFrom config
 
   runTrace handle slotsRemaining metricsAcc nextEventNo simSt
     | slotsRemaining <= 0 = pure (metricsAcc, simSt)
     | otherwise = do
         let (events, simSt') =
               runState
-                (runReaderT (unSimM step) simConfigDefault)
+                (runReaderT (unSimM step) config)
                 simSt
             metricsAcc' = recordMetricsEvents metricsAcc events
         nextEventNo' <- writeTraceEvents handle nextEventNo (toList events)
         runTrace handle (slotsRemaining - 1) metricsAcc' nextEventNo' simSt'
+
+metricsConfigFrom :: SimConfig -> MetricsConfig
+metricsConfigFrom config =
+  MetricsConfig
+    { metricsLoad = config.simConfigLoad
+    , metricsPriceConvergenceBandPct = config.simConfigPriceConvergenceBandPct
+    , metricsLoadChangePct = config.simConfigLoadChangePct
+    }
 
 writeTraceEvents :: Handle -> Int -> [SimEvent] -> IO Int
 writeTraceEvents handle firstEventNo events =
@@ -91,7 +94,7 @@ writeTraceEvents handle firstEventNo events =
     BL.hPut handle "\n"
     pure (eventNo + 1)
 
-runMetrics :: Int -> SimM 'Two MetricsAcc
+runMetrics :: Int -> SimM MetricsAcc
 runMetrics slots =
   foldM stepMetricsAcc emptyMetricsAcc [1 .. slots]
  where
@@ -99,9 +102,9 @@ runMetrics slots =
     events <- step
     pure (recordMetricsEvents acc events)
 
-data Run (s :: LaneStructure) = Run -- To be derived from config
+data Run = Run
   { _runResult :: Result
-  , _runDesign :: Design s
+  , _runDesign :: Design
   , _runSeed :: Seed
   }
 

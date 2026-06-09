@@ -34,12 +34,16 @@ clamp :: Double -> Double -> Double -> Double
 clamp lo hi = min hi . max lo
 
 newtype TxSizeCurve = TxSizeCurve Curve
+  deriving stock (Eq, Show)
 
 newtype ScriptSizeCurve = ScriptSizeCurve Curve
+  deriving stock (Eq, Show)
 
 newtype ExUnitsCurve = ExUnitsCurve Curve
+  deriving stock (Eq, Show)
 
 newtype TxValueCurve = TxValueCurve Curve
+  deriving stock (Eq, Show)
 
 data Curves = Curves
   { curveTxSize :: TxSizeCurve
@@ -47,6 +51,7 @@ data Curves = Curves
   , curveExUnits :: ExUnitsCurve
   , curveTxValue :: TxValueCurve
   }
+  deriving stock (Eq, Show)
 
 txSizeCurveDefault :: TxSizeCurve
 txSizeCurveDefault = TxSizeCurve recentMainnetTxSize

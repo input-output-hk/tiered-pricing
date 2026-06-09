@@ -1,0 +1,57 @@
+{
+  "design": {
+    "laneStructure": "two",
+    "pricing": "both-dynamic",
+    "reservationPolicy": {
+      "type": "priority-reservation-rb",
+      "bytes": 90112
+    },
+    "selection": "fifo",
+    "feeSemantics": "eip1559",
+    "controllers": {
+      "standardController": {
+        "targetUtilisation": 0.5,
+        "maxChangeDenominator": 8,
+        "initialCoefficient": 1.0,
+        "signal": {
+          "type": "capacity-weighted-window",
+          "window": 20
+        }
+      },
+      "priorityController": {
+        "targetUtilisation": 0.5,
+        "maxChangeDenominator": 8,
+        "initialCoefficient": 16.0,
+        "signal": "priority-reservation-util"
+      },
+      "multiplierFloor": null,
+      "absoluteCoeffFloor": 1.0
+    }
+  },
+  "curves": "default",
+  "f": 0.05,
+  "D": 13,
+  "load": "severe-congestion",
+  "actors": [
+    {
+      "count": 2,
+      "profile": {
+        "type": "honest",
+        "feeBuffer": 1.1,
+        "minValueFeeMultiple": 1.0
+      }
+    }
+  ],
+  "rbTxBytesCap": 90112,
+  "rbExUnitsCap": 96991334,
+  "ebTxBytesCap": 12000000,
+  "ebStructureBytesCap": 512000,
+  "ebExUnitsCap": 9499133448,
+  "mempoolBytesCap": 24000000,
+  "laneLatencyEstimate": {
+    "expectedStandardLatency": 50,
+    "expectedPriorityLatency": 25
+  },
+  "priceConvergenceBandPct": 0.05,
+  "loadChangePct": 0.1
+}

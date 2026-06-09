@@ -12,6 +12,7 @@ module Actor (
 import Curve (Curves (..), ExUnitsCurve (..), ScriptSizeCurve (..), TxSizeCurve (..), TxValueCurve (..), sampleCurve)
 import Data.Aeson (ToJSON (..))
 import Data.Set qualified as Set
+import Load (BurstEffect (..))
 import Pricing (Prices, quotedFeeFor)
 import Transaction (Lane (..), Script (..), Tx (..), TxBody (..), TxSample (..), hash, retainedValueFor)
 import Types (Duration, Lovelace (Lovelace), SlotNo, Urgency (..), expectedBlockDelay)
@@ -52,8 +53,8 @@ defaultHonestPolicy =
 
 data TxSubmission = TxSubmission {submissionActor :: ActorId, submissionTx :: Tx}
 
-generateTransaction :: Double -> SlotNo -> Actor -> Prices -> LaneLatencyEstimate -> Curves -> TxSample -> Maybe Tx
-generateTransaction f slot (Actor (Honest policy) _) prices latencyEstimate (Curves{..}) (TxSample{..}) = do
+generateTransaction :: Double -> SlotNo -> Actor -> Prices -> LaneLatencyEstimate -> Curves -> TxSample -> Maybe BurstEffect -> Maybe Tx
+generateTransaction f slot (Actor (Honest policy) _) prices latencyEstimate (Curves{..}) (TxSample{..}) burstEffect = do
   lane <- chooseLane policy f latencyEstimate urgency txValue standardFee priorityFee
   let quotedFee = quotedFeeFor prices lane txSize
       txBody =
@@ -80,8 +81,11 @@ generateTransaction f slot (Actor (Honest policy) _) prices latencyEstimate (Cur
   txSize = sampleTxSize curveTxSize
   scriptSize = sampleScriptSize curveScriptSize
   exUnits = sampleExUnits curveExUnits
-  txValue = Lovelace (sampleTxValue curveTxValue)
-  urgency = sampleUrgency sampleUrgencyP
+  (valueBurstMultiplier, urgencyBurstMultiplier) = case burstEffect of
+    Just be -> (be.valueMultiplier, be.urgencyMultiplier)
+    Nothing -> (1, 1)
+  txValue = scaleLovelace valueBurstMultiplier $ Lovelace (sampleTxValue curveTxValue)
+  urgency = scaleUrgency urgencyBurstMultiplier $ sampleUrgency sampleUrgencyP
   standardFee = quotedFeeFor prices Standard txSize
   priorityFee = quotedFeeFor prices Priority txSize
   sampleTxSize (TxSizeCurve c) = round (sampleCurve c sampleTxSizeP)
@@ -116,6 +120,12 @@ lovelaceDifference (Lovelace a) (Lovelace b) =
 scaleLovelace :: Double -> Lovelace -> Lovelace
 scaleLovelace coefficient (Lovelace lovelace) =
   Lovelace (ceiling (fromInteger lovelace * coefficient))
+
+scaleUrgency :: Double -> Urgency -> Urgency
+scaleUrgency coefficient (Linear urg) =
+  Linear (urg * coefficient)
+scaleUrgency coefficient (Exponential urg) =
+  Exponential (urg * coefficient)
 
 sampleUrgency :: Double -> Urgency
 sampleUrgency p

@@ -21,7 +21,7 @@ import Data.Sequence qualified as Seq
 import Data.Set qualified as Set
 import Design (ControllerConfig (..), ControllerSignal (..), Design (..), Eip1559Controller (..), LaneStructure (Two), ReservationPolicy (..))
 import Event (SimEvent (..))
-import Load (arrivalRateAt)
+import Load (arrivalRateAt, tryBurstEffectAt)
 import Mempool (Mempool (..), admitToMempool, emptyMempool, removeFromMempool, setMempoolTxIds)
 import Pricing (PriceUpdate (..), Prices (..), initialPrices, quotedFee, updatePrices)
 import System.Random (StdGen, uniformR)
@@ -143,6 +143,7 @@ actorStep :: SimM s [TxSubmission]
 actorStep = do
   slot <- gets _simSlot
   load <- asks simConfigLoad
+  let burstEffect = tryBurstEffectAt load slot
   n <- sampleArrivalCount (arrivalRateAt load slot)
   actors <- gets _simActors
   curves <- asks simConfigCurves
@@ -152,7 +153,7 @@ actorStep = do
   catMaybes <$> replicateM n do
     actor <- pickActor actors
     txSample <- drawTxSample
-    pure (TxSubmission actor._actorId <$> generateTransaction f slot actor prices latencyEstimate curves txSample)
+    pure (TxSubmission actor._actorId <$> generateTransaction f slot actor prices latencyEstimate curves txSample burstEffect)
 
 pickActor :: [Actor] -> SimM s Actor
 pickActor [] = error "pickActor: no actors configured"

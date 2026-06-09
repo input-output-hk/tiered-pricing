@@ -7,8 +7,7 @@ module Parser (
   ParseBurst (..),
   ParseBurstEffect (..),
   ParseActorPopulation (..),
-  ParseActorProfile (..),
-  ParseActorPolicy (..),
+  ParseActorType (..),
   ParseLaneLatencyEstimate (..),
   ParseLaneStructure (..),
   ParseLanePricing (..),
@@ -26,33 +25,33 @@ module Parser (
   parseDesign,
 ) where
 
-import Actor (Actor (..), ActorId (..), ActorPolicy (..), ActorProfile (..), LaneLatencyEstimate (..))
+import Actor (Actor (..), ActorId (..), ActorType (..), LaneLatencyEstimate (..))
 import Config (SimConfig (..))
-import Curve
-  ( Curve (..)
-  , CurvePoint (..)
-  , Curves (..)
-  , ExUnitsCurve (..)
-  , ScriptSizeCurve (..)
-  , TxSizeCurve (..)
-  , TxValueCurve (..)
-  , curvesDefault
-  )
+import Curve (
+  Curve (..),
+  CurvePoint (..),
+  Curves (..),
+  ExUnitsCurve (..),
+  ScriptSizeCurve (..),
+  TxSizeCurve (..),
+  TxValueCurve (..),
+  curvesDefault,
+ )
 import Data.Aeson (FromJSON (..), Value (..), eitherDecode, withObject, (.:), (.:?))
 import Data.Aeson.Types qualified as Aeson
 import Data.ByteString.Lazy qualified as B
 import Data.List.NonEmpty (NonEmpty (..), nonEmpty)
 import Data.Maybe (isJust)
 import Design qualified
-import Load
-  ( ArrivalProcess (..)
-  , Burst (..)
-  , BurstEffect (..)
-  , burstLoad
-  , congestedLoad
-  , moderateLoad
-  , severeCongestionLoad
-  )
+import Load (
+  ArrivalProcess (..),
+  Burst (..),
+  BurstEffect (..),
+  burstLoad,
+  congestedLoad,
+  moderateLoad,
+  severeCongestionLoad,
+ )
 import Types (Duration (..), SlotNo (..))
 
 data ParseSimConfig = ParseSimConfig
@@ -224,7 +223,11 @@ instance FromJSON ParseBurstEffect where
 
 data ParseActorPopulation = ParseActorPopulation
   { parseActorCount :: Int
-  , parseActorProfile :: ParseActorProfile
+  , parseActorType :: ParseActorType
+  , parseActorFeeBuffer :: Double
+  , parseActorMinValueFeeMultiple :: Double
+  , parseActorValueMultiplier :: Double
+  , parseActorUrgencyMultiplier :: Double
   }
   deriving stock (Eq, Show)
 
@@ -233,30 +236,28 @@ instance FromJSON ParseActorPopulation where
     withObject "ParseActorPopulation" \object ->
       ParseActorPopulation
         <$> object .: "count"
-        <*> object .: "profile"
+        <*> object .: "type"
+        <*> object .: "feeBuffer"
+        <*> object .: "minValueFeeMultiple"
+        <*> optionalMultiplier object "valueMultiplier"
+        <*> optionalMultiplier object "urgencyMultiplier"
+   where
+    optionalMultiplier object field =
+      maybe 1.0 id <$> object .:? field
 
-data ParseActorProfile
-  = HonestProfileP ParseActorPolicy
+data ParseActorType
+  = HonestActorP
+  | PatientActorP
+  | ImpatientP
   deriving stock (Eq, Show)
 
-instance FromJSON ParseActorProfile where
-  parseJSON =
-    withObject "ParseActorProfile" \object -> do
-      tag <- object .: "type"
-      case tag of
-        "honest" ->
-          HonestProfileP
-            <$> ( ParseActorPolicy
-                    <$> object .: "feeBuffer"
-                    <*> object .: "minValueFeeMultiple"
-                )
-        _ -> fail ("unknown actor profile: " <> tag)
-
-data ParseActorPolicy = ParseActorPolicy
-  { parseActorFeeBuffer :: Double
-  , parseActorMinValueFeeMultiple :: Double
-  }
-  deriving stock (Eq, Show)
+instance FromJSON ParseActorType where
+  parseJSON value =
+    parseTag "ParseActorType" value >>= \case
+      "honest" -> pure HonestActorP
+      "patient" -> pure PatientActorP
+      "impatient" -> pure ImpatientP
+      tag -> fail ("unknown actor type: " <> tag)
 
 data ParseLaneLatencyEstimate = ParseLaneLatencyEstimate
   { parseExpectedStandardLatency :: Int
@@ -600,31 +601,33 @@ toBurstEffect effect =
 
 toActors :: [ParseActorPopulation] -> Either ParseError [Actor]
 toActors populations = do
-  profiles <- concat <$> traverse expandActorPopulation populations
-  case zipWith actorWithId [0 ..] profiles of
+  actorTemplates <- concat <$> traverse expandActorPopulation populations
+  case zipWith actorWithId [0 ..] actorTemplates of
     [] -> Left (InvalidActorConfig "at least one actor must be configured")
     actors -> Right actors
  where
-  actorWithId actorId profile =
-    Actor profile (ActorId actorId)
+  actorWithId actorId population =
+    Actor
+      { _actorId = ActorId actorId
+      , actorType = toActorType population.parseActorType
+      , actorFeeBuffer = population.parseActorFeeBuffer
+      , actorMinValueFeeMultiple = population.parseActorMinValueFeeMultiple
+      , actorValueMultiplier = population.parseActorValueMultiplier
+      , actorUrgencyMultiplier = population.parseActorUrgencyMultiplier
+      }
 
-expandActorPopulation :: ParseActorPopulation -> Either ParseError [ActorProfile]
+expandActorPopulation :: ParseActorPopulation -> Either ParseError [ParseActorPopulation]
 expandActorPopulation population
   | population.parseActorCount <= 0 =
       Left (InvalidActorConfig "actor population count must be positive")
   | otherwise =
-      Right (replicate population.parseActorCount (toActorProfile population.parseActorProfile))
+      Right (replicate population.parseActorCount population)
 
-toActorProfile :: ParseActorProfile -> ActorProfile
-toActorProfile = \case
-  HonestProfileP policy -> Honest (toActorPolicy policy)
-
-toActorPolicy :: ParseActorPolicy -> ActorPolicy
-toActorPolicy policy =
-  ActorPolicy
-    { actorFeeBuffer = policy.parseActorFeeBuffer
-    , actorMinValueFeeMultiple = policy.parseActorMinValueFeeMultiple
-    }
+toActorType :: ParseActorType -> ActorType
+toActorType = \case
+  HonestActorP -> Honest
+  PatientActorP -> Patient
+  ImpatientP -> Impatient
 
 toLaneLatencyEstimate :: ParseLaneLatencyEstimate -> LaneLatencyEstimate
 toLaneLatencyEstimate estimate =

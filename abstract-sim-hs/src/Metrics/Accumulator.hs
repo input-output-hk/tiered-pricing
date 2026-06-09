@@ -19,7 +19,6 @@ module Metrics.Accumulator (
   maximumOrZero,
   mean,
   ratio,
-  jainIndex,
 ) where
 
 import Actor (ActorId)
@@ -220,13 +219,3 @@ ratio :: Int -> Int -> Double
 ratio _ denominator | denominator <= 0 = 0
 ratio numerator denominator =
   fromIntegral numerator / fromIntegral denominator
-
-jainIndex :: [Int] -> Double
-jainIndex [] = 1
-jainIndex xs
-  | sumCounts <= 0 = 1
-  | otherwise = (sumCounts * sumCounts) / (fromIntegral (length xs) * sumSquares)
- where
-  counts = fmap fromIntegral xs
-  sumCounts = sum counts
-  sumSquares = sum (fmap (^ (2 :: Int)) counts)

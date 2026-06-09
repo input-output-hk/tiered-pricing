@@ -5,9 +5,8 @@ import Data.Aeson (eitherDecode)
 import Data.ByteString.Lazy qualified as BL
 import Design (defaultDesign)
 import Parser
-  ( ParseActorPolicy (..)
-  , ParseActorPopulation (..)
-  , ParseActorProfile (..)
+  ( ParseActorPopulation (..)
+  , ParseActorType (..)
   , ParseArrivalProcess (..)
   , ParseControllerConfig (..)
   , ParseControllerSignal (..)
@@ -130,12 +129,27 @@ expectedDefaultSimConfig =
     , parseSimConfigActors =
         [ ParseActorPopulation
             { parseActorCount = 2
-            , parseActorProfile =
-                HonestProfileP
-                  ParseActorPolicy
-                    { parseActorFeeBuffer = 1.10
-                    , parseActorMinValueFeeMultiple = 1.0
-                    }
+            , parseActorType = HonestActorP
+            , parseActorFeeBuffer = 1.10
+            , parseActorMinValueFeeMultiple = 1.0
+            , parseActorValueMultiplier = 1.0
+            , parseActorUrgencyMultiplier = 1.0
+            }
+        , ParseActorPopulation
+            { parseActorCount = 1
+            , parseActorType = PatientActorP
+            , parseActorFeeBuffer = 1.10
+            , parseActorMinValueFeeMultiple = 1.0
+            , parseActorValueMultiplier = 0.5
+            , parseActorUrgencyMultiplier = 0.1
+            }
+        , ParseActorPopulation
+            { parseActorCount = 1
+            , parseActorType = ImpatientP
+            , parseActorFeeBuffer = 1.30
+            , parseActorMinValueFeeMultiple = 1.0
+            , parseActorValueMultiplier = 2.0
+            , parseActorUrgencyMultiplier = 2.0
             }
         ]
     , parseSimConfigRbTxBytesCap = 90_112

@@ -35,11 +35,11 @@
   "actors": [
     {
       "count": 2,
-      "profile": {
-        "type": "honest",
-        "feeBuffer": 1.1,
-        "minValueFeeMultiple": 1.0
-      }
+      "type": "honest",
+      "feeBuffer": 2,
+      "minValueFeeMultiple": 1.0,
+      "valueMultiplier": 1.0,
+      "urgencyMultiplier": 1.0
     }
   ],
   "rbTxBytesCap": 90112,

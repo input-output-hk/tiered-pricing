@@ -39,7 +39,6 @@ library
       Mempool
       Metrics
       Metrics.Accumulator
-      Metrics.Fairness
       Metrics.Fold
       Metrics.Inclusion
       Metrics.Invariants

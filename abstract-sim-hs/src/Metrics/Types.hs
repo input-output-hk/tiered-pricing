@@ -23,7 +23,6 @@ module Metrics.Types (
   Revenue (..),
   Throughput (..),
   RankingBlockCounts (..),
-  Fairness (..),
   PriceStability (..),
 
   -- * Invariants
@@ -33,7 +32,6 @@ module Metrics.Types (
 
 import Data.Map.Strict (Map)
 import Load (ArrivalProcess (ConstantLoad))
-import Metrics.Fairness (Fairness (..))
 import Metrics.Inclusion (InclusionStats (..))
 import Metrics.Invariants (InvariantBreach (..), InvariantKind (..))
 import Metrics.Latency (BlockLatencyStats (..), LatencyStats (..))
@@ -85,12 +83,10 @@ data Metrics = Metrics
   -- ^ (6) aggregate throughput \/ EB utilization
   , rankingBlocks :: RankingBlockCounts
   -- ^ Diagnostic counts of tx-containing and EB-certifying RBs
-  , fairness :: Fairness
-  -- ^ (7) fairness\/starvation
   , priceStability :: PriceStability
-  -- ^ (8) price convergence\/oscillation
+  -- ^ (7) price convergence\/oscillation
   , invariantBreaches :: [InvariantBreach]
-  -- ^ (9) invariant breaches
+  -- ^ (8) invariant breaches
   }
   deriving (Eq, Show)
 

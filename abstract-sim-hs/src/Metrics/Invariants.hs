@@ -21,7 +21,7 @@ data InvariantKind
     NegativeBalance
   deriving (Eq, Show)
 
--- | Metric (9): a single invariant breach observed during the run.
+-- | Metric (8): a single invariant breach observed during the run.
 data InvariantBreach = InvariantBreach
   { breachKind :: InvariantKind
   , breachSlot :: Duration

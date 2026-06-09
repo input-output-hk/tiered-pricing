@@ -11,7 +11,6 @@ module Metrics.Fold (
 ) where
 
 import Metrics.Accumulator
-import Metrics.Fairness (fairnessFrom)
 import Metrics.Inclusion (inclusionByLane, inclusionByUrgency, inclusionByUrgencyLane)
 import Metrics.Invariants (invariantBreachesFrom)
 import Metrics.Latency (blockLatencyByLane, blockLatencyByUrgency, blockLatencyByUrgencyLane, latencyByLane, latencyByUrgency, latencyByUrgencyLane)
@@ -48,7 +47,6 @@ finalizeMetrics metricsConfig slots acc =
     , revenue = revenueFrom acc
     , throughput = throughputFrom slots acc
     , rankingBlocks = rankingBlocksFrom acc
-    , fairness = fairnessFrom acc
     , priceStability =
         priceStabilityFrom
           metricsConfig.metricsLoad

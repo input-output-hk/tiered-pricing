@@ -44,7 +44,6 @@ Inclusion latency, by urgency
 Price shock
 Revenue/fees + refunds
 Aggregate throughput / EB utilization
-Fairness/starvation
 Price convergence/oscillation 
 Invariant breaches
 

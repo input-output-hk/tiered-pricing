@@ -1,8 +1,7 @@
 module Actor (
   Actor (..),
   ActorId (..),
-  ActorProfile (..),
-  ActorPolicy (..),
+  ActorType (..),
   LaneLatencyEstimate (..),
   TxSubmission (..),
   generateTransaction,
@@ -23,18 +22,16 @@ instance ToJSON ActorId where
 
 -- A transaction-submitting entity
 data Actor = Actor
-  { _actorProfile :: ActorProfile
-  , _actorId :: ActorId
-  }
-  deriving (Eq, Show)
-
-data ActorProfile = Honest ActorPolicy
-  deriving (Eq, Show)
-
-data ActorPolicy = ActorPolicy
-  { actorFeeBuffer :: Double
+  { _actorId :: ActorId
+  , actorType :: ActorType
+  , actorFeeBuffer :: Double
   , actorMinValueFeeMultiple :: Double
+  , actorValueMultiplier :: Double
+  , actorUrgencyMultiplier :: Double
   }
+  deriving (Eq, Show)
+
+data ActorType = Honest | Patient | Impatient
   deriving (Eq, Show)
 
 data LaneLatencyEstimate = LaneLatencyEstimate
@@ -46,8 +43,8 @@ data LaneLatencyEstimate = LaneLatencyEstimate
 data TxSubmission = TxSubmission {submissionActor :: ActorId, submissionTx :: Tx}
 
 generateTransaction :: Double -> SlotNo -> Actor -> Prices -> LaneLatencyEstimate -> Curves -> TxSample -> Maybe BurstEffect -> Maybe Tx
-generateTransaction f slot (Actor (Honest policy) _) prices latencyEstimate (Curves{..}) (TxSample{..}) burstEffect = do
-  lane <- chooseLane policy f latencyEstimate urgency txValue standardFee priorityFee
+generateTransaction f slot actor prices latencyEstimate (Curves{..}) (TxSample{..}) burstEffect = do
+  lane <- chooseLane actor f latencyEstimate urgency txValue standardFee priorityFee
   let quotedFee = quotedFeeFor prices lane txSize
       txBody =
         TxBody
@@ -58,7 +55,7 @@ generateTransaction f slot (Actor (Honest policy) _) prices latencyEstimate (Cur
                 , _scriptExUnits = exUnits
                 }
           , _txDependsOn = Set.empty
-          , _txFee = scaleLovelace policy.actorFeeBuffer quotedFee
+          , _txFee = scaleLovelace actor.actorFeeBuffer quotedFee
           }
   pure
     Tx
@@ -76,8 +73,12 @@ generateTransaction f slot (Actor (Honest policy) _) prices latencyEstimate (Cur
   (valueBurstMultiplier, urgencyBurstMultiplier) = case burstEffect of
     Just be -> (be.valueMultiplier, be.urgencyMultiplier)
     Nothing -> (1, 1)
-  txValue = scaleLovelace valueBurstMultiplier $ Lovelace (sampleTxValue curveTxValue)
-  urgency = scaleUrgency urgencyBurstMultiplier $ sampleUrgency sampleUrgencyP
+  txValue =
+    scaleLovelace (actor.actorValueMultiplier * valueBurstMultiplier) $
+      Lovelace (sampleTxValue curveTxValue)
+  urgency =
+    scaleUrgency (actor.actorUrgencyMultiplier * urgencyBurstMultiplier) $
+      sampleUrgency sampleUrgencyP
   standardFee = quotedFeeFor prices Standard txSize
   priorityFee = quotedFeeFor prices Priority txSize
   sampleTxSize (TxSizeCurve c) = round (sampleCurve c sampleTxSizeP)
@@ -85,8 +86,10 @@ generateTransaction f slot (Actor (Honest policy) _) prices latencyEstimate (Cur
   sampleExUnits (ExUnitsCurve c) = round (sampleCurve c sampleExUnitsP)
   sampleTxValue (TxValueCurve c) = round (sampleCurve c sampleTxValueP)
 
-chooseLane :: ActorPolicy -> Double -> LaneLatencyEstimate -> Urgency -> Lovelace -> Lovelace -> Lovelace -> Maybe Lane
-chooseLane policy f latencyEstimate urgency value standardFee priorityFee
+chooseLane :: Actor -> Double -> LaneLatencyEstimate -> Urgency -> Lovelace -> Lovelace -> Lovelace -> Maybe Lane
+chooseLane actor f latencyEstimate urgency value standardFee priorityFee
+  | actor.actorType == Patient = Just Standard
+  | actor.actorType == Impatient = Just Priority
   | priorityUtility > standardUtility && priorityUtility >= 0 = Just Priority
   | standardUtility >= 0 = Just Standard
   | priorityUtility >= 0 = Just Priority
@@ -98,7 +101,7 @@ chooseLane policy f latencyEstimate urgency value standardFee priorityFee
   standardUtility =
     lovelaceDifference
       (retainedValueAfter latencyEstimate.expectedStandardLatency)
-      (scaleLovelace policy.actorMinValueFeeMultiple standardFee)
+      (scaleLovelace actor.actorMinValueFeeMultiple standardFee)
 
   priorityUtility =
     lovelaceDifference

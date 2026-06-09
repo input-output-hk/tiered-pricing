@@ -34,7 +34,7 @@ data PriceChange = PriceChange
   }
   deriving (Eq, Show)
 
--- | Metric (8): price convergence and oscillation.
+-- | Metric (7): price convergence and oscillation.
 data PriceStability = PriceStability
   { convergenceTime :: Maybe Duration
   -- ^ slots until price entered and stayed within the band; 'Nothing' if it never converged

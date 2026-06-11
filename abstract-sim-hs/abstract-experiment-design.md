@@ -69,6 +69,6 @@ Inclusion needs two conditions to hold, but only the first can fail in this mode
 
 So `P(included) = (1 - f)^(D-1)`, full stop.
 
-Size re-enters only through the floor on `D`. A larger or more ex-unit-heavy EB takes longer to receive and validate, so the CIP constraint forces a larger `L_vote`, hence a larger `D`, hence a lower `(1 - f)^(D-1)`. It is a parameter coupling - size sets the minimum viable `D` - not a per-EB random failure. So derive `D` from the receive+validate time of the largest EB we allow (validate = bytes + ex-units), then sweep `f` and `D`.
+Size re-enters only through the floor on `D`. A larger or more ex-unit-heavy EB takes longer to receive and validate, so the CIP constraint forces a larger `L_vote`, hence a larger `D`, hence a lower `(1 - f)^(D-1)`. It is a parameter coupling - size sets the minimum viable `D` - not a per-EB random failure. So derive `D` from the receive+validate time of the largest EB we allow (validate = bytes + ex-units), and hold `f` and `D` fixed at those justified values: the experiment sweep is over candidate designs and seeds, not protocol timing parameters.
 
 Don't quote `D = 13` or `0.54` as CIP figures - the CIP gives the rule; the numbers are ours.

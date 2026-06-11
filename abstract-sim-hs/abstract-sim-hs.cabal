@@ -39,6 +39,7 @@ library
       Mempool
       Metrics
       Metrics.Accumulator
+      Metrics.Demand
       Metrics.Fold
       Metrics.Inclusion
       Metrics.Invariants
@@ -51,8 +52,10 @@ library
       Parser
       Pricing
       Result
+      Retry
       Run
       Sim
+      Sweep
       Transaction
       Types
   other-modules:
@@ -109,6 +112,8 @@ library
     , base >=4.7 && <5
     , bytestring
     , containers
+    , directory
+    , filepath
     , mtl
     , random
   default-language: Haskell2010
@@ -170,6 +175,8 @@ executable abstract-sim-hs-exe
     , base >=4.7 && <5
     , bytestring
     , containers
+    , directory
+    , filepath
     , mtl
     , random
   default-language: Haskell2010
@@ -232,6 +239,8 @@ test-suite abstract-sim-hs-test
     , base >=4.7 && <5
     , bytestring
     , containers
+    , directory
+    , filepath
     , mtl
     , random
   default-language: Haskell2010

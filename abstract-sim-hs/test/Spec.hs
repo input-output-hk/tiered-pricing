@@ -25,12 +25,14 @@ import Parser
   , parseDesign
   , parseSimConfig
   )
+import Sweep (SweepSpec (..), SweepVariant (..), loadSweepSpec)
 import System.Exit (exitFailure)
 
 main :: IO ()
 main = do
   assertDesignFixture
   assertSimConfigFixture
+  assertSweepFixture
   assertLiveConfigsParse
 
 {- The JSON under test/fixtures/ is test-owned data, frozen independently of
@@ -64,12 +66,33 @@ assertSimConfigFixture = do
   actualConfig <- parseSimConfig "test/fixtures/sim-config.json"
   assertEqual "sim config fixture file parser" expectedConfig actualConfig
 
--- The live configs are not content-asserted — only that they still parse.
+assertSweepFixture :: IO ()
+assertSweepFixture = do
+  spec <- loadSweepSpec "test/fixtures/sweep.json"
+  assertEqual "sweep fixture" expectedFixtureSweep spec
+
+expectedFixtureSweep :: SweepSpec
+expectedFixtureSweep =
+  SweepSpec
+    { sweepDescription = Just "fixture"
+    , sweepSeeds = 3
+    , sweepSlots = 500
+    , sweepOutDir = "/tmp/fixture-sweep"
+    , sweepVariants =
+        [ SweepVariant "a" "test/fixtures/sim-config.json"
+        , SweepVariant "b" "test/fixtures/sim-config.json"
+        ]
+    }
+
+{- The live configs are not content-asserted — only that they still parse,
+including every variant config the example sweep manifest references.
+-}
 assertLiveConfigsParse :: IO ()
 assertLiveConfigsParse = do
   _ <- parseDesign "config/default-design.json"
   _ <- parseSimConfig "config/default-sim-config.json"
-  pure ()
+  sweepSpec <- loadSweepSpec "config/sweeps/example.json"
+  mapM_ (parseSimConfig . (.variantConfig)) sweepSpec.sweepVariants
 
 assertEqual :: (Eq a, Show a) => String -> a -> a -> IO ()
 assertEqual label expected actual =

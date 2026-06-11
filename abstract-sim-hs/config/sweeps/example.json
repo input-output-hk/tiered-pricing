@@ -1,0 +1,10 @@
+{
+  "description": "Example sweep: RB priority reservation vs open RBs, severe congestion",
+  "seeds": 10,
+  "slots": 2000,
+  "out": "sweep-results/example",
+  "variants": [
+    { "name": "two-lane-reserved", "config": "config/default-sim-config.json" },
+    { "name": "two-lane-open", "config": "config/variants/no-reservation.json" }
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "description": "fixture",
+  "seeds": 3,
+  "slots": 500,
+  "out": "/tmp/fixture-sweep",
+  "variants": [
+    { "name": "a", "config": "test/fixtures/sim-config.json" },
+    { "name": "b", "config": "test/fixtures/sim-config.json" }
+  ]
+}

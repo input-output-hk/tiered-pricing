@@ -19,3 +19,4 @@ abstract-sim-hs/events.jsonl
 
 # Editor backups
 *~
+sweep-results/

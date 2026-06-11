@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Linear-Leios Dynamic Pricing — Sweep Comparison</title>
+  <link rel="stylesheet" href="style.css" />
+  <style>
+    /* comparison-page grid: small multiples, one per headline scalar */
+    #compare-charts {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+      gap: 12px;
+      padding: 0 16px 16px;
+    }
+    #compare-table { padding: 0 16px 8px; overflow-x: auto; }
+    #compare-table table { border-collapse: collapse; font-size: 12px; }
+    #compare-table th, #compare-table td { padding: 4px 10px; text-align: right; }
+    #compare-table th:first-child, #compare-table td:first-child { text-align: left; }
+    #compare-table thead th { border-bottom: 1px solid #9ca3af; }
+    #compare-table td .sd { opacity: 0.55; font-size: 11px; }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1 id="title">Linear-Leios Dynamic Pricing — Sweep Comparison</h1>
+      <div id="subtitle" class="subtitle"></div>
+    </div>
+    <div id="controls">
+      <button id="toggle-theme" type="button">◐ Theme</button>
+    </div>
+  </header>
+
+  <div id="compare-table"></div>
+  <div id="compare-charts"></div>
+
+  <footer class="subtitle" id="footnote"></footer>
+
+  <script src="vendor/plot.umd.min.js"></script>
+  <script src="compare-data.js"></script>
+  <script src="compare.js"></script>
+</body>
+</html>

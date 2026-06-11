@@ -4,7 +4,9 @@ module Pricing (
   initialPrices,
   quotedFee,
   quotedFeeFor,
+  realisedFee,
   updatePrices,
+  worstCaseNextPrices,
 )
 where
 
@@ -12,8 +14,8 @@ import Block (BlockSummary (..), EndorserBlockSummary (..), RankingBlock (..), R
 import Data.Foldable qualified as Foldable
 import Data.Maybe (mapMaybe)
 import Data.Sequence (Seq)
-import Design (ControllerConfig (..), ControllerSignal (..), Design (..), Eip1559Controller (..))
-import Transaction (Lane (..), Tx (..), TxBody (..))
+import Design (ControllerConfig (..), ControllerSignal (..), Design (..), Eip1559Controller (..), FeeSemantics (..))
+import Transaction (Lane (..), Script (..), Tx (..), TxBody (..))
 import Types (Lovelace (..))
 
 data Prices = Prices
@@ -43,16 +45,42 @@ initialPrices design =
 
 quotedFee :: Prices -> Tx -> Lovelace
 quotedFee prices tx =
-  quotedFeeFor prices tx.txLane tx.txBody._txSize
+  quotedFeeFor prices tx.txLane tx.txBody._txSize tx.txBody._txScript
 
-quotedFeeFor :: Prices -> Lane -> Int -> Lovelace
-quotedFeeFor prices lane txBytes =
-  Lovelace (minFeeB + ceiling dynamicBytesFee)
+{- | @tierCoeff * minfee pp utxo tx@: the lane coefficient multiplies the
+entire Cardano min fee — constant, byte, ex-unit, and reference-script terms —
+not just the size term.
+-}
+quotedFeeFor :: Prices -> Lane -> Int -> Script -> Lovelace
+quotedFeeFor prices lane txBytes script =
+  Lovelace (ceiling (laneCoeff prices lane * minFee txBytes script))
+
+{- | Conway mainnet min fee. '_scriptSize' is reference-script bytes: priced
+per byte, but the script lives in the UTxO set, so it contributes to no tx or
+block byte capacity. '_scriptExUnits' is the memory-equivalent scalar (see the
+note in "Config"), so it is priced at the memory price alone.
+-}
+minFee :: Int -> Script -> Double
+minFee txBytes script =
+  fromInteger minFeeB
+    + fromInteger minFeeA * fromIntegral txBytes
+    + exUnitsMemPrice * fromIntegral script._scriptExUnits
+    + fromInteger refScriptCostPerByte * fromIntegral script._scriptSize
+
+{- | The fee actually charged when a tx reaches the chain. Under 'Eip1559' the
+node keeps the quote at inclusion and refunds the rest of the posted max fee;
+'FixedFee' and 'HonourSubmissionQuoteFor' charge the posted fee in full. The
+"priority pays the standard price in EBs" variant would switch the quoted lane
+on the inclusion point here.
+-}
+realisedFee :: FeeSemantics -> Prices -> Tx -> Lovelace
+realisedFee semantics prices tx =
+  case semantics of
+    FixedFee -> postedFee
+    HonourSubmissionQuoteFor _ -> postedFee
+    Eip1559 -> min postedFee (quotedFee prices tx)
  where
-  dynamicBytesFee =
-    laneCoeff prices lane
-      * fromInteger minFeeA
-      * fromIntegral txBytes
+  postedFee = tx.txBody._txFee
 
 laneCoeff :: Prices -> Lane -> Double
 laneCoeff prices Standard = prices.standardCoeff
@@ -63,6 +91,16 @@ minFeeA = 44
 
 minFeeB :: Integer
 minFeeB = 155_381
+
+-- | Mainnet @executionUnitPrices.priceMemory@.
+exUnitsMemPrice :: Double
+exUnitsMemPrice = 0.0577
+
+{- | Mainnet @minFeeRefScriptCostPerByte@ base rate; the 1.2×-per-25KiB tier
+escalation is dropped as an abstraction.
+-}
+refScriptCostPerByte :: Integer
+refScriptCostPerByte = 15
 
 updatePrices :: Design -> Seq BlockSummary -> Prices -> (Prices, [PriceUpdate])
 updatePrices design recentBlocks prices =
@@ -88,6 +126,23 @@ updatePrices design recentBlocks prices =
     fmap withFinalFloor (maybe [] pure standardResult <> maybe [] pure priorityResult)
   withFinalFloor update =
     update{priceUpdateNewCoeff = laneCoeff finalPrices update.priceUpdateLane}
+
+{- | Upper bound on prices after the next controller update: one EIP-1559 step
+raises a lane's coefficient by at most @1 + 1\/maxChangeDenominator@, and the
+floors preserve that bound given already-floored inputs (the absolute floor is
+constant; the multiplier floor tracks the standard lane, which is itself
+bounded by its own step). Lanes without a controller never move.
+-}
+worstCaseNextPrices :: ControllerConfig -> Prices -> Prices
+worstCaseNextPrices controllers prices =
+  Prices
+    { standardCoeff = scale controllers.standardController prices.standardCoeff
+    , priorityCoeff = scale controllers.priorityController prices.priorityCoeff
+    }
+ where
+  scale Nothing coeff = coeff
+  scale (Just controller) coeff =
+    coeff * (1 + 1 / fromIntegral (max 1 controller.controllerMaxChangeDenominator))
 
 applyPriceFloors :: ControllerConfig -> Prices -> Prices
 applyPriceFloors controllers =

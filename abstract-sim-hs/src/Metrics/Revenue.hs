@@ -3,8 +3,9 @@ module Metrics.Revenue (
   revenueFrom,
 ) where
 
+import Data.Map.Strict qualified as Map
 import Metrics.Accumulator
-import Transaction (Tx (..), TxBody (..))
+import Transaction (Tx (..), TxBody (..), subtractLovelace)
 import Types (Lovelace (..))
 
 {- | Metric (5): revenue — fees collected and refunds returned. Net revenue is
@@ -12,18 +13,25 @@ import Types (Lovelace (..))
 -}
 data Revenue = Revenue
   { feesCollected :: Lovelace
-  -- ^ total fees paid by included txs
+  -- ^ total posted fees of included txs
   , refundsPaid :: Lovelace
-  -- ^ total refunded for overpayment vs the realised dynamic price
+  -- ^ total refunded for overpayment vs the realised fee at inclusion
+  -- (nonzero only under 'Design.Eip1559' fee semantics)
   }
   deriving (Eq, Show)
 
 revenueFrom :: MetricsAcc -> Revenue
 revenueFrom acc =
   Revenue
-    { feesCollected = sumLovelace (fmap txFee (includedTxsWhere acc (const True)))
-    , refundsPaid = Lovelace 0
+    { feesCollected = sumLovelace (fmap txFee included)
+    , refundsPaid = sumLovelace (fmap refund included)
     }
+ where
+  included = includedTxsWhere acc (const True)
+  refund tx =
+    case Map.lookup tx.txId acc.accRealisedFee of
+      Nothing -> Lovelace 0
+      Just realised -> subtractLovelace (txFee tx) realised
 
 txFee :: Tx -> Lovelace
 txFee tx =

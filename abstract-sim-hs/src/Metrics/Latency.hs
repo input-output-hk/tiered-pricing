@@ -13,15 +13,17 @@ import Data.List (sort)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Metrics.Accumulator
-import Transaction (Lane, Tx (..))
-import Types (Duration (..), Urgency)
+import Transaction (Lane)
+import Types (Duration (..), Urgency, diffSlots)
 
-{- | Metric (3): inclusion latency, summarised over included txs in the bucket.
-Latency is slots between submission and on-chain inclusion.
+{- | Metric (3): inclusion latency, summarised over served demand units in the
+bucket. Latency runs from the unit's *first* submission to on-chain
+inclusion, so the waiting hidden inside rejected and retried attempts counts
+against the design.
 -}
 data LatencyStats = LatencyStats
   { latencyCount :: Int
-  -- ^ number of included txs contributing to this summary
+  -- ^ number of served units contributing to this summary
   , latencyMean :: Double
   -- ^ mean inclusion latency, in slots
   , latencyMedian :: Duration
@@ -33,14 +35,13 @@ data LatencyStats = LatencyStats
   }
   deriving (Eq, Show)
 
-{- | Inclusion latency measured in actual ranking blocks.
-
-Only 'RankingBlockProduced' events advance this count; EB announcements and
-certified EB summaries do not.
+{- | Inclusion latency measured in actual ranking blocks, from the demand
+unit's first submission. Only 'Block.RankingBlockProduced' events advance the
+count; EB announcements and certified EB summaries do not.
 -}
 data BlockLatencyStats = BlockLatencyStats
   { blockLatencyCount :: Int
-  -- ^ number of included txs contributing to this summary
+  -- ^ number of served units contributing to this summary
   , blockLatencyMean :: Double
   -- ^ mean inclusion latency, in actual ranking blocks
   , blockLatencyMedian :: Int
@@ -57,42 +58,56 @@ latencyByUrgency acc =
   Map.fromList (fmap latencyForUrgency (observedUrgencies acc))
  where
   latencyForUrgency urgency =
-    (urgency, summarizeLatencies (latenciesWhere acc ((== urgency) . txUrgency)))
+    (urgency, summarizeLatencies (unitLatenciesWhere acc ((== urgency) . (.unitUrgency))))
 
 latencyByLane :: MetricsAcc -> Map Lane LatencyStats
 latencyByLane acc =
   Map.fromList (fmap latencyForLane allLanes)
  where
   latencyForLane lane =
-    (lane, summarizeLatencies (latenciesWhere acc ((== lane) . txLane)))
+    (lane, summarizeLatencies (unitLatenciesWhere acc ((== lane) . unitLane)))
 
 latencyByUrgencyLane :: MetricsAcc -> Map (Urgency, Lane) LatencyStats
 latencyByUrgencyLane acc =
   Map.fromList (fmap latencyForUrgencyLane (observedUrgencyLanes acc))
  where
   latencyForUrgencyLane key@(urgency, lane) =
-    (key, summarizeLatencies (latenciesWhere acc (matchesUrgencyLane urgency lane)))
+    (key, summarizeLatencies (unitLatenciesWhere acc (matchesUnitUrgencyLane urgency lane)))
 
 blockLatencyByUrgency :: MetricsAcc -> Map Urgency BlockLatencyStats
 blockLatencyByUrgency acc =
   Map.fromList (fmap latencyForUrgency (observedUrgencies acc))
  where
   latencyForUrgency urgency =
-    (urgency, summarizeBlockLatencies (blockLatenciesWhere acc ((== urgency) . txUrgency)))
+    (urgency, summarizeBlockLatencies (unitBlockLatenciesWhere acc ((== urgency) . (.unitUrgency))))
 
 blockLatencyByLane :: MetricsAcc -> Map Lane BlockLatencyStats
 blockLatencyByLane acc =
   Map.fromList (fmap latencyForLane allLanes)
  where
   latencyForLane lane =
-    (lane, summarizeBlockLatencies (blockLatenciesWhere acc ((== lane) . txLane)))
+    (lane, summarizeBlockLatencies (unitBlockLatenciesWhere acc ((== lane) . unitLane)))
 
 blockLatencyByUrgencyLane :: MetricsAcc -> Map (Urgency, Lane) BlockLatencyStats
 blockLatencyByUrgencyLane acc =
   Map.fromList (fmap latencyForUrgencyLane (observedUrgencyLanes acc))
  where
   latencyForUrgencyLane key@(urgency, lane) =
-    (key, summarizeBlockLatencies (blockLatenciesWhere acc (matchesUrgencyLane urgency lane)))
+    (key, summarizeBlockLatencies (unitBlockLatenciesWhere acc (matchesUnitUrgencyLane urgency lane)))
+
+unitLatenciesWhere :: MetricsAcc -> (DemandUnit -> Bool) -> [Duration]
+unitLatenciesWhere acc predicate =
+  [ diffSlots slot unit.unitFirstSubmitted
+  | unit <- unitsWhere acc predicate
+  , Just (UnitIncluded slot _ _ _) <- [unit.unitOutcome]
+  ]
+
+unitBlockLatenciesWhere :: MetricsAcc -> (DemandUnit -> Bool) -> [Int]
+unitBlockLatenciesWhere acc predicate =
+  [ max 0 (block - unit.unitFirstSubmittedBlock)
+  | unit <- unitsWhere acc predicate
+  , Just (UnitIncluded _ block _ _) <- [unit.unitOutcome]
+  ]
 
 summarizeLatencies :: [Duration] -> LatencyStats
 summarizeLatencies durations =

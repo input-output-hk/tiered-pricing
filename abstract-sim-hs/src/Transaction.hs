@@ -1,8 +1,7 @@
 module Transaction where
 
-import Data.Bits (shiftR, xor, (.&.))
 import Data.Aeson (ToJSON (..), object, (.=))
-import Data.Char (ord)
+import Data.Bits (shiftR, xor, (.&.))
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Word (Word64, Word8)
@@ -32,6 +31,14 @@ data Tx = Tx
   , txValue :: Lovelace
   , txUrgency :: Urgency
   , txLane :: Lane
+  , txOriginNumber :: Int
+  -- ^ the demand unit's first tx number; equal to the own '_txNumber' on a
+  -- first attempt
+  , txAttempt :: Int
+  -- ^ which submission of the demand unit this is (first attempt = 1)
+  , txOriginSubmitted :: SlotNo
+  -- ^ when the demand unit was first submitted — the value-decay anchor;
+  -- equal to 'txSubmitted' on a first attempt
   }
 
 instance ToJSON Tx where
@@ -43,6 +50,9 @@ instance ToJSON Tx where
       , "value" .= tx.txValue
       , "urgency" .= tx.txUrgency
       , "lane" .= tx.txLane
+      , "originNumber" .= tx.txOriginNumber
+      , "attempt" .= tx.txAttempt
+      , "originSubmitted" .= tx.txOriginSubmitted
       ]
 
 data TxBody = TxBody
@@ -50,6 +60,7 @@ data TxBody = TxBody
   , _txScript :: Script
   , _txDependsOn :: Set TxId
   , _txFee :: Lovelace
+  , _txNumber :: Int
   }
 
 instance ToJSON TxBody where
@@ -59,6 +70,7 @@ instance ToJSON TxBody where
       , "script" .= body._txScript
       , "dependsOn" .= Set.toAscList body._txDependsOn
       , "fee" .= body._txFee
+      , "number" .= body._txNumber
       ]
 
 data TxSample = TxSample
@@ -180,16 +192,15 @@ hash body =
 
 encodeTxBody :: TxBody -> [Word8]
 encodeTxBody TxBody{..} =
-  encodeAscii "TxBody:v3"
-    <> encodeInt _txSize
+  encodeInt _txSize
     <> encodeScript _txScript
     <> encodeList encodeTxId (Set.toAscList _txDependsOn)
     <> encodeLovelace _txFee
+    <> encodeInt _txNumber
 
 encodeScript :: Script -> [Word8]
 encodeScript Script{..} =
-  encodeAscii "Script:v1"
-    <> encodeInt _scriptSize
+  encodeInt _scriptSize
     <> encodeInt _scriptExUnits
 
 encodeTxId :: TxId -> [Word8]
@@ -209,10 +220,6 @@ encodeInteger :: Integer -> [Word8]
 encodeInteger n
   | n < 0 = 1 : encodeWord64 (fromInteger (abs n))
   | otherwise = 0 : encodeWord64 (fromInteger n)
-
-encodeAscii :: String -> [Word8]
-encodeAscii s =
-  encodeInt (length s) <> fmap (fromIntegral . ord) s
 
 encodeWord64 :: Word64 -> [Word8]
 encodeWord64 w =

@@ -3,27 +3,30 @@
 
 module Sim where
 
-import Actor (Actor (..), TxSubmission (TxSubmission), generateTransaction)
-import Block (BlockSummary (..), EbId (..), EndorserBlock (..), InclusionPoint (..), PendingEb (..), RankingBlock (..), mkEndorserBlockSummary, mkRankingBlockSummary, selectByBlockCapacity, selectPriorityByBlockCapacity, selectedTxBodies)
+import Actor (Actor (..), ActorId, TxSubmission (TxSubmission), generateTransaction, resubmitTransaction)
+import Block (BlockSummary (..), EbId (..), EndorserBlock (..), InclusionPoint (..), PendingEb (..), RankingBlock (..), mkEndorserBlockSummary, mkRankingBlockSummary, selectByBlockCapacity, selectByBlockCapacityFrom, selectFifoWithStandardCap, selectPriorityByBlockCapacity, selectedTxBodies)
 import Chain (Chain (..), emptyChain)
 import Config (SimConfig (..))
 import Control.Monad (join, replicateM)
 import Control.Monad.Reader (MonadReader (..), ReaderT, asks)
 import Control.Monad.State.Strict (MonadState (..), State, gets, modify')
 import Curve (Curve, sampleCurve)
-import Data.Foldable (Foldable (toList))
+import Data.Either (partitionEithers)
+import Data.Foldable (Foldable (toList), traverse_)
+import Data.List (find)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Maybe (catMaybes, mapMaybe)
-import Data.Sequence (Seq, singleton, (<|), (><), (|>))
+import Data.Sequence (Seq, singleton, (><), (|>))
 import Data.Sequence qualified as Seq
 import Data.Set qualified as Set
-import Design (ControllerConfig (..), ControllerSignal (..), Design (..), Eip1559Controller (..), ReservationPolicy (..))
+import Design (ControllerConfig (..), ControllerSignal (..), Design (..), Eip1559Controller (..), FeeSemantics (..), ReservationPolicy (..), SelectionPolicy (..))
 import Event (SimEvent (..))
 import Load (arrivalRateAt, tryBurstEffectAt)
 import Mempool (Mempool (..), admitToMempool, emptyMempool, removeFromMempool, setMempoolTxIds)
-import Pricing (PriceUpdate (..), Prices (..), initialPrices, quotedFee, updatePrices)
+import Pricing (PriceUpdate (..), Prices (..), initialPrices, quotedFee, realisedFee, updatePrices, worstCaseNextPrices)
+import Retry (PendingRetry (..), RetryPolicy (..), capture, due)
 import System.Random (StdGen, uniformR)
 import Transaction (EvictionReason (..), RejectReason (..), Tx (..), TxBody (..), TxId (..), TxSample (..))
 import Types (Duration (Duration), Lovelace (..), SlotNo (SlotNo), addDuration, diffSlots)
@@ -39,6 +42,14 @@ data SimSt = SimSt
   , _simRng :: StdGen
   , _simPrices :: Prices
   , _simRecentBlocks :: Seq BlockSummary
+  , _simTxCounter :: Int
+  , _simTxActors :: Map TxId ActorId
+  {- ^ submitting actor of every admitted tx; 'Retry.capture' needs it to
+  attribute evictions (rejected txs never enter, their actor travels in
+  the same slot's TxSubmitted event)
+  -}
+  , _simRetryQueue :: Seq (SlotNo, PendingRetry)
+  -- ^ pending resubmissions with their wake slots, jitter already drawn
   }
 
 newtype SimM a = SimM {unSimM :: ReaderT SimConfig (State SimSt) a}
@@ -79,30 +90,57 @@ initSimSt conf rng =
     , _simRng = rng
     , _simPrices = initialPrices conf.simConfigDesign
     , _simRecentBlocks = mempty
+    , _simTxCounter = 0
+    , _simTxActors = mempty
+    , _simRetryQueue = mempty
     }
 
 step :: SimM (Seq SimEvent)
 step = do
+  (retries, retryEvents) <- retryStep
   txs <- actorStep
-  submittedEvents <- traverse admitTxSubmission txs
+  submittedEvents <- traverse admitTxSubmission (txs <> retries)
   blockEvents <- blockStep
   recordBlockEvents blockEvents
   priceEvents <-
     if any isBlockProduced blockEvents
       then priceStep
       else pure mempty
+  let slotEvents = retryEvents <> join (Seq.fromList submittedEvents) <> blockEvents <> priceEvents
+  abandonEvents <- captureRetries slotEvents
   advanceSlot
-  pure (join (Seq.fromList submittedEvents) <> blockEvents <> priceEvents)
+  pure (slotEvents <> abandonEvents)
 
-calculateFee :: Tx -> SimM Lovelace
-calculateFee tx = do
+{- | The fee a tx must post to enter the mempool: the quote after
+'simConfigAdmissionHeadroomUpdates' worst-case controller steps.
+
+This is the admission-side complement of the EB producer headroom in
+'announceEndorserBlock', and with a horizon of 1 it is deliberately
+semi-redundant with it: nothing enters the mempool that a producer would
+refuse to put in an EB at today's prices, so unserviceable txs are rejected
+at the door (visibly, resubmittably) instead of sitting against the mempool
+cap forever. The producer check is still required because prices may keep
+rising while an admitted tx waits its turn — this check keeps the mempool
+serviceable, that one keeps certified EBs valid. 'FixedFee' never re-prices,
+so it needs no headroom.
+-}
+admissionRequiredFee :: Tx -> SimM Lovelace
+admissionRequiredFee tx = do
   prices <- gets _simPrices
-  pure (quotedFee prices tx)
+  design <- asks simConfigDesign
+  headroomUpdates <- asks simConfigAdmissionHeadroomUpdates
+  let admissionPrices =
+        case design.designFeeSemantics of
+          FixedFee -> prices
+          _ ->
+            iterate (worstCaseNextPrices design.designControllers) prices
+              !! max 0 headroomUpdates
+  pure (quotedFee admissionPrices tx)
 
 admitTxSubmission :: TxSubmission -> SimM (Seq SimEvent)
 admitTxSubmission (TxSubmission actorId tx) = do
   simSt <- get
-  requiredFee <- calculateFee tx
+  requiredFee <- admissionRequiredFee tx
   mempool <- gets _simMempool
   simTxs <- gets _simTxs
   mempoolBytesCap <- asks simConfigMempoolBytesCap
@@ -112,7 +150,12 @@ admitTxSubmission (TxSubmission actorId tx) = do
     AdmissionAccepted () -> do
       let newMempool = admitToMempool mempool tx
           newSimTxs = Map.insert tx.txId tx simTxs
-      modify' \st -> st{_simMempool = newMempool, _simTxs = newSimTxs}
+      modify' \st ->
+        st
+          { _simMempool = newMempool
+          , _simTxs = newSimTxs
+          , _simTxActors = Map.insert tx.txId actorId st._simTxActors
+          }
       slot <- gets _simSlot
       pure $ singleton (TxSubmitted simSt._simSlot actorId tx) |> TxAdmitted slot tx.txId
 
@@ -150,10 +193,80 @@ actorStep = do
   prices <- gets _simPrices
   latencyEstimate <- asks simConfigLaneLatencyEstimate
   f <- asks simConfigF
+  d <- asks simConfigDesign
   catMaybes <$> replicateM n do
     actor <- pickActor actors
     txSample <- drawTxSample
-    pure (TxSubmission actor._actorId <$> generateTransaction f slot actor prices latencyEstimate curves txSample burstEffect)
+    modify' \st -> st{_simTxCounter = st._simTxCounter + 1}
+    c <- gets _simTxCounter
+    pure (TxSubmission actor._actorId <$> generateTransaction d.designLaneStructure c f slot actor prices latencyEstimate curves txSample burstEffect)
+
+{- | Fire due resubmissions: drain the queue, let each demand unit's actor
+re-decide at current prices (with the time already waited counted against its
+retained value), and emit 'TxAbandoned' for demand that declines — the moment
+its remaining value is definitively lost.
+-}
+retryStep :: SimM ([TxSubmission], Seq SimEvent)
+retryStep = do
+  now <- gets _simSlot
+  (ready, rest) <- gets (due now . _simRetryQueue)
+  modify' \st -> st{_simRetryQueue = rest}
+  design <- asks simConfigDesign
+  latencyEstimate <- asks simConfigLaneLatencyEstimate
+  f <- asks simConfigF
+  policy <- asks simConfigRetryPolicy
+  actors <- gets _simActors
+  prices <- gets _simPrices
+  outcomes <-
+    traverse (fire design latencyEstimate f policy.retryEscalationFactor actors now prices) ready
+  let (abandoned, submissions) = partitionEithers outcomes
+  pure (submissions, Seq.fromList abandoned)
+ where
+  fire design latencyEstimate f escalation actors now prices pending = do
+    modify' \st -> st{_simTxCounter = st._simTxCounter + 1}
+    c <- gets _simTxCounter
+    let resubmission = do
+          actor <- find (\a -> a._actorId == pending.actorId) actors
+          resubmitTransaction
+            design.designLaneStructure
+            pending.originalTxNumber
+            pending.attemptNumber
+            pending.submittedAt
+            c
+            f
+            now
+            actor
+            prices
+            latencyEstimate
+            escalation
+            pending.demand
+    pure case resubmission of
+      Just tx -> Right (TxSubmission pending.actorId tx)
+      Nothing -> Left (TxAbandoned now pending.originalTxNumber)
+
+{- | Distil this slot's events into queued resubmissions: 'Retry.capture'
+decides (pure) what comes back and when, and this shell does the things only
+the engine can — draw each entry's jitter from the seeded RNG, enqueue at the
+computed wake slot, and emit 'TxAbandoned' for demand units whose failure was
+terminal at capture (Abandon policy or attempt cap), so the trace records
+every demand unit's end.
+-}
+captureRetries :: Seq SimEvent -> SimM (Seq SimEvent)
+captureRetries events = do
+  policy <- asks simConfigRetryPolicy
+  actors <- gets _simTxActors
+  txs <- gets _simTxs
+  let (pendings, abandonedOrigins) = capture policy actors txs events
+  traverse_ enqueue pendings
+  slot <- gets _simSlot
+  pure (Seq.fromList (fmap (TxAbandoned slot) abandonedOrigins))
+ where
+  enqueue pending = do
+    let Duration jitterWindow = pending.retryJitter
+    jitter <- draw (uniformR (0, jitterWindow))
+    let wakeAt =
+          addDuration (Duration jitter) (addDuration pending.retryDelay pending.failedAt)
+    modify' \st -> st{_simRetryQueue = st._simRetryQueue |> (wakeAt, pending)}
 
 pickActor :: [Actor] -> SimM Actor
 pickActor [] = error "pickActor: no actors configured"
@@ -222,12 +335,24 @@ advanceSlot :: SimM ()
 advanceSlot = modify' \st ->
   st{_simSlot = addDuration (Duration 1) st._simSlot}
 
+{- | Poisson arrival count with mean @rate@: the number of unit-exponential
+inter-arrival times that fit in a window of length @rate@. The summed
+log-space form stays numerically safe at any rate, unlike Knuth's
+product-of-uniforms. Arrivals were previously @floor rate@ + Bernoulli — the
+same mean but near-zero variance, which understated congestion burstiness
+and fed the price controllers an unnaturally clean demand signal.
+-}
 sampleArrivalCount :: Double -> SimM Int
-sampleArrivalCount rate = do
-  let whole = floor rate
-      frac = rate - fromIntegral whole
-  extra <- roll frac
-  pure (whole + if extra then 1 else 0)
+sampleArrivalCount rate
+  | rate <= 0 = pure 0
+  | otherwise = go 0 0
+ where
+  go count elapsed = do
+    u <- draw (uniformR (0, 1))
+    let elapsed' = elapsed - log (max 1e-300 u)
+    if elapsed' >= rate
+      then pure count
+      else go (count + 1) elapsed'
 
 drawTxSample :: SimM TxSample
 drawTxSample =
@@ -276,8 +401,9 @@ produceRankingBlock = do
   (mempoolAfterRb, rbEvents) <- case pendingEb of
     Just pending -> do
       certEb <- ebCertifiedAt slot pending
+      ebValid <- pendingEbStillValid design slot simTxs pending
       modify' \st -> st{_simPendingEb = Nothing}
-      if certEb
+      if certEb && ebValid
         then certifyPendingEb slot rbPriorityTxBytesCap rbExUnitsCap simTxs pending mempool
         else producePraosBlock design slot rbTxBytesCap rbExUnitsCap simTxs mempool
     Nothing ->
@@ -290,6 +416,20 @@ produceRankingBlock = do
   ebCertifiedAt slot pending = do
     d <- asks simConfigD
     pure (diffSlots slot pending.pendingEbAnnounced >= Duration d)
+
+  -- An EB containing any stale tx fails certification validation outright;
+  -- it is discarded like a timing failure. Its txs were never removed from
+  -- the mempool, where the stale ones are evicted by the normal
+  -- block-construction sweep ('evictStaleFees').
+  pendingEbStillValid :: Design -> SlotNo -> Map TxId Tx -> PendingEb -> SimM Bool
+  pendingEbStillValid design slot simTxs pending = do
+    ebs <- gets _simEbs
+    prices <- gets _simPrices
+    let txStillValid txId =
+          case Map.lookup txId simTxs of
+            Nothing -> True
+            Just tx -> txFeeStillValid design.designFeeSemantics slot prices tx
+    pure (all txStillValid (maybe mempty _ebTxs (Map.lookup pending.pendingEbId ebs)))
 
   appendRankingBlock :: SlotNo -> RankingBlock -> SimM ()
   appendRankingBlock slot block =
@@ -307,12 +447,12 @@ produceRankingBlock = do
     ebExUnitsCap <- asks simConfigEbExUnitsCap
     ebs <- gets _simEbs
     prices <- gets _simPrices
+    design <- asks simConfigDesign
+    -- 'pendingEbStillValid' has already vouched for every tx in the EB, so
+    -- the whole announced set is included as-is.
     let ebTxIdSet =
           maybe mempty _ebTxs (Map.lookup pending.pendingEbId ebs)
-        ebTxIds = Set.toList ebTxIdSet
-        (validEbTxIds, staleFeeEvents) =
-          feeValidTxIds slot prices simTxs ebTxIds
-        ebTxs = selectedTxBodies simTxs (Seq.fromList validEbTxIds)
+        ebTxs = selectedTxBodies simTxs (Seq.fromList (Set.toList ebTxIdSet))
         block = CertifyingBlock pending.pendingEbId
         mempool' = removeFromMempool simTxs ebTxIdSet mempool
         summary =
@@ -322,12 +462,11 @@ produceRankingBlock = do
           EndorserBlockCertified
             (mkEndorserBlockSummary pending.pendingEbId ebTxBytesCap ebExUnitsCap rbPriorityTxBytesCap rbExUnitsCap ebTxs)
         events =
-          Seq.fromList [BlockProduced slot summary]
-            >< staleFeeEvents
-            >< Seq.fromList
-              ( BlockProduced slot certifiedEbSummary
-                  : fmap (\txId -> TxIncluded slot txId (IncludedInEb pending.pendingEbId)) validEbTxIds
-              )
+          Seq.fromList
+            ( BlockProduced slot summary
+                : BlockProduced slot certifiedEbSummary
+                : fmap (includedEvent design prices slot (IncludedInEb pending.pendingEbId)) ebTxs
+            )
     appendRankingBlock slot block
     modify' \st -> st{_simMempool = mempool'}
     pure (mempool', events)
@@ -336,7 +475,7 @@ produceRankingBlock = do
   producePraosBlock design slot rbTxBytesCap rbExUnitsCap simTxs mempool = do
     prices <- gets _simPrices
     let (feeCheckedMempool, evictionEvents) =
-          evictStaleFees slot prices simTxs mempool
+          evictStaleFees design.designFeeSemantics slot prices simTxs mempool
         (selectedTxs, remainingMempool, (_usedBytes, _usedExUnits)) =
           selectRankingBlockTxs design rbTxBytesCap rbExUnitsCap simTxs feeCheckedMempool.mempoolTxIds
         selectedTxIds = toList selectedTxs
@@ -348,10 +487,17 @@ produceRankingBlock = do
             (mkRankingBlockSummary block rbTxBytesCap rbExUnitsCap (priorityTxBytesCap design rbTxBytesCap) rbExUnitsCap selectedTxBodyList)
         events =
           BlockProduced slot summary
-            : fmap (\txId -> TxIncluded slot txId IncludedInRb) selectedTxIds
+            : fmap (includedEvent design prices slot IncludedInRb) selectedTxBodyList
     appendRankingBlock slot block
     modify' \st -> st{_simMempool = mempool'}
     pure (mempool', evictionEvents >< Seq.fromList events)
+
+  -- The realised fee is quoted at the inclusion slot, matching the staleness
+  -- check the tx just passed; 'Pricing.realisedFee' dispatches on the
+  -- design's fee semantics.
+  includedEvent :: Design -> Prices -> SlotNo -> InclusionPoint -> Tx -> SimEvent
+  includedEvent design prices slot inclusionPoint tx =
+    TxIncluded slot tx.txId inclusionPoint (realisedFee design.designFeeSemantics prices tx)
 
   selectRankingBlockTxs ::
     Design ->
@@ -362,6 +508,8 @@ produceRankingBlock = do
     (Seq TxId, Seq TxId, (Int, Int))
   selectRankingBlockTxs design rbTxBytesCap rbExUnitsCap simTxs mempool =
     case design.designReservationPolicy of
+      -- The reservation rule admits only priority txs to RBs, so every
+      -- selection policy collapses to priority-only FIFO under it.
       PriorityReservationRb reservationBytes ->
         selectPriorityByBlockCapacity
           (min rbTxBytesCap reservationBytes)
@@ -369,7 +517,30 @@ produceRankingBlock = do
           simTxs
           mempool
       NoReservation ->
-        selectByBlockCapacity rbTxBytesCap rbExUnitsCap simTxs mempool
+        selectTxsByPolicy design.designSelection rbTxBytesCap rbExUnitsCap simTxs mempool
+
+  -- How a producer orders the mempool into a block, absent any reservation
+  -- rule. EBs always use this directly: the RB reservation does not constrain
+  -- EB content.
+  selectTxsByPolicy ::
+    SelectionPolicy ->
+    Int ->
+    Int ->
+    Map TxId Tx ->
+    Seq TxId ->
+    (Seq TxId, Seq TxId, (Int, Int))
+  selectTxsByPolicy selection byteCap exUnitCap simTxs mempool =
+    case selection of
+      Fifo ->
+        selectByBlockCapacity byteCap exUnitCap simTxs mempool
+      PriorityFirst ->
+        let (prioritySelected, afterPriority, priorityUsage) =
+              selectPriorityByBlockCapacity byteCap exUnitCap simTxs mempool
+            (standardSelected, remainingMempool, totalUsage) =
+              selectByBlockCapacityFrom priorityUsage byteCap exUnitCap simTxs afterPriority
+         in (prioritySelected <> standardSelected, remainingMempool, totalUsage)
+      FifoWithStandardCap standardShare ->
+        selectFifoWithStandardCap standardShare byteCap exUnitCap simTxs mempool
 
   priorityTxBytesCap :: Design -> Int -> Int
   priorityTxBytesCap design rbTxBytesCap =
@@ -383,10 +554,33 @@ produceRankingBlock = do
     ebExUnitsCap <- asks simConfigEbExUnitsCap
     ebs <- gets _simEbs
     prices <- gets _simPrices
+    design <- asks simConfigDesign
     let (feeCheckedMempool, evictionEvents) =
-          evictStaleFees slot prices simTxs mempool
+          evictStaleFees design.designFeeSemantics slot prices simTxs mempool
+        -- Producer headroom: fill the EB only with txs that stay valid
+        -- through the single price update that can fire before the
+        -- certification check, so a prudent producer's EB cannot fail
+        -- validation. Semi-redundant with 'admissionRequiredFee': admission
+        -- with a horizon >= 1 guarantees this headroom at entry, but prices
+        -- may have risen while the tx waited, so the producer re-checks
+        -- against current prices — that check is the mempool-hygiene
+        -- heuristic, this is the exact protocol-safety bound. Ineligible
+        -- txs are not evicted: they stay in the mempool (RB-eligible only
+        -- as the reservation policy allows) and regain EB eligibility if
+        -- prices fall.
+        headroomPrices = worstCaseNextPrices design.designControllers prices
+        ebEligible txId =
+          case Map.lookup txId simTxs of
+            Nothing -> False
+            Just tx ->
+              case design.designFeeSemantics of
+                FixedFee -> True
+                -- For HonourSubmissionQuoteFor the honour window may expire
+                -- before the certification check, so only the price bound
+                -- guarantees safety.
+                _ -> tx.txBody._txFee >= quotedFee headroomPrices tx
         (selectedTxs, _remainingMempool, (_usedBytes, _usedExUnits)) =
-          selectByBlockCapacity ebTxBytesCap ebExUnitsCap simTxs feeCheckedMempool.mempoolTxIds
+          selectTxsByPolicy design.designSelection ebTxBytesCap ebExUnitsCap simTxs (Seq.filter ebEligible feeCheckedMempool.mempoolTxIds)
         selectedTxIds = toList selectedTxs
         selectedTxBodyList = selectedTxBodies simTxs selectedTxs
     if null selectedTxIds
@@ -411,8 +605,8 @@ produceRankingBlock = do
             }
         pure $ evictionEvents |> BlockProduced slot summary
 
-  evictStaleFees :: SlotNo -> Prices -> Map TxId Tx -> Mempool -> (Mempool, Seq SimEvent)
-  evictStaleFees slot prices simTxs mempool =
+  evictStaleFees :: FeeSemantics -> SlotNo -> Prices -> Map TxId Tx -> Mempool -> (Mempool, Seq SimEvent)
+  evictStaleFees semantics slot prices simTxs mempool =
     (setMempoolTxIds simTxs keptTxIds, evictions)
    where
     (keptTxIds, evictions) =
@@ -423,28 +617,25 @@ produceRankingBlock = do
         Nothing ->
           (kept |> txId, events)
         Just tx
-          | txFeeStillValid prices tx ->
+          | txFeeStillValid semantics slot prices tx ->
               (kept |> txId, events)
           | otherwise ->
               (kept, events |> staleFeeEviction slot prices txId tx)
 
-  feeValidTxIds :: SlotNo -> Prices -> Map TxId Tx -> [TxId] -> ([TxId], Seq SimEvent)
-  feeValidTxIds slot prices simTxs =
-    foldr checkTx ([], mempty)
+  -- Staleness per the design's fee semantics: under Eip1559 the posted max
+  -- fee must still cover the current quote; HonourSubmissionQuoteFor defers
+  -- that check until the honour window after submission has elapsed; FixedFee
+  -- never goes stale.
+  txFeeStillValid :: FeeSemantics -> SlotNo -> Prices -> Tx -> Bool
+  txFeeStillValid semantics slot prices tx =
+    case semantics of
+      FixedFee -> True
+      Eip1559 -> coversCurrentQuote
+      HonourSubmissionQuoteFor honourFor ->
+        diffSlots slot tx.txSubmitted <= honourFor || coversCurrentQuote
    where
-    checkTx txId (validTxIds, events) =
-      case Map.lookup txId simTxs of
-        Nothing ->
-          (validTxIds, events)
-        Just tx
-          | txFeeStillValid prices tx ->
-              (txId : validTxIds, events)
-          | otherwise ->
-              (validTxIds, staleFeeEviction slot prices txId tx <| events)
-
-  txFeeStillValid :: Prices -> Tx -> Bool
-  txFeeStillValid prices tx =
-    tx.txBody._txFee >= quotedFee prices tx
+    coversCurrentQuote =
+      tx.txBody._txFee >= quotedFee prices tx
 
   staleFeeEviction :: SlotNo -> Prices -> TxId -> Tx -> SimEvent
   staleFeeEviction slot prices txId tx =

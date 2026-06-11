@@ -11,6 +11,7 @@ module Types (
   Urgency (..),
   SlotNo (..),
   addDuration,
+  addDurations,
   diffSlots,
   expectedBlockDelay,
 ) where
@@ -51,6 +52,10 @@ instance ToJSON SlotNo where
 -- | Advance a slot by a duration: @addDuration d s == s + d@.
 addDuration :: Duration -> SlotNo -> SlotNo
 addDuration (Duration d) (SlotNo s) = SlotNo (s + d)
+
+-- | Sum two durations.
+addDurations :: Duration -> Duration -> Duration
+addDurations (Duration a) (Duration b) = Duration (a + b)
 
 -- | The signed gap between two slots: @diffSlots a b == a - b@.
 diffSlots :: SlotNo -> SlotNo -> Duration

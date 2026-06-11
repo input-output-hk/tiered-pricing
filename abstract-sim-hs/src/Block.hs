@@ -1,21 +1,23 @@
-module Block
-  ( EbId (..)
-  , EndorserBlock (..)
-  , InclusionPoint (..)
-  , PendingEb (..)
-  , RankingBlock (..)
-  , BlockSummary (..)
-  , RankingBlockSummary (..)
-  , EndorserBlockSummary (..)
-  , mkRankingBlockSummary
-  , mkEndorserBlockSummary
-  , selectedTxBodies
-  , laneBytes
-  , txBytes
-  , selectByBlockCapacity
-  , selectPriorityByBlockCapacity
-  , txBlockResources
-  )
+module Block (
+  EbId (..),
+  EndorserBlock (..),
+  InclusionPoint (..),
+  PendingEb (..),
+  RankingBlock (..),
+  BlockSummary (..),
+  RankingBlockSummary (..),
+  EndorserBlockSummary (..),
+  mkRankingBlockSummary,
+  mkEndorserBlockSummary,
+  selectedTxBodies,
+  laneBytes,
+  txBytes,
+  selectByBlockCapacity,
+  selectByBlockCapacityFrom,
+  selectFifoWithStandardCap,
+  selectPriorityByBlockCapacity,
+  txBlockResources,
+)
 where
 
 import Data.Aeson (ToJSON (..), object, (.=))
@@ -241,8 +243,22 @@ selectByBlockCapacity ::
   Map TxId Tx ->
   Seq TxId ->
   (Seq TxId, Seq TxId, (Int, Int))
-selectByBlockCapacity byteCap exUnitCap txs =
-  selectByBlockCapacityWith (const True) byteCap exUnitCap txs
+selectByBlockCapacity =
+  selectByBlockCapacityFrom (0, 0)
+
+{- | Like 'selectByBlockCapacity', but starting from already-used resources —
+for a second selection pass over the same block. The returned usage is the
+cumulative total across passes.
+-}
+selectByBlockCapacityFrom ::
+  (Int, Int) ->
+  Int ->
+  Int ->
+  Map TxId Tx ->
+  Seq TxId ->
+  (Seq TxId, Seq TxId, (Int, Int))
+selectByBlockCapacityFrom usedSoFar =
+  selectByBlockCapacityWith (const True) usedSoFar
 
 selectPriorityByBlockCapacity ::
   Int ->
@@ -251,17 +267,51 @@ selectPriorityByBlockCapacity ::
   Seq TxId ->
   (Seq TxId, Seq TxId, (Int, Int))
 selectPriorityByBlockCapacity =
-  selectByBlockCapacityWith ((== Priority) . txLane)
+  selectByBlockCapacityWith ((== Priority) . txLane) (0, 0)
 
-selectByBlockCapacityWith ::
-  (Tx -> Bool) ->
+selectFifoWithStandardCap ::
+  Double ->
   Int ->
   Int ->
   Map TxId Tx ->
   Seq TxId ->
   (Seq TxId, Seq TxId, (Int, Int))
-selectByBlockCapacityWith acceptTx byteCap exUnitCap txs =
-  selectAccumL advanceUsage (0, 0)
+selectFifoWithStandardCap standardShare byteCap exUnitCap txs txIds =
+  (selected, skipped, overallUsage)
+ where
+  (selected, skipped, (overallUsage, _standardUsage)) =
+    selectAccumL advance ((0, 0), (0, 0)) txIds
+
+  blockCaps = (byteCap, exUnitCap)
+  standardCaps = (shareOf byteCap, shareOf exUnitCap)
+  shareOf cap =
+    floor (max 0 (min 1 standardShare) * fromIntegral cap) :: Int
+
+  advance (used, standardUsed) txId =
+    case Map.lookup txId txs of
+      Nothing -> Skip
+      Just tx
+        | not (within (used `plus` cost) blockCaps) -> Stop
+        | tx.txLane /= Standard -> Select (used `plus` cost, standardUsed)
+        | within (standardUsed `plus` cost) standardCaps ->
+            Select (used `plus` cost, standardUsed `plus` cost)
+        | otherwise -> Skip
+       where
+        cost = txBlockResources tx
+
+  plus (a, b) (c, d) = (a + c, b + d)
+  within (a, b) (capA, capB) = a <= capA && b <= capB
+
+selectByBlockCapacityWith ::
+  (Tx -> Bool) ->
+  (Int, Int) ->
+  Int ->
+  Int ->
+  Map TxId Tx ->
+  Seq TxId ->
+  (Seq TxId, Seq TxId, (Int, Int))
+selectByBlockCapacityWith acceptTx usedSoFar byteCap exUnitCap txs =
+  selectAccumL advanceUsage usedSoFar
  where
   advanceUsage (usedBytes, usedExUnits) txId =
     case Map.lookup txId txs of

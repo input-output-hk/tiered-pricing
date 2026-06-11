@@ -5,18 +5,24 @@ module Metrics.Value (
 
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (mapMaybe)
 import Metrics.Accumulator
-import Transaction (Tx (..))
-import Transaction qualified
-import Types (BlockDelay (..), Lovelace, Urgency)
+import Transaction (retainedValueFor, subtractLovelace)
+import Types (BlockDelay (..), Lovelace (..), Urgency)
 
--- | Metric (2): retained vs lost transaction value.
+{- | Metric (2): retained vs lost demand-unit value. Every unit contributes to
+exactly one column: decay-discounted retention if served (decayed from the
+unit's *first* submission, so retry wait counts against the design), full
+loss if abandoned, or unresolved if still in flight at the end of the run.
+Unresolved value is reported rather than folded into lost so the run horizon
+does not masquerade as a design failure.
+-}
 data ValueOutcome = ValueOutcome
   { retainedValue :: Lovelace
-  -- ^ value of txs successfully included
+  -- ^ decayed value of served units
   , lostValue :: Lovelace
-  -- ^ value of txs that expired or were evicted unincluded
+  -- ^ decay losses of served units plus the full value of abandoned units
+  , unresolvedValue :: Lovelace
+  -- ^ value of units neither served nor abandoned when the run ended
   }
   deriving (Eq, Show)
 
@@ -25,26 +31,26 @@ valueByUrgency acc =
   Map.fromList (fmap valueForUrgency (observedUrgencies acc))
  where
   valueForUrgency urgency =
-    (urgency, valueOutcomeWhere acc ((== urgency) . txUrgency))
+    (urgency, valueOutcomeWhere acc ((== urgency) . (.unitUrgency)))
 
-valueOutcomeWhere :: MetricsAcc -> (Tx -> Bool) -> ValueOutcome
+valueOutcomeWhere :: MetricsAcc -> (DemandUnit -> Bool) -> ValueOutcome
 valueOutcomeWhere acc predicate =
   ValueOutcome
-    { retainedValue = sumLovelace (fmap fst includedValueOutcomes)
-    , lostValue =
-        sumLovelace
-          (fmap snd includedValueOutcomes <> fmap txValue evictedTxs)
+    { retainedValue = sumLovelace [retained | (retained, _, _) <- outcomes]
+    , lostValue = sumLovelace [lost | (_, lost, _) <- outcomes]
+    , unresolvedValue = sumLovelace [unresolved | (_, _, unresolved) <- outcomes]
     }
  where
-  includedValueOutcomes =
-    mapMaybe includedValueOutcome (filter (predicate . snd) (Map.toList acc.accSubmitted))
-  evictedTxs =
-    evictedTxsWhere acc predicate
+  outcomes = fmap unitValueOutcome (unitsWhere acc predicate)
 
-  includedValueOutcome (txId, tx) = do
-    latency <- includedBlockLatency acc txId
-    let blockDelay = BlockDelay (fromIntegral latency)
-    pure
-      ( Transaction.retainedValue blockDelay tx
-      , Transaction.lostValue blockDelay tx
-      )
+unitValueOutcome :: DemandUnit -> (Lovelace, Lovelace, Lovelace)
+unitValueOutcome unit =
+  case unit.unitOutcome of
+    Just (UnitIncluded _ block _ _) ->
+      let delay = BlockDelay (fromIntegral (max 0 (block - unit.unitFirstSubmittedBlock)))
+          retained = retainedValueFor delay unit.unitUrgency unit.unitValue
+       in (retained, subtractLovelace unit.unitValue retained, Lovelace 0)
+    Just (UnitAbandoned _) ->
+      (Lovelace 0, unit.unitValue, Lovelace 0)
+    Nothing ->
+      (Lovelace 0, Lovelace 0, unit.unitValue)

@@ -2,18 +2,22 @@ module Actor (
   Actor (..),
   ActorId (..),
   ActorType (..),
+  Demand (..),
   LaneLatencyEstimate (..),
+  Provenance (..),
   TxSubmission (..),
   generateTransaction,
+  resubmitTransaction,
 ) where
 
 import Curve (Curves (..), ExUnitsCurve (..), ScriptSizeCurve (..), TxSizeCurve (..), TxValueCurve (..), sampleCurve)
 import Data.Aeson (ToJSON (..))
 import Data.Set qualified as Set
+import Design (LaneStructure (..))
 import Load (BurstEffect (..))
 import Pricing (Prices, quotedFeeFor)
 import Transaction (Lane (..), Script (..), Tx (..), TxBody (..), TxSample (..), hash, retainedValueFor)
-import Types (Duration, Lovelace (Lovelace), SlotNo, Urgency (..), expectedBlockDelay)
+import Types (Duration (..), Lovelace (Lovelace), SlotNo, Urgency (..), addDurations, diffSlots, expectedBlockDelay)
 
 newtype ActorId = ActorId Int deriving (Eq, Ord, Show)
 
@@ -42,34 +46,41 @@ data LaneLatencyEstimate = LaneLatencyEstimate
 
 data TxSubmission = TxSubmission {submissionActor :: ActorId, submissionTx :: Tx}
 
-generateTransaction :: Double -> SlotNo -> Actor -> Prices -> LaneLatencyEstimate -> Curves -> TxSample -> Maybe BurstEffect -> Maybe Tx
-generateTransaction f slot actor prices latencyEstimate (Curves{..}) (TxSample{..}) burstEffect = do
-  lane <- chooseLane actor f latencyEstimate urgency txValue standardFee priorityFee
-  let quotedFee = quotedFeeFor prices lane txSize
-      txBody =
-        TxBody
-          { _txSize = txSize
-          , _txScript =
-              Script
-                { _scriptSize = scriptSize
-                , _scriptExUnits = exUnits
-                }
-          , _txDependsOn = Set.empty
-          , _txFee = scaleLovelace actor.actorFeeBuffer quotedFee
-          }
-  pure
-    Tx
-      { txId = hash txBody
-      , txBody = txBody
-      , txSubmitted = slot
-      , txValue = txValue
-      , txUrgency = urgency
-      , txLane = lane
-      }
+-- | Where a generated tx comes from: a fresh demand unit, or the
+-- resubmission of one whose earlier attempt failed.
+data Provenance
+  = FreshDemand
+  | -- | origin tx number, attempt number of this submission, origin
+    -- submission slot
+    ResubmissionOf Int Int SlotNo
+  deriving (Eq, Show)
+
+{- | The payload of a demand unit: what the submitter wants on-chain,
+independent of any one attempt's pricing. Resubmissions re-quote the fee but
+never resample the payload.
+-}
+data Demand = Demand
+  { demandValue :: Lovelace
+  , demandUrgency :: Urgency
+  , demandSize :: Int
+  , demandScript :: Script
+  }
+
+generateTransaction :: LaneStructure -> Int -> Double -> SlotNo -> Actor -> Prices -> LaneLatencyEstimate -> Curves -> TxSample -> Maybe BurstEffect -> Maybe Tx
+generateTransaction laneStructure counter f slot actor prices latencyEstimate (Curves{..}) (TxSample{..}) burstEffect =
+  submitDemand laneStructure FreshDemand counter f slot actor prices latencyEstimate (Duration 0) actor.actorFeeBuffer demand
  where
-  txSize = sampleTxSize curveTxSize
-  scriptSize = sampleScriptSize curveScriptSize
-  exUnits = sampleExUnits curveExUnits
+  demand =
+    Demand
+      { demandValue = txValue
+      , demandUrgency = urgency
+      , demandSize = sampleTxSize curveTxSize
+      , demandScript =
+          Script
+            { _scriptSize = sampleScriptSize curveScriptSize
+            , _scriptExUnits = sampleExUnits curveExUnits
+            }
+      }
   (valueBurstMultiplier, urgencyBurstMultiplier) = case burstEffect of
     Just be -> (be.valueMultiplier, be.urgencyMultiplier)
     Nothing -> (1, 1)
@@ -79,15 +90,70 @@ generateTransaction f slot actor prices latencyEstimate (Curves{..}) (TxSample{.
   urgency =
     scaleUrgency (actor.actorUrgencyMultiplier * urgencyBurstMultiplier) $
       sampleUrgency sampleUrgencyP
-  standardFee = quotedFeeFor prices Standard txSize
-  priorityFee = quotedFeeFor prices Priority txSize
   sampleTxSize (TxSizeCurve c) = round (sampleCurve c sampleTxSizeP)
   sampleScriptSize (ScriptSizeCurve c) = round (sampleCurve c sampleScriptSizeP)
   sampleExUnits (ExUnitsCurve c) = round (sampleCurve c sampleExUnitsP)
   sampleTxValue (TxValueCurve c) = round (sampleCurve c sampleTxValueP)
 
-chooseLane :: Actor -> Double -> LaneLatencyEstimate -> Urgency -> Lovelace -> Lovelace -> Lovelace -> Maybe Lane
-chooseLane actor f latencyEstimate urgency value standardFee priorityFee
+{- | Resubmit a failed demand unit: same payload, fee re-quoted at current
+prices with the (possibly escalated) buffer, and the lane\/utility decision
+re-run with the time already waited counted against the retained value — when
+congestion has eaten the surplus, the demand exits ('Nothing').
+-}
+resubmitTransaction :: LaneStructure -> Int -> Int -> SlotNo -> Int -> Double -> SlotNo -> Actor -> Prices -> LaneLatencyEstimate -> Double -> Demand -> Maybe Tx
+resubmitTransaction laneStructure origin attempt originSubmitted counter f slot actor prices latencyEstimate escalationFactor demand =
+  submitDemand laneStructure (ResubmissionOf origin attempt originSubmitted) counter f slot actor prices latencyEstimate alreadyElapsed escalatedBuffer demand
+ where
+  alreadyElapsed = diffSlots slot originSubmitted
+  escalatedBuffer = actor.actorFeeBuffer * escalationFactor ^ max 0 (attempt - 1)
+
+-- | The shared submission core: decide the lane (or decline), quote, post.
+submitDemand :: LaneStructure -> Provenance -> Int -> Double -> SlotNo -> Actor -> Prices -> LaneLatencyEstimate -> Duration -> Double -> Demand -> Maybe Tx
+submitDemand laneStructure provenance counter f slot actor prices latencyEstimate alreadyElapsed feeBuffer demand = do
+  lane <- case laneStructure of
+    One -> Just Standard
+    Two -> chooseLane actor f latencyEstimate alreadyElapsed demand.demandUrgency demand.demandValue standardFee priorityFee
+  let quotedFee = quotedFeeFor prices lane demand.demandSize demand.demandScript
+      txBody =
+        TxBody
+          { _txSize = demand.demandSize
+          , _txScript = demand.demandScript
+          , _txDependsOn = Set.empty
+          , _txFee = scaleLovelace feeBuffer quotedFee
+          , _txNumber = counter
+          }
+  pure
+    Tx
+      { txId = hash txBody
+      , txBody = txBody
+      , txSubmitted = slot
+      , txValue = demand.demandValue
+      , txUrgency = demand.demandUrgency
+      , txLane = lane
+      , txOriginNumber =
+          case provenance of
+            FreshDemand -> counter
+            ResubmissionOf origin _ _ -> origin
+      , txAttempt =
+          case provenance of
+            FreshDemand -> 1
+            ResubmissionOf _ attempt _ -> attempt
+      , txOriginSubmitted =
+          case provenance of
+            FreshDemand -> slot
+            ResubmissionOf _ _ originSubmitted -> originSubmitted
+      }
+ where
+  standardFee = quotedFeeFor prices Standard demand.demandSize demand.demandScript
+  priorityFee = quotedFeeFor prices Priority demand.demandSize demand.demandScript
+
+{- | Lane choice by expected utility. @alreadyElapsed@ is the time the demand
+unit has waited across earlier attempts (zero for fresh demand): retained
+value decays over elapsed wait plus the expected latency ahead, so demand
+whose surplus congestion has already consumed declines to resubmit.
+-}
+chooseLane :: Actor -> Double -> LaneLatencyEstimate -> Duration -> Urgency -> Lovelace -> Lovelace -> Lovelace -> Maybe Lane
+chooseLane actor f latencyEstimate alreadyElapsed urgency value standardFee priorityFee
   | actor.actorType == Patient = Just Standard
   | actor.actorType == Impatient = Just Priority
   | priorityUtility > standardUtility && priorityUtility >= 0 = Just Priority
@@ -96,7 +162,7 @@ chooseLane actor f latencyEstimate urgency value standardFee priorityFee
   | otherwise = Nothing
  where
   retainedValueAfter latency =
-    retainedValueFor (expectedBlockDelay f latency) urgency value
+    retainedValueFor (expectedBlockDelay f (addDurations alreadyElapsed latency)) urgency value
 
   standardUtility =
     lovelaceDifference

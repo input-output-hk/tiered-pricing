@@ -11,6 +11,7 @@ module Metrics.Fold (
 ) where
 
 import Metrics.Accumulator
+import Metrics.Demand (demandLoadFrom)
 import Metrics.Inclusion (inclusionByLane, inclusionByUrgency, inclusionByUrgencyLane)
 import Metrics.Invariants (invariantBreachesFrom)
 import Metrics.Latency (blockLatencyByLane, blockLatencyByUrgency, blockLatencyByUrgencyLane, latencyByLane, latencyByUrgency, latencyByUrgencyLane)
@@ -55,4 +56,5 @@ finalizeMetrics metricsConfig slots acc =
           slots
           acc
     , invariantBreaches = invariantBreachesFrom acc
+    , demandLoad = demandLoadFrom acc
     }

@@ -9,14 +9,20 @@ import Data.Aeson (ToJSON (..), object, (.=))
 import Data.List.NonEmpty (NonEmpty)
 import Data.List.NonEmpty qualified as NE
 import Transaction (EvictionReason, Lane, RejectReason, Tx, TxId)
-import Types (SlotNo)
+import Types (Lovelace, SlotNo)
 
 data SimEvent
   = TxSubmitted SlotNo ActorId Tx
   | TxAdmitted SlotNo TxId
   | TxRejected SlotNo TxId (NonEmpty RejectReason)
-  | TxIncluded SlotNo TxId InclusionPoint
+  | -- | The final 'Lovelace' is the realised fee: what the node actually
+    -- charged at inclusion under the design's 'Design.FeeSemantics'.
+    TxIncluded SlotNo TxId InclusionPoint Lovelace
   | TxEvicted SlotNo TxId EvictionReason
+  | -- | A retried demand unit (identified by its origin tx number) declined
+    -- to resubmit: congestion ate its surplus, or it ran out of attempts.
+    -- Its remaining value is definitively lost at this slot.
+    TxAbandoned SlotNo Int
   | BlockProduced SlotNo BlockSummary
   | PriceUpdated SlotNo Lane Double Double Double
 
@@ -42,12 +48,19 @@ instance ToJSON SimEvent where
         , "txId" .= txId
         , "reasons" .= NE.toList reasons
         ]
-    TxIncluded slot txId inclusionPoint ->
+    TxIncluded slot txId inclusionPoint realised ->
       object
         [ "tag" .= ("TxIncluded" :: String)
         , "slot" .= slot
         , "txId" .= txId
         , "inclusionPoint" .= inclusionPoint
+        , "realisedFee" .= realised
+        ]
+    TxAbandoned slot originNumber ->
+      object
+        [ "tag" .= ("TxAbandoned" :: String)
+        , "slot" .= slot
+        , "originNumber" .= originNumber
         ]
     TxEvicted slot txId reason ->
       object

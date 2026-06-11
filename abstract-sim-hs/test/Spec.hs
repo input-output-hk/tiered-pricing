@@ -29,35 +29,47 @@ import System.Exit (exitFailure)
 
 main :: IO ()
 main = do
-  assertDefaultDesignConfig
-  assertDefaultSimConfig
+  assertDesignFixture
+  assertSimConfigFixture
+  assertLiveConfigsParse
 
-assertDefaultDesignConfig :: IO ()
-assertDefaultDesignConfig = do
-  bytes <- BL.readFile "config/default-design.json"
+{- The JSON under test/fixtures/ is test-owned data, frozen independently of
+config/, which is free to change with whatever experiment is being run. Only
+the fixtures carry content assertions.
+-}
+assertDesignFixture :: IO ()
+assertDesignFixture = do
+  bytes <- BL.readFile "test/fixtures/design.json"
   case eitherDecode bytes of
     Left err -> do
-      putStrLn ("failed to parse default design config: " <> err)
+      putStrLn ("failed to parse design fixture: " <> err)
       exitFailure
     Right actual ->
-      assertEqual "default design config" expectedDefaultDesign actual
-  assertRightEqual "default domain design" defaultDesign (fromParseDesign expectedDefaultDesign)
-  actualDesign <- parseDesign "config/default-design.json"
-  assertEqual "default design file parser" defaultDesign actualDesign
+      assertEqual "design fixture syntax" expectedFixtureDesign actual
+  assertRightEqual "design fixture conversion" defaultDesign (fromParseDesign expectedFixtureDesign)
+  actualDesign <- parseDesign "test/fixtures/design.json"
+  assertEqual "design fixture file parser" defaultDesign actualDesign
 
-assertDefaultSimConfig :: IO ()
-assertDefaultSimConfig = do
-  expectedConfig <- expectRight "expected default sim config conversion" (fromParseSimConfig expectedDefaultSimConfig)
-  bytes <- BL.readFile "config/default-sim-config.json"
+assertSimConfigFixture :: IO ()
+assertSimConfigFixture = do
+  expectedConfig <- expectRight "expected sim config fixture conversion" (fromParseSimConfig expectedFixtureSimConfig)
+  bytes <- BL.readFile "test/fixtures/sim-config.json"
   case eitherDecode bytes of
     Left err -> do
-      putStrLn ("failed to parse default sim config: " <> err)
+      putStrLn ("failed to parse sim config fixture: " <> err)
       exitFailure
     Right actual -> do
-      assertEqual "default sim config syntax" expectedDefaultSimConfig actual
-      assertRightEqual "default sim config conversion" expectedConfig (fromParseSimConfig actual)
-  actualConfig <- parseSimConfig "config/default-sim-config.json"
-  assertEqual "default sim config file parser" expectedConfig actualConfig
+      assertEqual "sim config fixture syntax" expectedFixtureSimConfig actual
+      assertRightEqual "sim config fixture conversion" expectedConfig (fromParseSimConfig actual)
+  actualConfig <- parseSimConfig "test/fixtures/sim-config.json"
+  assertEqual "sim config fixture file parser" expectedConfig actualConfig
+
+-- The live configs are not content-asserted — only that they still parse.
+assertLiveConfigsParse :: IO ()
+assertLiveConfigsParse = do
+  _ <- parseDesign "config/default-design.json"
+  _ <- parseSimConfig "config/default-sim-config.json"
+  pure ()
 
 assertEqual :: (Eq a, Show a) => String -> a -> a -> IO ()
 assertEqual label expected actual =
@@ -87,8 +99,8 @@ expectRight label actual =
     Right value ->
       pure value
 
-expectedDefaultDesign :: ParseDesign
-expectedDefaultDesign =
+expectedFixtureDesign :: ParseDesign
+expectedFixtureDesign =
   ParseDesign
     { parseDesignLaneStructure = TwoP
     , parseDesignPricing = BothDynamicP
@@ -118,10 +130,10 @@ expectedDefaultDesign =
           }
     }
 
-expectedDefaultSimConfig :: ParseSimConfig
-expectedDefaultSimConfig =
+expectedFixtureSimConfig :: ParseSimConfig
+expectedFixtureSimConfig =
   ParseSimConfig
-    { parseSimConfigDesign = expectedDefaultDesign
+    { parseSimConfigDesign = expectedFixtureDesign
     , parseSimConfigCurves = DefaultCurvesP
     , parseSimConfigF = 0.05
     , parseSimConfigD = 13
@@ -130,26 +142,10 @@ expectedDefaultSimConfig =
         [ ParseActorPopulation
             { parseActorCount = 2
             , parseActorType = HonestActorP
-            , parseActorFeeBuffer = 1.10
+            , parseActorFeeBuffer = 2.0
             , parseActorMinValueFeeMultiple = 1.0
             , parseActorValueMultiplier = 1.0
             , parseActorUrgencyMultiplier = 1.0
-            }
-        , ParseActorPopulation
-            { parseActorCount = 1
-            , parseActorType = PatientActorP
-            , parseActorFeeBuffer = 1.10
-            , parseActorMinValueFeeMultiple = 1.0
-            , parseActorValueMultiplier = 0.5
-            , parseActorUrgencyMultiplier = 0.1
-            }
-        , ParseActorPopulation
-            { parseActorCount = 1
-            , parseActorType = ImpatientP
-            , parseActorFeeBuffer = 1.30
-            , parseActorMinValueFeeMultiple = 1.0
-            , parseActorValueMultiplier = 2.0
-            , parseActorUrgencyMultiplier = 2.0
             }
         ]
     , parseSimConfigRbTxBytesCap = 90_112
@@ -158,6 +154,7 @@ expectedDefaultSimConfig =
     , parseSimConfigEbStructureBytesCap = 512_000
     , parseSimConfigEbExUnitsCap = 9_499_133_448
     , parseSimConfigMempoolBytesCap = 24_000_000
+    , parseSimConfigAdmissionHeadroomUpdates = 1
     , parseSimConfigLaneLatencyEstimate =
         ParseLaneLatencyEstimate
           { parseExpectedStandardLatency = 50
@@ -165,4 +162,5 @@ expectedDefaultSimConfig =
           }
     , parseSimConfigPriceConvergenceBandPct = 0.05
     , parseSimConfigLoadChangePct = 0.10
+    , parseSimConfigRetryPolicy = Nothing
     }

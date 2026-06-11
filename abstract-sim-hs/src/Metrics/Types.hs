@@ -24,6 +24,7 @@ module Metrics.Types (
   Throughput (..),
   RankingBlockCounts (..),
   PriceStability (..),
+  DemandLoad (..),
 
   -- * Invariants
   InvariantBreach (..),
@@ -32,6 +33,7 @@ module Metrics.Types (
 
 import Data.Map.Strict (Map)
 import Load (ArrivalProcess (ConstantLoad))
+import Metrics.Demand (DemandLoad (..))
 import Metrics.Inclusion (InclusionStats (..))
 import Metrics.Invariants (InvariantBreach (..), InvariantKind (..))
 import Metrics.Latency (BlockLatencyStats (..), LatencyStats (..))
@@ -87,6 +89,8 @@ data Metrics = Metrics
   -- ^ (7) price convergence\/oscillation
   , invariantBreaches :: [InvariantBreach]
   -- ^ (8) invariant breaches
+  , demandLoad :: DemandLoad
+  -- ^ Diagnostic per-attempt load: retry amplification and fee-bump cost
   }
   deriving (Eq, Show)
 

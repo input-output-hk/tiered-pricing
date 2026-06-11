@@ -18,6 +18,8 @@ module Parser (
   ParseControllerSignal (..),
   ParseControllerConfig (..),
   ParseDesign (..),
+  ParseFailureResponse (..),
+  ParseRetryPolicy (..),
   ParseError (..),
   fromParseSimConfig,
   fromParseDesign,
@@ -52,6 +54,7 @@ import Load (
   moderateLoad,
   severeCongestionLoad,
  )
+import Retry (FailureResponse (..), RetryPolicy (..), noRetries)
 import Types (Duration (..), SlotNo (..))
 
 data ParseSimConfig = ParseSimConfig
@@ -67,9 +70,11 @@ data ParseSimConfig = ParseSimConfig
   , parseSimConfigEbStructureBytesCap :: Int
   , parseSimConfigEbExUnitsCap :: Int
   , parseSimConfigMempoolBytesCap :: Int
+  , parseSimConfigAdmissionHeadroomUpdates :: Int
   , parseSimConfigLaneLatencyEstimate :: ParseLaneLatencyEstimate
   , parseSimConfigPriceConvergenceBandPct :: Double
   , parseSimConfigLoadChangePct :: Double
+  , parseSimConfigRetryPolicy :: Maybe ParseRetryPolicy
   }
   deriving stock (Eq, Show)
 
@@ -90,9 +95,11 @@ instance FromJSON ParseSimConfig where
         <*> object .: "ebStructureBytesCap"
         <*> object .: "ebExUnitsCap"
         <*> object .: "mempoolBytesCap"
+        <*> object .: "admissionHeadroomUpdates"
         <*> object .: "laneLatencyEstimate"
         <*> object .: "priceConvergenceBandPct"
         <*> object .: "loadChangePct"
+        <*> object .:? "retryPolicy"
    where
     parseD object = do
       md <- object .:? "d"
@@ -435,6 +442,48 @@ instance FromJSON ParseDesign where
         <*> object .: "feeSemantics"
         <*> object .: "controllers"
 
+data ParseFailureResponse
+  = AbandonP
+  | ResubmitAfterP Int Int
+  deriving stock (Eq, Show)
+
+instance FromJSON ParseFailureResponse where
+  parseJSON value@(String _) =
+    parseTag "ParseFailureResponse" value >>= \case
+      "abandon" -> pure AbandonP
+      tag -> fail ("failure response " <> tag <> " requires an object")
+  parseJSON value =
+    withObject "ParseFailureResponse" parse value
+   where
+    parse object = do
+      tag <- object .: "type"
+      case tag of
+        "abandon" -> pure AbandonP
+        "resubmit-after" ->
+          ResubmitAfterP
+            <$> object .: "delaySlots"
+            <*> object .: "jitterSlots"
+        _ -> fail ("unknown failure response: " <> tag)
+
+data ParseRetryPolicy = ParseRetryPolicy
+  { parseRetryFeeTooLow :: ParseFailureResponse
+  , parseRetryMempoolFull :: ParseFailureResponse
+  , parseRetryEvicted :: ParseFailureResponse
+  , parseRetryMaxAttempts :: Int
+  , parseRetryEscalationFactor :: Double
+  }
+  deriving stock (Eq, Show)
+
+instance FromJSON ParseRetryPolicy where
+  parseJSON =
+    withObject "ParseRetryPolicy" \object ->
+      ParseRetryPolicy
+        <$> object .: "feeTooLow"
+        <*> object .: "mempoolFull"
+        <*> object .: "evicted"
+        <*> object .: "maxAttempts"
+        <*> object .: "escalationFactor"
+
 parseTag :: String -> Value -> Aeson.Parser String
 parseTag _ value@(String _) =
   parseJSON value
@@ -483,9 +532,11 @@ fromParseSimConfig pc = do
       , simConfigEbStructureBytesCap = pc.parseSimConfigEbStructureBytesCap
       , simConfigEbExUnitsCap = pc.parseSimConfigEbExUnitsCap
       , simConfigMempoolBytesCap = pc.parseSimConfigMempoolBytesCap
+      , simConfigAdmissionHeadroomUpdates = pc.parseSimConfigAdmissionHeadroomUpdates
       , simConfigLaneLatencyEstimate = toLaneLatencyEstimate pc.parseSimConfigLaneLatencyEstimate
       , simConfigPriceConvergenceBandPct = pc.parseSimConfigPriceConvergenceBandPct
       , simConfigLoadChangePct = pc.parseSimConfigLoadChangePct
+      , simConfigRetryPolicy = maybe noRetries toRetryPolicy pc.parseSimConfigRetryPolicy
       }
 
 fromParseDesign :: ParseDesign -> Either ParseError Design.Design
@@ -635,6 +686,22 @@ toLaneLatencyEstimate estimate =
     { expectedStandardLatency = Duration estimate.parseExpectedStandardLatency
     , expectedPriorityLatency = Duration estimate.parseExpectedPriorityLatency
     }
+
+toRetryPolicy :: ParseRetryPolicy -> RetryPolicy
+toRetryPolicy policy =
+  RetryPolicy
+    { retryFeeTooLow = toFailureResponse policy.parseRetryFeeTooLow
+    , retryMempoolFull = toFailureResponse policy.parseRetryMempoolFull
+    , retryEvicted = toFailureResponse policy.parseRetryEvicted
+    , retryMaxAttempts = policy.parseRetryMaxAttempts
+    , retryEscalationFactor = policy.parseRetryEscalationFactor
+    }
+
+toFailureResponse :: ParseFailureResponse -> FailureResponse
+toFailureResponse = \case
+  AbandonP -> Abandon
+  ResubmitAfterP delaySlots jitterSlots ->
+    ResubmitAfter (Duration delaySlots) (Duration jitterSlots)
 
 toDesignLaneStructure :: ParseLaneStructure -> Design.LaneStructure
 toDesignLaneStructure pls =

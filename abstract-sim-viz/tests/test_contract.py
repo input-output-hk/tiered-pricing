@@ -110,15 +110,19 @@ def test_build_sim_data_structure_and_values():
     assert data["flow"]["total"] == 1
     assert data["flow"]["sampleRate"] == 1.0
 
-    # fate: the one tx was included
+    # fate: the one demand unit was served
     assert data["fate"]["byLane"]["Standard"] == {
-        "submitted": 1, "included": 1, "evicted": 0, "rejected": 0, "unresolved": 0}
+        "submitted": 1, "included": 1, "abandoned": 0, "unresolved": 0}
     assert data["fate"]["byClassLane"][cls_id]["Standard"]["included"] == 1
     assert data["fate"]["byClassLane"][cls_id]["Priority"]["submitted"] == 0
-    # value: tx value 1, included after ~2 slots -> almost fully retained
+    # value: unit value 1, served after ~2 slots -> almost fully retained
     v = data["value"]["byClass"][cls_id]
-    assert v["total"] == 1 and v["retained"] == 1 and v["lost"] == 0
+    assert v["total"] == 1 and v["retained"] == 1 and v["lost"] == 0 and v["unresolved"] == 0
     assert round(v["retainedPct"]) == 100
+    # demand: one unit, one attempt, served
+    dm = data["meta"]["demand"]
+    assert dm["units"] == 1 and dm["attempts"] == 1 and dm["served"] == 1
+    assert dm["amplification"] == 1.0
 
     # fairness: one actor (0), its one tx included -> perfectly fair, none starved
     fr = data["fairness"]

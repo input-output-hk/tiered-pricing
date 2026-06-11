@@ -1,28 +1,35 @@
+from simviz.ingest import unit_lane
+
+
 def class_id(tag, rate):
     """Stable id for an urgency class, e.g. 'Exponential:0.0005'."""
     return f"{tag}:{rate}"
 
 
 def _join(acc, key_of):
-    """Map key_of(meta) -> list of (submit_slot, latency_slots) for txs with both events."""
+    """Map key_of(unit) -> list of (first_submit_slot, latency_slots) for served
+    demand units. Latency runs from the unit's *first* submission to on-chain
+    inclusion, so the waiting hidden inside rejected and retried attempts
+    counts against the design."""
     out = {}
-    for tx_id, submit_slot in acc.submitted_at.items():
-        inc = acc.included_at.get(tx_id)
-        meta = acc.tx_meta.get(tx_id)
-        if inc is None or meta is None:
+    for unit in acc.units.values():
+        inc = unit["includedAt"]
+        if inc is None:
             continue
-        out.setdefault(key_of(meta), []).append((submit_slot, inc - submit_slot))
+        first = unit["firstSubmitted"]
+        out.setdefault(key_of(unit), []).append((first, inc - first))
     return out
 
 
 def join_latencies(acc):
     """Latencies grouped by urgency class id (tests actor bidding logic)."""
-    return _join(acc, lambda m: class_id(m["tag"], m["rate"]))
+    return _join(acc, lambda u: class_id(u["meta"]["tag"], u["meta"]["rate"]))
 
 
 def join_latencies_by_lane(acc):
-    """Latencies grouped by lane (tests whether the Priority lane serves faster)."""
-    return _join(acc, lambda m: m["lane"])
+    """Latencies grouped by lane (tests whether the Priority lane serves faster).
+    Units are attributed to the lane that served them."""
+    return _join(acc, unit_lane)
 
 
 from simviz.stats import quantile, mean

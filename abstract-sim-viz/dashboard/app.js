@@ -87,9 +87,12 @@ function exportSvg(container, filename) {
 }
 
 function renderHeader() {
+  const dm = DATA.meta.demand;
   el("subtitle").textContent =
     `${DATA.meta.slotCount.toLocaleString()} slots · ` +
-    `${DATA.meta.totalEvents.toLocaleString()} events · source ${DATA.meta.source}`;
+    `${DATA.meta.totalEvents.toLocaleString()} events · ` +
+    (dm ? `${dm.units.toLocaleString()} demand units · ` : "") +
+    `source ${DATA.meta.source}`;
   el("footnote").textContent =
     "Load regimes are inferred from observed submissions/slot (the trace omits run config). " +
     "Price is the dynamic coefficient (multiplier on min-fee).";
@@ -122,6 +125,12 @@ function renderKpis() {
   if (lat.Priority) cards.push(kpi("Priority median latency", `${lat.Priority.median} sl${blk(lat.Priority.median)}`, "#7c3aed"));
   if (lat.Standard) cards.push(kpi("Standard median latency", `${lat.Standard.median} sl${blk(lat.Standard.median)}`, "#2563eb"));
   cards.push(kpi("Drop rate · Pri / Std", `${drop("Priority")}% / ${drop("Standard")}%`, "#ef4444"));
+  const dm = DATA.meta.demand;
+  if (dm && dm.units) {
+    cards.unshift(kpi("Demand served", `${(100 * dm.served / dm.units).toFixed(1)}%`, "#16a34a"));
+    if (dm.amplification > 1.0005)
+      cards.push(kpi("Retry amplification", `${dm.amplification.toFixed(2)}× (${dm.attempts.toLocaleString()} attempts)`, "#d97706"));
+  }
   el("kpis").innerHTML = cards.join("");
 }
 
@@ -503,18 +512,18 @@ function renderComposition(figId, title, hint, exportName, src, cats, colors, pc
 }
 
 function renderFate() {
-  renderComposition("panel-fate", "Inclusion / fate",
-    "share of submitted txs · included vs evicted (fee) / rejected (mempool) / unresolved", "fate.svg",
-    DATA.fate, ["included", "evicted", "rejected", "unresolved"],
-    { included: "#16a34a", evicted: "#d97706", rejected: "#ef4444", unresolved: "#9ca3af" },
-    "% of submitted");
+  renderComposition("panel-fate", "Demand fate",
+    "share of demand units (one per intent, however many attempts) · served vs abandoned (gave up after rejection/eviction) / unresolved (in flight at run end)", "fate.svg",
+    DATA.fate, ["included", "abandoned", "unresolved"],
+    { included: "#16a34a", abandoned: "#ef4444", unresolved: "#9ca3af" },
+    "% of demand units");
 }
 
 function renderValue() {
   renderComposition("panel-value", "Value retained vs lost",
-    "share of submitted value · retained at inclusion vs lost (decay + drops)", "value.svg",
-    DATA.value, ["retained", "lost"],
-    { retained: "#16a34a", lost: "#ef4444" },
+    "share of demand-unit value · retained at inclusion (decayed from first submission) vs lost (decay + abandonment); unresolved = in flight at run end", "value.svg",
+    DATA.value, ["retained", "lost", "unresolved"],
+    { retained: "#16a34a", lost: "#ef4444", unresolved: "#9ca3af" },
     "% of value");
 }
 
@@ -524,13 +533,13 @@ function renderFairness() {
   fig.innerHTML = "";
   const F = DATA.fairness || { jainIndex: 1, nActors: 0, starvedTxs: 0, actors: [] };
   panelHead("panel-fairness", "Fairness / starvation",
-    "Jain index over per-actor inclusion · starved = admitted but never included", "fairness.svg");
+    "Jain index over per-actor served demand units · starved = in flight at run end", "fairness.svg");
   const head = document.createElement("div");
   head.className = "subtitle"; head.style.fontSize = "11px"; head.style.margin = "2px 0 4px";
   head.innerHTML =
     `<div><b>Jain index ${F.jainIndex.toFixed(3)}</b> over ${F.nActors} actor${F.nActors === 1 ? "" : "s"}</div>`
-    + `<div><span style="color:#ef4444">${(F.starvedTxs || 0).toLocaleString()}</span> transactions starved`
-    + ` <span class="muted">(admitted to the mempool but never included)</span></div>`;
+    + `<div><span style="color:#ef4444">${(F.starvedTxs || 0).toLocaleString()}</span> demand units unresolved`
+    + ` <span class="muted">(in flight at run end: never served, never abandoned)</span></div>`;
   fig.appendChild(head);
   const rows = (F.actors || []).slice().sort((a, b) => a.rate - b.rate)
     .map((a) => ({ label: `actor ${a.id}`, rate: a.rate }));

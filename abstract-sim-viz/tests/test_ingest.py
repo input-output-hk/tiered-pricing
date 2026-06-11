@@ -122,3 +122,56 @@ def test_accumulator_last_wins_on_duplicate_txid():
     assert acc.submitted_at[1] == 5
     assert acc.tx_meta[1]["lane"] == "Priority"
     assert acc.included_at[1] == 9
+
+
+def _attempt(tx_id, slot, lane, rate, origin, attempt, origin_submitted):
+    """A lineage-bearing submission: a retry chain attempt of a demand unit."""
+    e = _submitted(tx_id, slot, lane, rate)
+    e["tx"].update({"originNumber": origin, "attempt": attempt,
+                    "originSubmitted": origin_submitted})
+    return e
+
+
+def test_demand_units_chain_retry_attempts():
+    from simviz.ingest import unit_fate, unit_lane
+    acc = Accumulator()
+    for e in [
+        # unit 1: rejected on attempt 1, served on attempt 2 (lane switched)
+        _attempt(1, 0, "Standard", 0.01, origin=1, attempt=1, origin_submitted=0),
+        {"tag": "TxRejected", "slot": 0, "txId": 1, "reasons": [{"tag": "FeeTooLow"}]},
+        _attempt(2, 5, "Priority", 0.01, origin=1, attempt=2, origin_submitted=0),
+        _included(2, 9),
+        # unit 3: abandoned outright
+        _attempt(3, 1, "Standard", 0.01, origin=3, attempt=1, origin_submitted=1),
+        {"tag": "TxAbandoned", "slot": 4, "originNumber": 3},
+        # unit 4: still in flight at the end of the trace
+        _attempt(4, 2, "Standard", 0.01, origin=4, attempt=1, origin_submitted=2),
+        {"tag": "TxRejected", "slot": 2, "txId": 4, "reasons": [{"tag": "FeeTooLow"}]},
+    ]:
+        acc.ingest(e)
+    assert acc.has_lineage
+    assert acc.attempt_count == 4 and acc.attempts_max == 2
+    served = acc.units[1]
+    assert served["attempts"] == 2
+    assert served["firstSubmitted"] == 0       # decay/latency anchor: attempt 1
+    assert served["includedAt"] == 9
+    assert unit_lane(served) == "Priority"     # the lane that actually served it
+    assert unit_fate(acc, served) == "included"
+    assert unit_fate(acc, acc.units[3]) == "abandoned"
+    # lineage traces trust explicit abandonment only: unit 4's rejection may
+    # still have a retry queued, so it is unresolved, not abandoned
+    assert unit_fate(acc, acc.units[4]) == "unresolved"
+
+
+def test_legacy_traces_fall_back_to_per_tx_units():
+    from simviz.ingest import unit_fate
+    acc = Accumulator()
+    acc.ingest(_submitted(1, 0, "Standard", 0.01))
+    acc.ingest({"tag": "TxRejected", "slot": 0, "txId": 1, "reasons": [{"tag": "MempoolFull"}]})
+    acc.ingest(_submitted(2, 1, "Standard", 0.01))
+    acc.ingest(_included(2, 3))
+    assert not acc.has_lineage
+    # without lineage there are no retries: a rejected attempt IS its unit's end
+    assert unit_fate(acc, acc.units[1]) == "abandoned"
+    assert unit_fate(acc, acc.units[2]) == "included"
+    assert acc.units[2]["firstSubmitted"] == 1

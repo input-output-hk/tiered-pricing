@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from simviz import price as price_mod
 from simviz import load as load_mod
 from simviz import latency as latency_mod
+from simviz.ingest import unit_fate, unit_lane
 from simviz.stats import quantile, histogram_bins
 
 DEFAULT_PARAMS = {"shockThreshold": 0.10, "convergenceBandPct": 0.05, "loadChangePct": 0.10}
@@ -47,7 +48,7 @@ def urgency_classes(acc, f=None):
     value half-life in blocks (rate is per expected ranking block). The slot
     equivalent uses the active-slot coefficient f, mirroring expectedBlockDelay:
     blocks = f * slots, so slots = blocks / f."""
-    keys = {(m["tag"], m["rate"]) for m in acc.tx_meta.values()}
+    keys = {(u["meta"]["tag"], u["meta"]["rate"]) for u in acc.units.values()}
     classes = []
     for tag, rate in sorted(keys, key=lambda k: k[1]):
         hl_blocks = half_life_blocks(tag, rate)
@@ -80,25 +81,21 @@ def retention_ratio(tag, rate, blocks):
 
 
 def build_fate(acc, lanes, classes):
-    """Per submitted tx: included / evicted (fee) / rejected (mempool full) / unresolved,
-    tallied by lane, by urgency class, and by lane x class (to separate selection bias
-    from any lane effect)."""
-    cats = ("submitted", "included", "evicted", "rejected", "unresolved")
+    """Per demand unit (one count however many attempts it took): included /
+    abandoned (terminal failure: actor gave up after rejection or eviction) /
+    unresolved (still in flight at the run horizon), tallied by lane, by
+    urgency class, and by lane x class. Units are attributed to the lane that
+    served them, else the last lane attempted."""
+    cats = ("submitted", "included", "abandoned", "unresolved")
     def blank():
         return {k: 0 for k in cats}
     by_lane = {l: blank() for l in lanes}
     by_class = {c["id"]: blank() for c in classes}
     by_class_lane = {c["id"]: {l: blank() for l in lanes} for c in classes}
-    for tx_id, meta in acc.tx_meta.items():
-        if tx_id in acc.included_at:
-            fate = "included"
-        elif tx_id in acc.evicted:
-            fate = "evicted"
-        elif tx_id in acc.rejected:
-            fate = "rejected"
-        else:
-            fate = "unresolved"
-        cid, lane = latency_mod.class_id(meta["tag"], meta["rate"]), meta["lane"]
+    for unit in acc.units.values():
+        fate = unit_fate(acc, unit)
+        meta = unit["meta"]
+        cid, lane = latency_mod.class_id(meta["tag"], meta["rate"]), unit_lane(unit)
         for d in (by_lane.get(lane), by_class.get(cid), by_class_lane.get(cid, {}).get(lane)):
             if d is not None:
                 d["submitted"] += 1
@@ -107,28 +104,36 @@ def build_fate(acc, lanes, classes):
 
 
 def build_value(acc, lanes, classes, f):
-    """Retained vs lost value by lane and urgency class. Included txs retain
-    value * retentionRatio(f * latency_slots); dropped txs lose their full value."""
+    """Retained vs lost demand-unit value by lane and urgency class. Every unit
+    lands in exactly one column: served units retain value *
+    retentionRatio(f * latency from FIRST submission) — so retry wait counts —
+    abandoned units lose their full value, and units still in flight at the
+    run horizon are reported as unresolved rather than lost."""
     def blank():
-        return {"total": 0, "retained": 0, "lost": 0}
+        return {"total": 0, "retained": 0, "lost": 0, "unresolved": 0}
     by_lane = {l: blank() for l in lanes}
     by_class = {c["id"]: blank() for c in classes}
     by_class_lane = {c["id"]: {l: blank() for l in lanes} for c in classes}
-    for tx_id, meta in acc.tx_meta.items():
-        v = acc.tx_value.get(tx_id) or 0
-        inc = acc.included_at.get(tx_id)
-        if inc is not None:
-            blocks = f * max(0, inc - acc.submitted_at[tx_id])
+    for unit in acc.units.values():
+        v = unit["value"] or 0
+        meta = unit["meta"]
+        fate = unit_fate(acc, unit)
+        ret = lost = unresolved = 0
+        if fate == "included":
+            blocks = f * max(0, unit["includedAt"] - unit["firstSubmitted"])
             r = retention_ratio(meta["tag"], meta["rate"], blocks)
             ret, lost = round(v * r), round(v * (1.0 - r))
+        elif fate == "abandoned":
+            lost = v
         else:
-            ret, lost = 0, v
-        cid, lane = latency_mod.class_id(meta["tag"], meta["rate"]), meta["lane"]
+            unresolved = v
+        cid, lane = latency_mod.class_id(meta["tag"], meta["rate"]), unit_lane(unit)
         for d in (by_lane.get(lane), by_class.get(cid), by_class_lane.get(cid, {}).get(lane)):
             if d is not None:
                 d["total"] += v
                 d["retained"] += ret
                 d["lost"] += lost
+                d["unresolved"] += unresolved
     cells = [*by_lane.values(), *by_class.values()]
     for per_lane in by_class_lane.values():
         cells.extend(per_lane.values())
@@ -138,24 +143,25 @@ def build_value(acc, lanes, classes, f):
 
 
 def build_fairness(acc):
-    """Metric (7): fairness/starvation, mirroring Metrics.Fairness.
-    fairnessIndex = Jain's index over per-actor inclusion counts; starvedTxs =
-    admitted (submitted - rejected) but never included or evicted."""
+    """Fairness/starvation over demand units: Jain's index over per-actor
+    served-unit counts; starvedTxs = units still in flight at the run horizon
+    (never served, never abandoned)."""
     sub_by_actor, inc_by_actor = {}, {}
-    for tx_id, a in acc.tx_actor.items():
+    starved = 0
+    for unit in acc.units.values():
+        a = unit["actor"]
+        fate = unit_fate(acc, unit)
+        if fate == "unresolved":
+            starved += 1
         if a is None:
             continue
         sub_by_actor[a] = sub_by_actor.get(a, 0) + 1
-        if tx_id in acc.included_at:
+        if fate == "included":
             inc_by_actor[a] = inc_by_actor.get(a, 0) + 1
     actors = sorted(sub_by_actor)
     counts = [inc_by_actor.get(a, 0) for a in actors]
     s, ss, n = sum(counts), sum(c * c for c in counts), len(counts)
     jain = (s * s) / (n * ss) if (n and ss) else 1.0
-    starved = sum(
-        1 for tx_id in acc.tx_meta
-        if tx_id not in acc.included_at and tx_id not in acc.evicted and tx_id not in acc.rejected
-    )
     return {
         "jainIndex": jain,
         "nActors": n,
@@ -210,8 +216,21 @@ def build_sim_data(acc, params=None, target_buckets=300, source="events.jsonl", 
     classes = urgency_classes(acc, f)
 
     submitted_by_lane = {}
-    for m in acc.tx_meta.values():
-        submitted_by_lane[m["lane"]] = submitted_by_lane.get(m["lane"], 0) + 1
+    fates = []
+    for unit in acc.units.values():
+        lane = unit_lane(unit)
+        submitted_by_lane[lane] = submitted_by_lane.get(lane, 0) + 1
+        fates.append(unit_fate(acc, unit))
+    n_units = len(acc.units)
+    demand = {
+        "units": n_units,
+        "attempts": acc.attempt_count,
+        "served": fates.count("included"),
+        "abandoned": fates.count("abandoned"),
+        "unresolved": fates.count("unresolved"),
+        "amplification": (acc.attempt_count / n_units) if n_units else 0.0,
+        "attemptsMax": acc.attempts_max,
+    }
 
     price_by_lane = {lane: price_mod.price_series(acc, lane) for lane in lanes}
     shock_by_lane = {
@@ -270,8 +289,9 @@ def build_sim_data(acc, params=None, target_buckets=300, source="events.jsonl", 
             "rbCount": acc.rb_count,
             "realizedSlotsPerBlock": realized_spb,     # sanity check only
             "lanes": lanes,
-            "submittedByLane": submitted_by_lane,      # for drop-rate KPIs
+            "submittedByLane": submitted_by_lane,      # demand units, for drop-rate KPIs
             "urgencyClasses": classes,
+            "demand": demand,                          # demand units vs attempts (retry load)
         },
         "params": params,
         "price": {"byLane": price_by_lane},

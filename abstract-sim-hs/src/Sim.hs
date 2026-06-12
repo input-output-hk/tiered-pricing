@@ -24,11 +24,11 @@ import Data.Maybe (catMaybes, mapMaybe)
 import Data.Sequence (Seq, singleton, (><), (|>))
 import Data.Sequence qualified as Seq
 import Data.Set qualified as Set
-import Design (ControllerConfig (..), ControllerSignal (..), Design (..), Eip1559Controller (..), FeeSemantics (..))
+import Design (Design (..), FeeSemantics)
 import Event (SimEvent (..))
 import Load (arrivalRateAt, tryBurstEffectAt)
 import Mempool (Mempool (..), admitToMempool, emptyMempool, removeFromMempool, setMempoolTxIds)
-import Pricing (Prices (..), initialPrices, quotedFee, realisedFee, updatePrices, worstCaseNextPrices)
+import Pricing (Prices (..), admissionRequiredFee, coversProducerHeadroom, feeStillValid, initialPrices, quotedFee, realisedFee, retentionWindow, updatePrices)
 import Retry (PendingRetry (..), RetryPolicy (..), capture)
 import System.Random (StdGen, uniformR)
 import Transaction (EvictionReason (..), RejectReason (..), Tx (..), TxBody (..), TxId (..), TxSample (..))
@@ -107,36 +107,14 @@ step = do
   advanceSlot
   pure (slotEvents <> abandonEvents)
 
-{- | The fee a tx must post to enter the mempool: the quote after
-'simConfigAdmissionHeadroomUpdates' worst-case controller steps.
-
-This is the admission-side complement of the EB producer headroom in
-'announceEndorserBlock', and with a horizon of 1 it is deliberately
-semi-redundant with it: nothing enters the mempool that a producer would
-refuse to put in an EB at today's prices, so unserviceable txs are rejected
-at the door (visibly, resubmittably) instead of sitting against the mempool
-cap forever. The producer check is still required because prices may keep
-rising while an admitted tx waits its turn — this check keeps the mempool
-serviceable, that one keeps certified EBs valid. 'FixedFee' never re-prices,
-so it needs no headroom.
--}
-admissionRequiredFee :: Tx -> SimM Lovelace
-admissionRequiredFee tx = do
-  prices <- gets _simPrices
-  design <- asks simConfigDesign
-  headroomUpdates <- asks simConfigAdmissionHeadroomUpdates
-  let admissionPrices =
-        case design.designFeeSemantics of
-          FixedFee -> prices
-          _ ->
-            iterate (worstCaseNextPrices design.designControllers) prices
-              !! max 0 headroomUpdates
-  pure (quotedFee admissionPrices tx)
-
 admitTxSubmission :: TxSubmission -> SimM (Seq SimEvent)
 admitTxSubmission (TxSubmission actorId tx) = do
   simSt <- get
-  requiredFee <- admissionRequiredFee tx
+  prices <- gets _simPrices
+  design <- asks simConfigDesign
+  headroomUpdates <- asks simConfigAdmissionHeadroomUpdates
+  let requiredFee =
+        admissionRequiredFee design.designControllers headroomUpdates design.designFeeSemantics prices tx
   mempool <- gets _simMempool
   simTxs <- gets _simTxs
   mempoolBytesCap <- asks simConfigMempoolBytesCap
@@ -287,26 +265,13 @@ recordBlockEvents events =
   case blockSummaries events of
     Seq.Empty -> pure ()
     summaries -> do
-      retain <- asks (retentionWindow . simConfigDesign)
+      -- Only the controllers read '_simRecentBlocks', and none looks past
+      -- its largest signal window, so keep exactly that many summaries to
+      -- bound memory and the per-update scan cost.
+      retain <- asks (retentionWindow . (.designControllers) . simConfigDesign)
       modify' \st ->
         let kept = st._simRecentBlocks <> summaries
          in st{_simRecentBlocks = Seq.drop (Seq.length kept - retain) kept}
-
-{- | How far back the price controllers can read '_simRecentBlocks'. Only the
-controllers consume it, and none looks past its largest window, so we keep
-exactly that many summaries and drop the rest to bound memory and the
-per-update scan cost.
--}
-retentionWindow :: Design -> Int
-retentionWindow design =
-  maximum (1 : concatMap controllerWindow [controllers.standardController, controllers.priorityController])
- where
-  controllers = design.designControllers
-  controllerWindow Nothing = []
-  controllerWindow (Just controller) =
-    case controller.controllerSignal of
-      CapacityWeightedWindow windowSize -> [windowSize]
-      PriorityReservationUtil -> [1]
 
 blockSummaries :: Seq SimEvent -> Seq BlockSummary
 blockSummaries events =
@@ -420,7 +385,7 @@ pendingEbStillValid design slot simTxs pending = do
   let txStillValid txId =
         case Map.lookup txId simTxs of
           Nothing -> True
-          Just tx -> txFeeStillValid design.designFeeSemantics slot prices tx
+          Just tx -> feeStillValid design.designFeeSemantics slot prices tx
   pure (all txStillValid (maybe mempty _ebTxs (Map.lookup pending.pendingEbId ebs)))
 
 certifyPendingEb :: SlotNo -> Int -> Int -> Map TxId Tx -> PendingEb -> SimM (Seq SimEvent)
@@ -492,28 +457,17 @@ announceEndorserBlock slot rbPriorityTxBytesCap rbExUnitsCap simTxs = do
   mempool <- gets _simMempool
   let (feeCheckedMempool, evictionEvents) =
         evictStaleFees design.designFeeSemantics slot prices simTxs mempool
-      -- Producer headroom: fill the EB only with txs that stay valid
-      -- through the single price update that can fire before the
-      -- certification check, so a prudent producer's EB cannot fail
-      -- validation. Semi-redundant with 'admissionRequiredFee': admission
-      -- with a horizon >= 1 guarantees this headroom at entry, but prices
-      -- may have risen while the tx waited, so the producer re-checks
-      -- against current prices — that check is the mempool-hygiene
-      -- heuristic, this is the exact protocol-safety bound. Ineligible
-      -- txs are not evicted: they stay in the mempool (RB-eligible only
-      -- as the reservation policy allows) and regain EB eligibility if
-      -- prices fall.
-      headroomPrices = worstCaseNextPrices design.designControllers prices
+      -- Producer headroom ('Pricing.coversProducerHeadroom'): fill the EB
+      -- only with txs that stay valid through the single price update that
+      -- can fire before the certification check, so a prudent producer's
+      -- EB cannot fail validation. Ineligible txs are not evicted: they
+      -- stay in the mempool (RB-eligible only as the reservation policy
+      -- allows) and regain EB eligibility if prices fall.
       ebEligible txId =
         case Map.lookup txId simTxs of
           Nothing -> False
           Just tx ->
-            case design.designFeeSemantics of
-              FixedFee -> True
-              -- For HonourSubmissionQuoteFor the honour window may expire
-              -- before the certification check, so only the price bound
-              -- guarantees safety.
-              _ -> tx.txBody._txFee >= quotedFee headroomPrices tx
+            coversProducerHeadroom design.designControllers design.designFeeSemantics prices tx
       (selectedTxs, _remainingMempool, (_usedBytes, _usedExUnits)) =
         selectTxsByPolicy design.designSelection ebTxBytesCap ebExUnitsCap simTxs (Seq.filter ebEligible feeCheckedMempool.mempoolTxIds)
       selectedTxIds = toList selectedTxs
@@ -552,26 +506,10 @@ evictStaleFees semantics slot prices simTxs mempool =
       Nothing ->
         (kept |> txId, events)
       Just tx
-        | txFeeStillValid semantics slot prices tx ->
+        | feeStillValid semantics slot prices tx ->
             (kept |> txId, events)
         | otherwise ->
             (kept, events |> staleFeeEviction slot prices txId tx)
-
-{- | Staleness per the design's fee semantics: under Eip1559 the posted max
-fee must still cover the current quote; HonourSubmissionQuoteFor defers
-that check until the honour window after submission has elapsed; FixedFee
-never goes stale.
--}
-txFeeStillValid :: FeeSemantics -> SlotNo -> Prices -> Tx -> Bool
-txFeeStillValid semantics slot prices tx =
-  case semantics of
-    FixedFee -> True
-    Eip1559 -> coversCurrentQuote
-    HonourSubmissionQuoteFor honourFor ->
-      diffSlots slot tx.txSubmitted <= honourFor || coversCurrentQuote
- where
-  coversCurrentQuote =
-    tx.txBody._txFee >= quotedFee prices tx
 
 staleFeeEviction :: SlotNo -> Prices -> TxId -> Tx -> SimEvent
 staleFeeEviction slot prices txId tx =

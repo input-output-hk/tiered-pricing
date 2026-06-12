@@ -3,7 +3,10 @@ module Main (main) where
 import Control.Monad (unless)
 import Data.Aeson (eitherDecode)
 import Data.ByteString.Lazy qualified as BL
-import Design (defaultDesign)
+import Design (Design (..), FeeSemantics (..), defaultDesign)
+import Pricing (admissionRequiredFee, coversProducerHeadroom, initialPrices)
+import Transaction (Lane (..), Script (..), Tx (..), TxBody (..), hash)
+import Types (Duration (..), Lovelace (..), SlotNo (..), Urgency (..))
 import Parser
   ( ParseActorPopulation (..)
   , ParseActorType (..)
@@ -34,6 +37,74 @@ main = do
   assertSimConfigFixture
   assertSweepFixture
   assertLiveConfigsParse
+  assertHeadroomInvariant
+
+{- | The design's central safety argument, as code: the admission fee is
+monotone in the headroom horizon, and a tx admitted with a horizon of one
+worst-case controller step satisfies the EB producer-headroom bound at the
+same prices ('Pricing.coversProducerHeadroom').
+-}
+assertHeadroomInvariant :: IO ()
+assertHeadroomInvariant = do
+  let controllers = defaultDesign.designControllers
+      prices = initialPrices defaultDesign
+      semanticsUnderTest =
+        [ FixedFee
+        , Eip1559
+        , HonourSubmissionQuoteFor (Duration 20)
+        ]
+  sequence_
+    [ assertTrue
+        ("admission fee monotone in headroom: " <> show semantics <> ", lane " <> show lane <> ", n=" <> show n)
+        ( admissionRequiredFee controllers n semantics prices (testTx lane)
+            <= admissionRequiredFee controllers (n + 1) semantics prices (testTx lane)
+        )
+    | semantics <- semanticsUnderTest
+    , lane <- [Standard, Priority]
+    , n <- [0 .. 5]
+    ]
+  sequence_
+    [ assertTrue
+        ("admission at horizon 1 implies producer headroom: " <> show semantics <> ", lane " <> show lane)
+        ( let admitted = withFee (admissionRequiredFee controllers 1 semantics prices (testTx lane)) (testTx lane)
+           in coversProducerHeadroom controllers semantics prices admitted
+        )
+    | semantics <- semanticsUnderTest
+    , lane <- [Standard, Priority]
+    ]
+
+withFee :: Lovelace -> Tx -> Tx
+withFee fee tx =
+  tx{txBody = tx.txBody{_txFee = fee}}
+
+testTx :: Lane -> Tx
+testTx lane =
+  Tx
+    { txId = hash body
+    , txBody = body
+    , txSubmitted = SlotNo 0
+    , txValue = Lovelace 1_000_000
+    , txUrgency = Exponential 0.04
+    , txLane = lane
+    , txOriginNumber = 1
+    , txAttempt = 1
+    , txOriginSubmitted = SlotNo 0
+    }
+ where
+  body =
+    TxBody
+      { _txSize = 500
+      , _txScript = Script{_scriptSize = 0, _scriptExUnits = 0}
+      , _txDependsOn = mempty
+      , _txFee = Lovelace 0
+      , _txNumber = 1
+      }
+
+assertTrue :: String -> Bool -> IO ()
+assertTrue label cond =
+  unless cond do
+    putStrLn ("assertion failed: " <> label)
+    exitFailure
 
 {- The JSON under test/fixtures/ is test-owned data, frozen independently of
 config/, which is free to change with whatever experiment is being run. Only

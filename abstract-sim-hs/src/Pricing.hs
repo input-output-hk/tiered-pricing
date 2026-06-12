@@ -5,8 +5,14 @@ module Pricing (
   quotedFee,
   quotedFeeFor,
   realisedFee,
+  admissionRequiredFee,
+  coversProducerHeadroom,
+  feeStillValid,
   updatePrices,
+  priceStepsAhead,
   worstCaseNextPrices,
+  signalWindow,
+  retentionWindow,
 )
 where
 
@@ -16,7 +22,7 @@ import Data.Maybe (mapMaybe)
 import Data.Sequence (Seq)
 import Design (ControllerConfig (..), ControllerSignal (..), Design (..), Eip1559Controller (..), FeeSemantics (..))
 import Transaction (Lane (..), Script (..), Tx (..), TxBody (..))
-import Types (Lovelace (..))
+import Types (Lovelace (..), SlotNo, diffSlots)
 
 data Prices = Prices
   { standardCoeff :: Double
@@ -86,6 +92,57 @@ laneCoeff :: Prices -> Lane -> Double
 laneCoeff prices Standard = prices.standardCoeff
 laneCoeff prices Priority = prices.priorityCoeff
 
+{- | The fee a tx must post to enter the mempool: the quote after
+@headroomUpdates@ worst-case controller steps.
+
+This is the admission-side complement of the producer headroom
+('coversProducerHeadroom'), and with a horizon of 1 it is deliberately
+semi-redundant with it: nothing enters the mempool that a producer would
+refuse to put in an EB at today's prices, so unserviceable txs are rejected
+at the door (visibly, resubmittably) instead of sitting against the mempool
+cap forever. The producer check is still required because prices may keep
+rising while an admitted tx waits its turn — admission keeps the mempool
+serviceable, the producer check keeps certified EBs valid. 'FixedFee' never
+re-prices, so it needs no headroom.
+-}
+admissionRequiredFee :: ControllerConfig -> Int -> FeeSemantics -> Prices -> Tx -> Lovelace
+admissionRequiredFee controllers headroomUpdates semantics prices tx =
+  case semantics of
+    FixedFee -> quotedFee prices tx
+    _ -> quotedFee (priceStepsAhead controllers headroomUpdates prices) tx
+
+{- | Producer headroom: does this tx stay valid through the single price
+update that can fire before the certification check? A prudent producer
+fills EBs only with txs satisfying this bound, so its EBs cannot fail fee
+validation. Admission with a horizon >= 1 guarantees it at entry
+('admissionRequiredFee'); the producer re-checks against current prices
+because they may have risen while the tx waited. For
+'HonourSubmissionQuoteFor' the honour window may expire before the
+certification check, so only the price bound guarantees safety; 'FixedFee'
+never re-prices, so everything is safe.
+-}
+coversProducerHeadroom :: ControllerConfig -> FeeSemantics -> Prices -> Tx -> Bool
+coversProducerHeadroom controllers semantics prices tx =
+  case semantics of
+    FixedFee -> True
+    _ -> tx.txBody._txFee >= quotedFee (priceStepsAhead controllers 1 prices) tx
+
+{- | Staleness per the design's fee semantics: under 'Eip1559' the posted max
+fee must still cover the current quote; 'HonourSubmissionQuoteFor' defers
+that check until the honour window after submission has elapsed; 'FixedFee'
+never goes stale.
+-}
+feeStillValid :: FeeSemantics -> SlotNo -> Prices -> Tx -> Bool
+feeStillValid semantics slot prices tx =
+  case semantics of
+    FixedFee -> True
+    Eip1559 -> coversCurrentQuote
+    HonourSubmissionQuoteFor honourFor ->
+      diffSlots slot tx.txSubmitted <= honourFor || coversCurrentQuote
+ where
+  coversCurrentQuote =
+    tx.txBody._txFee >= quotedFee prices tx
+
 minFeeA :: Integer
 minFeeA = 44
 
@@ -126,6 +183,11 @@ updatePrices design recentBlocks prices =
     fmap withFinalFloor (maybe [] pure standardResult <> maybe [] pure priorityResult)
   withFinalFloor update =
     update{priceUpdateNewCoeff = laneCoeff finalPrices update.priceUpdateLane}
+
+-- | Upper bound on prices after @steps@ controller updates.
+priceStepsAhead :: ControllerConfig -> Int -> Prices -> Prices
+priceStepsAhead controllers steps prices =
+  iterate (worstCaseNextPrices controllers) prices !! max 0 steps
 
 {- | Upper bound on prices after the next controller update: one EIP-1559 step
 raises a lane's coefficient by at most @1 + 1\/maxChangeDenominator@, and the
@@ -183,10 +245,29 @@ updateLanePrice design lane recentBlocks oldCoeff controller =
 controllerUtilisation :: Design -> Lane -> Seq BlockSummary -> Eip1559Controller -> Double
 controllerUtilisation design lane recentBlocks controller =
   case controller.controllerSignal of
-    CapacityWeightedWindow windowSize ->
-      capacityWeightedWindowUtilisation lane windowSize recentBlocks
+    signal@CapacityWeightedWindow{} ->
+      capacityWeightedWindowUtilisation lane (signalWindow signal) recentBlocks
     PriorityReservationUtil ->
       priorityReservationUtilisation design recentBlocks
+
+-- | How many recent block summaries a controller signal reads.
+signalWindow :: ControllerSignal -> Int
+signalWindow = \case
+  CapacityWeightedWindow windowSize -> max 1 windowSize
+  PriorityReservationUtil -> 1
+
+{- | How far back the price controllers can read the recent-block history.
+Derived from 'signalWindow' so the engine's retention and the signals'
+lookback cannot drift apart: the engine keeps exactly this many summaries.
+-}
+retentionWindow :: ControllerConfig -> Int
+retentionWindow controllers =
+  maximum
+    ( 1
+        : [ signalWindow controller.controllerSignal
+          | Just controller <- [controllers.standardController, controllers.priorityController]
+          ]
+    )
 
 applyEip1559Update :: Eip1559Controller -> Double -> Double -> Double
 applyEip1559Update controller oldCoeff utilisationValue =
@@ -201,7 +282,7 @@ capacityWeightedWindowUtilisation :: Lane -> Int -> Seq BlockSummary -> Double
 capacityWeightedWindowUtilisation lane windowSize recentBlocks =
   utilisationRatio (fmap laneUsed summaries) (fmap summaryCapacity summaries)
  where
-  summaries = takeLast (max 1 windowSize) recentBlocks
+  summaries = takeLast windowSize recentBlocks
   laneUsed (RankingBlockProduced summary) =
     rankingLaneBytes lane summary
   laneUsed (EndorserBlockAnnounced summary) =

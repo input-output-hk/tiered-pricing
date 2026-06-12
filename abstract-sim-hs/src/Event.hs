@@ -8,7 +8,8 @@ import Block (BlockSummary, InclusionPoint)
 import Data.Aeson (ToJSON (..), object, (.=))
 import Data.List.NonEmpty (NonEmpty)
 import Data.List.NonEmpty qualified as NE
-import Transaction (EvictionReason, Lane, RejectReason, Tx, TxId)
+import Pricing (PriceUpdate (..))
+import Transaction (EvictionReason, RejectReason, Tx, TxId)
 import Types (Lovelace, SlotNo)
 
 data SimEvent
@@ -24,7 +25,7 @@ data SimEvent
     -- Its remaining value is definitively lost at this slot.
     TxAbandoned SlotNo Int
   | BlockProduced SlotNo BlockSummary
-  | PriceUpdated SlotNo Lane Double Double Double
+  | PriceUpdated SlotNo PriceUpdate
 
 instance ToJSON SimEvent where
   toJSON = \case
@@ -75,12 +76,12 @@ instance ToJSON SimEvent where
         , "slot" .= slot
         , "summary" .= summary
         ]
-    PriceUpdated slot lane oldCoeff newCoeff utilisation ->
+    PriceUpdated slot update ->
       object
         [ "tag" .= ("PriceUpdated" :: String)
         , "slot" .= slot
-        , "lane" .= lane
-        , "oldCoeff" .= oldCoeff
-        , "newCoeff" .= newCoeff
-        , "utilisation" .= utilisation
+        , "lane" .= update.priceUpdateLane
+        , "oldCoeff" .= update.priceUpdateOldCoeff
+        , "newCoeff" .= update.priceUpdateNewCoeff
+        , "utilisation" .= update.priceUpdateUtilisation
         ]

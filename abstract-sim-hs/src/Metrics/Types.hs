@@ -19,7 +19,7 @@ module Metrics.Types (
 
   -- * Aggregate measures
   PriceShock (..),
-  PriceChange (..),
+  PriceUpdate (..),
   Revenue (..),
   Throughput (..),
   RankingBlockCounts (..),
@@ -37,12 +37,13 @@ import Metrics.Demand (DemandLoad (..))
 import Metrics.Inclusion (InclusionStats (..))
 import Metrics.Invariants (InvariantBreach (..), InvariantKind (..))
 import Metrics.Latency (BlockLatencyStats (..), LatencyStats (..))
-import Metrics.Price (PriceChange (..), PriceShock (..), PriceStability (..))
+import Metrics.Price (PriceShock (..), PriceStability (..))
 import Metrics.Revenue (Revenue (..))
 import Metrics.Throughput (RankingBlockCounts (..), Throughput (..))
 import Metrics.Value (ValueOutcome (..))
+import Pricing (PriceUpdate (..))
 import Transaction (Lane)
-import Types (Urgency)
+import Types (SlotNo, Urgency)
 
 -- | A metric sliced by urgency class.
 type ByUrgency a = Map Urgency a
@@ -77,7 +78,7 @@ data Metrics = Metrics
   -- ^ Diagnostic inclusion latency in actual ranking blocks, by urgency and submitted lane
   , priceShock :: PriceShock
   -- ^ (4) price shock
-  , priceChanges :: [PriceChange]
+  , priceChanges :: [(SlotNo, PriceUpdate)]
   -- ^ Dynamic price update trace, in event order
   , revenue :: Revenue
   -- ^ (5) revenue\/fees + refunds

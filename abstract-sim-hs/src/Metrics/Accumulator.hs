@@ -1,6 +1,5 @@
 module Metrics.Accumulator (
   MetricsAcc (..),
-  AccPriceChange (..),
   DemandUnit (..),
   UnitOutcome (..),
   emptyMetricsAcc,
@@ -24,6 +23,7 @@ import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Event (SimEvent (..))
+import Pricing (PriceUpdate)
 import Transaction (Lane (..), Tx (..), TxBody (..), TxId)
 import Types (Lovelace (..), SlotNo (..), Urgency)
 
@@ -36,18 +36,9 @@ data MetricsAcc = MetricsAcc
   -- ^ demand units keyed by origin tx number; the headline metrics read
   -- these, the @Map TxId@ structures above are per-attempt
   , accBlocks :: [BlockSummary]
-  , accPriceJumps :: [Double]
-  , accPriceChanges :: [AccPriceChange]
+  , accPriceChanges :: [(SlotNo, PriceUpdate)]
+  -- ^ price-controller updates in reverse event order
   }
-
-data AccPriceChange = AccPriceChange
-  { accPriceChangeSlot :: SlotNo
-  , accPriceChangeLane :: Lane
-  , accPriceChangeOldCoeff :: Double
-  , accPriceChangeNewCoeff :: Double
-  , accPriceChangeUtilisation :: Double
-  }
-  deriving (Eq, Show)
 
 {- | A demand unit's terminal state. No outcome means the unit was still in
 flight (mempool-resident or awaiting a retry) when the run ended.
@@ -87,7 +78,6 @@ emptyMetricsAcc =
     , accRankingBlockCount = 0
     , accUnits = mempty
     , accBlocks = mempty
-    , accPriceJumps = mempty
     , accPriceChanges = mempty
     }
 
@@ -134,19 +124,8 @@ stepMetrics acc = \case
             then acc.accRankingBlockCount + 1
             else acc.accRankingBlockCount
       }
-  PriceUpdated slot lane oldCoeff newCoeff utilisation ->
-    acc
-      { accPriceJumps = relativeJump oldCoeff newCoeff : acc.accPriceJumps
-      , accPriceChanges =
-          AccPriceChange
-            { accPriceChangeSlot = slot
-            , accPriceChangeLane = lane
-            , accPriceChangeOldCoeff = oldCoeff
-            , accPriceChangeNewCoeff = newCoeff
-            , accPriceChangeUtilisation = utilisation
-            }
-            : acc.accPriceChanges
-      }
+  PriceUpdated slot update ->
+    acc{accPriceChanges = (slot, update) : acc.accPriceChanges}
 
 freshUnit :: MetricsAcc -> Tx -> DemandUnit
 freshUnit acc tx =
@@ -237,11 +216,6 @@ sumLovelace =
 addLovelace :: Lovelace -> Lovelace -> Lovelace
 addLovelace (Lovelace a) (Lovelace b) =
   Lovelace (a + b)
-
-relativeJump :: Double -> Double -> Double
-relativeJump oldCoeff newCoeff
-  | oldCoeff <= 0 = 0
-  | otherwise = abs (newCoeff - oldCoeff) / oldCoeff
 
 isRankingBlock :: BlockSummary -> Bool
 isRankingBlock RankingBlockProduced{} = True

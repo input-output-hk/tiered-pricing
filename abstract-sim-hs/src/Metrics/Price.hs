@@ -1,6 +1,5 @@
 module Metrics.Price (
   PriceShock (..),
-  PriceChange (..),
   PriceStability (..),
   priceShockFrom,
   priceChangesFrom,
@@ -12,7 +11,7 @@ import Data.Map.Strict qualified as Map
 import Data.Maybe (isNothing, listToMaybe)
 import Load (ArrivalProcess, arrivalRateAt)
 import Metrics.Accumulator
-import Transaction (Lane)
+import Pricing (PriceUpdate (..))
 import Types (Duration (..), SlotNo (..), diffSlots)
 
 -- | Metric (4): price shock — how violently the dynamic price moved.
@@ -21,16 +20,6 @@ data PriceShock = PriceShock
   -- ^ largest single-step relative price increase over the run
   , shockCount :: Int
   -- ^ number of steps whose jump exceeded the shock threshold
-  }
-  deriving (Eq, Show)
-
--- | One dynamic price controller update, preserved from the event stream.
-data PriceChange = PriceChange
-  { priceChangeSlot :: SlotNo
-  , priceChangeLane :: Lane
-  , priceChangeOldCoeff :: Double
-  , priceChangeNewCoeff :: Double
-  , priceChangeUtilisation :: Double
   }
   deriving (Eq, Show)
 
@@ -46,23 +35,24 @@ data PriceStability = PriceStability
 priceShockFrom :: MetricsAcc -> PriceShock
 priceShockFrom acc =
   PriceShock
-    { maxPriceJump = maximumOrZero acc.accPriceJumps
-    , shockCount = length (filter (> priceShockThreshold) acc.accPriceJumps)
+    { maxPriceJump = maximumOrZero jumps
+    , shockCount = length (filter (> priceShockThreshold) jumps)
     }
+ where
+  jumps =
+    [ relativeJump update.priceUpdateOldCoeff update.priceUpdateNewCoeff
+    | (_, update) <- acc.accPriceChanges
+    ]
 
-priceChangesFrom :: MetricsAcc -> [PriceChange]
+relativeJump :: Double -> Double -> Double
+relativeJump oldCoeff newCoeff
+  | oldCoeff <= 0 = 0
+  | otherwise = abs (newCoeff - oldCoeff) / oldCoeff
+
+-- | The dynamic price update trace, in event order.
+priceChangesFrom :: MetricsAcc -> [(SlotNo, PriceUpdate)]
 priceChangesFrom acc =
-  fmap toPriceChange (reverse acc.accPriceChanges)
-
-toPriceChange :: AccPriceChange -> PriceChange
-toPriceChange change =
-  PriceChange
-    { priceChangeSlot = change.accPriceChangeSlot
-    , priceChangeLane = change.accPriceChangeLane
-    , priceChangeOldCoeff = change.accPriceChangeOldCoeff
-    , priceChangeNewCoeff = change.accPriceChangeNewCoeff
-    , priceChangeUtilisation = change.accPriceChangeUtilisation
-    }
+  reverse acc.accPriceChanges
 
 priceStabilityFrom :: ArrivalProcess -> Double -> Double -> Int -> MetricsAcc -> PriceStability
 priceStabilityFrom load bandPct loadChangePct slots acc =
@@ -74,11 +64,11 @@ priceStabilityFrom load bandPct loadChangePct slots acc =
   coeffsByLane =
     Map.fromListWith
       (<>)
-      (concatMap priceChangeLaneCoeffs acc.accPriceChanges)
+      (concatMap laneCoeffs acc.accPriceChanges)
 
-  priceChangeLaneCoeffs change =
-    [ (change.accPriceChangeLane, [change.accPriceChangeOldCoeff])
-    , (change.accPriceChangeLane, [change.accPriceChangeNewCoeff])
+  laneCoeffs (_, update) =
+    [ (update.priceUpdateLane, [update.priceUpdateOldCoeff])
+    , (update.priceUpdateLane, [update.priceUpdateNewCoeff])
     ]
 
   amplitude coeffs =
@@ -94,7 +84,7 @@ convergenceTimeFrom load bandPct loadChangePct slots acc
   regimes =
     loadRegimes load loadChangePct slots
   laneChanges lane =
-    sortOn accPriceChangeSlot (filter ((== lane) . accPriceChangeLane) acc.accPriceChanges)
+    sortOn fst (filter ((== lane) . (.priceUpdateLane) . snd) acc.accPriceChanges)
   convergenceResults =
     concatMap convergenceForLane allLanes
 
@@ -134,7 +124,7 @@ materialLoadChange changePct oldRate newRate
   | otherwise =
       abs (newRate - oldRate) / oldRate > max 0 changePct
 
-convergenceInRegime :: Double -> [AccPriceChange] -> LoadRegime -> Maybe Duration
+convergenceInRegime :: Double -> [(SlotNo, PriceUpdate)] -> LoadRegime -> Maybe Duration
 convergenceInRegime bandPct changes regime
   | regimeEnd regime <= regimeStart regime = Nothing
   | otherwise = do
@@ -143,29 +133,29 @@ convergenceInRegime bandPct changes regime
       pure (diffSlots convergedAt (regimeStart regime))
  where
   changesInRegime =
-    filter (priceChangeInRegime regime) changes
+    filter (changeInRegime regime) changes
   candidateSlots =
-    regimeStart regime : fmap accPriceChangeSlot changesInRegime
+    regimeStart regime : fmap fst changesInRegime
 
   convergesFrom reference candidate =
     case priceAtOrBefore changes candidate of
       Nothing -> False
       Just candidatePrice ->
         let futurePrices =
-              fmap accPriceChangeNewCoeff $
-                filter ((> candidate) . accPriceChangeSlot) changesInRegime
+              fmap ((.priceUpdateNewCoeff) . snd) $
+                filter ((> candidate) . fst) changesInRegime
          in all (withinBand bandPct reference) (candidatePrice : futurePrices)
 
-priceChangeInRegime :: LoadRegime -> AccPriceChange -> Bool
-priceChangeInRegime regime change =
-  accPriceChangeSlot change >= regimeStart regime
-    && accPriceChangeSlot change < regimeEnd regime
+changeInRegime :: LoadRegime -> (SlotNo, PriceUpdate) -> Bool
+changeInRegime regime (slot, _) =
+  slot >= regimeStart regime
+    && slot < regimeEnd regime
 
-priceAtOrBefore :: [AccPriceChange] -> SlotNo -> Maybe Double
+priceAtOrBefore :: [(SlotNo, PriceUpdate)] -> SlotNo -> Maybe Double
 priceAtOrBefore changes slot =
-  case filter ((<= slot) . accPriceChangeSlot) changes of
-    [] -> accPriceChangeOldCoeff <$> listToMaybe changes
-    priorChanges -> Just (accPriceChangeNewCoeff (last priorChanges))
+  case filter ((<= slot) . fst) changes of
+    [] -> (.priceUpdateOldCoeff) . snd <$> listToMaybe changes
+    priorChanges -> Just ((.priceUpdateNewCoeff) (snd (last priorChanges)))
 
 previousSlot :: SlotNo -> SlotNo
 previousSlot (SlotNo slot) =

@@ -24,7 +24,7 @@ import Design (ControllerConfig (..), ControllerSignal (..), Design (..), Eip155
 import Event (SimEvent (..))
 import Load (arrivalRateAt, tryBurstEffectAt)
 import Mempool (Mempool (..), admitToMempool, emptyMempool, removeFromMempool, setMempoolTxIds)
-import Pricing (PriceUpdate (..), Prices (..), initialPrices, quotedFee, realisedFee, updatePrices, worstCaseNextPrices)
+import Pricing (Prices (..), initialPrices, quotedFee, realisedFee, updatePrices, worstCaseNextPrices)
 import Retry (PendingRetry (..), RetryPolicy (..), capture)
 import System.Random (StdGen, uniformR)
 import Transaction (EvictionReason (..), RejectReason (..), Tx (..), TxBody (..), TxId (..), TxSample (..))
@@ -276,7 +276,7 @@ priceStep = do
   slot <- gets _simSlot
   let (newPrices, updates) = updatePrices design recentBlocks prices
   modify' \st -> st{_simPrices = newPrices}
-  pure $ Seq.fromList (fmap (priceUpdateEvent slot) updates)
+  pure $ Seq.fromList (fmap (PriceUpdated slot) updates)
 
 recordBlockEvents :: Seq SimEvent -> SimM ()
 recordBlockEvents events =
@@ -315,15 +315,6 @@ blockSummary _ = Nothing
 isBlockProduced :: SimEvent -> Bool
 isBlockProduced BlockProduced{} = True
 isBlockProduced _ = False
-
-priceUpdateEvent :: SlotNo -> PriceUpdate -> SimEvent
-priceUpdateEvent slot update =
-  PriceUpdated
-    slot
-    update.priceUpdateLane
-    update.priceUpdateOldCoeff
-    update.priceUpdateNewCoeff
-    update.priceUpdateUtilisation
 
 advanceSlot :: SimM ()
 advanceSlot = modify' \st ->

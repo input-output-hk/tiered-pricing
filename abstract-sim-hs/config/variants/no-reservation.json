@@ -4,7 +4,7 @@
     "reservationPolicy": {
       "type": "no-reservation"
     },
-    "selection": "fifo",
+    "selection": "priority-first",
     "feeSemantics": "eip1559",
     "priorityPremiumScope": "everywhere",
     "controllers": {

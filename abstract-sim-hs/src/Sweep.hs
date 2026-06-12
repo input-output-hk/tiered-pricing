@@ -37,9 +37,8 @@ import Data.List (nub)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
 import Metrics (
-  BlockLatencyStats (..),
   DemandLoad (..),
-  LatencyStats (..),
+  DistStats (..),
   Metrics (..),
   PriceShock (..),
   PriceStability (..),
@@ -48,6 +47,7 @@ import Metrics (
   ValueOutcome (..),
   ratio,
   sumLovelace,
+  weightedMean,
  )
 import Parser (parseSimConfig)
 import Run (Run (..), Seed, runWithSeedToFile)
@@ -267,23 +267,16 @@ loadAmplification m =
 latencyMeanSlots :: Metrics -> Double
 latencyMeanSlots m =
   weightedMean
-    [ (fromIntegral stats.latencyCount, stats.latencyMean)
+    [ (fromIntegral stats.statCount, stats.statMean)
     | stats <- Map.elems m.latency
     ]
 
 latencyMeanBlocks :: Metrics -> Double
 latencyMeanBlocks m =
   weightedMean
-    [ (fromIntegral stats.blockLatencyCount, stats.blockLatencyMean)
+    [ (fromIntegral stats.statCount, stats.statMean)
     | stats <- Map.elems m.actualBlockLatency
     ]
-
-weightedMean :: [(Double, Double)] -> Double
-weightedMean weights
-  | totalWeight <= 0 = 0
-  | otherwise = sum [w * x | (w, x) <- weights] / totalWeight
- where
-  totalWeight = sum (fmap fst weights)
 
 -- | The resolved spec is embedded so the summary is self-describing: which
 -- experiment, which designs, which configs produced these numbers.

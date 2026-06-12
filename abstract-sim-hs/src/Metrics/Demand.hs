@@ -10,6 +10,7 @@ module Metrics.Demand (
 import Data.Map.Strict qualified as Map
 import Data.Maybe (isNothing)
 import Metrics.Accumulator
+import Metrics.Stats (mean)
 import Types (Lovelace (..))
 
 data DemandLoad = DemandLoad

@@ -11,6 +11,7 @@ import Data.Map.Strict qualified as Map
 import Data.Maybe (isNothing, listToMaybe)
 import Load (ArrivalProcess, arrivalRateAt)
 import Metrics.Accumulator
+import Metrics.Stats (maximumOrZero)
 import Pricing (PriceUpdate (..))
 import Types (Duration (..), SlotNo (..), diffSlots)
 

@@ -10,9 +10,11 @@ Field set mirrors the @Metrics@ section of @abstract-experiment-design.md@.
 module Metrics (
   module Metrics.Accumulator,
   module Metrics.Fold,
+  module Metrics.Stats,
   module Metrics.Types,
 ) where
 
 import Metrics.Accumulator
 import Metrics.Fold
+import Metrics.Stats
 import Metrics.Types

@@ -9,6 +9,7 @@ import Block (BlockSummary (..), EndorserBlockSummary (..), RankingBlock (..), R
 import Data.Map.Strict qualified as Map
 import Data.Maybe (mapMaybe)
 import Metrics.Accumulator
+import Metrics.Stats (mean, ratio)
 
 -- | Metric (6): aggregate throughput and EB utilization.
 data Throughput = Throughput

@@ -13,9 +13,6 @@ module Metrics.Accumulator (
   unitServed,
   matchesUnitUrgencyLane,
   sumLovelace,
-  maximumOrZero,
-  mean,
-  ratio,
 ) where
 
 import Block (BlockSummary (..))
@@ -221,15 +218,3 @@ isRankingBlock :: BlockSummary -> Bool
 isRankingBlock RankingBlockProduced{} = True
 isRankingBlock _ = False
 
-maximumOrZero :: [Double] -> Double
-maximumOrZero [] = 0
-maximumOrZero xs = maximum xs
-
-mean :: [Double] -> Double
-mean [] = 0
-mean xs = sum xs / fromIntegral (length xs)
-
-ratio :: Int -> Int -> Double
-ratio _ denominator | denominator <= 0 = 0
-ratio numerator denominator =
-  fromIntegral numerator / fromIntegral denominator

@@ -14,8 +14,8 @@ module Metrics.Types (
   ByUrgencyLane,
   InclusionStats (..),
   ValueOutcome (..),
-  LatencyStats (..),
-  BlockLatencyStats (..),
+  LatencyStats,
+  BlockLatencyStats,
 
   -- * Aggregate measures
   PriceShock (..),
@@ -36,7 +36,7 @@ import Load (ArrivalProcess (ConstantLoad))
 import Metrics.Demand (DemandLoad (..))
 import Metrics.Inclusion (InclusionStats (..))
 import Metrics.Invariants (InvariantBreach (..), InvariantKind (..))
-import Metrics.Latency (BlockLatencyStats (..), LatencyStats (..))
+import Metrics.Latency (BlockLatencyStats, LatencyStats)
 import Metrics.Price (PriceShock (..), PriceStability (..))
 import Metrics.Revenue (Revenue (..))
 import Metrics.Throughput (RankingBlockCounts (..), Throughput (..))

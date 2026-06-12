@@ -44,6 +44,7 @@ library
       Metrics.Latency
       Metrics.Price
       Metrics.Revenue
+      Metrics.Stats
       Metrics.Throughput
       Metrics.Types
       Metrics.Value

@@ -194,7 +194,7 @@ runSweep spec = do
   BL.writeFile summaryPath (encode (summaryJson spec variants))
   putStrLn ("wrote " <> summaryPath)
 
-runVariant :: SweepSpec -> SweepVariant -> IO (SweepVariant, [(Seed, [(String, Double)])])
+runVariant :: SweepSpec -> SweepVariant -> IO (SweepVariant, [(Seed, Metrics)])
 runVariant spec variant = do
   -- the output directory is self-contained for reproduction: the exact
   -- config of every variant rides along with the traces it produced
@@ -204,65 +204,79 @@ runVariant spec variant = do
     traverse (runPoint spec variant.variantName config) (fromIntegral <$> [0 .. spec.sweepSeeds - 1])
   pure (variant, runs)
 
-runPoint :: SweepSpec -> String -> SimConfig -> Seed -> IO (Seed, [(String, Double)])
+runPoint :: SweepSpec -> String -> SimConfig -> Seed -> IO (Seed, Metrics)
 runPoint spec name config seed = do
   let tracePath = spec.sweepOutDir </> (name <> "-seed" <> show seed <> ".events.jsonl")
   result <- runWithSeedToFile config tracePath seed spec.sweepSlots
-  let scalars = headlineScalars result._runResult
-  putStrLn (name <> " seed " <> show seed <> ": " <> progressLine scalars)
-  pure (seed, scalars)
+  putStrLn (name <> " seed " <> show seed <> ": " <> progressLine result._runResult)
+  pure (seed, result._runResult)
 
-progressLine :: [(String, Double)] -> String
-progressLine scalars =
+progressLine :: Metrics -> String
+progressLine metrics =
   printf
     "service %.3f, latency %.1f slots, amplification %.3f"
-    (scalar "units.serviceRate")
-    (scalar "latency.meanSlots")
-    (scalar "load.amplification")
- where
-  scalar key = fromMaybe 0 (lookup key scalars)
+    (serviceRate metrics)
+    (latencyMeanSlots metrics)
+    (loadAmplification metrics)
 
-{- | The per-run scalars that get aggregated across seeds. The full 'Metrics'
-detail (slices, percentiles, price trace) stays available in each run's
-events trace and per-run analysis; this list is what design comparisons are
-made on.
+{- | The per-run scalars that get aggregated across seeds: one declaration
+binding each scalar's name to its accessor, so producers and consumers cannot
+drift apart by key typo. The full 'Metrics' detail (slices, percentiles,
+price trace) stays available in each run's events trace and per-run analysis;
+this list is what design comparisons are made on.
 -}
-headlineScalars :: Metrics -> [(String, Double)]
-headlineScalars metrics =
-  [ ("units.total", int load.demandUnits)
-  , ("units.served", int load.unitsServed)
-  , ("units.abandoned", int load.unitsAbandoned)
-  , ("units.unresolved", int load.unitsUnresolved)
-  , ("units.serviceRate", ratio load.unitsServed load.demandUnits)
-  , ("load.amplification", ratio load.submissionAttempts load.demandUnits)
-  , ("load.attemptsMax", int load.attemptsMax)
-  , ("load.postedFeeGrowthMean", load.postedFeeGrowthMean)
-  , ("latency.meanSlots", weightedMean latencyWeights)
-  , ("latency.meanBlocks", weightedMean blockLatencyWeights)
-  , ("value.retainedLovelace", lovelace (sumLovelace (fmap (.retainedValue) values)))
-  , ("value.lostLovelace", lovelace (sumLovelace (fmap (.lostValue) values)))
-  , ("value.unresolvedLovelace", lovelace (sumLovelace (fmap (.unresolvedValue) values)))
-  , ("revenue.feesCollectedLovelace", lovelace metrics.revenue.feesCollected)
-  , ("revenue.refundsPaidLovelace", lovelace metrics.revenue.refundsPaid)
-  , ("throughput.txPerSlot", metrics.throughput.txThroughput)
-  , ("throughput.ebUtilization", metrics.throughput.ebUtilization)
-  , ("price.maxJump", metrics.priceShock.maxPriceJump)
-  , ("price.shockCount", int metrics.priceShock.shockCount)
-  , ("price.oscillationAmplitude", metrics.priceStability.oscillationAmplitude)
+headline :: [(String, Metrics -> Double)]
+headline =
+  [ ("units.total", \m -> int m.demandLoad.demandUnits)
+  , ("units.served", \m -> int m.demandLoad.unitsServed)
+  , ("units.abandoned", \m -> int m.demandLoad.unitsAbandoned)
+  , ("units.unresolved", \m -> int m.demandLoad.unitsUnresolved)
+  , ("units.serviceRate", serviceRate)
+  , ("load.amplification", loadAmplification)
+  , ("load.attemptsMax", \m -> int m.demandLoad.attemptsMax)
+  , ("load.postedFeeGrowthMean", \m -> m.demandLoad.postedFeeGrowthMean)
+  , ("latency.meanSlots", latencyMeanSlots)
+  , ("latency.meanBlocks", latencyMeanBlocks)
+  , ("value.retainedLovelace", \m -> lovelace (sumLovelace (fmap (.retainedValue) (Map.elems m.value))))
+  , ("value.lostLovelace", \m -> lovelace (sumLovelace (fmap (.lostValue) (Map.elems m.value))))
+  , ("value.unresolvedLovelace", \m -> lovelace (sumLovelace (fmap (.unresolvedValue) (Map.elems m.value))))
+  , ("revenue.feesCollectedLovelace", \m -> lovelace m.revenue.feesCollected)
+  , ("revenue.refundsPaidLovelace", \m -> lovelace m.revenue.refundsPaid)
+  , ("throughput.txPerSlot", \m -> m.throughput.txThroughput)
+  , ("throughput.ebUtilization", \m -> m.throughput.ebUtilization)
+  , ("price.maxJump", \m -> m.priceShock.maxPriceJump)
+  , ("price.shockCount", \m -> int m.priceShock.shockCount)
+  , ("price.oscillationAmplitude", \m -> m.priceStability.oscillationAmplitude)
   ]
  where
-  load = metrics.demandLoad
-  values = Map.elems metrics.value
-  latencyWeights =
-    [ (fromIntegral stats.latencyCount, stats.latencyMean)
-    | stats <- Map.elems metrics.latency
-    ]
-  blockLatencyWeights =
-    [ (fromIntegral stats.blockLatencyCount, stats.blockLatencyMean)
-    | stats <- Map.elems metrics.actualBlockLatency
-    ]
   int = fromIntegral
   lovelace (Lovelace n) = fromInteger n
+
+headlineScalars :: Metrics -> [(String, Double)]
+headlineScalars metrics =
+  [(key, scalar metrics) | (key, scalar) <- headline]
+
+serviceRate :: Metrics -> Double
+serviceRate m =
+  ratio m.demandLoad.unitsServed m.demandLoad.demandUnits
+
+loadAmplification :: Metrics -> Double
+loadAmplification m =
+  ratio m.demandLoad.submissionAttempts m.demandLoad.demandUnits
+
+latencyMeanSlots :: Metrics -> Double
+latencyMeanSlots m =
+  weightedMean
+    [ (fromIntegral stats.latencyCount, stats.latencyMean)
+    | stats <- Map.elems m.latency
+    ]
+
+latencyMeanBlocks :: Metrics -> Double
+latencyMeanBlocks m =
+  weightedMean
+    [ (fromIntegral stats.blockLatencyCount, stats.blockLatencyMean)
+    | stats <- Map.elems m.actualBlockLatency
+    ]
 
 weightedMean :: [(Double, Double)] -> Double
 weightedMean weights
@@ -273,7 +287,7 @@ weightedMean weights
 
 -- | The resolved spec is embedded so the summary is self-describing: which
 -- experiment, which designs, which configs produced these numbers.
-summaryJson :: SweepSpec -> [(SweepVariant, [(Seed, [(String, Double)])])] -> Value
+summaryJson :: SweepSpec -> [(SweepVariant, [(Seed, Metrics)])] -> Value
 summaryJson spec variants =
   object
     [ "description" .= spec.sweepDescription
@@ -289,10 +303,10 @@ summaryJson spec variants =
       , "runs" .= fmap runJson runs
       , "aggregates" .= object (fmap aggregateJson (aggregate runs))
       ]
-  runJson (seed, scalars) =
+  runJson (seed, metrics) =
     object
       [ "seed" .= seed
-      , "scalars" .= object [Key.fromString key .= value | (key, value) <- scalars]
+      , "scalars" .= object [Key.fromString key .= value | (key, value) <- headlineScalars metrics]
       ]
   aggregateJson (key, stats) =
     Key.fromString key .= statsJson stats
@@ -311,14 +325,12 @@ data SummaryStats = SummaryStats
   , statsMax :: Double
   }
 
-aggregate :: [(Seed, [(String, Double)])] -> [(String, SummaryStats)]
+aggregate :: [(Seed, Metrics)] -> [(String, SummaryStats)]
+aggregate [] = []
 aggregate runs =
-  case runs of
-    [] -> []
-    (_, firstScalars) : _ ->
-      [ (key, summaryStats [value | (_, scalars) <- runs, Just value <- [lookup key scalars]])
-      | (key, _) <- firstScalars
-      ]
+  [ (key, summaryStats [scalar metrics | (_, metrics) <- runs])
+  | (key, scalar) <- headline
+  ]
 
 -- | Sample standard deviation; zero when fewer than two observations.
 summaryStats :: [Double] -> SummaryStats

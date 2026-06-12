@@ -59,9 +59,7 @@ runWithSeedToFile config eventsPath seed slots = do
 metricsConfigFrom :: SimConfig -> MetricsConfig
 metricsConfigFrom config =
   MetricsConfig
-    { metricsLoad = config.simConfigLoad
-    , metricsPriceConvergenceBandPct = config.simConfigPriceConvergenceBandPct
-    , metricsLoadChangePct = config.simConfigLoadChangePct
+    { metricsPriceConvergenceBandPct = config.simConfigPriceConvergenceBandPct
     }
 
 writeTraceEvents :: Handle -> Int -> [SimEvent] -> IO Int

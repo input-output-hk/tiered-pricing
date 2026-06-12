@@ -6,14 +6,15 @@ module Metrics.Price (
   priceStabilityFrom,
 ) where
 
-import Data.List (find, sortOn)
+import Data.List (tails)
+import Data.List.NonEmpty (NonEmpty (..))
+import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
-import Data.Maybe (isNothing, listToMaybe)
-import Load (ArrivalProcess, arrivalRateAt)
+import Data.Maybe (listToMaybe)
 import Metrics.Accumulator
 import Metrics.Stats (maximumOrZero)
 import Pricing (PriceUpdate (..))
-import Types (Duration (..), SlotNo (..), diffSlots)
+import Types (Duration (..), Lane, SlotNo (..), diffSlots)
 
 -- | Metric (4): price shock — how violently the dynamic price moved.
 data PriceShock = PriceShock
@@ -24,12 +25,17 @@ data PriceShock = PriceShock
   }
   deriving (Eq, Show)
 
--- | Metric (7): price convergence and oscillation.
+{- | Metric (7): price convergence and oscillation, judged per lane against
+the lane's final coefficient — its steady state, if it has one.
+-}
 data PriceStability = PriceStability
   { convergenceTime :: Maybe Duration
-  -- ^ slots until price entered and stayed within the band; 'Nothing' if it never converged
+  -- ^ slots from run start until every lane's price entered the band around
+  -- its final coefficient and stayed there; 'Nothing' if some lane was still
+  -- out of band at its last update, or if no lane changed price at all
   , oscillationAmplitude :: Double
-  -- ^ steady-state peak-to-peak price oscillation
+  -- ^ peak-to-peak price movement after settling — the residual in-band
+  -- ripple; a lane that never settled reports its full-run swing instead
   }
   deriving (Eq, Show)
 
@@ -55,112 +61,68 @@ priceChangesFrom :: MetricsAcc -> [(SlotNo, PriceUpdate)]
 priceChangesFrom acc =
   reverse acc.accPriceChanges
 
-priceStabilityFrom :: ArrivalProcess -> Double -> Double -> Int -> MetricsAcc -> PriceStability
-priceStabilityFrom load bandPct loadChangePct slots acc =
+priceStabilityFrom :: Double -> MetricsAcc -> PriceStability
+priceStabilityFrom bandPct acc =
   PriceStability
-    { convergenceTime = convergenceTimeFrom load bandPct loadChangePct slots acc
-    , oscillationAmplitude = maximumOrZero (fmap amplitude (Map.elems coeffsByLane))
+    { convergenceTime =
+        case traverse (.laneSettledAt) stabilities of
+          Just settledSlots@(_ : _) -> Just (diffSlots (maximum settledSlots) (SlotNo 0))
+          _ -> Nothing
+    , oscillationAmplitude = maximumOrZero (fmap (.laneAmplitude) stabilities)
     }
  where
-  coeffsByLane =
-    Map.fromListWith
+  stabilities =
+    fmap (laneStability bandPct) (Map.elems (changesByLane acc))
+
+changesByLane :: MetricsAcc -> Map.Map Lane (NonEmpty (SlotNo, PriceUpdate))
+changesByLane acc =
+  NE.sortWith fst
+    <$> Map.fromListWith
       (<>)
-      (concatMap laneCoeffs acc.accPriceChanges)
+      [ (update.priceUpdateLane, (slot, update) :| [])
+      | (slot, update) <- acc.accPriceChanges
+      ]
 
-  laneCoeffs (_, update) =
-    [ (update.priceUpdateLane, [update.priceUpdateOldCoeff])
-    , (update.priceUpdateLane, [update.priceUpdateNewCoeff])
-    ]
-
-  amplitude coeffs =
-    maximum coeffs - minimum coeffs
-
-convergenceTimeFrom :: ArrivalProcess -> Double -> Double -> Int -> MetricsAcc -> Maybe Duration
-convergenceTimeFrom load bandPct loadChangePct slots acc
-  | slots <= 0 = Nothing
-  | null convergenceResults = Nothing
-  | any isNothing convergenceResults = Nothing
-  | otherwise = maximum <$> sequence convergenceResults
- where
-  regimes =
-    loadRegimes load loadChangePct slots
-  laneChanges lane =
-    sortOn fst (filter ((== lane) . (.priceUpdateLane) . snd) acc.accPriceChanges)
-  convergenceResults =
-    concatMap convergenceForLane allLanes
-
-  convergenceForLane lane =
-    let changes = laneChanges lane
-     in if null changes
-          then []
-          else fmap (convergenceInRegime bandPct changes) regimes
-
-data LoadRegime = LoadRegime
-  { regimeStart :: SlotNo
-  , regimeEnd :: SlotNo
+data LaneStability = LaneStability
+  { laneSettledAt :: Maybe SlotNo
+  , laneAmplitude :: Double
   }
 
-loadRegimes :: ArrivalProcess -> Double -> Int -> [LoadRegime]
-loadRegimes load changePct slots
-  | slots <= 0 = []
-  | otherwise = reverse (finish currentStart slots acc)
+{- | Settling against a non-empty, slot-ordered lane trace. The coefficient
+path runs from the first update's starting coefficient through each new
+coefficient; the lane settles at the earliest point from which every later
+coefficient stays within the band around the final one. The final coefficient
+is trivially in band, so settling requires an earlier point to qualify;
+otherwise the lane was still moving when last updated and reports its full
+swing as amplitude.
+-}
+laneStability :: Double -> NonEmpty (SlotNo, PriceUpdate) -> LaneStability
+laneStability bandPct changes =
+  LaneStability
+    { laneSettledAt = fst <$> settledTail
+    , laneAmplitude = peakToPeak (fmap snd (maybe coeffPath snd settledTail))
+    }
  where
-  slotNumbers = [1 .. slots - 1]
-  (_, currentStart, acc) =
-    foldl advance (arrivalRateAt load (SlotNo 0), 0, []) slotNumbers
+  -- (slot, coefficient) at each candidate settling point, oldest first: the
+  -- pre-trace coefficient at slot 0, then each update's new coefficient.
+  coeffPath =
+    (SlotNo 0, (snd (NE.head changes)).priceUpdateOldCoeff)
+      : [(slot, update.priceUpdateNewCoeff) | (slot, update) <- NE.toList changes]
+  finalCoeff = snd (last coeffPath)
 
-  advance (prevRate, start, regimes) slot =
-    let currentRate = arrivalRateAt load (SlotNo slot)
-     in if materialLoadChange changePct prevRate currentRate
-          then (currentRate, slot, LoadRegime (SlotNo start) (SlotNo slot) : regimes)
-          else (currentRate, start, regimes)
+  -- A settling point needs at least one later coefficient to judge: the lone
+  -- final coefficient is trivially in band against itself, so candidates of
+  -- length < 2 (it, and the empty tail) cannot count as settling.
+  settledTail =
+    listToMaybe
+      [ (slot, suffix)
+      | suffix@((slot, _) : _ : _) <- tails coeffPath
+      , all (withinBand bandPct finalCoeff . snd) suffix
+      ]
 
-  finish start end regimes =
-    LoadRegime (SlotNo start) (SlotNo end) : regimes
-
-materialLoadChange :: Double -> Double -> Double -> Bool
-materialLoadChange changePct oldRate newRate
-  | oldRate == newRate = False
-  | oldRate <= 0 = newRate > 0
-  | otherwise =
-      abs (newRate - oldRate) / oldRate > max 0 changePct
-
-convergenceInRegime :: Double -> [(SlotNo, PriceUpdate)] -> LoadRegime -> Maybe Duration
-convergenceInRegime bandPct changes regime
-  | regimeEnd regime <= regimeStart regime = Nothing
-  | otherwise = do
-      reference <- priceAtOrBefore changes (previousSlot (regimeEnd regime))
-      convergedAt <- find (convergesFrom reference) candidateSlots
-      pure (diffSlots convergedAt (regimeStart regime))
- where
-  changesInRegime =
-    filter (changeInRegime regime) changes
-  candidateSlots =
-    regimeStart regime : fmap fst changesInRegime
-
-  convergesFrom reference candidate =
-    case priceAtOrBefore changes candidate of
-      Nothing -> False
-      Just candidatePrice ->
-        let futurePrices =
-              fmap ((.priceUpdateNewCoeff) . snd) $
-                filter ((> candidate) . fst) changesInRegime
-         in all (withinBand bandPct reference) (candidatePrice : futurePrices)
-
-changeInRegime :: LoadRegime -> (SlotNo, PriceUpdate) -> Bool
-changeInRegime regime (slot, _) =
-  slot >= regimeStart regime
-    && slot < regimeEnd regime
-
-priceAtOrBefore :: [(SlotNo, PriceUpdate)] -> SlotNo -> Maybe Double
-priceAtOrBefore changes slot =
-  case filter ((<= slot) . fst) changes of
-    [] -> (.priceUpdateOldCoeff) . snd <$> listToMaybe changes
-    priorChanges -> Just ((.priceUpdateNewCoeff) (snd (last priorChanges)))
-
-previousSlot :: SlotNo -> SlotNo
-previousSlot (SlotNo slot) =
-  SlotNo (max 0 (slot - 1))
+peakToPeak :: [Double] -> Double
+peakToPeak coeffs =
+  maximum coeffs - minimum coeffs
 
 withinBand :: Double -> Double -> Double -> Bool
 withinBand bandPct reference price =

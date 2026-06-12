@@ -11,6 +11,8 @@ import Data.List.NonEmpty (NonEmpty (..))
 import Data.Sequence qualified as Seq
 import Design (ControllerConfig (..), ControllerSignal (..), Design (..), Eip1559Controller (..), FeeSemantics (..), PriorityPremiumScope (..), defaultDesign)
 import Load (severeCongestionLoad)
+import Metrics.Accumulator (MetricsAcc (..), emptyMetricsAcc)
+import Metrics.Price (PriceStability (..), priceStabilityFrom)
 import Parser (parseDesign, parseSimConfig)
 import Pricing (ControllerInput (..), PriceUpdate (..), Prices (..), admissionRequiredFee, coversProducerHeadroom, initialPrices, quotedFee, realisedFee, updatePrices)
 import Resource (Bytes (..), ExUnits (..), Resources (..))
@@ -29,6 +31,9 @@ main = do
   assertHeadroomInvariant
   assertPriorityControllerReadsCurrentProduction
   assertPremiumScopeChargesByInclusionPoint
+  assertPriceStabilityExcludesTransient
+  assertNeverSettlingPriceNeverConverges
+  assertEmptyPriceTraceHasNoStability
 
 {- The JSON under test/fixtures/ is test-owned data, frozen independently of
 config/, which is free to change with whatever experiment is being run. Only
@@ -73,7 +78,6 @@ expectedFixtureSimConfig =
           , expectedPriorityLatency = Duration 25
           }
     , simConfigPriceConvergenceBandPct = 0.05
-    , simConfigLoadChangePct = 0.10
     , simConfigRetryPolicy = noRetries
     }
 
@@ -255,6 +259,77 @@ assertPremiumScopeChargesByInclusionPoint = do
     "rb-only: fixed-fee semantics still charge the posted fee in full"
     posted
     (realisedFee PremiumRbOnly FixedFee prices (IncludedInEb (EbId 0)) priorityTx)
+
+{- Price stability is judged against the final (steady-state) coefficient:
+the transient ramp must not count towards oscillation amplitude, and a lane
+whose price is out of band right up to its last update never converged. -}
+assertPriceStabilityExcludesTransient :: IO ()
+assertPriceStabilityExcludesTransient = do
+  let stability =
+        priceStabilityFrom 0.05 $
+          priceChangesAcc
+            [ (10, Standard, 1.0, 2.0)
+            , (20, Standard, 2.0, 4.0)
+            , (30, Standard, 4.0, 8.0)
+            , (40, Standard, 8.0, 8.25)
+            , (50, Standard, 8.25, 8.0)
+            , (60, Standard, 8.0, 8.25)
+            ]
+  assertEqual
+    "ramp-then-settle converges where the band is entered for good"
+    (Just (Duration 30))
+    stability.convergenceTime
+  assertEqual
+    "oscillation amplitude covers the settled tail only"
+    0.25
+    stability.oscillationAmplitude
+
+assertNeverSettlingPriceNeverConverges :: IO ()
+assertNeverSettlingPriceNeverConverges = do
+  let stability =
+        priceStabilityFrom 0.05 $
+          priceChangesAcc
+            [ (10, Standard, 1.0, 2.0)
+            , (20, Standard, 2.0, 4.0)
+            , (30, Standard, 4.0, 8.0)
+            , (40, Standard, 8.0, 8.25)
+            , (10, Priority, 1.0, 9.0)
+            , (20, Priority, 9.0, 1.0)
+            , (30, Priority, 1.0, 9.0)
+            , (40, Priority, 9.0, 1.0)
+            , (50, Priority, 1.0, 9.0)
+            ]
+  assertEqual
+    "one oscillating lane forces overall non-convergence"
+    Nothing
+    stability.convergenceTime
+  assertEqual
+    "a never-settling lane reports its full swing"
+    8.0
+    stability.oscillationAmplitude
+
+assertEmptyPriceTraceHasNoStability :: IO ()
+assertEmptyPriceTraceHasNoStability = do
+  let stability = priceStabilityFrom 0.05 emptyMetricsAcc
+  assertEqual "no price changes: no convergence" Nothing stability.convergenceTime
+  assertEqual "no price changes: no oscillation" 0.0 stability.oscillationAmplitude
+
+-- | The accumulator stores price changes newest-first.
+priceChangesAcc :: [(Int, Lane, Double, Double)] -> MetricsAcc
+priceChangesAcc changes =
+  emptyMetricsAcc
+    { accPriceChanges =
+        [ ( SlotNo slot
+          , PriceUpdate
+              { priceUpdateLane = lane
+              , priceUpdateOldCoeff = oldCoeff
+              , priceUpdateNewCoeff = newCoeff
+              , priceUpdateUtilisation = 0.5
+              }
+          )
+        | (slot, lane, oldCoeff, newCoeff) <- reverse changes
+        ]
+    }
 
 withFee :: Lovelace -> Tx -> Tx
 withFee fee tx =

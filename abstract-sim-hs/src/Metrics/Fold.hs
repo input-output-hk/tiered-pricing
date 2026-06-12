@@ -40,12 +40,7 @@ finalizeMetrics metricsConfig slots acc =
     , throughput = throughputFrom slots acc
     , rankingBlocks = rankingBlocksFrom acc
     , priceStability =
-        priceStabilityFrom
-          metricsConfig.metricsLoad
-          metricsConfig.metricsPriceConvergenceBandPct
-          metricsConfig.metricsLoadChangePct
-          slots
-          acc
+        priceStabilityFrom metricsConfig.metricsPriceConvergenceBandPct acc
     , invariantBreaches = invariantBreachesFrom acc
     , demandLoad = demandLoadFrom acc
     }

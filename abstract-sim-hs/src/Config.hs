@@ -33,7 +33,6 @@ data SimConfig = SimConfig
   -- (~ceil(f x expected lane latency)). See 'Sim.admissionRequiredFee'.
   , simConfigLaneLatencyEstimate :: LaneLatencyEstimate
   , simConfigPriceConvergenceBandPct :: Double
-  , simConfigLoadChangePct :: Double
   , simConfigRetryPolicy :: RetryPolicy
   -- ^ how rejected and evicted demand resubmits; defaults to 'Retry.noRetries'
   -- when absent from the config file

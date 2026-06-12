@@ -48,7 +48,6 @@ data RawSimConfig = RawSimConfig
   , rawAdmissionHeadroomUpdates :: Int
   , rawLaneLatencyEstimate :: LaneLatencyEstimate
   , rawPriceConvergenceBandPct :: Double
-  , rawLoadChangePct :: Double
   , rawRetryPolicy :: Maybe RetryPolicy
   }
 
@@ -72,7 +71,6 @@ instance FromJSON RawSimConfig where
         <*> obj .: "admissionHeadroomUpdates"
         <*> obj .: "laneLatencyEstimate"
         <*> obj .: "priceConvergenceBandPct"
-        <*> obj .: "loadChangePct"
         <*> obj .:? "retryPolicy"
    where
     parseD obj = do
@@ -150,7 +148,6 @@ fromRawSimConfig raw = do
       , simConfigAdmissionHeadroomUpdates = raw.rawAdmissionHeadroomUpdates
       , simConfigLaneLatencyEstimate = raw.rawLaneLatencyEstimate
       , simConfigPriceConvergenceBandPct = raw.rawPriceConvergenceBandPct
-      , simConfigLoadChangePct = raw.rawLoadChangePct
       , simConfigRetryPolicy = fromMaybe noRetries raw.rawRetryPolicy
       }
 

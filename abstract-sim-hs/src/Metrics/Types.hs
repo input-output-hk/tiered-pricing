@@ -32,7 +32,6 @@ module Metrics.Types (
 ) where
 
 import Data.Map.Strict (Map)
-import Load (ArrivalProcess (ConstantLoad))
 import Metrics.Demand (DemandLoad (..))
 import Metrics.Inclusion (InclusionStats (..))
 import Metrics.Invariants (InvariantBreach (..), InvariantKind (..))
@@ -96,15 +95,11 @@ data Metrics = Metrics
   deriving (Eq, Show)
 
 data MetricsConfig = MetricsConfig
-  { metricsLoad :: ArrivalProcess
-  , metricsPriceConvergenceBandPct :: Double
-  , metricsLoadChangePct :: Double
+  { metricsPriceConvergenceBandPct :: Double
   }
 
 metricsConfigDefault :: MetricsConfig
 metricsConfigDefault =
   MetricsConfig
-    { metricsLoad = ConstantLoad 0
-    , metricsPriceConvergenceBandPct = 0.05
-    , metricsLoadChangePct = 0.10
+    { metricsPriceConvergenceBandPct = 0.05
     }

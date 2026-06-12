@@ -53,6 +53,5 @@
     "expectedStandardLatency": 50,
     "expectedPriorityLatency": 25
   },
-  "priceConvergenceBandPct": 0.05,
-  "loadChangePct": 0.1
+  "priceConvergenceBandPct": 0.05
 }

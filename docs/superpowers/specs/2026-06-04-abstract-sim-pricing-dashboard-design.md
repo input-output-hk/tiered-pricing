@@ -231,6 +231,14 @@ All computations mirror the Haskell metric code:
 | Material load change | `>0.10` relative | `materialLoadChange` / default |
 | Convergence time | first slot price enters & stays in band per regime; max across regimes | `convergenceTimeFrom` |
 | Oscillation amplitude | peak-to-peak (max−min) of a lane's coeffs; run KPI = max across lanes | `amplitude` / `priceStabilityFrom` |
+
+> **Update (2026-06-12):** the simulator's own metrics no longer use load
+> regimes. `convergenceTime` is now the settling time against each lane's
+> *final* coefficient (max across lanes; `null` if a lane was still out of
+> band at its last update), and `oscillationAmplitude` is the peak-to-peak
+> ripple *after* settling (full-run swing for a never-settling lane). The
+> dashboard's inferred load regimes remain a display concern; its per-regime
+> convergence summaries no longer mirror a simulator metric.
 | Latency | `includedAt − submittedAt`, last-wins by txId, both events required | `includedLatency` |
 | Percentiles | `xs[min(n-1, ceil(q*n)-1)]` | `quantile` (Latency) |
 | Run length | `1 + max slot` | `observedSlots` |

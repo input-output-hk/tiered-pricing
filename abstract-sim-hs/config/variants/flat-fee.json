@@ -20,7 +20,7 @@
     {
       "count": 2,
       "type": "honest",
-      "feeBuffer": 2,
+      "feeBuffer": 1,
       "minValueFeeMultiple": 1.0,
       "valueMultiplier": 1.0,
       "urgencyMultiplier": 1.0

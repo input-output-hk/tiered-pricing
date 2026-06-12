@@ -5,11 +5,10 @@ module Metrics.Accumulator (
   UnitOutcome (..),
   emptyMetricsAcc,
   recordMetricsEvents,
-  observedSlots,
   observedUrgencies,
   allLanes,
   observedUrgencyLanes,
-  includedTxsWhere,
+  includedTxs,
   unitsWhere,
   unitLane,
   unitServed,
@@ -20,7 +19,6 @@ module Metrics.Accumulator (
   ratio,
 ) where
 
-import Actor (ActorId)
 import Block (BlockSummary (..))
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -31,15 +29,9 @@ import Types (Lovelace (..), SlotNo (..), Urgency)
 
 data MetricsAcc = MetricsAcc
   { accSubmitted :: Map TxId Tx
-  , accSubmittedAt :: Map TxId SlotNo
-  , accSubmittedByActor :: Map TxId ActorId
-  , accAdmitted :: Set.Set TxId
   , accIncludedAt :: Map TxId SlotNo
   , accRealisedFee :: Map TxId Lovelace
-  , accSubmittedAtBlock :: Map TxId Int
-  , accIncludedAtBlock :: Map TxId Int
   , accRankingBlockCount :: Int
-  , accEvicted :: Set.Set TxId
   , accUnits :: Map Int DemandUnit
   -- ^ demand units keyed by origin tx number; the headline metrics read
   -- these, the @Map TxId@ structures above are per-attempt
@@ -90,15 +82,9 @@ emptyMetricsAcc :: MetricsAcc
 emptyMetricsAcc =
   MetricsAcc
     { accSubmitted = mempty
-    , accSubmittedAt = mempty
-    , accSubmittedByActor = mempty
-    , accAdmitted = mempty
     , accIncludedAt = mempty
     , accRealisedFee = mempty
-    , accSubmittedAtBlock = mempty
-    , accIncludedAtBlock = mempty
     , accRankingBlockCount = 0
-    , accEvicted = mempty
     , accUnits = mempty
     , accBlocks = mempty
     , accPriceJumps = mempty
@@ -111,24 +97,24 @@ recordMetricsEvents =
 
 stepMetrics :: MetricsAcc -> SimEvent -> MetricsAcc
 stepMetrics acc = \case
-  TxSubmitted slot actorId tx ->
+  TxSubmitted _ _ tx ->
     acc
       { accSubmitted = Map.insert tx.txId tx acc.accSubmitted
-      , accSubmittedAt = Map.insert tx.txId slot acc.accSubmittedAt
-      , accSubmittedByActor = Map.insert tx.txId actorId acc.accSubmittedByActor
-      , accSubmittedAtBlock = Map.insert tx.txId acc.accRankingBlockCount acc.accSubmittedAtBlock
       , accUnits =
           Map.insertWith mergeUnit tx.txOriginNumber (freshUnit acc tx) acc.accUnits
       }
-  TxAdmitted _ txId ->
-    acc{accAdmitted = Set.insert txId acc.accAdmitted}
+  -- Admissions, rejections, and evictions currently feed no metric: a demand
+  -- unit's fate is read off its submissions, inclusions, and abandonments.
+  TxAdmitted{} ->
+    acc
   TxRejected{} ->
+    acc
+  TxEvicted{} ->
     acc
   TxIncluded slot txId _ realised ->
     acc
       { accIncludedAt = Map.insert txId slot acc.accIncludedAt
       , accRealisedFee = Map.insert txId realised acc.accRealisedFee
-      , accIncludedAtBlock = Map.insert txId acc.accRankingBlockCount acc.accIncludedAtBlock
       , accUnits =
           case Map.lookup txId acc.accSubmitted of
             Nothing -> acc.accUnits
@@ -138,8 +124,6 @@ stepMetrics acc = \case
                 tx.txOriginNumber
                 acc.accUnits
       }
-  TxEvicted _ txId _ ->
-    acc{accEvicted = Set.insert txId acc.accEvicted}
   TxAbandoned slot origin ->
     acc{accUnits = Map.adjust (abandonUnit slot) origin acc.accUnits}
   BlockProduced _ summary ->
@@ -208,12 +192,9 @@ abandonUnit slot unit =
     Just _ -> unit
     Nothing -> unit{unitOutcome = Just (UnitAbandoned slot)}
 
-includedTxsWhere :: MetricsAcc -> (Tx -> Bool) -> [Tx]
-includedTxsWhere acc predicate =
-  fmap snd (filter isIncludedMatch (Map.toList acc.accSubmitted))
- where
-  isIncludedMatch (txId, tx) =
-    predicate tx && Map.member txId acc.accIncludedAt
+includedTxs :: MetricsAcc -> [Tx]
+includedTxs acc =
+  [tx | (txId, tx) <- Map.toList acc.accSubmitted, Map.member txId acc.accIncludedAt]
 
 unitsWhere :: MetricsAcc -> (DemandUnit -> Bool) -> [DemandUnit]
 unitsWhere acc predicate =
@@ -238,23 +219,6 @@ matchesUnitUrgencyLane :: Urgency -> Lane -> DemandUnit -> Bool
 matchesUnitUrgencyLane urgency lane unit =
   unit.unitUrgency == urgency && unitLane unit == lane
 
-observedSlots :: [SimEvent] -> Int
-observedSlots events =
-  case fmap eventSlot events of
-    [] -> 0
-    slots -> 1 + maximum (fmap slotToInt slots)
-
-eventSlot :: SimEvent -> SlotNo
-eventSlot = \case
-  TxSubmitted slot _ _ -> slot
-  TxAdmitted slot _ -> slot
-  TxRejected slot _ _ -> slot
-  TxIncluded slot _ _ _ -> slot
-  TxAbandoned slot _ -> slot
-  TxEvicted slot _ _ -> slot
-  BlockProduced slot _ -> slot
-  PriceUpdated slot _ _ _ _ -> slot
-
 observedUrgencies :: MetricsAcc -> [Urgency]
 observedUrgencies acc =
   Set.toList (Set.fromList (fmap (.unitUrgency) (Map.elems acc.accUnits)))
@@ -273,9 +237,6 @@ sumLovelace =
 addLovelace :: Lovelace -> Lovelace -> Lovelace
 addLovelace (Lovelace a) (Lovelace b) =
   Lovelace (a + b)
-
-slotToInt :: SlotNo -> Int
-slotToInt (SlotNo n) = n
 
 relativeJump :: Double -> Double -> Double
 relativeJump oldCoeff newCoeff

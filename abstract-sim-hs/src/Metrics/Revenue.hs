@@ -27,7 +27,7 @@ revenueFrom acc =
     , refundsPaid = sumLovelace (fmap refund included)
     }
  where
-  included = includedTxsWhere acc (const True)
+  included = includedTxs acc
   refund tx =
     case Map.lookup tx.txId acc.accRealisedFee of
       Nothing -> Lovelace 0

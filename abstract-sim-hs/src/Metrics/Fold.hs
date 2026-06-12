@@ -6,8 +6,6 @@ metric family owns its own calculation module.
 -}
 module Metrics.Fold (
   finalizeMetrics,
-  fromEvents,
-  fromEventsForSlots,
 ) where
 
 import Metrics.Accumulator
@@ -20,15 +18,6 @@ import Metrics.Revenue (revenueFrom)
 import Metrics.Throughput (rankingBlocksFrom, throughputFrom)
 import Metrics.Types
 import Metrics.Value (valueByUrgency)
-import Event (SimEvent)
-
-fromEvents :: [SimEvent] -> Metrics
-fromEvents events =
-  fromEventsForSlots (observedSlots events) events
-
-fromEventsForSlots :: Int -> [SimEvent] -> Metrics
-fromEventsForSlots slots events =
-  finalizeMetrics metricsConfigDefault slots (recordMetricsEvents emptyMetricsAcc events)
 
 finalizeMetrics :: MetricsConfig -> Int -> MetricsAcc -> Metrics
 finalizeMetrics metricsConfig slots acc =

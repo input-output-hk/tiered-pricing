@@ -1,4 +1,14 @@
-module Load where
+module Load (
+  ArrivalProcess (..),
+  Burst (..),
+  BurstEffect (..),
+  arrivalRateAt,
+  tryBurstEffectAt,
+  moderateLoad,
+  congestedLoad,
+  burstLoad,
+  severeCongestionLoad,
+) where
 
 import Types (SlotNo (..))
 
@@ -53,44 +63,28 @@ data BurstEffect = BurstEffect
   }
   deriving (Eq, Show)
 
+-- | Overlapping bursts compound multiplicatively.
+instance Semigroup BurstEffect where
+  a <> b =
+    BurstEffect
+      { valueMultiplier = a.valueMultiplier * b.valueMultiplier
+      , urgencyMultiplier = a.urgencyMultiplier * b.urgencyMultiplier
+      }
+
+burstActiveAt :: SlotNo -> Burst -> Bool
+burstActiveAt slot burst =
+  burst.burstStart <= slot && slot < burst.burstEnd
+
 tryBurstEffectAt :: ArrivalProcess -> SlotNo -> Maybe BurstEffect
 tryBurstEffectAt (BurstLoad bursts) slot =
-  foldr combineActiveBurstEffect Nothing (fmap (burstEffectAt slot) bursts)
+  foldr (<>) Nothing [Just burst.burstEffect | burst <- bursts, burstActiveAt slot burst]
 tryBurstEffectAt _ _ = Nothing
-
-combineActiveBurstEffect :: Maybe BurstEffect -> Maybe BurstEffect -> Maybe BurstEffect
-combineActiveBurstEffect Nothing acc = acc
-combineActiveBurstEffect (Just effect) Nothing = Just effect
-combineActiveBurstEffect (Just effect) (Just acc) = Just (combineBurstEffects effect acc)
-
-combineBurstEffects :: BurstEffect -> BurstEffect -> BurstEffect
-combineBurstEffects a b =
-  BurstEffect
-    { valueMultiplier = a.valueMultiplier * b.valueMultiplier
-    , urgencyMultiplier = a.urgencyMultiplier * b.urgencyMultiplier
-    }
 
 arrivalRateAt :: ArrivalProcess -> SlotNo -> Double
 arrivalRateAt (ConstantLoad r) _ = r
 arrivalRateAt (BurstLoad bursts) slot =
-  sum (fmap (burstRateAt slot) bursts)
-
-burstRateAt :: SlotNo -> Burst -> Double
-burstRateAt slot burst
-  | slot >= burstStart && slot < burstEnd = burstRate
-  | otherwise = baseRate
+  sum (fmap rateAt bursts)
  where
-  burstStart = burst.burstStart
-  burstEnd = burst.burstEnd
-  burstRate = burst.burstRate
-  baseRate = burst.baseRate
-
-burstEffectAt :: SlotNo -> Burst -> Maybe BurstEffect
-burstEffectAt slot burst
-  | slot >= burstStart && slot < burstEnd = burstRate
-  | otherwise = baseRate
- where
-  burstStart = burst.burstStart
-  burstEnd = burst.burstEnd
-  burstRate = Just burst.burstEffect
-  baseRate = Nothing
+  rateAt burst
+    | burstActiveAt slot burst = burst.burstRate
+    | otherwise = burst.baseRate

@@ -9,7 +9,6 @@ module Block (
   EndorserBlockSummary (..),
   mkRankingBlockSummary,
   mkEndorserBlockSummary,
-  selectedTxBodies,
   laneBytes,
   txBytes,
   selectTxsByPolicy,
@@ -25,14 +24,11 @@ module Block (
 where
 
 import Data.Aeson (ToJSON (..), object, (.=))
-import Data.Foldable qualified as Foldable
-import Design (ReservationPolicy (..), SelectionPolicy (..))
+import Data.List qualified as List
 import Data.Map (Map)
 import Data.Map qualified as Map
-import Data.Maybe (mapMaybe)
 import Data.Sequence (Seq (..), (|>))
-import Data.Set (Set)
-import Data.Set qualified as Set
+import Design (ReservationPolicy (..), SelectionPolicy (..))
 import Transaction (Lane (..), Script (_scriptExUnits), Tx (..), TxBody (..), TxId)
 import Types (SlotNo)
 
@@ -42,7 +38,9 @@ instance ToJSON EbId where
   toJSON (EbId n) = toJSON n
 
 data EndorserBlock = EndorserBlock
-  { _ebTxs :: Set TxId
+  { _ebTxs :: [Tx]
+  -- ^ announced bodies, in selection order — the EB owns its payload, so
+  -- certification re-validates the very txs it announced
   , _ebId :: EbId
   }
 
@@ -50,7 +48,7 @@ instance ToJSON EndorserBlock where
   toJSON eb =
     object
       [ "id" .= eb._ebId
-      , "txIds" .= Set.toAscList eb._ebTxs
+      , "txIds" .= List.sort (fmap (.txId) eb._ebTxs)
       ]
 
 data InclusionPoint
@@ -216,10 +214,6 @@ mkEndorserBlockSummary ebId capacityBytes capacityExUnits prioritySignalCapacity
     , endorserBlockPrioritySignalCapacityExUnits = prioritySignalCapacityExUnits
     }
 
-selectedTxBodies :: Map TxId Tx -> Seq TxId -> [Tx]
-selectedTxBodies txs =
-  mapMaybe (`Map.lookup` txs) . Foldable.toList
-
 laneBytes :: Lane -> [Tx] -> Int
 laneBytes lane =
   sum . fmap txBytes . filter ((== lane) . txLane)
@@ -250,21 +244,20 @@ selectTxsByPolicy ::
   SelectionPolicy ->
   Int ->
   Int ->
-  Map TxId Tx ->
-  Seq TxId ->
-  (Seq TxId, Seq TxId, (Int, Int))
-selectTxsByPolicy selection byteCap exUnitCap txs txIds =
+  Seq Tx ->
+  (Seq Tx, Seq Tx, (Int, Int))
+selectTxsByPolicy selection byteCap exUnitCap txs =
   case selection of
     Fifo ->
-      selectByBlockCapacity byteCap exUnitCap txs txIds
+      selectByBlockCapacity byteCap exUnitCap txs
     PriorityFirst ->
       let (prioritySelected, afterPriority, priorityUsage) =
-            selectPriorityByBlockCapacity byteCap exUnitCap txs txIds
+            selectPriorityByBlockCapacity byteCap exUnitCap txs
           (standardSelected, remainingMempool, totalUsage) =
-            selectByBlockCapacityFrom priorityUsage byteCap exUnitCap txs afterPriority
+            selectByBlockCapacityFrom priorityUsage byteCap exUnitCap afterPriority
        in (prioritySelected <> standardSelected, remainingMempool, totalUsage)
     FifoWithStandardCap standardShare ->
-      selectFifoWithStandardCap standardShare byteCap exUnitCap txs txIds
+      selectFifoWithStandardCap standardShare byteCap exUnitCap txs
 
 {- | Ranking-block selection under the design's reservation policy. The
 reservation rule admits only priority txs to RBs, so every selection policy
@@ -275,19 +268,17 @@ selectRbTxs ::
   ReservationPolicy ->
   Int ->
   Int ->
-  Map TxId Tx ->
-  Seq TxId ->
-  (Seq TxId, Seq TxId, (Int, Int))
-selectRbTxs selection reservation rbTxBytesCap rbExUnitsCap txs txIds =
+  Seq Tx ->
+  (Seq Tx, Seq Tx, (Int, Int))
+selectRbTxs selection reservation rbTxBytesCap rbExUnitsCap txs =
   case reservation of
     PriorityReservationRb reservationBytes ->
       selectPriorityByBlockCapacity
         (min rbTxBytesCap reservationBytes)
         rbExUnitsCap
         txs
-        txIds
     NoReservation ->
-      selectTxsByPolicy selection rbTxBytesCap rbExUnitsCap txs txIds
+      selectTxsByPolicy selection rbTxBytesCap rbExUnitsCap txs
 
 -- | The priority lane's effective RB byte capacity under a reservation policy.
 priorityTxBytesCap :: ReservationPolicy -> Int -> Int
@@ -305,9 +296,8 @@ nextEbId ebs =
 selectByBlockCapacity ::
   Int ->
   Int ->
-  Map TxId Tx ->
-  Seq TxId ->
-  (Seq TxId, Seq TxId, (Int, Int))
+  Seq Tx ->
+  (Seq Tx, Seq Tx, (Int, Int))
 selectByBlockCapacity =
   selectByBlockCapacityFrom (0, 0)
 
@@ -319,18 +309,16 @@ selectByBlockCapacityFrom ::
   (Int, Int) ->
   Int ->
   Int ->
-  Map TxId Tx ->
-  Seq TxId ->
-  (Seq TxId, Seq TxId, (Int, Int))
+  Seq Tx ->
+  (Seq Tx, Seq Tx, (Int, Int))
 selectByBlockCapacityFrom usedSoFar =
   selectByBlockCapacityWith (const True) usedSoFar
 
 selectPriorityByBlockCapacity ::
   Int ->
   Int ->
-  Map TxId Tx ->
-  Seq TxId ->
-  (Seq TxId, Seq TxId, (Int, Int))
+  Seq Tx ->
+  (Seq Tx, Seq Tx, (Int, Int))
 selectPriorityByBlockCapacity =
   selectByBlockCapacityWith ((== Priority) . txLane) (0, 0)
 
@@ -338,31 +326,27 @@ selectFifoWithStandardCap ::
   Double ->
   Int ->
   Int ->
-  Map TxId Tx ->
-  Seq TxId ->
-  (Seq TxId, Seq TxId, (Int, Int))
-selectFifoWithStandardCap standardShare byteCap exUnitCap txs txIds =
+  Seq Tx ->
+  (Seq Tx, Seq Tx, (Int, Int))
+selectFifoWithStandardCap standardShare byteCap exUnitCap txs =
   (selected, skipped, overallUsage)
  where
   (selected, skipped, (overallUsage, _standardUsage)) =
-    selectAccumL advance ((0, 0), (0, 0)) txIds
+    selectAccumL advance ((0, 0), (0, 0)) txs
 
   blockCaps = (byteCap, exUnitCap)
   standardCaps = (shareOf byteCap, shareOf exUnitCap)
   shareOf cap =
     floor (max 0 (min 1 standardShare) * fromIntegral cap) :: Int
 
-  advance (used, standardUsed) txId =
-    case Map.lookup txId txs of
-      Nothing -> Skip
-      Just tx
-        | not (within (used `plus` cost) blockCaps) -> Stop
-        | tx.txLane /= Standard -> Select (used `plus` cost, standardUsed)
-        | within (standardUsed `plus` cost) standardCaps ->
-            Select (used `plus` cost, standardUsed `plus` cost)
-        | otherwise -> Skip
-       where
-        cost = txBlockResources tx
+  advance (used, standardUsed) tx
+    | not (within (used `plus` cost) blockCaps) = Stop
+    | tx.txLane /= Standard = Select (used `plus` cost, standardUsed)
+    | within (standardUsed `plus` cost) standardCaps =
+        Select (used `plus` cost, standardUsed `plus` cost)
+    | otherwise = Skip
+   where
+    cost = txBlockResources tx
 
   plus (a, b) (c, d) = (a + c, b + d)
   within (a, b) (capA, capB) = a <= capA && b <= capB
@@ -372,24 +356,20 @@ selectByBlockCapacityWith ::
   (Int, Int) ->
   Int ->
   Int ->
-  Map TxId Tx ->
-  Seq TxId ->
-  (Seq TxId, Seq TxId, (Int, Int))
-selectByBlockCapacityWith acceptTx usedSoFar byteCap exUnitCap txs =
+  Seq Tx ->
+  (Seq Tx, Seq Tx, (Int, Int))
+selectByBlockCapacityWith acceptTx usedSoFar byteCap exUnitCap =
   selectAccumL advanceUsage usedSoFar
  where
-  advanceUsage (usedBytes, usedExUnits) txId =
-    case Map.lookup txId txs of
-      Nothing -> Skip
-      Just tx
-        | not (acceptTx tx) -> Skip
-        | otherwise ->
-            let (bodyBytes, bodyExUnits) = txBlockResources tx
-                usedBytes' = usedBytes + bodyBytes
-                usedExUnits' = usedExUnits + bodyExUnits
-             in if usedBytes' <= byteCap && usedExUnits' <= exUnitCap
-                  then Select (usedBytes', usedExUnits')
-                  else Stop
+  advanceUsage (usedBytes, usedExUnits) tx
+    | not (acceptTx tx) = Skip
+    | otherwise =
+        let (bodyBytes, bodyExUnits) = txBlockResources tx
+            usedBytes' = usedBytes + bodyBytes
+            usedExUnits' = usedExUnits + bodyExUnits
+         in if usedBytes' <= byteCap && usedExUnits' <= exUnitCap
+              then Select (usedBytes', usedExUnits')
+              else Stop
 
 txBlockResources :: Tx -> (Int, Int)
 txBlockResources tx =

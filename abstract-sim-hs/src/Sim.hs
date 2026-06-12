@@ -9,7 +9,7 @@ module Sim (
 ) where
 
 import Actor (Actor (..), ActorId, SubmissionEnv (..), TxSubmission (TxSubmission), generateTransaction, resubmitTransaction)
-import Block (BlockSummary (..), EbId, EndorserBlock (..), InclusionPoint (..), PendingEb (..), RankingBlock (..), mkEndorserBlockSummary, mkRankingBlockSummary, nextEbId, priorityTxBytesCap, selectRbTxs, selectTxsByPolicy, selectedTxBodies)
+import Block (BlockSummary (..), EbId, EndorserBlock (..), InclusionPoint (..), PendingEb (..), RankingBlock (..), mkEndorserBlockSummary, mkRankingBlockSummary, nextEbId, priorityTxBytesCap, selectRbTxs, selectTxsByPolicy)
 import Config (SimConfig (..))
 import Control.Monad (join, replicateM)
 import Control.Monad.Reader (MonadReader (..), ReaderT, asks)
@@ -27,7 +27,8 @@ import Data.Set qualified as Set
 import Design (Design (..), FeeSemantics)
 import Event (SimEvent (..))
 import Load (arrivalRateAt, tryBurstEffectAt)
-import Mempool (Mempool (..), admitToMempool, emptyMempool, removeFromMempool, setMempoolTxIds)
+import Data.List (sortOn)
+import Mempool (Mempool (..), admitToMempool, emptyMempool, removeFromMempool, setMempoolTxs)
 import Pricing (Prices (..), admissionRequiredFee, coversProducerHeadroom, feeStillValid, initialPrices, quotedFee, realisedFee, retentionWindow, updatePrices)
 import Retry (PendingRetry (..), RetryPolicy (..), capture)
 import System.Random (StdGen, uniformR)
@@ -358,21 +359,20 @@ produceRankingBlock = do
   pendingEb <- gets _simPendingEb
   rbTxBytesCap <- asks simConfigRbTxBytesCap
   rbExUnitsCap <- asks simConfigRbExUnitsCap
-  simTxs <- gets _simTxs
   design <- asks simConfigDesign
   slot <- gets _simSlot
   let rbPriorityTxBytesCap = priorityTxBytesCap design.designReservationPolicy rbTxBytesCap
   rbEvents <- case pendingEb of
     Just pending -> do
       certEb <- ebCertifiedAt slot pending
-      ebValid <- pendingEbStillValid design slot simTxs pending
+      ebValid <- pendingEbStillValid design slot pending
       modify' \st -> st{_simPendingEb = Nothing}
       if certEb && ebValid
-        then certifyPendingEb slot rbPriorityTxBytesCap rbExUnitsCap simTxs pending
-        else producePraosBlock design slot rbTxBytesCap rbExUnitsCap simTxs
+        then certifyPendingEb slot rbPriorityTxBytesCap rbExUnitsCap pending
+        else producePraosBlock design slot rbTxBytesCap rbExUnitsCap
     Nothing ->
-      producePraosBlock design slot rbTxBytesCap rbExUnitsCap simTxs
-  ebEvents <- announceEndorserBlock slot rbPriorityTxBytesCap rbExUnitsCap simTxs
+      producePraosBlock design slot rbTxBytesCap rbExUnitsCap
+  ebEvents <- announceEndorserBlock slot rbPriorityTxBytesCap rbExUnitsCap
   pure (rbEvents >< ebEvents)
 
 -- | P(EB certifies) = (1 - f)^(D - 1)
@@ -386,18 +386,18 @@ it is discarded like a timing failure. Its txs were never removed from the
 mempool, where the stale ones are evicted by the normal block-construction
 sweep ('evictStaleFees').
 -}
-pendingEbStillValid :: Design -> SlotNo -> Map TxId Tx -> PendingEb -> SimM Bool
-pendingEbStillValid design slot simTxs pending = do
+pendingEbStillValid :: Design -> SlotNo -> PendingEb -> SimM Bool
+pendingEbStillValid design slot pending = do
   ebs <- gets _simEbs
   prices <- gets _simPrices
-  let txStillValid txId =
-        case Map.lookup txId simTxs of
-          Nothing -> True
-          Just tx -> feeStillValid design.designFeeSemantics slot prices tx
-  pure (all txStillValid (maybe mempty _ebTxs (Map.lookup pending.pendingEbId ebs)))
+  pure
+    ( all
+        (feeStillValid design.designFeeSemantics slot prices)
+        (maybe [] _ebTxs (Map.lookup pending.pendingEbId ebs))
+    )
 
-certifyPendingEb :: SlotNo -> Int -> Int -> Map TxId Tx -> PendingEb -> SimM (Seq SimEvent)
-certifyPendingEb slot rbPriorityTxBytesCap rbExUnitsCap simTxs pending = do
+certifyPendingEb :: SlotNo -> Int -> Int -> PendingEb -> SimM (Seq SimEvent)
+certifyPendingEb slot rbPriorityTxBytesCap rbExUnitsCap pending = do
   ebTxBytesCap <- asks simConfigEbTxBytesCap
   ebExUnitsCap <- asks simConfigEbExUnitsCap
   ebs <- gets _simEbs
@@ -405,12 +405,12 @@ certifyPendingEb slot rbPriorityTxBytesCap rbExUnitsCap simTxs pending = do
   design <- asks simConfigDesign
   mempool <- gets _simMempool
   -- 'pendingEbStillValid' has already vouched for every tx in the EB, so
-  -- the whole announced set is included as-is.
-  let ebTxIdSet =
-        maybe mempty _ebTxs (Map.lookup pending.pendingEbId ebs)
-      ebTxs = selectedTxBodies simTxs (Seq.fromList (Set.toList ebTxIdSet))
+  -- the whole announced payload is included as-is. Inclusion events are
+  -- emitted in ascending-id order, matching the historical iteration order
+  -- of the certified tx set.
+  let ebTxs = sortOn (.txId) (maybe [] _ebTxs (Map.lookup pending.pendingEbId ebs))
       block = CertifyingBlock pending.pendingEbId
-      mempool' = removeFromMempool simTxs ebTxIdSet mempool
+      mempool' = removeFromMempool (Set.fromList (fmap (.txId) ebTxs)) mempool
       summary =
         RankingBlockProduced
           (mkRankingBlockSummary block 0 0 0 0 [])
@@ -426,24 +426,23 @@ certifyPendingEb slot rbPriorityTxBytesCap rbExUnitsCap simTxs pending = do
   modify' \st -> st{_simMempool = mempool'}
   pure events
 
-producePraosBlock :: Design -> SlotNo -> Int -> Int -> Map TxId Tx -> SimM (Seq SimEvent)
-producePraosBlock design slot rbTxBytesCap rbExUnitsCap simTxs = do
+producePraosBlock :: Design -> SlotNo -> Int -> Int -> SimM (Seq SimEvent)
+producePraosBlock design slot rbTxBytesCap rbExUnitsCap = do
   prices <- gets _simPrices
   mempool <- gets _simMempool
   let (feeCheckedMempool, evictionEvents) =
-        evictStaleFees design.designFeeSemantics slot prices simTxs mempool
-      (selectedTxs, remainingMempool, (_usedBytes, _usedExUnits)) =
-        selectRbTxs design.designSelection design.designReservationPolicy rbTxBytesCap rbExUnitsCap simTxs feeCheckedMempool.mempoolTxIds
-      selectedTxIds = toList selectedTxs
-      selectedTxBodyList = selectedTxBodies simTxs selectedTxs
-      mempool' = setMempoolTxIds simTxs remainingMempool
-      block = PraosBlock selectedTxIds
+        evictStaleFees design.designFeeSemantics slot prices mempool
+      (selectedTxs, remainingTxs, (_usedBytes, _usedExUnits)) =
+        selectRbTxs design.designSelection design.designReservationPolicy rbTxBytesCap rbExUnitsCap feeCheckedMempool.mempoolTxs
+      selectedTxList = toList selectedTxs
+      mempool' = setMempoolTxs remainingTxs
+      block = PraosBlock (fmap (.txId) selectedTxList)
       summary =
         RankingBlockProduced
-          (mkRankingBlockSummary block rbTxBytesCap rbExUnitsCap (priorityTxBytesCap design.designReservationPolicy rbTxBytesCap) rbExUnitsCap selectedTxBodyList)
+          (mkRankingBlockSummary block rbTxBytesCap rbExUnitsCap (priorityTxBytesCap design.designReservationPolicy rbTxBytesCap) rbExUnitsCap selectedTxList)
       events =
         BlockProduced slot summary
-          : fmap (includedEvent design prices slot IncludedInRb) selectedTxBodyList
+          : fmap (includedEvent design prices slot IncludedInRb) selectedTxList
   modify' \st -> st{_simMempool = mempool'}
   pure (evictionEvents >< Seq.fromList events)
 
@@ -455,8 +454,8 @@ includedEvent :: Design -> Prices -> SlotNo -> InclusionPoint -> Tx -> SimEvent
 includedEvent design prices slot inclusionPoint tx =
   TxIncluded slot tx.txId inclusionPoint (realisedFee design.designFeeSemantics prices tx)
 
-announceEndorserBlock :: SlotNo -> Int -> Int -> Map TxId Tx -> SimM (Seq SimEvent)
-announceEndorserBlock slot rbPriorityTxBytesCap rbExUnitsCap simTxs = do
+announceEndorserBlock :: SlotNo -> Int -> Int -> SimM (Seq SimEvent)
+announceEndorserBlock slot rbPriorityTxBytesCap rbExUnitsCap = do
   ebTxBytesCap <- asks simConfigEbTxBytesCap
   ebExUnitsCap <- asks simConfigEbExUnitsCap
   ebs <- gets _simEbs
@@ -464,23 +463,19 @@ announceEndorserBlock slot rbPriorityTxBytesCap rbExUnitsCap simTxs = do
   design <- asks simConfigDesign
   mempool <- gets _simMempool
   let (feeCheckedMempool, evictionEvents) =
-        evictStaleFees design.designFeeSemantics slot prices simTxs mempool
+        evictStaleFees design.designFeeSemantics slot prices mempool
       -- Producer headroom ('Pricing.coversProducerHeadroom'): fill the EB
       -- only with txs that stay valid through the single price update that
       -- can fire before the certification check, so a prudent producer's
       -- EB cannot fail validation. Ineligible txs are not evicted: they
       -- stay in the mempool (RB-eligible only as the reservation policy
       -- allows) and regain EB eligibility if prices fall.
-      ebEligible txId =
-        case Map.lookup txId simTxs of
-          Nothing -> False
-          Just tx ->
-            coversProducerHeadroom design.designControllers design.designFeeSemantics prices tx
-      (selectedTxs, _remainingMempool, (_usedBytes, _usedExUnits)) =
-        selectTxsByPolicy design.designSelection ebTxBytesCap ebExUnitsCap simTxs (Seq.filter ebEligible feeCheckedMempool.mempoolTxIds)
-      selectedTxIds = toList selectedTxs
-      selectedTxBodyList = selectedTxBodies simTxs selectedTxs
-  if null selectedTxIds
+      ebEligible =
+        coversProducerHeadroom design.designControllers design.designFeeSemantics prices
+      (selectedTxs, _remainingTxs, (_usedBytes, _usedExUnits)) =
+        selectTxsByPolicy design.designSelection ebTxBytesCap ebExUnitsCap (Seq.filter ebEligible feeCheckedMempool.mempoolTxs)
+      selectedTxList = toList selectedTxs
+  if null selectedTxList
     then do
       modify' \st -> st{_simMempool = feeCheckedMempool}
       pure evictionEvents
@@ -488,12 +483,12 @@ announceEndorserBlock slot rbPriorityTxBytesCap rbExUnitsCap simTxs = do
       let ebId = nextEbId ebs
           eb =
             EndorserBlock
-              { _ebTxs = Set.fromList selectedTxIds
+              { _ebTxs = selectedTxList
               , _ebId = ebId
               }
           summary =
             EndorserBlockAnnounced
-              (mkEndorserBlockSummary ebId ebTxBytesCap ebExUnitsCap rbPriorityTxBytesCap rbExUnitsCap selectedTxBodyList)
+              (mkEndorserBlockSummary ebId ebTxBytesCap ebExUnitsCap rbPriorityTxBytesCap rbExUnitsCap selectedTxList)
       modify' \st ->
         st
           { _simMempool = feeCheckedMempool
@@ -502,23 +497,19 @@ announceEndorserBlock slot rbPriorityTxBytesCap rbExUnitsCap simTxs = do
           }
       pure $ evictionEvents |> BlockProduced slot summary
 
-evictStaleFees :: FeeSemantics -> SlotNo -> Prices -> Map TxId Tx -> Mempool -> (Mempool, Seq SimEvent)
-evictStaleFees semantics slot prices simTxs mempool =
-  (setMempoolTxIds simTxs keptTxIds, evictions)
+evictStaleFees :: FeeSemantics -> SlotNo -> Prices -> Mempool -> (Mempool, Seq SimEvent)
+evictStaleFees semantics slot prices mempool =
+  (setMempoolTxs keptTxs, evictions)
  where
-  (keptTxIds, evictions) =
-    foldl' checkTx (mempty, mempty) mempool.mempoolTxIds
+  (keptTxs, evictions) =
+    foldl' checkTx (mempty, mempty) mempool.mempoolTxs
 
-  checkTx (kept, events) txId =
-    case Map.lookup txId simTxs of
-      Nothing ->
-        (kept |> txId, events)
-      Just tx
-        | feeStillValid semantics slot prices tx ->
-            (kept |> txId, events)
-        | otherwise ->
-            (kept, events |> staleFeeEviction slot prices txId tx)
+  checkTx (kept, events) tx
+    | feeStillValid semantics slot prices tx =
+        (kept |> tx, events)
+    | otherwise =
+        (kept, events |> staleFeeEviction slot prices tx)
 
-staleFeeEviction :: SlotNo -> Prices -> TxId -> Tx -> SimEvent
-staleFeeEviction slot prices txId tx =
-  TxEvicted slot txId (FeeTooLowAtSelection tx.txBody._txFee (quotedFee prices tx))
+staleFeeEviction :: SlotNo -> Prices -> Tx -> SimEvent
+staleFeeEviction slot prices tx =
+  TxEvicted slot tx.txId (FeeTooLowAtSelection tx.txBody._txFee (quotedFee prices tx))

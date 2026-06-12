@@ -2,57 +2,48 @@ module Mempool
   ( Mempool (..)
   , emptyMempool
   , admitToMempool
-  , setMempoolTxIds
+  , setMempoolTxs
   , removeFromMempool
   )
 where
 
-import Data.Foldable (Foldable (toList))
-import Data.Map (Map)
-import Data.Map qualified as Map
+import Data.Foldable (toList)
 import Data.Sequence (Seq, (|>))
 import Data.Sequence qualified as Seq
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Transaction (Tx (..), TxBody (..), TxId)
 
+{- | The mempool owns its transactions: holders of a 'Mempool' never need a
+side table to look bodies up, so the impossible miss has no representation.
+-}
 data Mempool = Mempool
-  { mempoolTxIds :: Seq TxId
+  { mempoolTxs :: Seq Tx
   , mempoolBytes :: Int
   }
 
 emptyMempool :: Mempool
 emptyMempool =
   Mempool
-    { mempoolTxIds = mempty
+    { mempoolTxs = mempty
     , mempoolBytes = 0
     }
 
 admitToMempool :: Mempool -> Tx -> Mempool
 admitToMempool mempool tx =
-  mempool
-    { mempoolTxIds = mempool.mempoolTxIds |> tx.txId
+  Mempool
+    { mempoolTxs = mempool.mempoolTxs |> tx
     , mempoolBytes = mempool.mempoolBytes + tx.txBody._txSize
     }
 
-setMempoolTxIds :: Map TxId Tx -> Seq TxId -> Mempool
-setMempoolTxIds txs txIds =
+-- | Rebuild the mempool from a selection's remainder.
+setMempoolTxs :: Seq Tx -> Mempool
+setMempoolTxs txs =
   Mempool
-    { mempoolTxIds = txIds
-    , mempoolBytes = txIdsBytes txs txIds
+    { mempoolTxs = txs
+    , mempoolBytes = sum [tx.txBody._txSize | tx <- toList txs]
     }
 
-removeFromMempool :: Map TxId Tx -> Set TxId -> Mempool -> Mempool
-removeFromMempool txs txIds mempool =
-  setMempoolTxIds txs (Seq.filter (`Set.notMember` txIds) mempool.mempoolTxIds)
-
-txIdsBytes :: Map TxId Tx -> Seq TxId -> Int
-txIdsBytes txs =
-  sum . fmap txIdBytes . toList
- where
-  txIdBytes txId =
-    maybe 0 txSize (Map.lookup txId txs)
-
-txSize :: Tx -> Int
-txSize tx =
-  tx.txBody._txSize
+removeFromMempool :: Set TxId -> Mempool -> Mempool
+removeFromMempool txIds mempool =
+  setMempoolTxs (Seq.filter (\tx -> tx.txId `Set.notMember` txIds) mempool.mempoolTxs)

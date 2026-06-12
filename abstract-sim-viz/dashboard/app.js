@@ -1,5 +1,10 @@
 "use strict";
-const DATA = window.SIM_DATA;
+// One dashboard, N runs: SIM_RUNS (written by preprocess.py) carries one
+// distilled dataset per trace. Flipping runs rebinds DATA and re-renders every
+// panel in place, so the same panel layout/zoom serves all runs.
+const RUNS = window.SIM_RUNS || [{ name: "run", data: window.SIM_DATA }];
+let runIndex = 0;
+let DATA = RUNS[runIndex].data;
 
 const state = {
   priceView: "log",     // "log" | "perlane"
@@ -22,7 +27,7 @@ const LANE_COLOR = { Standard: "#2563eb", Priority: "#7c3aed" };
 // Mid-lightness hues that read on both light and dark backgrounds and avoid the
 // lane colors (blue/purple) and the shock red. Falls back to a generated ramp if a
 // run ever has more classes than the curated set.
-const classColors = (() => {
+function computeClassColors() {
   const classes = DATA.meta.urgencyClasses;
   const base = ["#0d9488", "#22c55e", "#f59e0b", "#db2777"]; // teal → green → amber → pink
   const ramp = classes.length <= base.length
@@ -31,7 +36,36 @@ const classColors = (() => {
   const map = {};
   classes.forEach((c, i) => { map[c.id] = ramp[i] || base[0]; });
   return map;
+}
+let classColors = computeClassColors();
+
+// Pinned price y-domains across runs (per lane, 5% padded): when flipping
+// between runs, an auto-scaled axis would make a 2x and a 20x excursion look
+// identical. Degenerate or single-run domains stay null (auto-scale).
+const PRICE_DOMAIN_BY_LANE = (() => {
+  if (RUNS.length < 2) return {};
+  const dom = {};
+  for (const run of RUNS) {
+    for (const [lane, steps] of Object.entries((run.data.price || {}).byLane || {})) {
+      for (const p of steps) {
+        const d = dom[lane] || [Infinity, -Infinity];
+        dom[lane] = [Math.min(d[0], p.oldCoeff, p.newCoeff),
+                     Math.max(d[1], p.oldCoeff, p.newCoeff)];
+      }
+    }
+  }
+  for (const lane of Object.keys(dom)) {
+    const [lo, hi] = dom[lane];
+    dom[lane] = lo > 0 && lo < hi ? [lo * 0.95, hi * 1.05] : null;
+  }
+  return dom;
 })();
+
+function pinnedPriceDomain(lanes) {
+  const ds = lanes.map((l) => PRICE_DOMAIN_BY_LANE[l]).filter(Boolean);
+  if (!ds.length) return null;
+  return [Math.min(...ds.map((d) => d[0])), Math.max(...ds.map((d) => d[1]))];
+}
 
 const el = (id) => document.getElementById(id);
 function theme() {
@@ -89,6 +123,7 @@ function exportSvg(container, filename) {
 function renderHeader() {
   const dm = DATA.meta.demand;
   el("subtitle").textContent =
+    (RUNS.length > 1 ? `${RUNS[runIndex].name} (run ${runIndex + 1}/${RUNS.length}, [ and ] to flip) · ` : "") +
     `${DATA.meta.slotCount.toLocaleString()} slots · ` +
     `${DATA.meta.totalEvents.toLocaleString()} events · ` +
     (dm ? `${dm.units.toLocaleString()} demand units · ` : "") +
@@ -205,11 +240,13 @@ function renderPriceOverlaid(t, lanes) {
       x: "slot", y: "newCoeff", stroke: LANE_COLOR[lane] || "#888",
       strokeWidth: 1.8, curve: "step-after",
     })));
+  const pinned = pinnedPriceDomain(lanes);
   return Plot.plot({
     width: focusWidth(), height: 170, marginLeft: 44, marginRight: focusRight(), marginBottom: 18,
     style: { color: t.text, fontSize: "11px" },
     x: { domain: xDomain(), axis: null },
-    y: { type: "log", grid: false, label: "coeff ↑", ticks: [1, 2, 4, 8, 16] },
+    y: { type: "log", grid: false, label: "coeff ↑", ticks: [1, 2, 4, 8, 16],
+         ...(pinned ? { domain: pinned } : {}) },
     marks,
   });
 }
@@ -222,7 +259,8 @@ function renderPricePerLane(t, lanes) {
       width: focusWidth(), height: 110, marginLeft: 44, marginRight: focusRight(), marginBottom: 16,
       style: { color: t.text, fontSize: "11px" },
       x: { domain: xDomain(), axis: null },
-      y: { grid: false, label: `${lane} ↑` },
+      y: { grid: false, label: `${lane} ↑`,
+           ...(PRICE_DOMAIN_BY_LANE[lane] ? { domain: PRICE_DOMAIN_BY_LANE[lane] } : {}) },
       marks: [
         Plot.gridY({ stroke: t.grid }),
         ...convergenceBandMarks(lane),
@@ -737,6 +775,39 @@ function setupFocusInteractions() {
   });
 }
 
+function switchRun(i) {
+  const next = (i + RUNS.length) % RUNS.length;
+  if (next === runIndex) return;
+  const sameLength = RUNS[next].data.meta.slotCount === DATA.meta.slotCount;
+  runIndex = next;
+  DATA = RUNS[next].data;
+  classColors = computeClassColors();
+  // a brushed slot window only carries over between equal-length runs
+  if (!sameLength) { state.xDomain = null; state.flowSel = null; }
+  el("run-select").value = String(next);
+  renderAll();
+}
+
+function setupRunNav() {
+  if (RUNS.length < 2) return; // single run: keep the header clean
+  el("run-nav").hidden = false;
+  const select = el("run-select");
+  RUNS.forEach((run, i) => {
+    const option = document.createElement("option");
+    option.value = String(i);
+    option.textContent = run.name;
+    select.appendChild(option);
+  });
+  select.onchange = () => switchRun(+select.value);
+  el("run-prev").onclick = () => switchRun(runIndex - 1);
+  el("run-next").onclick = () => switchRun(runIndex + 1);
+  document.addEventListener("keydown", (ev) => {
+    if (/^(SELECT|INPUT|TEXTAREA)$/.test(ev.target.tagName)) return;
+    if (ev.key === "[") switchRun(runIndex - 1);
+    if (ev.key === "]") switchRun(runIndex + 1);
+  });
+}
+
 function setupControls() {
   el("toggle-theme").onclick = () => {
     const root = document.documentElement;
@@ -797,6 +868,7 @@ function renderAll() {
   if (typeof renderFairness === "function") renderFairness();
 }
 
+setupRunNav();
 setupControls();
 renderAll();
 setupFocusInteractions();

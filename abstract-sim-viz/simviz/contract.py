@@ -1,5 +1,6 @@
 import json
 import math
+import os
 import random
 from datetime import datetime, timezone
 
@@ -317,3 +318,38 @@ def write_data_js(sim_data, path):
     payload = json.dumps(sim_data, separators=(",", ":"))
     with open(path, "w") as fh:
         fh.write("window.SIM_DATA = " + payload + ";\n")
+
+
+def run_name(path):
+    """A short display name for a trace: its basename minus trace suffixes
+    (two-lane-reserved-seed0.events.jsonl -> two-lane-reserved-seed0)."""
+    name = os.path.basename(path)
+    for suffix in (".events.jsonl", ".jsonl"):
+        if name.endswith(suffix):
+            return name[: -len(suffix)]
+    return name
+
+
+def run_names(paths):
+    """Per-trace display names; basename collisions fall back to the path
+    relative to the traces' common prefix, so every name stays unique."""
+    names = [run_name(p) for p in paths]
+    if len(set(names)) == len(names):
+        return names
+    common = os.path.commonpath([os.path.abspath(p) for p in paths])
+    return [
+        os.path.relpath(os.path.abspath(os.path.splitext(p)[0]), common).replace(os.sep, "/")
+        for p in paths
+    ]
+
+
+def write_runs_js(runs, path):
+    """Serialise [(name, sim_data)] as the dashboard's run bundle. SIM_DATA
+    aliases the first run so anything reading the old single-run global still
+    works."""
+    payload = json.dumps(
+        [{"name": name, "data": sim_data} for name, sim_data in runs],
+        separators=(",", ":"))
+    with open(path, "w") as fh:
+        fh.write("window.SIM_RUNS = " + payload + ";\n")
+        fh.write("window.SIM_DATA = window.SIM_RUNS[0].data;\n")

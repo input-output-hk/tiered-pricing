@@ -17,10 +17,12 @@ h1 { font-size: 18px; margin: 0; font-weight: 600; }
 .subtitle { color: var(--muted); font-size: 12px; }
 .muted { color: var(--muted); }
 #controls { display: flex; gap: 8px; flex-wrap: wrap; }
-#controls button {
+#controls button, #controls select {
   font-size: 12px; padding: 6px 10px; border: 1px solid var(--border);
   border-radius: 6px; background: var(--panel-bg); color: var(--text); cursor: pointer;
 }
+#run-nav { display: inline-flex; gap: 4px; }
+#run-select { max-width: 220px; font-weight: 600; }
 .kpis { display: flex; gap: 10px; margin: 14px 0; flex-wrap: wrap; }
 .kpi { flex: 1; min-width: 130px; border: 1px solid var(--border);
   border-left: 3px solid var(--accent, var(--muted)); border-radius: 6px; padding: 8px 12px; }

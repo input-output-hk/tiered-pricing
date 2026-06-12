@@ -2,6 +2,7 @@ import json
 import math
 import os
 import random
+import re
 from datetime import datetime, timezone
 
 from simviz import price as price_mod
@@ -347,12 +348,26 @@ def run_names(paths):
     ]
 
 
+def split_seed(name):
+    """Split a sweep-style run name into (variant, seed): the dashboard
+    offers them as separate selectors. Names without a -seed<N> suffix are
+    their own single-run variant."""
+    match = re.fullmatch(r"(.+)-seed(\d+)", name)
+    if match:
+        return match.group(1), int(match.group(2))
+    return name, None
+
+
 def write_runs_js(runs, path):
     """Serialise [(name, sim_data)] as the dashboard's run bundle. SIM_DATA
     aliases the first run so anything reading the old single-run global still
     works."""
     payload = json.dumps(
-        [{"name": name, "data": sim_data} for name, sim_data in runs],
+        [
+            {"name": name, "variant": variant, "seed": seed, "data": sim_data}
+            for name, sim_data in runs
+            for variant, seed in [split_seed(name)]
+        ],
         separators=(",", ":"))
     with open(path, "w") as fh:
         fh.write("window.SIM_RUNS = " + payload + ";\n")

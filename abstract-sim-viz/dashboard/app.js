@@ -123,7 +123,7 @@ function exportSvg(container, filename) {
 function renderHeader() {
   const dm = DATA.meta.demand;
   el("subtitle").textContent =
-    (RUNS.length > 1 ? `${RUNS[runIndex].name} (run ${runIndex + 1}/${RUNS.length}, [ and ] to flip) · ` : "") +
+    (RUNS.length > 1 ? `${RUNS[runIndex].name} ([ ] experiment, { } seed) · ` : "") +
     `${DATA.meta.slotCount.toLocaleString()} slots · ` +
     `${DATA.meta.totalEvents.toLocaleString()} events · ` +
     (dm ? `${dm.units.toLocaleString()} demand units · ` : "") +
@@ -779,6 +779,19 @@ function setupFocusInteractions() {
   });
 }
 
+// Runs are grouped two-level: an experiment variant (from the sweep manifest)
+// and its seeds. Old bundles without variant/seed fields degrade to one
+// single-seed variant per run.
+const variantOf = (run) => run.variant ?? run.name;
+const VARIANTS = [...new Set(RUNS.map(variantOf))];
+
+function seedRunsFor(variant) {
+  return RUNS
+    .map((run, index) => ({ run, index }))
+    .filter(({ run }) => variantOf(run) === variant)
+    .sort((a, b) => (a.run.seed ?? 0) - (b.run.seed ?? 0));
+}
+
 function switchRun(i) {
   const next = (i + RUNS.length) % RUNS.length;
   if (next === runIndex) return;
@@ -788,28 +801,66 @@ function switchRun(i) {
   classColors = computeClassColors();
   // a brushed slot window only carries over between equal-length runs
   if (!sameLength) { state.xDomain = null; state.flowSel = null; }
-  el("run-select").value = String(next);
+  syncRunNav();
   renderAll();
+}
+
+// switching experiments keeps the current seed number where it exists
+function switchVariant(variant) {
+  const currentSeed = RUNS[runIndex].seed;
+  const seeds = seedRunsFor(variant);
+  const match = seeds.find(({ run }) => run.seed === currentSeed) || seeds[0];
+  switchRun(match.index);
+}
+
+function cycleVariant(step) {
+  const at = VARIANTS.indexOf(variantOf(RUNS[runIndex]));
+  switchVariant(VARIANTS[(at + step + VARIANTS.length) % VARIANTS.length]);
+}
+
+function cycleSeed(step) {
+  const seeds = seedRunsFor(variantOf(RUNS[runIndex]));
+  const at = seeds.findIndex(({ index }) => index === runIndex);
+  switchRun(seeds[(at + step + seeds.length) % seeds.length].index);
+}
+
+function syncRunNav() {
+  el("variant-select").value = variantOf(RUNS[runIndex]);
+  const seedSelect = el("seed-select");
+  seedSelect.innerHTML = "";
+  const seeds = seedRunsFor(variantOf(RUNS[runIndex]));
+  seeds.forEach(({ run, index }) => {
+    const option = document.createElement("option");
+    option.value = String(index);
+    option.textContent = run.seed == null ? run.name : `seed ${run.seed}`;
+    seedSelect.appendChild(option);
+  });
+  seedSelect.value = String(runIndex);
+  seedSelect.hidden = seeds.length < 2;
 }
 
 function setupRunNav() {
   if (RUNS.length < 2) return; // single run: keep the header clean
   el("run-nav").hidden = false;
-  const select = el("run-select");
-  RUNS.forEach((run, i) => {
+  const variantSelect = el("variant-select");
+  VARIANTS.forEach((variant) => {
     const option = document.createElement("option");
-    option.value = String(i);
-    option.textContent = run.name;
-    select.appendChild(option);
+    option.value = variant;
+    option.textContent = variant;
+    variantSelect.appendChild(option);
   });
-  select.onchange = () => switchRun(+select.value);
-  el("run-prev").onclick = () => switchRun(runIndex - 1);
-  el("run-next").onclick = () => switchRun(runIndex + 1);
+  variantSelect.onchange = () => switchVariant(variantSelect.value);
+  el("seed-select").onchange = () => switchRun(+el("seed-select").value);
+  el("run-prev").onclick = () => cycleVariant(-1);
+  el("run-next").onclick = () => cycleVariant(1);
   document.addEventListener("keydown", (ev) => {
     if (/^(SELECT|INPUT|TEXTAREA)$/.test(ev.target.tagName)) return;
-    if (ev.key === "[") switchRun(runIndex - 1);
-    if (ev.key === "]") switchRun(runIndex + 1);
+    if (ev.key === "[") cycleVariant(-1);
+    if (ev.key === "]") cycleVariant(1);
+    if (ev.key === "{") cycleSeed(-1);
+    if (ev.key === "}") cycleSeed(1);
   });
+  syncRunNav();
 }
 
 function setupControls() {

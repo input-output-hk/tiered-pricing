@@ -88,6 +88,30 @@ def test_cli_single_trace_uses_same_runs_contract(tmp_path):
     assert runs[0]["data"]["meta"]["slotCount"] == 6
 
 
+def test_runs_carry_variant_and_seed(tmp_path):
+    # sweep traces are named <variant>-seed<N>: the bundle splits that into
+    # a variant group and a numeric seed so the dashboard can offer them as
+    # separate selectors
+    for name in ["priority-only-open-seed0", "priority-only-open-seed10", "adhoc"]:
+        (tmp_path / f"{name}.events.jsonl").write_text(
+            _line({"tag": "TxSubmitted", "slot": 0, "actorId": 0,
+                   "tx": {"id": 1, "lane": "Standard", "submitted": 0, "value": 1,
+                          "urgency": {"tag": "Exponential", "rate": 5.0e-4},
+                          "body": {"sizeBytes": 1, "script": {"sizeBytes": 0, "exUnits": 0},
+                                   "dependsOn": [], "fee": 1}}}, 0) + "\n")
+    out = tmp_path / "data.js"
+    main([str(tmp_path / "priority-only-open-seed0.events.jsonl"),
+          str(tmp_path / "priority-only-open-seed10.events.jsonl"),
+          str(tmp_path / "adhoc.events.jsonl"),
+          "-o", str(out)])
+    runs = _runs_payload(out.read_text())
+    assert [(r["variant"], r["seed"]) for r in runs] == [
+        ("priority-only-open", 0),
+        ("priority-only-open", 10),
+        ("adhoc", None),
+    ]
+
+
 def test_cli_duplicate_basenames_are_disambiguated(tmp_path):
     (tmp_path / "a").mkdir()
     (tmp_path / "b").mkdir()

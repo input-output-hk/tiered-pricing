@@ -8,8 +8,8 @@ price per lane, price convergence, price shock, and transaction latency per urge
 ```bash
 # 1. Distil one or more traces into dashboard/data.js (streaming; stdlib only)
 python preprocess.py ../abstract-sim-hs/events.jsonl
-# e.g. one harnessed run per sweep variant, side by side:
-python preprocess.py sweep-results/example/*-seed0.events.jsonl
+# e.g. a whole sweep — every variant with all its seeds:
+python preprocess.py sweep-results/example/*.events.jsonl
 
 # 2. Open the dashboard
 open dashboard/index.html        # or just open the file in a browser
@@ -19,12 +19,14 @@ open dashboard/index.html        # or just open the file in a browser
 Options: `--shock-threshold` (default 0.10), `--band-pct` (0.05),
 `--load-change-pct` (0.10), `--target-buckets` (300), `-o/--output`.
 
-With several traces the header grows a run selector (`‹ dropdown ›`; `[` and `]`
-flip runs from the keyboard). Panels re-render in place — zoom and toggles carry
-over between equal-length runs — and the price panels pin a shared y-domain
-across runs so coefficient excursions stay visually comparable while flipping.
-Run names come from the trace filenames (`two-lane-open-seed0.events.jsonl →
-two-lane-open-seed0`).
+With several traces the header grows a two-level run selector: an experiment
+dropdown (`[` / `]` to cycle) and, when an experiment has several seeds, a seed
+dropdown (`{` / `}`). Switching experiments keeps the current seed number where
+it exists. Panels re-render in place — zoom and toggles carry over between
+equal-length runs — and the price panels pin a shared y-domain across runs so
+coefficient excursions stay visually comparable while flipping. Grouping comes
+from the trace filenames: `two-lane-open-seed3.events.jsonl` is experiment
+`two-lane-open`, seed 3; names without a `-seed<N>` suffix stand alone.
 
 ## What it shows
 

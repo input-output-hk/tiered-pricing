@@ -1,0 +1,14 @@
+{
+  "description": "Phase-2 mechanism set: flat-fee control vs the five live dynamic-pricing candidates, severe congestion",
+  "seeds": 10,
+  "slots": 2000,
+  "out": "sweep-results/mechanisms",
+  "variants": [
+    { "name": "flat-fee", "config": "config/variants/flat-fee.json" },
+    { "name": "single-lane-eip1559", "config": "config/variants/single-lane-eip1559.json" },
+    { "name": "priority-only-reserved", "config": "config/variants/priority-only-reserved.json" },
+    { "name": "priority-only-open", "config": "config/variants/priority-only-open.json" },
+    { "name": "both-dynamic-reserved", "config": "config/default-sim-config.json" },
+    { "name": "both-dynamic-open", "config": "config/variants/no-reservation.json" }
+  ]
+}

@@ -119,6 +119,18 @@ assertLiveConfigsParse = do
   _ <- parseSimConfig "config/default-sim-config.json"
   sweepSpec <- loadSweepSpec "config/sweeps/example.json"
   mapM_ (parseSimConfig . (.variantConfig)) sweepSpec.sweepVariants
+  mechanisms <- loadSweepSpec "config/sweeps/mechanisms.json"
+  assertEqual
+    "mechanism sweep covers the phase-2 candidate set plus the flat-fee control"
+    [ "flat-fee"
+    , "single-lane-eip1559"
+    , "priority-only-reserved"
+    , "priority-only-open"
+    , "both-dynamic-reserved"
+    , "both-dynamic-open"
+    ]
+    (fmap (.variantName) mechanisms.sweepVariants)
+  mapM_ (parseSimConfig . (.variantConfig)) mechanisms.sweepVariants
 
 {- | The design's central safety argument, as code: the admission fee is
 monotone in the headroom horizon, and a tx admitted with a horizon of one

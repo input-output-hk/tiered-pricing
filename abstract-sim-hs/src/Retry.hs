@@ -7,7 +7,7 @@ module Retry (
   capture,
 ) where
 
-import Actor (ActorId, Demand (..))
+import Actor (ActorId)
 import Data.Either (partitionEithers)
 import Data.Foldable (toList)
 import Data.List.NonEmpty qualified as NE
@@ -16,7 +16,7 @@ import Data.Map qualified as Map
 import Data.Maybe (mapMaybe)
 import Data.Sequence (Seq)
 import Event (SimEvent (..))
-import Transaction (EvictionReason (..), RejectReason (..), Tx (..), TxBody (..), TxId)
+import Transaction (Demand, DemandId, EvictionReason (..), RejectReason (..), Tx (..), TxId)
 import Types (Duration (..), SlotNo)
 
 -- | What happens to a demand unit after a given failure.
@@ -104,7 +104,7 @@ data PendingRetry = PendingRetry
   -- ^ the demand unit's first submission — the value-decay anchor
   , attemptNumber :: Int
   -- ^ the attempt the resubmission will carry (failed attempt + 1)
-  , originalTxNumber :: Int
+  , originalTxNumber :: DemandId
   , failedAt :: SlotNo
   -- ^ when the failure happened; the wake slot is computed from here
   , retryDelay :: Duration
@@ -122,7 +122,7 @@ the trace. Pure by design: the jitter draw is the engine's job ('Sim' owns
 the RNG), so each entry carries its failure slot and response and the engine
 computes @failedAt + retryDelay + U(0, retryJitter)@ once, at enqueue time.
 -}
-capture :: RetryPolicy -> Map TxId ActorId -> Map TxId Tx -> Seq SimEvent -> ([PendingRetry], [Int])
+capture :: RetryPolicy -> Map TxId ActorId -> Map TxId Tx -> Seq SimEvent -> ([PendingRetry], [DemandId])
 capture policy actors txs events =
   (pendings, abandonedOrigins)
  where
@@ -171,13 +171,7 @@ capture policy actors txs events =
           Right
             PendingRetry
               { actorId
-              , demand =
-                  Demand
-                    { demandValue = tx.txValue
-                    , demandUrgency = tx.txUrgency
-                    , demandSize = tx.txBody._txSize
-                    , demandScript = tx.txBody._txScript
-                    }
+              , demand = tx.txDemand
               , submittedAt = tx.txOriginSubmitted
               , attemptNumber = tx.txAttempt + 1
               , originalTxNumber = tx.txOriginNumber

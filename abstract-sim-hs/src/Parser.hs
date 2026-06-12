@@ -650,12 +650,12 @@ toBurstEffect effect =
     , urgencyMultiplier = effect.parseUrgencyMultiplier
     }
 
-toActors :: [ParseActorPopulation] -> Either ParseError [Actor]
+toActors :: [ParseActorPopulation] -> Either ParseError (NonEmpty Actor)
 toActors populations = do
   actorTemplates <- concat <$> traverse expandActorPopulation populations
-  case zipWith actorWithId [0 ..] actorTemplates of
-    [] -> Left (InvalidActorConfig "at least one actor must be configured")
-    actors -> Right actors
+  case nonEmpty (zipWith actorWithId [0 ..] actorTemplates) of
+    Nothing -> Left (InvalidActorConfig "at least one actor must be configured")
+    Just actors -> Right actors
  where
   actorWithId actorId population =
     Actor

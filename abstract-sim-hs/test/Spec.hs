@@ -5,7 +5,7 @@ import Data.Aeson (eitherDecode)
 import Data.ByteString.Lazy qualified as BL
 import Design (Design (..), FeeSemantics (..), defaultDesign)
 import Pricing (admissionRequiredFee, coversProducerHeadroom, initialPrices)
-import Transaction (Lane (..), Script (..), Tx (..), TxBody (..), hash)
+import Transaction (Demand (..), Lane (..), Provenance (..), Script (..), Tx (..), TxBody (..), hash)
 import Types (Duration (..), Lovelace (..), SlotNo (..), Urgency (..))
 import Parser
   ( ParseActorPopulation (..)
@@ -83,18 +83,22 @@ testTx lane =
     { txId = hash body
     , txBody = body
     , txSubmitted = SlotNo 0
-    , txValue = Lovelace 1_000_000
-    , txUrgency = Exponential 0.04
+    , txDemand =
+        Demand
+          { demandValue = Lovelace 1_000_000
+          , demandUrgency = Exponential 0.04
+          , demandSize = 500
+          , demandScript = script
+          }
     , txLane = lane
-    , txOriginNumber = 1
-    , txAttempt = 1
-    , txOriginSubmitted = SlotNo 0
+    , txProvenance = FreshDemand
     }
  where
+  script = Script{_scriptSize = 0, _scriptExUnits = 0}
   body =
     TxBody
       { _txSize = 500
-      , _txScript = Script{_scriptSize = 0, _scriptExUnits = 0}
+      , _txScript = script
       , _txDependsOn = mempty
       , _txFee = Lovelace 0
       , _txNumber = 1

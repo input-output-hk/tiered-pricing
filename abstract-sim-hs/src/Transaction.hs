@@ -1,10 +1,30 @@
-module Transaction where
+module Transaction (
+  Script (..),
+  TxId (..),
+  DemandId (..),
+  Provenance (..),
+  Demand (..),
+  Tx (..),
+  TxBody (..),
+  TxSample (..),
+  Lane (..),
+  RejectReason (..),
+  EvictionReason (..),
+  retainedValue,
+  retainedValueFor,
+  lostValue,
+  valueAt,
+  retentionRatio,
+  subtractLovelace,
+  hash,
+) where
 
 import Data.Aeson (ToJSON (..), object, (.=))
 import Data.Bits (shiftR, xor, (.&.))
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Word (Word64, Word8)
+import GHC.Records (HasField (..))
 import Types (BlockDelay (..), Lovelace (..), SlotNo (..), Urgency (..), diffSlots, expectedBlockDelay)
 
 data Script = Script
@@ -24,22 +44,72 @@ newtype TxId = TxId Int deriving (Eq, Ord, Show)
 instance ToJSON TxId where
   toJSON (TxId n) = toJSON n
 
+-- | The identity of a demand unit: the tx number of its first submission.
+newtype DemandId = DemandId Int deriving (Eq, Ord, Show)
+
+instance ToJSON DemandId where
+  toJSON (DemandId n) = toJSON n
+
+{- | Where a generated tx comes from: a fresh demand unit, or the
+resubmission of one whose earlier attempt failed.
+-}
+data Provenance
+  = FreshDemand
+  | -- | demand unit, attempt number of this submission (first attempt = 1),
+    -- origin submission slot — the value-decay anchor
+    ResubmissionOf DemandId Int SlotNo
+  deriving stock (Eq, Show)
+
+{- | The payload of a demand unit: what the submitter wants on-chain,
+independent of any one attempt's pricing. Resubmissions re-quote the fee but
+never resample the payload.
+-}
+data Demand = Demand
+  { demandValue :: Lovelace
+  , demandUrgency :: Urgency
+  , demandSize :: Int
+  , demandScript :: Script
+  }
+
 data Tx = Tx
   { txId :: TxId
   , txBody :: TxBody
   , txSubmitted :: SlotNo
-  , txValue :: Lovelace
-  , txUrgency :: Urgency
+  , txDemand :: Demand
+  -- ^ the demand unit this attempt serves
   , txLane :: Lane
-  , txOriginNumber :: Int
-  -- ^ the demand unit's first tx number; equal to the own '_txNumber' on a
-  -- first attempt
-  , txAttempt :: Int
-  -- ^ which submission of the demand unit this is (first attempt = 1)
-  , txOriginSubmitted :: SlotNo
-  -- ^ when the demand unit was first submitted — the value-decay anchor;
-  -- equal to 'txSubmitted' on a first attempt
+  , txProvenance :: Provenance
+  -- ^ fresh demand or a resubmission; origin facts are views of this
   }
+
+{- Virtual fields: the flattened views every reader had before the demand
+payload and provenance were embedded. The first-attempt equations
+(origin = own number, attempt = 1, origin slot = submission slot) are now
+definitional rather than comment-enforced. -}
+
+instance HasField "txValue" Tx Lovelace where
+  getField tx = tx.txDemand.demandValue
+
+instance HasField "txUrgency" Tx Urgency where
+  getField tx = tx.txDemand.demandUrgency
+
+instance HasField "txOriginNumber" Tx DemandId where
+  getField tx =
+    case tx.txProvenance of
+      FreshDemand -> DemandId tx.txBody._txNumber
+      ResubmissionOf origin _ _ -> origin
+
+instance HasField "txAttempt" Tx Int where
+  getField tx =
+    case tx.txProvenance of
+      FreshDemand -> 1
+      ResubmissionOf _ attempt _ -> attempt
+
+instance HasField "txOriginSubmitted" Tx SlotNo where
+  getField tx =
+    case tx.txProvenance of
+      FreshDemand -> tx.txSubmitted
+      ResubmissionOf _ _ originSubmitted -> originSubmitted
 
 instance ToJSON Tx where
   toJSON tx =

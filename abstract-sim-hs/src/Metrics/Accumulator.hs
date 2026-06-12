@@ -19,7 +19,7 @@ import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Event (SimEvent (..))
 import Pricing (PriceUpdate)
-import Transaction (Lane (..), Tx (..), TxBody (..), TxId)
+import Transaction (DemandId, Lane (..), Tx (..), TxBody (..), TxId)
 import Types (Lovelace (..), SlotNo (..), Urgency)
 
 data MetricsAcc = MetricsAcc
@@ -27,9 +27,9 @@ data MetricsAcc = MetricsAcc
   , accIncludedAt :: Map TxId SlotNo
   , accRealisedFee :: Map TxId Lovelace
   , accRankingBlockCount :: Int
-  , accUnits :: Map Int DemandUnit
-  -- ^ demand units keyed by origin tx number; the headline metrics read
-  -- these, the @Map TxId@ structures above are per-attempt
+  , accUnits :: Map DemandId DemandUnit
+  -- ^ demand units keyed by origin; the headline metrics read these, the
+  -- @Map TxId@ structures above are per-attempt
   , accBlocks :: [BlockSummary]
   , accPriceChanges :: [(SlotNo, PriceUpdate)]
   -- ^ price-controller updates in reverse event order

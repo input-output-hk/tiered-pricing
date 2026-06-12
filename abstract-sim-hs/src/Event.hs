@@ -9,7 +9,7 @@ import Data.Aeson (ToJSON (..), object, (.=))
 import Data.List.NonEmpty (NonEmpty)
 import Data.List.NonEmpty qualified as NE
 import Pricing (PriceUpdate (..))
-import Transaction (EvictionReason, RejectReason, Tx, TxId)
+import Transaction (DemandId, EvictionReason, RejectReason, Tx, TxId)
 import Types (Lovelace, SlotNo)
 
 data SimEvent
@@ -20,10 +20,10 @@ data SimEvent
     -- charged at inclusion under the design's 'Design.FeeSemantics'.
     TxIncluded SlotNo TxId InclusionPoint Lovelace
   | TxEvicted SlotNo TxId EvictionReason
-  | -- | A retried demand unit (identified by its origin tx number) declined
-    -- to resubmit: congestion ate its surplus, or it ran out of attempts.
-    -- Its remaining value is definitively lost at this slot.
-    TxAbandoned SlotNo Int
+  | -- | A retried demand unit declined to resubmit: congestion ate its
+    -- surplus, or it ran out of attempts. Its remaining value is
+    -- definitively lost at this slot.
+    TxAbandoned SlotNo DemandId
   | BlockProduced SlotNo BlockSummary
   | PriceUpdated SlotNo PriceUpdate
 

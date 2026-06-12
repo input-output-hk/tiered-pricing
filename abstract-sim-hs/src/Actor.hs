@@ -2,9 +2,8 @@ module Actor (
   Actor (..),
   ActorId (..),
   ActorType (..),
-  Demand (..),
   LaneLatencyEstimate (..),
-  Provenance (..),
+  SubmissionEnv (..),
   TxSubmission (..),
   generateTransaction,
   resubmitTransaction,
@@ -16,7 +15,7 @@ import Data.Set qualified as Set
 import Design (LaneStructure (..))
 import Load (BurstEffect (..))
 import Pricing (Prices, quotedFeeFor)
-import Transaction (Lane (..), Script (..), Tx (..), TxBody (..), TxSample (..), hash, retainedValueFor)
+import Transaction (Demand (..), Lane (..), Provenance (..), Script (..), Tx (..), TxBody (..), TxSample (..), hash, retainedValueFor)
 import Types (Duration (..), Lovelace (Lovelace), SlotNo, Urgency (..), addDurations, diffSlots, expectedBlockDelay)
 
 newtype ActorId = ActorId Int deriving (Eq, Ord, Show)
@@ -46,29 +45,23 @@ data LaneLatencyEstimate = LaneLatencyEstimate
 
 data TxSubmission = TxSubmission {submissionActor :: ActorId, submissionTx :: Tx}
 
--- | Where a generated tx comes from: a fresh demand unit, or the
--- resubmission of one whose earlier attempt failed.
-data Provenance
-  = FreshDemand
-  | -- | origin tx number, attempt number of this submission, origin
-    -- submission slot
-    ResubmissionOf Int Int SlotNo
-  deriving (Eq, Show)
-
-{- | The payload of a demand unit: what the submitter wants on-chain,
-independent of any one attempt's pricing. Resubmissions re-quote the fee but
-never resample the payload.
+{- | The pure environment a submission decision reads: lane structure, chain
+parameters, the clock, current prices, and latency expectations. The engine
+gathers it once per slot and shares it between fresh submissions and
+retries.
 -}
-data Demand = Demand
-  { demandValue :: Lovelace
-  , demandUrgency :: Urgency
-  , demandSize :: Int
-  , demandScript :: Script
+data SubmissionEnv = SubmissionEnv
+  { envLaneStructure :: LaneStructure
+  , envF :: Double
+  , envSlot :: SlotNo
+  , envPrices :: Prices
+  , envLatency :: LaneLatencyEstimate
   }
 
-generateTransaction :: LaneStructure -> Int -> Double -> SlotNo -> Actor -> Prices -> LaneLatencyEstimate -> Curves -> TxSample -> Maybe BurstEffect -> Maybe Tx
-generateTransaction laneStructure counter f slot actor prices latencyEstimate (Curves{..}) (TxSample{..}) burstEffect =
-  submitDemand laneStructure FreshDemand counter f slot actor prices latencyEstimate (Duration 0) actor.actorFeeBuffer demand
+-- | Sample a fresh demand unit from the curves and submit its first attempt.
+generateTransaction :: SubmissionEnv -> Int -> Actor -> Curves -> TxSample -> Maybe BurstEffect -> Maybe Tx
+generateTransaction env counter actor (Curves{..}) (TxSample{..}) burstEffect =
+  submitDemand env FreshDemand counter actor.actorFeeBuffer actor demand
  where
   demand =
     Demand
@@ -100,20 +93,23 @@ prices with the (possibly escalated) buffer, and the lane\/utility decision
 re-run with the time already waited counted against the retained value — when
 congestion has eaten the surplus, the demand exits ('Nothing').
 -}
-resubmitTransaction :: LaneStructure -> Int -> Int -> SlotNo -> Int -> Double -> SlotNo -> Actor -> Prices -> LaneLatencyEstimate -> Double -> Demand -> Maybe Tx
-resubmitTransaction laneStructure origin attempt originSubmitted counter f slot actor prices latencyEstimate escalationFactor demand =
-  submitDemand laneStructure (ResubmissionOf origin attempt originSubmitted) counter f slot actor prices latencyEstimate alreadyElapsed escalatedBuffer demand
+resubmitTransaction :: SubmissionEnv -> Provenance -> Int -> Double -> Actor -> Demand -> Maybe Tx
+resubmitTransaction env provenance counter escalationFactor actor demand =
+  submitDemand env provenance counter escalatedBuffer actor demand
  where
-  alreadyElapsed = diffSlots slot originSubmitted
-  escalatedBuffer = actor.actorFeeBuffer * escalationFactor ^ max 0 (attempt - 1)
+  escalatedBuffer =
+    case provenance of
+      FreshDemand -> actor.actorFeeBuffer
+      ResubmissionOf _ attempt _ ->
+        actor.actorFeeBuffer * escalationFactor ^ max 0 (attempt - 1)
 
 -- | The shared submission core: decide the lane (or decline), quote, post.
-submitDemand :: LaneStructure -> Provenance -> Int -> Double -> SlotNo -> Actor -> Prices -> LaneLatencyEstimate -> Duration -> Double -> Demand -> Maybe Tx
-submitDemand laneStructure provenance counter f slot actor prices latencyEstimate alreadyElapsed feeBuffer demand = do
-  lane <- case laneStructure of
+submitDemand :: SubmissionEnv -> Provenance -> Int -> Double -> Actor -> Demand -> Maybe Tx
+submitDemand env provenance counter feeBuffer actor demand = do
+  lane <- case env.envLaneStructure of
     One -> Just Standard
-    Two -> chooseLane actor f latencyEstimate alreadyElapsed demand.demandUrgency demand.demandValue standardFee priorityFee
-  let quotedFee = quotedFeeFor prices lane demand.demandSize demand.demandScript
+    Two -> chooseLane actor env.envF env.envLatency alreadyElapsed demand.demandUrgency demand.demandValue standardFee priorityFee
+  let quotedFee = quotedFeeFor env.envPrices lane demand.demandSize demand.demandScript
       txBody =
         TxBody
           { _txSize = demand.demandSize
@@ -126,26 +122,20 @@ submitDemand laneStructure provenance counter f slot actor prices latencyEstimat
     Tx
       { txId = hash txBody
       , txBody = txBody
-      , txSubmitted = slot
-      , txValue = demand.demandValue
-      , txUrgency = demand.demandUrgency
+      , txSubmitted = env.envSlot
+      , txDemand = demand
       , txLane = lane
-      , txOriginNumber =
-          case provenance of
-            FreshDemand -> counter
-            ResubmissionOf origin _ _ -> origin
-      , txAttempt =
-          case provenance of
-            FreshDemand -> 1
-            ResubmissionOf _ attempt _ -> attempt
-      , txOriginSubmitted =
-          case provenance of
-            FreshDemand -> slot
-            ResubmissionOf _ _ originSubmitted -> originSubmitted
+      , txProvenance = provenance
       }
  where
-  standardFee = quotedFeeFor prices Standard demand.demandSize demand.demandScript
-  priorityFee = quotedFeeFor prices Priority demand.demandSize demand.demandScript
+  -- Time the demand unit has already waited across earlier attempts;
+  -- definitionally zero for fresh demand.
+  alreadyElapsed =
+    case provenance of
+      FreshDemand -> Duration 0
+      ResubmissionOf _ _ originSubmitted -> diffSlots env.envSlot originSubmitted
+  standardFee = quotedFeeFor env.envPrices Standard demand.demandSize demand.demandScript
+  priorityFee = quotedFeeFor env.envPrices Priority demand.demandSize demand.demandScript
 
 {- | Lane choice by expected utility. @alreadyElapsed@ is the time the demand
 unit has waited across earlier attempts (zero for fresh demand): retained

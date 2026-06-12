@@ -8,7 +8,7 @@ module Sim (
   step,
 ) where
 
-import Actor (Actor (..), ActorId, TxSubmission (TxSubmission), generateTransaction, resubmitTransaction)
+import Actor (Actor (..), ActorId, SubmissionEnv (..), TxSubmission (TxSubmission), generateTransaction, resubmitTransaction)
 import Block (BlockSummary (..), EbId, EndorserBlock (..), InclusionPoint (..), PendingEb (..), RankingBlock (..), mkEndorserBlockSummary, mkRankingBlockSummary, nextEbId, priorityTxBytesCap, selectRbTxs, selectTxsByPolicy, selectedTxBodies)
 import Config (SimConfig (..))
 import Control.Monad (join, replicateM)
@@ -16,8 +16,8 @@ import Control.Monad.Reader (MonadReader (..), ReaderT, asks)
 import Control.Monad.State.Strict (MonadState (..), State, gets, modify')
 import Data.Either (partitionEithers)
 import Data.Foldable (Foldable (fold, toList), traverse_)
-import Data.List (find)
 import Data.List.NonEmpty (NonEmpty (..))
+import Data.List.NonEmpty qualified as NE
 import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Maybe (catMaybes, mapMaybe)
@@ -31,12 +31,12 @@ import Mempool (Mempool (..), admitToMempool, emptyMempool, removeFromMempool, s
 import Pricing (Prices (..), admissionRequiredFee, coversProducerHeadroom, feeStillValid, initialPrices, quotedFee, realisedFee, retentionWindow, updatePrices)
 import Retry (PendingRetry (..), RetryPolicy (..), capture)
 import System.Random (StdGen, uniformR)
-import Transaction (EvictionReason (..), RejectReason (..), Tx (..), TxBody (..), TxId (..), TxSample (..))
+import Transaction (EvictionReason (..), Provenance (..), RejectReason (..), Tx (..), TxBody (..), TxId (..), TxSample (..))
 import Types (Duration (Duration), Lovelace (..), SlotNo (SlotNo), addDuration, diffSlots)
 
 data SimSt = SimSt
   { _simMempool :: Mempool
-  , _simActors :: [Actor]
+  , _simActors :: NonEmpty Actor
   , _simEbs :: Map EbId EndorserBlock
   , _simPendingEb :: Maybe PendingEb
   , _simTxs :: Map TxId Tx
@@ -156,6 +156,25 @@ checkMempoolBytes mempoolBytesCap mempool tx
 reject :: RejectReason -> AdmissionCheck ()
 reject reason = AdmissionRejected (reason :| [])
 
+{- | The submission environment for the current slot, shared by fresh
+submissions ('actorStep') and retries ('retryStep').
+-}
+submissionEnv :: SimM SubmissionEnv
+submissionEnv = do
+  design <- asks simConfigDesign
+  f <- asks simConfigF
+  slot <- gets _simSlot
+  prices <- gets _simPrices
+  latencyEstimate <- asks simConfigLaneLatencyEstimate
+  pure
+    SubmissionEnv
+      { envLaneStructure = design.designLaneStructure
+      , envF = f
+      , envSlot = slot
+      , envPrices = prices
+      , envLatency = latencyEstimate
+      }
+
 actorStep :: SimM [TxSubmission]
 actorStep = do
   slot <- gets _simSlot
@@ -164,16 +183,13 @@ actorStep = do
   n <- sampleArrivalCount (arrivalRateAt load slot)
   actors <- gets _simActors
   curves <- asks simConfigCurves
-  prices <- gets _simPrices
-  latencyEstimate <- asks simConfigLaneLatencyEstimate
-  f <- asks simConfigF
-  d <- asks simConfigDesign
+  env <- submissionEnv
   catMaybes <$> replicateM n do
     actor <- pickActor actors
     txSample <- drawTxSample
     modify' \st -> st{_simTxCounter = st._simTxCounter + 1}
     c <- gets _simTxCounter
-    pure (TxSubmission actor._actorId <$> generateTransaction d.designLaneStructure c f slot actor prices latencyEstimate curves txSample burstEffect)
+    pure (TxSubmission actor._actorId <$> generateTransaction env c actor curves txSample burstEffect)
 
 {- | Fire due resubmissions: drain the queue, let each demand unit's actor
 re-decide at current prices (with the time already waited counted against its
@@ -186,36 +202,29 @@ retryStep = do
   (dueQueue, rest) <- gets (Map.spanAntitone (<= now) . _simRetryQueue)
   let ready = toList (fold dueQueue)
   modify' \st -> st{_simRetryQueue = rest}
-  design <- asks simConfigDesign
-  latencyEstimate <- asks simConfigLaneLatencyEstimate
-  f <- asks simConfigF
   policy <- asks simConfigRetryPolicy
-  actors <- gets _simActors
-  prices <- gets _simPrices
+  actorsById <- gets (actorMap . _simActors)
+  env <- submissionEnv
   outcomes <-
-    traverse (fire design latencyEstimate f policy.retryEscalationFactor actors now prices) ready
+    traverse (fire env policy.retryEscalationFactor actorsById now) ready
   let (abandoned, submissions) = partitionEithers outcomes
   pure (submissions, Seq.fromList abandoned)
  where
-  fire design latencyEstimate f escalation actors now prices pending = do
+  actorMap actors =
+    Map.fromList [(actor._actorId, actor) | actor <- toList actors]
+
+  fire env escalation actorsById now pending = do
     modify' \st -> st{_simTxCounter = st._simTxCounter + 1}
     c <- gets _simTxCounter
-    let resubmission = do
-          actor <- find (\a -> a._actorId == pending.actorId) actors
-          resubmitTransaction
-            design.designLaneStructure
-            pending.originalTxNumber
-            pending.attemptNumber
-            pending.submittedAt
-            c
-            f
-            now
-            actor
-            prices
-            latencyEstimate
-            escalation
-            pending.demand
-    pure case resubmission of
+    -- A dangling ActorId is an engine invariant breach, not an economic
+    -- decline; it must not masquerade as a TxAbandoned in the trace.
+    let actor =
+          case Map.lookup pending.actorId actorsById of
+            Just found -> found
+            Nothing -> error ("retryStep: unknown " <> show pending.actorId)
+        provenance =
+          ResubmissionOf pending.originalTxNumber pending.attemptNumber pending.submittedAt
+    pure case resubmitTransaction env provenance c escalation actor pending.demand of
       Just tx -> Right (TxSubmission pending.actorId tx)
       Nothing -> Left (TxAbandoned now pending.originalTxNumber)
 
@@ -244,11 +253,10 @@ captureRetries events = do
     modify' \st ->
       st{_simRetryQueue = Map.insertWith (flip (<>)) wakeAt (singleton pending) st._simRetryQueue}
 
-pickActor :: [Actor] -> SimM Actor
-pickActor [] = error "pickActor: no actors configured"
+pickActor :: NonEmpty Actor -> SimM Actor
 pickActor actors = do
-  i <- draw (uniformR (0, length actors - 1))
-  pure (actors !! i)
+  i <- draw (uniformR (0, NE.length actors - 1))
+  pure (actors NE.!! i)
 
 priceStep :: SimM (Seq SimEvent)
 priceStep = do

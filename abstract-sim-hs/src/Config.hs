@@ -5,6 +5,7 @@ where
 
 import Actor (Actor, LaneLatencyEstimate (..))
 import Curve (Curves)
+import Data.List.NonEmpty (NonEmpty)
 import Design (Design)
 import Load (ArrivalProcess)
 import Retry (RetryPolicy)
@@ -15,7 +16,9 @@ data SimConfig = SimConfig
   , simConfigF :: Double
   , simConfigD :: Int
   , simConfigLoad :: ArrivalProcess
-  , simConfigActors :: [Actor]
+  , simConfigActors :: NonEmpty Actor
+  -- ^ non-emptiness is proven at parse time ('Parser.toActors') and carried
+  -- in the type, so 'Sim.pickActor' is total
   , simConfigRbTxBytesCap :: Int
   , simConfigRbExUnitsCap :: Int
   , simConfigEbTxBytesCap :: Int

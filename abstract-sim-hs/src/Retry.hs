@@ -1,4 +1,11 @@
-module Retry where
+module Retry (
+  FailureResponse (..),
+  RetryPolicy (..),
+  PendingRetry (..),
+  noRetries,
+  defaultRetryPolicy,
+  capture,
+) where
 
 import Actor (ActorId, Demand (..))
 import Data.Either (partitionEithers)

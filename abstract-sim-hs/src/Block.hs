@@ -12,6 +12,10 @@ module Block (
   selectedTxBodies,
   laneBytes,
   txBytes,
+  selectTxsByPolicy,
+  selectRbTxs,
+  priorityTxBytesCap,
+  nextEbId,
   selectByBlockCapacity,
   selectByBlockCapacityFrom,
   selectFifoWithStandardCap,
@@ -22,6 +26,7 @@ where
 
 import Data.Aeson (ToJSON (..), object, (.=))
 import Data.Foldable qualified as Foldable
+import Design (ReservationPolicy (..), SelectionPolicy (..))
 import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Maybe (mapMaybe)
@@ -236,6 +241,66 @@ txBytes tx = tx.txBody._txSize
 
 txExUnits :: Tx -> Int
 txExUnits tx = tx.txBody._txScript._scriptExUnits
+
+{- | How a producer orders the mempool into a block, absent any reservation
+rule. EBs always use this directly: the RB reservation does not constrain
+EB content.
+-}
+selectTxsByPolicy ::
+  SelectionPolicy ->
+  Int ->
+  Int ->
+  Map TxId Tx ->
+  Seq TxId ->
+  (Seq TxId, Seq TxId, (Int, Int))
+selectTxsByPolicy selection byteCap exUnitCap txs txIds =
+  case selection of
+    Fifo ->
+      selectByBlockCapacity byteCap exUnitCap txs txIds
+    PriorityFirst ->
+      let (prioritySelected, afterPriority, priorityUsage) =
+            selectPriorityByBlockCapacity byteCap exUnitCap txs txIds
+          (standardSelected, remainingMempool, totalUsage) =
+            selectByBlockCapacityFrom priorityUsage byteCap exUnitCap txs afterPriority
+       in (prioritySelected <> standardSelected, remainingMempool, totalUsage)
+    FifoWithStandardCap standardShare ->
+      selectFifoWithStandardCap standardShare byteCap exUnitCap txs txIds
+
+{- | Ranking-block selection under the design's reservation policy. The
+reservation rule admits only priority txs to RBs, so every selection policy
+collapses to priority-only FIFO under it.
+-}
+selectRbTxs ::
+  SelectionPolicy ->
+  ReservationPolicy ->
+  Int ->
+  Int ->
+  Map TxId Tx ->
+  Seq TxId ->
+  (Seq TxId, Seq TxId, (Int, Int))
+selectRbTxs selection reservation rbTxBytesCap rbExUnitsCap txs txIds =
+  case reservation of
+    PriorityReservationRb reservationBytes ->
+      selectPriorityByBlockCapacity
+        (min rbTxBytesCap reservationBytes)
+        rbExUnitsCap
+        txs
+        txIds
+    NoReservation ->
+      selectTxsByPolicy selection rbTxBytesCap rbExUnitsCap txs txIds
+
+-- | The priority lane's effective RB byte capacity under a reservation policy.
+priorityTxBytesCap :: ReservationPolicy -> Int -> Int
+priorityTxBytesCap reservation rbTxBytesCap =
+  case reservation of
+    PriorityReservationRb reservationBytes -> min rbTxBytesCap reservationBytes
+    NoReservation -> rbTxBytesCap
+
+nextEbId :: Map EbId EndorserBlock -> EbId
+nextEbId ebs =
+  case Map.lookupMax ebs of
+    Nothing -> EbId 0
+    Just (EbId n, _) -> EbId (n + 1)
 
 selectByBlockCapacity ::
   Int ->

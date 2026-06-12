@@ -1,13 +1,11 @@
 module Metrics.Value (
   ValueOutcome (..),
-  valueByUrgency,
+  valueOutcome,
 ) where
 
-import Data.Map.Strict (Map)
-import Data.Map.Strict qualified as Map
 import Metrics.Accumulator
 import Transaction (retainedValueFor, subtractLovelace)
-import Types (BlockDelay (..), Lovelace (..), Urgency)
+import Types (BlockDelay (..), Lovelace (..))
 
 {- | Metric (2): retained vs lost demand-unit value. Every unit contributes to
 exactly one column: decay-discounted retention if served (decayed from the
@@ -26,22 +24,15 @@ data ValueOutcome = ValueOutcome
   }
   deriving (Eq, Show)
 
-valueByUrgency :: MetricsAcc -> Map Urgency ValueOutcome
-valueByUrgency acc =
-  Map.fromList (fmap valueForUrgency (observedUrgencies acc))
- where
-  valueForUrgency urgency =
-    (urgency, valueOutcomeWhere acc ((== urgency) . (.unitUrgency)))
-
-valueOutcomeWhere :: MetricsAcc -> (DemandUnit -> Bool) -> ValueOutcome
-valueOutcomeWhere acc predicate =
+valueOutcome :: [DemandUnit] -> ValueOutcome
+valueOutcome units =
   ValueOutcome
     { retainedValue = sumLovelace [retained | (retained, _, _) <- outcomes]
     , lostValue = sumLovelace [lost | (_, lost, _) <- outcomes]
     , unresolvedValue = sumLovelace [unresolved | (_, _, unresolved) <- outcomes]
     }
  where
-  outcomes = fmap unitValueOutcome (unitsWhere acc predicate)
+  outcomes = fmap unitValueOutcome units
 
 unitValueOutcome :: DemandUnit -> (Lovelace, Lovelace, Lovelace)
 unitValueOutcome unit =

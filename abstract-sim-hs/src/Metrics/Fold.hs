@@ -1,8 +1,9 @@
 {- | Final metric orchestration.
 
 This module intentionally stays small: event accumulation lives in
-"Metrics.Accumulator", public result shapes live in "Metrics.Types", and each
-metric family owns its own calculation module.
+"Metrics.Accumulator", public result shapes live in "Metrics.Types", each
+metric family owns its calculation kernel, and "Metrics.Slice" owns how
+kernels fan out over urgency/lane buckets.
 -}
 module Metrics.Fold (
   finalizeMetrics,
@@ -10,28 +11,29 @@ module Metrics.Fold (
 
 import Metrics.Accumulator
 import Metrics.Demand (demandLoadFrom)
-import Metrics.Inclusion (inclusionByLane, inclusionByUrgency, inclusionByUrgencyLane)
+import Metrics.Inclusion (inclusionStats)
 import Metrics.Invariants (invariantBreachesFrom)
-import Metrics.Latency (blockLatencyByLane, blockLatencyByUrgency, blockLatencyByUrgencyLane, latencyByLane, latencyByUrgency, latencyByUrgencyLane)
+import Metrics.Latency (blockLatencyStats, latencyStats)
 import Metrics.Price (priceChangesFrom, priceShockFrom, priceStabilityFrom)
 import Metrics.Revenue (revenueFrom)
+import Metrics.Slice (laneDim, sliceBy, urgencyDim, (>*<))
 import Metrics.Throughput (rankingBlocksFrom, throughputFrom)
 import Metrics.Types
-import Metrics.Value (valueByUrgency)
+import Metrics.Value (valueOutcome)
 
 finalizeMetrics :: MetricsConfig -> Int -> MetricsAcc -> Metrics
 finalizeMetrics metricsConfig slots acc =
   Metrics
-    { inclusion = inclusionByUrgency acc
-    , value = valueByUrgency acc
-    , latency = latencyByUrgency acc
-    , actualBlockLatency = blockLatencyByUrgency acc
-    , laneInclusion = inclusionByLane acc
-    , laneLatency = latencyByLane acc
-    , laneActualBlockLatency = blockLatencyByLane acc
-    , urgencyLaneInclusion = inclusionByUrgencyLane acc
-    , urgencyLaneLatency = latencyByUrgencyLane acc
-    , urgencyLaneActualBlockLatency = blockLatencyByUrgencyLane acc
+    { inclusion = sliceBy urgencyDim inclusionStats acc
+    , value = sliceBy urgencyDim valueOutcome acc
+    , latency = sliceBy urgencyDim latencyStats acc
+    , actualBlockLatency = sliceBy urgencyDim blockLatencyStats acc
+    , laneInclusion = sliceBy laneDim inclusionStats acc
+    , laneLatency = sliceBy laneDim latencyStats acc
+    , laneActualBlockLatency = sliceBy laneDim blockLatencyStats acc
+    , urgencyLaneInclusion = sliceBy (urgencyDim >*< laneDim) inclusionStats acc
+    , urgencyLaneLatency = sliceBy (urgencyDim >*< laneDim) latencyStats acc
+    , urgencyLaneActualBlockLatency = sliceBy (urgencyDim >*< laneDim) blockLatencyStats acc
     , priceShock = priceShockFrom acc
     , priceChanges = priceChangesFrom acc
     , revenue = revenueFrom acc

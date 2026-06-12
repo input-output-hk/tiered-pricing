@@ -6,12 +6,10 @@ module Metrics.Accumulator (
   recordMetricsEvents,
   observedUrgencies,
   allLanes,
-  observedUrgencyLanes,
   includedTxs,
   unitsWhere,
   unitLane,
   unitServed,
-  matchesUnitUrgencyLane,
   sumLovelace,
 ) where
 
@@ -191,20 +189,12 @@ unitServed unit =
     Just UnitIncluded{} -> True
     _ -> False
 
-matchesUnitUrgencyLane :: Urgency -> Lane -> DemandUnit -> Bool
-matchesUnitUrgencyLane urgency lane unit =
-  unit.unitUrgency == urgency && unitLane unit == lane
-
 observedUrgencies :: MetricsAcc -> [Urgency]
 observedUrgencies acc =
   Set.toList (Set.fromList (fmap (.unitUrgency) (Map.elems acc.accUnits)))
 
 allLanes :: [Lane]
 allLanes = [Standard, Priority]
-
-observedUrgencyLanes :: MetricsAcc -> [(Urgency, Lane)]
-observedUrgencyLanes acc =
-  (,) <$> observedUrgencies acc <*> allLanes
 
 sumLovelace :: [Lovelace] -> Lovelace
 sumLovelace =

@@ -29,7 +29,7 @@ import Event (SimEvent (..))
 import Load (arrivalRateAt, tryBurstEffectAt)
 import Data.List (sortOn)
 import Mempool (Mempool (..), admitToMempool, emptyMempool, removeFromMempool, setMempoolTxs)
-import Pricing (Prices (..), admissionRequiredFee, coversProducerHeadroom, feeStillValid, initialPrices, quotedFee, realisedFee, retentionWindow, updatePrices)
+import Pricing (ControllerInput (..), Prices (..), admissionRequiredFee, coversProducerHeadroom, feeStillValid, initialPrices, quotedFee, realisedFee, retentionWindow, updatePrices)
 import Resource (Bytes (..), ExUnits (..), Resources (..))
 import Retry (PendingRetry (..), RetryPolicy (..), capture)
 import System.Random (StdGen, uniformR)
@@ -102,7 +102,7 @@ step = do
   recordBlockEvents blockEvents
   priceEvents <-
     if any isBlockProduced blockEvents
-      then priceStep
+      then priceStep blockEvents
       else pure mempty
   let slotEvents = retryEvents <> join (Seq.fromList submittedEvents) <> blockEvents <> priceEvents
   abandonEvents <- captureRetries slotEvents
@@ -260,13 +260,23 @@ pickActor actors = do
   i <- draw (uniformR (0, NE.length actors - 1))
   pure (actors NE.!! i)
 
-priceStep :: SimM (Seq SimEvent)
-priceStep = do
-  design <- asks simConfigDesign
-  recentBlocks <- gets _simRecentBlocks
+{- | Run the controllers for this slot's block production. Windowed signals
+read the retained history; windowless per-block signals read the production
+itself, so their controller event cannot have been trimmed by a retention
+window sized for another controller.
+-}
+priceStep :: Seq SimEvent -> SimM (Seq SimEvent)
+priceStep blockEvents = do
+  controllers <- asks ((.designControllers) . simConfigDesign)
+  retained <- gets _simRecentBlocks
   prices <- gets _simPrices
   slot <- gets _simSlot
-  let (newPrices, updates) = updatePrices design recentBlocks prices
+  let input =
+        ControllerInput
+          { recentBlocks = retained
+          , currentProduction = blockSummaries blockEvents
+          }
+      (newPrices, updates) = updatePrices controllers input prices
   modify' \st -> st{_simPrices = newPrices}
   pure $ Seq.fromList (fmap (PriceUpdated slot) updates)
 

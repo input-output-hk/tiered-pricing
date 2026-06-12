@@ -1,6 +1,7 @@
 module Pricing (
   Prices (..),
   PriceUpdate (..),
+  ControllerInput (..),
   initialPrices,
   quotedFee,
   quotedFeeFor,
@@ -153,16 +154,25 @@ escalation is dropped as an abstraction.
 refScriptCostPerByte :: Integer
 refScriptCostPerByte = 15
 
-updatePrices :: Design -> Seq BlockSummary -> Prices -> (Prices, [PriceUpdate])
-updatePrices design recentBlocks prices =
+{- | What a controller update reads. Windowed signals consume the retained
+history; windowless per-block signals consume the block production that
+fired this update, so their controller event can never be trimmed away by
+a retention window sized for another controller ('retentionWindow').
+-}
+data ControllerInput = ControllerInput
+  { recentBlocks :: Seq BlockSummary
+  , currentProduction :: Seq BlockSummary
+  }
+
+updatePrices :: ControllerConfig -> ControllerInput -> Prices -> (Prices, [PriceUpdate])
+updatePrices controllers input prices =
   (finalPrices, updates)
  where
-  controllers = design.designControllers
   currentPrices =
     applyPriceFloors controllers prices
   laneResults :: PerLane (Maybe PriceUpdate)
   laneResults =
-    (\lane coeff -> fmap (updateLanePrice design lane recentBlocks coeff))
+    (\lane coeff -> fmap (updateLanePrice lane input coeff))
       <$> lanes
       <*> currentPrices.laneCoeffs
       <*> controllers.laneControllers
@@ -217,8 +227,8 @@ applyMultiplierFloor controllers prices =
           }
     _ -> prices
 
-updateLanePrice :: Design -> Lane -> Seq BlockSummary -> Double -> Eip1559Controller -> PriceUpdate
-updateLanePrice design lane recentBlocks oldCoeff controller =
+updateLanePrice :: Lane -> ControllerInput -> Double -> Eip1559Controller -> PriceUpdate
+updateLanePrice lane input oldCoeff controller =
   PriceUpdate
     { priceUpdateLane = lane
     , priceUpdateOldCoeff = oldCoeff
@@ -226,21 +236,24 @@ updateLanePrice design lane recentBlocks oldCoeff controller =
     , priceUpdateUtilisation = utilisationValue
     }
  where
-  utilisationValue = controllerUtilisation design lane recentBlocks controller
+  utilisationValue = controllerUtilisation lane input controller
 
-controllerUtilisation :: Design -> Lane -> Seq BlockSummary -> Eip1559Controller -> Double
-controllerUtilisation design lane recentBlocks controller =
+controllerUtilisation :: Lane -> ControllerInput -> Eip1559Controller -> Double
+controllerUtilisation lane input controller =
   case controller.controllerSignal of
     signal@CapacityWeightedWindow{} ->
-      capacityWeightedWindowUtilisation lane (signalWindow signal) recentBlocks
+      capacityWeightedWindowUtilisation lane (signalWindow signal) input.recentBlocks
     PriorityReservationUtil ->
-      priorityReservationUtilisation design recentBlocks
+      priorityReservationUtilisation input.currentProduction
 
--- | How many recent block summaries a controller signal reads.
+{- | How much retained history a controller signal reads. Per-block signals
+read none of it — they consume 'currentProduction' — so retention cannot
+starve them however the other controller is configured.
+-}
 signalWindow :: ControllerSignal -> Int
 signalWindow = \case
   CapacityWeightedWindow windowSize -> max 1 windowSize
-  PriorityReservationUtil -> 1
+  PriorityReservationUtil -> 0
 
 {- | How far back the price controllers can read the recent-block history.
 Derived from 'signalWindow' so the engine's retention and the signals'
@@ -284,9 +297,16 @@ capacityWeightedWindowUtilisation lane windowSize recentBlocks =
     EbAnnounced _ usage -> usage.usageCapacity.resBytes.unBytes
     EbCertified _ _ -> 0
 
-priorityReservationUtilisation :: Design -> Seq BlockSummary -> Double
-priorityReservationUtilisation _ recentBlocks =
-  mean (takeLast 1 (mapMaybe prioritySignalSample (Foldable.toList recentBlocks)))
+{- | The design doc's @priorityUtil(b)@, per priced block: the controller
+event in this update's block production — a Praos RB's fill of the
+reservation, or the certified EB's partition fill. Announcements carry no
+sample ("endorsement-only RBs do not fire a controller event — their
+certified EB does, separately, when applied"), and every block production
+contains exactly one event, so the mean is that single sample.
+-}
+priorityReservationUtilisation :: Seq BlockSummary -> Double
+priorityReservationUtilisation production =
+  mean (mapMaybe prioritySignalSample (Foldable.toList production))
  where
   prioritySignalSample = \case
     RbPraos _ usage -> Just (priorityFill usage)

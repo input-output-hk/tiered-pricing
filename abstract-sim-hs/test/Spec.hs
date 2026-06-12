@@ -1,21 +1,24 @@
 module Main (main) where
 
 import Actor (Actor (..), ActorId (..), ActorType (..), LaneLatencyEstimate (..))
+import Block (BlockSummary (..), BlockUsage (..), EbId (..))
 import Config (SimConfig (..))
 import Control.Monad (unless)
 import Curve (curvesDefault)
 import Data.Aeson (eitherDecode)
 import Data.ByteString.Lazy qualified as BL
 import Data.List.NonEmpty (NonEmpty (..))
-import Design (Design (..), FeeSemantics (..), defaultDesign)
+import Data.Sequence qualified as Seq
+import Design (ControllerConfig (..), ControllerSignal (..), Design (..), Eip1559Controller (..), FeeSemantics (..), defaultDesign)
 import Load (severeCongestionLoad)
 import Parser (parseDesign, parseSimConfig)
-import Pricing (admissionRequiredFee, coversProducerHeadroom, initialPrices)
+import Pricing (ControllerInput (..), PriceUpdate (..), Prices (..), admissionRequiredFee, coversProducerHeadroom, initialPrices, updatePrices)
+import Resource (Bytes (..), ExUnits (..), Resources (..))
 import Retry (noRetries)
 import Sweep (SweepSpec (..), SweepVariant (..), loadSweepSpec)
 import System.Exit (exitFailure)
 import Transaction (Demand (..), Lane (..), Provenance (..), Script (..), Tx (..), TxBody (..), hash)
-import Types (Duration (..), Lovelace (..), SlotNo (..), Urgency (..))
+import Types (Duration (..), Lovelace (..), PerLane (..), SlotNo (..), Urgency (..), atLane)
 
 main :: IO ()
 main = do
@@ -24,6 +27,7 @@ main = do
   assertSweepFixture
   assertLiveConfigsParse
   assertHeadroomInvariant
+  assertPriorityControllerReadsCurrentProduction
 
 {- The JSON under test/fixtures/ is test-owned data, frozen independently of
 config/, which is free to change with whatever experiment is being run. Only
@@ -144,6 +148,74 @@ assertHeadroomInvariant = do
     | semantics <- semanticsUnderTest
     , lane <- [Standard, Priority]
     ]
+
+{- | The windowless priority signal must read this update's own block
+production, not the retained history. Under a static-standard (priority-only)
+design the retention window holds a single summary, so it can end at a
+sample-less EB announcement; the controller must still see the certified
+EB's partition fill from the current production rather than a phantom
+mean [] = 0.
+-}
+assertPriorityControllerReadsCurrentProduction :: IO ()
+assertPriorityControllerReadsCurrentProduction = do
+  let reservation = Resources{resBytes = Bytes 90_112, resExUnits = ExUnits 96_991_334}
+      ebCapacity = Resources{resBytes = Bytes 12_000_000, resExUnits = ExUnits 9_499_133_448}
+      fullPriorityPartition =
+        BlockUsage
+          { usageCapacity = ebCapacity
+          , usageUsed = Resources{resBytes = Bytes 90_112, resExUnits = ExUnits 0}
+          , usageLanes =
+              PerLane
+                { perStandard = mempty
+                , perPriority = Resources{resBytes = Bytes 90_112, resExUnits = ExUnits 0}
+                }
+          , usageSignalCapacity = reservation
+          }
+      emptyUsage =
+        BlockUsage
+          { usageCapacity = ebCapacity
+          , usageUsed = mempty
+          , usageLanes = pure mempty
+          , usageSignalCapacity = reservation
+          }
+      priorityOnly =
+        ControllerConfig
+          { laneControllers =
+              PerLane
+                { perStandard = Nothing
+                , perPriority =
+                    Just
+                      Eip1559Controller
+                        { controllerTargetUtilisation = 0.50
+                        , controllerMaxChangeDenominator = 8
+                        , controllerInitialCoefficient = 16.0
+                        , controllerSignal = PriorityReservationUtil
+                        }
+                }
+          , multiplierFloor = Nothing
+          , absoluteCoeffFloor = 1.0
+          }
+      input =
+        ControllerInput
+          { recentBlocks = Seq.fromList [EbAnnounced (EbId 8) emptyUsage]
+          , currentProduction =
+              Seq.fromList
+                [ RbCertifying (EbId 7)
+                , EbCertified (EbId 7) fullPriorityPartition
+                , EbAnnounced (EbId 8) emptyUsage
+                ]
+          }
+      (newPrices, updates) = updatePrices priorityOnly input (Prices (PerLane 1.0 16.0))
+  case updates of
+    [update] -> do
+      assertEqual "priority update lane" Priority update.priceUpdateLane
+      assertEqual "priority update utilisation" 1.0 update.priceUpdateUtilisation
+      assertEqual "priority update old coeff" 16.0 update.priceUpdateOldCoeff
+      assertEqual "priority update new coeff" 18.0 update.priceUpdateNewCoeff
+      assertEqual "priority coeff after update" 18.0 (atLane Priority newPrices.laneCoeffs)
+    _ -> do
+      putStrLn ("expected exactly one priority update, got " <> show (length updates))
+      exitFailure
 
 withFee :: Lovelace -> Tx -> Tx
 withFee fee tx =

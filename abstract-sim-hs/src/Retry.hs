@@ -8,7 +8,6 @@ import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Maybe (mapMaybe)
 import Data.Sequence (Seq)
-import Data.Sequence qualified as Seq
 import Event (SimEvent (..))
 import Transaction (EvictionReason (..), RejectReason (..), Tx (..), TxBody (..), TxId)
 import Types (Duration (..), SlotNo)
@@ -180,11 +179,3 @@ capture policy actors txs events =
               , retryJitter = jitter
               }
 
-{- | Split the queue into entries due at @now@ and the rest. The engine drains
-the first component each slot ('Sim.retryStep').
--}
-due :: SlotNo -> Seq (SlotNo, PendingRetry) -> ([PendingRetry], Seq (SlotNo, PendingRetry))
-due now queue =
-  (toList (fmap snd ready), rest)
- where
-  (ready, rest) = Seq.partition (\(wakeAt, _) -> wakeAt <= now) queue

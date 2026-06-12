@@ -11,7 +11,7 @@ import Control.Monad.Reader (MonadReader (..), ReaderT, asks)
 import Control.Monad.State.Strict (MonadState (..), State, gets, modify')
 import Curve (Curve, sampleCurve)
 import Data.Either (partitionEithers)
-import Data.Foldable (Foldable (toList), traverse_)
+import Data.Foldable (Foldable (fold, toList), traverse_)
 import Data.List (find)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map (Map)
@@ -25,7 +25,7 @@ import Event (SimEvent (..))
 import Load (arrivalRateAt, tryBurstEffectAt)
 import Mempool (Mempool (..), admitToMempool, emptyMempool, removeFromMempool, setMempoolTxIds)
 import Pricing (PriceUpdate (..), Prices (..), initialPrices, quotedFee, realisedFee, updatePrices, worstCaseNextPrices)
-import Retry (PendingRetry (..), RetryPolicy (..), capture, due)
+import Retry (PendingRetry (..), RetryPolicy (..), capture)
 import System.Random (StdGen, uniformR)
 import Transaction (EvictionReason (..), RejectReason (..), Tx (..), TxBody (..), TxId (..), TxSample (..))
 import Types (Duration (Duration), Lovelace (..), SlotNo (SlotNo), addDuration, diffSlots)
@@ -46,8 +46,9 @@ data SimSt = SimSt
   attribute evictions (rejected txs never enter, their actor travels in
   the same slot's TxSubmitted event)
   -}
-  , _simRetryQueue :: Seq (SlotNo, PendingRetry)
-  -- ^ pending resubmissions with their wake slots, jitter already drawn
+  , _simRetryQueue :: Map SlotNo (Seq PendingRetry)
+  -- ^ pending resubmissions keyed by wake slot (jitter already drawn);
+  -- within a slot, enqueue order is preserved
   }
 
 newtype SimM a = SimM {unSimM :: ReaderT SimConfig (State SimSt) a}
@@ -200,7 +201,8 @@ its remaining value is definitively lost.
 retryStep :: SimM ([TxSubmission], Seq SimEvent)
 retryStep = do
   now <- gets _simSlot
-  (ready, rest) <- gets (due now . _simRetryQueue)
+  (dueQueue, rest) <- gets (Map.spanAntitone (<= now) . _simRetryQueue)
+  let ready = toList (fold dueQueue)
   modify' \st -> st{_simRetryQueue = rest}
   design <- asks simConfigDesign
   latencyEstimate <- asks simConfigLaneLatencyEstimate
@@ -257,7 +259,8 @@ captureRetries events = do
     jitter <- draw (uniformR (0, jitterWindow))
     let wakeAt =
           addDuration (Duration jitter) (addDuration pending.retryDelay pending.failedAt)
-    modify' \st -> st{_simRetryQueue = st._simRetryQueue |> (wakeAt, pending)}
+    modify' \st ->
+      st{_simRetryQueue = Map.insertWith (flip (<>)) wakeAt (singleton pending) st._simRetryQueue}
 
 pickActor :: [Actor] -> SimM Actor
 pickActor [] = error "pickActor: no actors configured"

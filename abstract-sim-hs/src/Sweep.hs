@@ -50,7 +50,6 @@ import Metrics (
   sumLovelace,
  )
 import Parser (parseSimConfig)
-import Result (Result (..))
 import Run (Run (..), Seed, runWithSeedToFile)
 import System.Directory (copyFile, createDirectoryIfMissing)
 import System.FilePath ((</>))
@@ -209,10 +208,7 @@ runPoint :: SweepSpec -> String -> SimConfig -> Seed -> IO (Seed, [(String, Doub
 runPoint spec name config seed = do
   let tracePath = spec.sweepOutDir </> (name <> "-seed" <> show seed <> ".events.jsonl")
   result <- runWithSeedToFile config tracePath seed spec.sweepSlots
-  let scalars =
-        case result._runResult of
-          Result (metrics : _) -> headlineScalars metrics
-          Result [] -> []
+  let scalars = headlineScalars result._runResult
   putStrLn (name <> " seed " <> show seed <> ": " <> progressLine scalars)
   pure (seed, scalars)
 

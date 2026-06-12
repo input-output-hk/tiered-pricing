@@ -5,7 +5,6 @@ module Sim where
 
 import Actor (Actor (..), ActorId, TxSubmission (TxSubmission), generateTransaction, resubmitTransaction)
 import Block (BlockSummary (..), EbId (..), EndorserBlock (..), InclusionPoint (..), PendingEb (..), RankingBlock (..), mkEndorserBlockSummary, mkRankingBlockSummary, selectByBlockCapacity, selectByBlockCapacityFrom, selectFifoWithStandardCap, selectPriorityByBlockCapacity, selectedTxBodies)
-import Chain (Chain (..), emptyChain)
 import Config (SimConfig (..))
 import Control.Monad (join, replicateM)
 import Control.Monad.Reader (MonadReader (..), ReaderT, asks)
@@ -32,8 +31,7 @@ import Transaction (EvictionReason (..), RejectReason (..), Tx (..), TxBody (..)
 import Types (Duration (Duration), Lovelace (..), SlotNo (SlotNo), addDuration, diffSlots)
 
 data SimSt = SimSt
-  { _simChain :: Chain
-  , _simMempool :: Mempool
+  { _simMempool :: Mempool
   , _simActors :: [Actor]
   , _simEbs :: Map EbId EndorserBlock
   , _simPendingEb :: Maybe PendingEb
@@ -71,17 +69,10 @@ instance Applicative AdmissionCheck where
   AdmissionRejected reasons <*> AdmissionAccepted _ = AdmissionRejected reasons
   AdmissionAccepted _ <*> AdmissionRejected reasons = AdmissionRejected reasons
 
-runSim :: Seq SimEvent -> Int -> SimM (Seq SimEvent)
-runSim events 0 = pure events
-runSim events numSlots = do
-  simEvents <- step
-  runSim (events >< simEvents) (numSlots - 1)
-
 initSimSt :: SimConfig -> StdGen -> SimSt
 initSimSt conf rng =
   SimSt
-    { _simChain = emptyChain
-    , _simMempool = emptyMempool
+    { _simMempool = emptyMempool
     , _simActors = conf.simConfigActors
     , _simEbs = mempty
     , _simPendingEb = Nothing
@@ -431,16 +422,6 @@ produceRankingBlock = do
             Just tx -> txFeeStillValid design.designFeeSemantics slot prices tx
     pure (all txStillValid (maybe mempty _ebTxs (Map.lookup pending.pendingEbId ebs)))
 
-  appendRankingBlock :: SlotNo -> RankingBlock -> SimM ()
-  appendRankingBlock slot block =
-    modify' \st ->
-      st
-        { _simChain =
-            Chain
-              { _chainBlocks = st._simChain._chainBlocks |> (slot, block)
-              , _chainTip = Just slot
-              }
-        }
   certifyPendingEb :: SlotNo -> Int -> Int -> Map TxId Tx -> PendingEb -> Mempool -> SimM (Mempool, Seq SimEvent)
   certifyPendingEb slot rbPriorityTxBytesCap rbExUnitsCap simTxs pending mempool = do
     ebTxBytesCap <- asks simConfigEbTxBytesCap
@@ -467,7 +448,6 @@ produceRankingBlock = do
                 : BlockProduced slot certifiedEbSummary
                 : fmap (includedEvent design prices slot (IncludedInEb pending.pendingEbId)) ebTxs
             )
-    appendRankingBlock slot block
     modify' \st -> st{_simMempool = mempool'}
     pure (mempool', events)
 
@@ -488,7 +468,6 @@ produceRankingBlock = do
         events =
           BlockProduced slot summary
             : fmap (includedEvent design prices slot IncludedInRb) selectedTxBodyList
-    appendRankingBlock slot block
     modify' \st -> st{_simMempool = mempool'}
     pure (mempool', evictionEvents >< Seq.fromList events)
 

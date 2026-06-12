@@ -29,12 +29,10 @@ library
   exposed-modules:
       Actor
       Block
-      Chain
       Config
       Curve
       Design
       Event
-      Lib
       Load
       Mempool
       Metrics
@@ -51,7 +49,6 @@ library
       Metrics.Value
       Parser
       Pricing
-      Result
       Retry
       Run
       Sim

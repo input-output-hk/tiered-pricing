@@ -1,4 +1,10 @@
-module Run where
+module Run (
+  Run (..),
+  Seed,
+  defaultSimConfigPath,
+  run',
+  runWithSeedToFile,
+) where
 
 import Config (SimConfig (..))
 import Control.Monad (foldM)
@@ -9,15 +15,11 @@ import Data.ByteString.Lazy qualified as BL
 import Data.Foldable (Foldable (toList))
 import Design (Design)
 import Event (SimEvent)
-import Metrics (MetricsAcc, MetricsConfig (..), emptyMetricsAcc, finalizeMetrics, recordMetricsEvents)
+import Metrics (Metrics, MetricsConfig (..), emptyMetricsAcc, finalizeMetrics, recordMetricsEvents)
 import Parser (parseSimConfig)
-import Result (Result (..))
-import Sim (SimM, initSimSt, step, unSimM)
+import Sim (initSimSt, step, unSimM)
 import System.IO (Handle, IOMode (WriteMode), withFile)
 import System.Random (mkStdGen)
-
-run :: IO ()
-run = run'
 
 run' :: IO ()
 run' = do
@@ -28,21 +30,6 @@ run' = do
 defaultSimConfigPath :: FilePath
 defaultSimConfigPath = "config/default-sim-config.json"
 
-runWithSeed :: SimConfig -> Seed -> Int -> Run
-runWithSeed config seed slots =
-  Run
-    { _runResult = Result [finalizeMetrics metricsConfig slots metricsAcc]
-    , _runDesign = config.simConfigDesign
-    , _runSeed = seed
-    }
- where
-  metricsConfig = metricsConfigFrom config
-  st = initSimSt config (mkStdGen (fromInteger seed))
-  (metricsAcc, _st') =
-    runState
-      (runReaderT (unSimM (runMetrics slots)) config)
-      st
-
 runWithSeedToFile :: SimConfig -> FilePath -> Seed -> Int -> IO Run
 runWithSeedToFile config eventsPath seed slots = do
   let st = initSimSt config (mkStdGen (fromInteger seed))
@@ -51,7 +38,7 @@ runWithSeedToFile config eventsPath seed slots = do
       runTrace handle slots emptyMetricsAcc 0 st
   pure
     Run
-      { _runResult = Result [finalizeMetrics metricsConfig slots metricsAcc]
+      { _runResult = finalizeMetrics metricsConfig slots metricsAcc
       , _runDesign = config.simConfigDesign
       , _runSeed = seed
       }
@@ -94,16 +81,8 @@ writeTraceEvents handle firstEventNo events =
     BL.hPut handle "\n"
     pure (eventNo + 1)
 
-runMetrics :: Int -> SimM MetricsAcc
-runMetrics slots =
-  foldM stepMetricsAcc emptyMetricsAcc [1 .. slots]
- where
-  stepMetricsAcc acc _ = do
-    events <- step
-    pure (recordMetricsEvents acc events)
-
 data Run = Run
-  { _runResult :: Result
+  { _runResult :: Metrics
   , _runDesign :: Design
   , _runSeed :: Seed
   }

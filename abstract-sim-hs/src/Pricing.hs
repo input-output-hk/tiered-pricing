@@ -17,11 +17,11 @@ module Pricing (
 )
 where
 
-import Block (BlockSummary (..), BlockUsage (..))
+import Block (BlockSummary (..), BlockUsage (..), InclusionPoint (..))
 import Data.Foldable qualified as Foldable
 import Data.Maybe (catMaybes, fromMaybe, mapMaybe)
 import Data.Sequence (Seq)
-import Design (ControllerConfig (..), ControllerSignal (..), Design (..), Eip1559Controller (..), FeeSemantics (..))
+import Design (ControllerConfig (..), ControllerSignal (..), Design (..), Eip1559Controller (..), FeeSemantics (..), PriorityPremiumScope (..))
 import Resource (Bytes (..), ExUnits (..), Resources (..))
 import Transaction (Script (..), Tx (..), TxBody (..))
 import Types (Lane (..), Lovelace (..), PerLane (..), SlotNo, atLane, diffSlots, lanes)
@@ -72,17 +72,22 @@ minFee txBytes script =
 {- | The fee actually charged when a tx reaches the chain. Under 'Eip1559' the
 node keeps the quote at inclusion and refunds the rest of the posted max fee;
 'FixedFee' and 'HonourSubmissionQuoteFor' charge the posted fee in full. The
-"priority pays the standard price in EBs" variant would switch the quoted lane
-on the inclusion point here.
+quoted lane is the posted lane, except under 'PremiumRbOnly' where EB
+inclusion is quoted at the standard lane ('Design.PriorityPremiumScope').
 -}
-realisedFee :: FeeSemantics -> Prices -> Tx -> Lovelace
-realisedFee semantics prices tx =
+realisedFee :: PriorityPremiumScope -> FeeSemantics -> Prices -> InclusionPoint -> Tx -> Lovelace
+realisedFee scope semantics prices inclusionPoint tx =
   case semantics of
     FixedFee -> postedFee
     HonourSubmissionQuoteFor _ -> postedFee
-    Eip1559 -> min postedFee (quotedFee prices tx)
+    Eip1559 ->
+      min postedFee (quotedFeeFor prices chargedLane tx.txBody._txSize tx.txBody._txScript)
  where
   postedFee = tx.txBody._txFee
+  chargedLane =
+    case (scope, inclusionPoint) of
+      (PremiumRbOnly, IncludedInEb _) -> Standard
+      _ -> tx.txLane
 
 laneCoeff :: Prices -> Lane -> Double
 laneCoeff prices lane = atLane lane prices.laneCoeffs

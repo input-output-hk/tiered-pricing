@@ -1,7 +1,7 @@
 module Main (main) where
 
 import Actor (Actor (..), ActorId (..), ActorType (..), LaneLatencyEstimate (..))
-import Block (BlockSummary (..), BlockUsage (..), EbId (..))
+import Block (BlockSummary (..), BlockUsage (..), EbId (..), InclusionPoint (..))
 import Config (SimConfig (..))
 import Control.Monad (unless)
 import Curve (curvesDefault)
@@ -9,10 +9,10 @@ import Data.Aeson (eitherDecode)
 import Data.ByteString.Lazy qualified as BL
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Sequence qualified as Seq
-import Design (ControllerConfig (..), ControllerSignal (..), Design (..), Eip1559Controller (..), FeeSemantics (..), defaultDesign)
+import Design (ControllerConfig (..), ControllerSignal (..), Design (..), Eip1559Controller (..), FeeSemantics (..), PriorityPremiumScope (..), defaultDesign)
 import Load (severeCongestionLoad)
 import Parser (parseDesign, parseSimConfig)
-import Pricing (ControllerInput (..), PriceUpdate (..), Prices (..), admissionRequiredFee, coversProducerHeadroom, initialPrices, updatePrices)
+import Pricing (ControllerInput (..), PriceUpdate (..), Prices (..), admissionRequiredFee, coversProducerHeadroom, initialPrices, quotedFee, realisedFee, updatePrices)
 import Resource (Bytes (..), ExUnits (..), Resources (..))
 import Retry (noRetries)
 import Sweep (SweepSpec (..), SweepVariant (..), loadSweepSpec)
@@ -28,6 +28,7 @@ main = do
   assertLiveConfigsParse
   assertHeadroomInvariant
   assertPriorityControllerReadsCurrentProduction
+  assertPremiumScopeChargesByInclusionPoint
 
 {- The JSON under test/fixtures/ is test-owned data, frozen independently of
 config/, which is free to change with whatever experiment is being run. Only
@@ -216,6 +217,44 @@ assertPriorityControllerReadsCurrentProduction = do
     _ -> do
       putStrLn ("expected exactly one priority update, got " <> show (length updates))
       exitFailure
+
+{- | The Giorgos design ('PremiumRbOnly'): the priority premium buys RB
+inclusion specifically, so a priority tx landing in an EB is refunded down
+to the standard quote. 'PremiumEverywhere' charges the posted lane's quote
+regardless of inclusion point. Only the refund target moves — mempool
+validity stays posted-lane in both scopes, and non-refunding semantics
+('FixedFee') are unaffected.
+-}
+assertPremiumScopeChargesByInclusionPoint :: IO ()
+assertPremiumScopeChargesByInclusionPoint = do
+  let prices = initialPrices defaultDesign
+      posted = Lovelace 10_000_000
+      priorityTx = withFee posted (testTx Priority)
+      priorityQuote = quotedFee prices (testTx Priority)
+      standardQuote = quotedFee prices (testTx Standard)
+  assertTrue
+    "fixture quotes are distinct (else this test asserts nothing)"
+    (standardQuote < priorityQuote)
+  assertEqual
+    "everywhere: EB inclusion charges the posted lane's quote"
+    priorityQuote
+    (realisedFee PremiumEverywhere Eip1559 prices (IncludedInEb (EbId 0)) priorityTx)
+  assertEqual
+    "rb-only: EB inclusion refunds to the standard quote"
+    standardQuote
+    (realisedFee PremiumRbOnly Eip1559 prices (IncludedInEb (EbId 0)) priorityTx)
+  assertEqual
+    "rb-only: RB inclusion still charges the priority quote"
+    priorityQuote
+    (realisedFee PremiumRbOnly Eip1559 prices IncludedInRb priorityTx)
+  assertEqual
+    "rb-only: standard txs are unaffected"
+    standardQuote
+    (realisedFee PremiumRbOnly Eip1559 prices (IncludedInEb (EbId 0)) (withFee posted (testTx Standard)))
+  assertEqual
+    "rb-only: fixed-fee semantics still charge the posted fee in full"
+    posted
+    (realisedFee PremiumRbOnly FixedFee prices (IncludedInEb (EbId 0)) priorityTx)
 
 withFee :: Lovelace -> Tx -> Tx
 withFee fee tx =

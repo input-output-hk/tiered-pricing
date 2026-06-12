@@ -6,6 +6,7 @@
   },
   "selection": "fifo",
   "feeSemantics": "eip1559",
+  "priorityPremiumScope": "everywhere",
   "controllers": {
     "standardController": {
       "targetUtilisation": 0.5,

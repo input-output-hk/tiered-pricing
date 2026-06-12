@@ -464,11 +464,15 @@ producePraosBlock design slot rbCapacity = do
 
 {- | The realised fee is quoted at the inclusion slot, matching the staleness
 check the tx just passed; 'Pricing.realisedFee' dispatches on the design's
-fee semantics.
+fee semantics and priority premium scope.
 -}
 includedEvent :: Design -> Prices -> SlotNo -> InclusionPoint -> Tx -> SimEvent
 includedEvent design prices slot inclusionPoint tx =
-  TxIncluded slot tx.txId inclusionPoint (realisedFee design.designFeeSemantics prices tx)
+  TxIncluded
+    slot
+    tx.txId
+    inclusionPoint
+    (realisedFee design.designPriorityPremiumScope design.designFeeSemantics prices inclusionPoint tx)
 
 announceEndorserBlock :: SlotNo -> Resources -> SimM (Seq SimEvent)
 announceEndorserBlock slot rbSignalCapacity = do

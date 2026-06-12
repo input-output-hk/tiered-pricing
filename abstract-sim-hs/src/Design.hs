@@ -2,6 +2,7 @@ module Design (
   Design (..),
   SelectionPolicy (..),
   FeeSemantics (..),
+  PriorityPremiumScope (..),
   ReservationPolicy (..),
   LaneStructure (..),
   Eip1559Controller (..),
@@ -20,6 +21,7 @@ data Design = Design
   , designReservationPolicy :: ReservationPolicy
   , designSelection :: SelectionPolicy
   , designFeeSemantics :: FeeSemantics
+  , designPriorityPremiumScope :: PriorityPremiumScope
   , designControllers :: ControllerConfig
   }
   deriving stock (Eq, Show)
@@ -32,6 +34,7 @@ instance FromJSON Design where
         <*> obj .: "reservationPolicy"
         <*> obj .: "selection"
         <*> obj .: "feeSemantics"
+        <*> obj .: "priorityPremiumScope"
         <*> obj .: "controllers"
 
 data SelectionPolicy
@@ -64,6 +67,26 @@ instance FromJSON FeeSemantics where
       , ("honour-submission-quote-for", WithFields \obj -> HonourSubmissionQuoteFor . Duration <$> obj .: "durationSlots")
       ]
 
+{- | Where the priority premium applies — what posting a priority fee buys.
+'PremiumEverywhere' charges the priority quote wherever the tx lands.
+'PremiumRbOnly' charges it only for RB inclusion: a priority tx landing in
+an EB received standard service, so it is refunded down to the standard
+quote (the Giorgos design). Only the realised fee is affected — mempool
+validity is checked against the posted lane's quote in both scopes.
+-}
+data PriorityPremiumScope
+  = PremiumEverywhere
+  | PremiumRbOnly
+  deriving stock (Eq, Show)
+
+instance FromJSON PriorityPremiumScope where
+  parseJSON =
+    taggedSum
+      "priority premium scope"
+      [ ("everywhere", Nullary PremiumEverywhere)
+      , ("rb-only", Nullary PremiumRbOnly)
+      ]
+
 data ReservationPolicy
   = PriorityReservationRb Int
   | NoReservation
@@ -94,6 +117,7 @@ defaultDesign =
     , designReservationPolicy = PriorityReservationRb 90_112
     , designSelection = Fifo
     , designFeeSemantics = Eip1559
+    , designPriorityPremiumScope = PremiumEverywhere
     , designControllers = defaultControllerConfig
     }
 

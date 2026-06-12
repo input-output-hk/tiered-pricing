@@ -142,10 +142,11 @@ function renderKpis() {
   const c = DATA.convergence.byLane;
   const s = DATA.shock.byLane;
   const lanes = DATA.meta.lanes;
-  const maxJump = Math.max(...lanes.map((l) => s[l].maxJump));
-  const shocks = lanes.reduce((a, l) => a + s[l].shockCount, 0);
-  const prio = c.Priority || c[lanes[lanes.length - 1]];
-  const std = c.Standard || c[lanes[0]];
+  // static lanes (or a flat-fee run) have no price-derived entries at all
+  const maxJump = Math.max(0, ...lanes.map((l) => (s[l] || {}).maxJump || 0));
+  const shocks = lanes.reduce((a, l) => a + ((s[l] || {}).shockCount || 0), 0);
+  const prio = c.Priority || {};
+  const std = c.Standard || {};
   const lat = DATA.latency.byLane || {};
   const sub = DATA.meta.submittedByLane || {};
   const spb = DATA.meta.expectedSlotsPerBlock;
@@ -236,7 +237,7 @@ function renderPriceOverlaid(t, lanes) {
   const marks = [Plot.gridY({ stroke: t.grid })];
   lanes.forEach((lane) => marks.push(...convergenceBandMarks(lane)));
   lanes.forEach((lane) =>
-    marks.push(Plot.line(DATA.price.byLane[lane], {
+    marks.push(Plot.line(DATA.price.byLane[lane] || [], {
       x: "slot", y: "newCoeff", stroke: LANE_COLOR[lane] || "#888",
       strokeWidth: 1.8, curve: "step-after",
     })));
@@ -264,7 +265,7 @@ function renderPricePerLane(t, lanes) {
       marks: [
         Plot.gridY({ stroke: t.grid }),
         ...convergenceBandMarks(lane),
-        Plot.line(DATA.price.byLane[lane], {
+        Plot.line(DATA.price.byLane[lane] || [], {
           x: "slot", y: "newCoeff", stroke: LANE_COLOR[lane] || "#888",
           strokeWidth: 1.8, curve: "step-after",
         }),
@@ -283,8 +284,11 @@ function renderPricePanel() {
     (state.priceView === "log" ? "log axis" : "per lane") +
       (state.convBand ? " · ±5% convergence band per regime" : ""),
     "price.svg", "x: production slot");
-  const lanes = DATA.meta.lanes.filter((l) => !state.hiddenLanes.has(l));
-  laneLegend("panel-price", DATA.meta.lanes, state.hiddenLanes, (lane) => {
+  // only lanes that actually re-price draw a line; a static lane's constant
+  // coefficient never reaches the trace, so its legend entry would be dead UI
+  const priceLanes = DATA.meta.lanes.filter((l) => (DATA.price.byLane[l] || []).length);
+  const lanes = priceLanes.filter((l) => !state.hiddenLanes.has(l));
+  laneLegend("panel-price", priceLanes, state.hiddenLanes, (lane) => {
     state.hiddenLanes.has(lane) ? state.hiddenLanes.delete(lane) : state.hiddenLanes.add(lane);
     renderFocus();
   });
@@ -304,7 +308,7 @@ function renderShockPanel() {
   const lanes = DATA.meta.lanes.filter((l) => !state.hiddenLanes.has(l));
   const stems = [];
   lanes.forEach((lane) => {
-    const data = DATA.price.byLane[lane];
+    const data = DATA.price.byLane[lane] || [];
     stems.push(Plot.ruleX(data, {
       x: "slot", y1: 0, y2: "jump", stroke: LANE_COLOR[lane] || "#888", strokeWidth: 1.5,
     }));

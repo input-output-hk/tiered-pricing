@@ -212,8 +212,6 @@ def build_sim_data(acc, params=None, target_buckets=300, source="events.jsonl", 
     expected_spb = (1.0 / f) if f else None
     realized_spb = (slot_count / acc.rb_count) if acc.rb_count else None
 
-    present = set(acc.price_changes.keys())
-    lanes = [l for l in ["Standard", "Priority"] if l in present] or sorted(present)
     classes = urgency_classes(acc, f)
 
     submitted_by_lane = {}
@@ -222,6 +220,12 @@ def build_sim_data(acc, params=None, target_buckets=300, source="events.jsonl", 
         lane = unit_lane(unit)
         submitted_by_lane[lane] = submitted_by_lane.get(lane, 0) + 1
         fates.append(unit_fate(acc, unit))
+
+    # Every lane that saw traffic or a price update: a static lane (e.g. the
+    # standard lane of a priority-only design) re-prices never but still
+    # carries transactions, so latency/fate/KPI views must include it.
+    present = set(acc.price_changes.keys()) | set(submitted_by_lane.keys())
+    lanes = [l for l in ["Standard", "Priority"] if l in present] or sorted(present)
     n_units = len(acc.units)
     demand = {
         "units": n_units,

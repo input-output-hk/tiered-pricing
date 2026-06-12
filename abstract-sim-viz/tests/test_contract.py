@@ -69,6 +69,35 @@ def _included(tx_id, slot):
             "inclusionPoint": {"tag": "IncludedInRb"}}
 
 
+def _submitted_lane(tx_id, lane, rate=5.0e-4):
+    event = _submitted(tx_id, rate)
+    event["tx"]["lane"] = lane
+    return event
+
+
+def test_lanes_include_static_traffic_lanes():
+    # priority-only designs: Standard carries traffic but never re-prices —
+    # it must still appear in meta.lanes (latency, fate, KPIs key off it),
+    # with well-defined empty/zero price-derived entries.
+    acc = Accumulator()
+    acc.ingest(_submitted_lane(1, "Standard"))
+    acc.ingest(_submitted_lane(2, "Priority"))
+    acc.ingest(_price("Priority", 1, 16.0, 18.0))
+    data = build_sim_data(acc)
+    assert data["meta"]["lanes"] == ["Standard", "Priority"]
+    assert data["price"]["byLane"]["Standard"] == []
+    assert data["shock"]["byLane"]["Standard"]["maxJump"] == 0.0
+    assert data["convergence"]["byLane"]["Standard"]["oscillationAmplitude"] == 0.0
+
+
+def test_lanes_present_without_any_price_changes():
+    # flat-fee control: no PriceUpdated events at all, but the lane is real
+    acc = Accumulator()
+    acc.ingest(_submitted_lane(1, "Standard"))
+    data = build_sim_data(acc)
+    assert data["meta"]["lanes"] == ["Standard"]
+
+
 def test_build_sim_data_structure_and_values():
     acc = Accumulator()
     for e in [

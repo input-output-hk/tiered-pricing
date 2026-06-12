@@ -1,17 +1,56 @@
-module Curve where
+module Curve (
+  Curve (..),
+  CurvePoint (..),
+  Curves (..),
+  TxSizeCurve (..),
+  ScriptSizeCurve (..),
+  ExUnitsCurve (..),
+  TxValueCurve (..),
+  sampleCurve,
+  curvesDefault,
+  txSizeCurveDefault,
+  scriptSizeCurveDefault,
+  exUnitsCurveDefault,
+  txValueCurveDefault,
+) where
 
-import Data.List.NonEmpty (NonEmpty (..))
+import Data.Aeson (FromJSON (..), Value (..), withObject, (.:), (.:?))
+import Data.List.NonEmpty (NonEmpty (..), nonEmpty)
+import Data.Text qualified as T
 
 data Curve
   = Constant Double
   | PiecewiseLinear (NonEmpty CurvePoint)
   deriving stock (Eq, Show)
 
+-- | A bare number is a constant curve; otherwise a tagged object.
+instance FromJSON Curve where
+  parseJSON value@(Number _) =
+    Constant <$> parseJSON value
+  parseJSON value =
+    flip (withObject "Curve") value \obj -> do
+      tag <- obj .: "type"
+      case tag :: String of
+        "constant" -> Constant <$> obj .: "value"
+        "piecewise-linear" -> do
+          points <- obj .: "points"
+          case nonEmpty points of
+            Just nonEmptyPoints -> pure (PiecewiseLinear nonEmptyPoints)
+            Nothing -> fail "piecewise-linear curve requires at least one point"
+        _ -> fail ("unknown curve type: " <> tag)
+
 data CurvePoint = CurvePoint
   { curveP :: Double -- quantile, in [0,1]
   , curveValue :: Double -- sampled value at that quantile
   }
   deriving stock (Eq, Show)
+
+instance FromJSON CurvePoint where
+  parseJSON =
+    withObject "CurvePoint" \obj ->
+      CurvePoint
+        <$> obj .: "p"
+        <*> obj .: "value"
 
 sampleCurve :: Curve -> Double -> Double
 sampleCurve (Constant v) _ = v
@@ -52,6 +91,27 @@ data Curves = Curves
   , curveTxValue :: TxValueCurve
   }
   deriving stock (Eq, Show)
+
+-- | @"default"@ (bare or tagged) selects 'curvesDefault'; otherwise an
+-- object with the four sampling curves.
+instance FromJSON Curves where
+  parseJSON (String preset)
+    | preset == "default" = pure curvesDefault
+    | otherwise = fail ("unknown curves preset: " <> T.unpack preset)
+  parseJSON value =
+    flip (withObject "Curves") value \obj -> do
+      tag <- obj .:? "type"
+      case tag of
+        Nothing ->
+          Curves
+            <$> (TxSizeCurve <$> obj .: "txSize")
+            <*> (ScriptSizeCurve <$> obj .: "scriptSize")
+            <*> (ExUnitsCurve <$> obj .: "exUnits")
+            <*> (TxValueCurve <$> obj .: "txValue")
+        Just ("default" :: String) ->
+          pure curvesDefault
+        Just unknownTag ->
+          fail ("unknown curves type: " <> unknownTag)
 
 txSizeCurveDefault :: TxSizeCurve
 txSizeCurveDefault = TxSizeCurve recentMainnetTxSize

@@ -8,7 +8,9 @@ module Retry (
 ) where
 
 import Actor (ActorId)
+import Data.Aeson (FromJSON (..), withObject, (.:))
 import Data.Either (partitionEithers)
+import Json (Alt (..), taggedSum)
 import Data.Foldable (toList)
 import Data.List.NonEmpty qualified as NE
 import Data.Map (Map)
@@ -32,6 +34,20 @@ data FailureResponse
     -}
     ResubmitAfter Duration Duration
   deriving stock (Eq, Show)
+
+instance FromJSON FailureResponse where
+  parseJSON =
+    taggedSum
+      "failure response"
+      [ ("abandon", Nullary Abandon)
+      ,
+        ( "resubmit-after"
+        , WithFields \obj ->
+            ResubmitAfter
+              <$> (Duration <$> obj .: "delaySlots")
+              <*> (Duration <$> obj .: "jitterSlots")
+        )
+      ]
 
 {- | How rejected and evicted demand re-enters the simulation, per failure
 reason.
@@ -64,6 +80,16 @@ data RetryPolicy = RetryPolicy
   -}
   }
   deriving stock (Eq, Show)
+
+instance FromJSON RetryPolicy where
+  parseJSON =
+    withObject "RetryPolicy" \obj ->
+      RetryPolicy
+        <$> obj .: "feeTooLow"
+        <*> obj .: "mempoolFull"
+        <*> obj .: "evicted"
+        <*> obj .: "maxAttempts"
+        <*> obj .: "escalationFactor"
 
 -- | Every failure is final; reproduces pre-retry behaviour.
 noRetries :: RetryPolicy

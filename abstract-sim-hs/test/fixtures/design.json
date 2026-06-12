@@ -1,6 +1,5 @@
 {
   "laneStructure": "two",
-  "pricing": "both-dynamic",
   "reservationPolicy": {
     "type": "priority-reservation-rb",
     "bytes": 90112

@@ -1,35 +1,21 @@
 module Main (main) where
 
+import Actor (Actor (..), ActorId (..), ActorType (..), LaneLatencyEstimate (..))
+import Config (SimConfig (..))
 import Control.Monad (unless)
+import Curve (curvesDefault)
 import Data.Aeson (eitherDecode)
 import Data.ByteString.Lazy qualified as BL
+import Data.List.NonEmpty (NonEmpty (..))
 import Design (Design (..), FeeSemantics (..), defaultDesign)
+import Load (severeCongestionLoad)
+import Parser (parseDesign, parseSimConfig)
 import Pricing (admissionRequiredFee, coversProducerHeadroom, initialPrices)
-import Transaction (Demand (..), Lane (..), Provenance (..), Script (..), Tx (..), TxBody (..), hash)
-import Types (Duration (..), Lovelace (..), SlotNo (..), Urgency (..))
-import Parser
-  ( ParseActorPopulation (..)
-  , ParseActorType (..)
-  , ParseArrivalProcess (..)
-  , ParseControllerConfig (..)
-  , ParseControllerSignal (..)
-  , ParseCurves (..)
-  , ParseDesign (..)
-  , ParseEip1559Controller (..)
-  , ParseFeeSemantics (..)
-  , ParseLanePricing (..)
-  , ParseLaneLatencyEstimate (..)
-  , ParseLaneStructure (..)
-  , ParseReservationPolicy (..)
-  , ParseSelectionPolicy (..)
-  , ParseSimConfig (..)
-  , fromParseDesign
-  , fromParseSimConfig
-  , parseDesign
-  , parseSimConfig
-  )
+import Retry (noRetries)
 import Sweep (SweepSpec (..), SweepVariant (..), loadSweepSpec)
 import System.Exit (exitFailure)
+import Transaction (Demand (..), Lane (..), Provenance (..), Script (..), Tx (..), TxBody (..), hash)
+import Types (Duration (..), Lovelace (..), SlotNo (..), Urgency (..))
 
 main :: IO ()
 main = do
@@ -38,6 +24,92 @@ main = do
   assertSweepFixture
   assertLiveConfigsParse
   assertHeadroomInvariant
+
+{- The JSON under test/fixtures/ is test-owned data, frozen independently of
+config/, which is free to change with whatever experiment is being run. Only
+the fixtures carry content assertions.
+-}
+assertDesignFixture :: IO ()
+assertDesignFixture = do
+  bytes <- BL.readFile "test/fixtures/design.json"
+  case eitherDecode bytes of
+    Left err -> do
+      putStrLn ("failed to parse design fixture: " <> err)
+      exitFailure
+    Right actual ->
+      assertEqual "design fixture decode" defaultDesign actual
+  actualDesign <- parseDesign "test/fixtures/design.json"
+  assertEqual "design fixture file parser" defaultDesign actualDesign
+
+assertSimConfigFixture :: IO ()
+assertSimConfigFixture = do
+  actualConfig <- parseSimConfig "test/fixtures/sim-config.json"
+  assertEqual "sim config fixture file parser" expectedFixtureSimConfig actualConfig
+
+expectedFixtureSimConfig :: SimConfig
+expectedFixtureSimConfig =
+  SimConfig
+    { simConfigDesign = defaultDesign
+    , simConfigCurves = curvesDefault
+    , simConfigF = 0.05
+    , simConfigD = 13
+    , simConfigLoad = severeCongestionLoad
+    , simConfigActors = fixtureActor 0 :| [fixtureActor 1]
+    , simConfigRbTxBytesCap = 90_112
+    , simConfigRbExUnitsCap = 96_991_334
+    , simConfigEbTxBytesCap = 12_000_000
+    , simConfigEbStructureBytesCap = 512_000
+    , simConfigEbExUnitsCap = 9_499_133_448
+    , simConfigMempoolBytesCap = 24_000_000
+    , simConfigAdmissionHeadroomUpdates = 1
+    , simConfigLaneLatencyEstimate =
+        LaneLatencyEstimate
+          { expectedStandardLatency = Duration 50
+          , expectedPriorityLatency = Duration 25
+          }
+    , simConfigPriceConvergenceBandPct = 0.05
+    , simConfigLoadChangePct = 0.10
+    , simConfigRetryPolicy = noRetries
+    }
+
+fixtureActor :: Int -> Actor
+fixtureActor i =
+  Actor
+    { _actorId = ActorId i
+    , actorType = Honest
+    , actorFeeBuffer = 2.0
+    , actorMinValueFeeMultiple = 1.0
+    , actorValueMultiplier = 1.0
+    , actorUrgencyMultiplier = 1.0
+    }
+
+assertSweepFixture :: IO ()
+assertSweepFixture = do
+  spec <- loadSweepSpec "test/fixtures/sweep.json"
+  assertEqual "sweep fixture" expectedFixtureSweep spec
+
+expectedFixtureSweep :: SweepSpec
+expectedFixtureSweep =
+  SweepSpec
+    { sweepDescription = Just "fixture"
+    , sweepSeeds = 3
+    , sweepSlots = 500
+    , sweepOutDir = "/tmp/fixture-sweep"
+    , sweepVariants =
+        [ SweepVariant "a" "test/fixtures/sim-config.json"
+        , SweepVariant "b" "test/fixtures/sim-config.json"
+        ]
+    }
+
+{- The live configs are not content-asserted — only that they still parse,
+including every variant config the example sweep manifest references.
+-}
+assertLiveConfigsParse :: IO ()
+assertLiveConfigsParse = do
+  _ <- parseDesign "config/default-design.json"
+  _ <- parseSimConfig "config/default-sim-config.json"
+  sweepSpec <- loadSweepSpec "config/sweeps/example.json"
+  mapM_ (parseSimConfig . (.variantConfig)) sweepSpec.sweepVariants
 
 {- | The design's central safety argument, as code: the admission fee is
 monotone in the headroom horizon, and a tx admitted with a horizon of one
@@ -104,71 +176,6 @@ testTx lane =
       , _txNumber = 1
       }
 
-assertTrue :: String -> Bool -> IO ()
-assertTrue label cond =
-  unless cond do
-    putStrLn ("assertion failed: " <> label)
-    exitFailure
-
-{- The JSON under test/fixtures/ is test-owned data, frozen independently of
-config/, which is free to change with whatever experiment is being run. Only
-the fixtures carry content assertions.
--}
-assertDesignFixture :: IO ()
-assertDesignFixture = do
-  bytes <- BL.readFile "test/fixtures/design.json"
-  case eitherDecode bytes of
-    Left err -> do
-      putStrLn ("failed to parse design fixture: " <> err)
-      exitFailure
-    Right actual ->
-      assertEqual "design fixture syntax" expectedFixtureDesign actual
-  assertRightEqual "design fixture conversion" defaultDesign (fromParseDesign expectedFixtureDesign)
-  actualDesign <- parseDesign "test/fixtures/design.json"
-  assertEqual "design fixture file parser" defaultDesign actualDesign
-
-assertSimConfigFixture :: IO ()
-assertSimConfigFixture = do
-  expectedConfig <- expectRight "expected sim config fixture conversion" (fromParseSimConfig expectedFixtureSimConfig)
-  bytes <- BL.readFile "test/fixtures/sim-config.json"
-  case eitherDecode bytes of
-    Left err -> do
-      putStrLn ("failed to parse sim config fixture: " <> err)
-      exitFailure
-    Right actual -> do
-      assertEqual "sim config fixture syntax" expectedFixtureSimConfig actual
-      assertRightEqual "sim config fixture conversion" expectedConfig (fromParseSimConfig actual)
-  actualConfig <- parseSimConfig "test/fixtures/sim-config.json"
-  assertEqual "sim config fixture file parser" expectedConfig actualConfig
-
-assertSweepFixture :: IO ()
-assertSweepFixture = do
-  spec <- loadSweepSpec "test/fixtures/sweep.json"
-  assertEqual "sweep fixture" expectedFixtureSweep spec
-
-expectedFixtureSweep :: SweepSpec
-expectedFixtureSweep =
-  SweepSpec
-    { sweepDescription = Just "fixture"
-    , sweepSeeds = 3
-    , sweepSlots = 500
-    , sweepOutDir = "/tmp/fixture-sweep"
-    , sweepVariants =
-        [ SweepVariant "a" "test/fixtures/sim-config.json"
-        , SweepVariant "b" "test/fixtures/sim-config.json"
-        ]
-    }
-
-{- The live configs are not content-asserted — only that they still parse,
-including every variant config the example sweep manifest references.
--}
-assertLiveConfigsParse :: IO ()
-assertLiveConfigsParse = do
-  _ <- parseDesign "config/default-design.json"
-  _ <- parseSimConfig "config/default-sim-config.json"
-  sweepSpec <- loadSweepSpec "config/sweeps/example.json"
-  mapM_ (parseSimConfig . (.variantConfig)) sweepSpec.sweepVariants
-
 assertEqual :: (Eq a, Show a) => String -> a -> a -> IO ()
 assertEqual label expected actual =
   unless (actual == expected) do
@@ -177,88 +184,8 @@ assertEqual label expected actual =
     putStrLn ("actual:   " <> show actual)
     exitFailure
 
-assertRightEqual :: (Eq a, Show a, Show err) => String -> a -> Either err a -> IO ()
-assertRightEqual label expected actual =
-  case actual of
-    Left err -> do
-      putStrLn ("unexpected " <> label <> " error")
-      putStrLn ("error: " <> show err)
-      exitFailure
-    Right value ->
-      assertEqual label expected value
-
-expectRight :: (Show err) => String -> Either err a -> IO a
-expectRight label actual =
-  case actual of
-    Left err -> do
-      putStrLn ("unexpected " <> label <> " error")
-      putStrLn ("error: " <> show err)
-      exitFailure
-    Right value ->
-      pure value
-
-expectedFixtureDesign :: ParseDesign
-expectedFixtureDesign =
-  ParseDesign
-    { parseDesignLaneStructure = TwoP
-    , parseDesignPricing = BothDynamicP
-    , parseDesignReservationPolicy = PriorityReservationRb 90_112
-    , parseDesignSelection = FifoP
-    , parseDesignFeeSemantics = Eip1559P
-    , parseDesignControllers =
-        ParseControllerConfig
-          { parseStandardController =
-              Just
-                ParseEip1559Controller
-                  { parseControllerTargetUtilisation = 0.50
-                  , parseControllerMaxChangeDenominator = 8
-                  , parseControllerInitialCoefficient = 1.0
-                  , parseControllerSignal = CapacityWeightedWindowP 20
-                  }
-          , parsePriorityController =
-              Just
-                ParseEip1559Controller
-                  { parseControllerTargetUtilisation = 0.50
-                  , parseControllerMaxChangeDenominator = 8
-                  , parseControllerInitialCoefficient = 16.0
-                  , parseControllerSignal = PriorityReservationUtilP
-                  }
-          , parseMultiplierFloor = Nothing
-          , parseAbsoluteCoeffFloor = 1.0
-          }
-    }
-
-expectedFixtureSimConfig :: ParseSimConfig
-expectedFixtureSimConfig =
-  ParseSimConfig
-    { parseSimConfigDesign = expectedFixtureDesign
-    , parseSimConfigCurves = DefaultCurvesP
-    , parseSimConfigF = 0.05
-    , parseSimConfigD = 13
-    , parseSimConfigLoad = SevereCongestionLoadP
-    , parseSimConfigActors =
-        [ ParseActorPopulation
-            { parseActorCount = 2
-            , parseActorType = HonestActorP
-            , parseActorFeeBuffer = 2.0
-            , parseActorMinValueFeeMultiple = 1.0
-            , parseActorValueMultiplier = 1.0
-            , parseActorUrgencyMultiplier = 1.0
-            }
-        ]
-    , parseSimConfigRbTxBytesCap = 90_112
-    , parseSimConfigRbExUnitsCap = 96_991_334
-    , parseSimConfigEbTxBytesCap = 12_000_000
-    , parseSimConfigEbStructureBytesCap = 512_000
-    , parseSimConfigEbExUnitsCap = 9_499_133_448
-    , parseSimConfigMempoolBytesCap = 24_000_000
-    , parseSimConfigAdmissionHeadroomUpdates = 1
-    , parseSimConfigLaneLatencyEstimate =
-        ParseLaneLatencyEstimate
-          { parseExpectedStandardLatency = 50
-          , parseExpectedPriorityLatency = 25
-          }
-    , parseSimConfigPriceConvergenceBandPct = 0.05
-    , parseSimConfigLoadChangePct = 0.10
-    , parseSimConfigRetryPolicy = Nothing
-    }
+assertTrue :: String -> Bool -> IO ()
+assertTrue label cond =
+  unless cond do
+    putStrLn ("assertion failed: " <> label)
+    exitFailure

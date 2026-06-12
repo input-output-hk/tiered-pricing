@@ -10,8 +10,9 @@ module Actor (
 ) where
 
 import Curve (Curves (..), ExUnitsCurve (..), ScriptSizeCurve (..), TxSizeCurve (..), TxValueCurve (..), sampleCurve)
-import Data.Aeson (ToJSON (..))
+import Data.Aeson (FromJSON (..), ToJSON (..), withObject, (.:))
 import Data.Set qualified as Set
+import Json (Alt (..), taggedSum)
 import Design (LaneStructure (..))
 import Load (BurstEffect (..))
 import Pricing (Prices, quotedFeeFor)
@@ -37,11 +38,27 @@ data Actor = Actor
 data ActorType = Honest | Patient | Impatient
   deriving (Eq, Show)
 
+instance FromJSON ActorType where
+  parseJSON =
+    taggedSum
+      "actor type"
+      [ ("honest", Nullary Honest)
+      , ("patient", Nullary Patient)
+      , ("impatient", Nullary Impatient)
+      ]
+
 data LaneLatencyEstimate = LaneLatencyEstimate
   { expectedStandardLatency :: Duration
   , expectedPriorityLatency :: Duration
   }
   deriving (Eq, Show)
+
+instance FromJSON LaneLatencyEstimate where
+  parseJSON =
+    withObject "LaneLatencyEstimate" \obj ->
+      LaneLatencyEstimate
+        <$> (Duration <$> obj .: "expectedStandardLatency")
+        <*> (Duration <$> obj .: "expectedPriorityLatency")
 
 data TxSubmission = TxSubmission {submissionActor :: ActorId, submissionTx :: Tx}
 

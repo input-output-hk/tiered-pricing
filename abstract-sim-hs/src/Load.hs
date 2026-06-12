@@ -10,12 +10,36 @@ module Load (
   severeCongestionLoad,
 ) where
 
+import Data.Aeson (FromJSON (..), Value (String), withObject, (.:))
+import Json (Alt (..), taggedSum)
 import Types (SlotNo (..))
 
 data ArrivalProcess
   = ConstantLoad Double
   | BurstLoad [Burst]
   deriving stock (Eq, Show)
+
+{- | A bare string selects one of the curated presets; an object gives an
+explicit process. The @"burst"@ tag means the preset as a string and a
+custom burst list as an object.
+-}
+instance FromJSON ArrivalProcess where
+  parseJSON value@(String _) =
+    flip
+      (taggedSum "arrival process preset")
+      value
+      [ ("moderate", Nullary moderateLoad)
+      , ("congested", Nullary congestedLoad)
+      , ("burst", Nullary burstLoad)
+      , ("severe-congestion", Nullary severeCongestionLoad)
+      ]
+  parseJSON value =
+    flip (withObject "ArrivalProcess") value \obj -> do
+      tag <- obj .: "type"
+      case tag :: String of
+        "constant" -> ConstantLoad <$> obj .: "rate"
+        "burst" -> BurstLoad <$> obj .: "bursts"
+        _ -> fail ("unknown arrival process type: " <> tag)
 
 moderateLoad :: ArrivalProcess
 moderateLoad = ConstantLoad 2.0
@@ -57,11 +81,28 @@ data Burst = Burst
   }
   deriving stock (Eq, Show)
 
+instance FromJSON Burst where
+  parseJSON =
+    withObject "Burst" \obj ->
+      Burst
+        <$> obj .: "baseRate"
+        <*> obj .: "burstRate"
+        <*> (SlotNo <$> obj .: "burstStart")
+        <*> (SlotNo <$> obj .: "burstEnd")
+        <*> obj .: "burstEffect"
+
 data BurstEffect = BurstEffect
   { valueMultiplier :: Double
   , urgencyMultiplier :: Double
   }
   deriving (Eq, Show)
+
+instance FromJSON BurstEffect where
+  parseJSON =
+    withObject "BurstEffect" \obj ->
+      BurstEffect
+        <$> obj .: "valueMultiplier"
+        <*> obj .: "urgencyMultiplier"
 
 -- | Overlapping bursts compound multiplicatively.
 instance Semigroup BurstEffect where

@@ -1,7 +1,6 @@
 {
   "design": {
     "laneStructure": "two",
-    "pricing": "both-dynamic",
     "reservationPolicy": {
       "type": "no-reservation"
     },

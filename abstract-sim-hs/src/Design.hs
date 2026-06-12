@@ -1,10 +1,22 @@
-module Design where
+module Design (
+  Design (..),
+  SelectionPolicy (..),
+  FeeSemantics (..),
+  ReservationPolicy (..),
+  LaneStructure (..),
+  Eip1559Controller (..),
+  ControllerSignal (..),
+  ControllerConfig (..),
+  defaultDesign,
+  defaultControllerConfig,
+) where
 
-import Types (Duration)
+import Data.Aeson (FromJSON (..), withObject, (.:), (.:?))
+import Json (Alt (..), taggedSum)
+import Types (Duration (..))
 
 data Design = Design
   { designLaneStructure :: LaneStructure
-  , designPricing :: LanePricing
   , designReservationPolicy :: ReservationPolicy
   , designSelection :: SelectionPolicy
   , designFeeSemantics :: FeeSemantics
@@ -12,11 +24,30 @@ data Design = Design
   }
   deriving stock (Eq, Show)
 
+instance FromJSON Design where
+  parseJSON =
+    withObject "Design" \obj ->
+      Design
+        <$> obj .: "laneStructure"
+        <*> obj .: "reservationPolicy"
+        <*> obj .: "selection"
+        <*> obj .: "feeSemantics"
+        <*> obj .: "controllers"
+
 data SelectionPolicy
   = Fifo
   | PriorityFirst
   | FifoWithStandardCap Double
   deriving stock (Eq, Show)
+
+instance FromJSON SelectionPolicy where
+  parseJSON =
+    taggedSum
+      "selection policy"
+      [ ("fifo", Nullary Fifo)
+      , ("priority-first", Nullary PriorityFirst)
+      , ("fifo-with-standard-cap", WithFields \obj -> FifoWithStandardCap <$> obj .: "standardCap")
+      ]
 
 data FeeSemantics
   = FixedFee
@@ -24,25 +55,42 @@ data FeeSemantics
   | HonourSubmissionQuoteFor Duration
   deriving stock (Eq, Show)
 
+instance FromJSON FeeSemantics where
+  parseJSON =
+    taggedSum
+      "fee semantics"
+      [ ("fixed-fee", Nullary FixedFee)
+      , ("eip1559", Nullary Eip1559)
+      , ("honour-submission-quote-for", WithFields \obj -> HonourSubmissionQuoteFor . Duration <$> obj .: "durationSlots")
+      ]
+
 data ReservationPolicy
   = PriorityReservationRb Int
   | NoReservation
   deriving stock (Eq, Show)
 
+instance FromJSON ReservationPolicy where
+  parseJSON =
+    taggedSum
+      "reservation policy"
+      [ ("no-reservation", Nullary NoReservation)
+      , ("priority-reservation-rb", WithFields \obj -> PriorityReservationRb <$> obj .: "bytes")
+      ]
+
 data LaneStructure = One | Two deriving stock (Eq, Show)
 
-data LanePricing
-  = NoDynamic
-  | StandardOnlyDynamic
-  | PriorityOnlyDynamic
-  | BothDynamic
-  deriving stock (Eq, Show)
+instance FromJSON LaneStructure where
+  parseJSON =
+    taggedSum
+      "lane structure"
+      [ ("one", Nullary One)
+      , ("two", Nullary Two)
+      ]
 
 defaultDesign :: Design
 defaultDesign =
   Design
     { designLaneStructure = Two
-    , designPricing = BothDynamic
     , designReservationPolicy = PriorityReservationRb 90_112
     , designSelection = Fifo
     , designFeeSemantics = Eip1559
@@ -57,10 +105,27 @@ data Eip1559Controller = Eip1559Controller
   }
   deriving stock (Eq, Show)
 
+instance FromJSON Eip1559Controller where
+  parseJSON =
+    withObject "Eip1559Controller" \obj ->
+      Eip1559Controller
+        <$> obj .: "targetUtilisation"
+        <*> obj .: "maxChangeDenominator"
+        <*> obj .: "initialCoefficient"
+        <*> obj .: "signal"
+
 data ControllerSignal
   = CapacityWeightedWindow Int
   | PriorityReservationUtil
   deriving stock (Eq, Show)
+
+instance FromJSON ControllerSignal where
+  parseJSON =
+    taggedSum
+      "controller signal"
+      [ ("priority-reservation-util", Nullary PriorityReservationUtil)
+      , ("capacity-weighted-window", WithFields \obj -> CapacityWeightedWindow <$> obj .: "window")
+      ]
 
 data ControllerConfig = ControllerConfig
   { standardController :: Maybe Eip1559Controller
@@ -69,6 +134,15 @@ data ControllerConfig = ControllerConfig
   , absoluteCoeffFloor :: Double
   }
   deriving stock (Eq, Show)
+
+instance FromJSON ControllerConfig where
+  parseJSON =
+    withObject "ControllerConfig" \obj ->
+      ControllerConfig
+        <$> obj .:? "standardController"
+        <*> obj .:? "priorityController"
+        <*> obj .:? "multiplierFloor"
+        <*> obj .: "absoluteCoeffFloor"
 
 defaultControllerConfig :: ControllerConfig
 defaultControllerConfig =

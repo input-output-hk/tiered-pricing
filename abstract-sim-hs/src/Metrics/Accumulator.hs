@@ -205,6 +205,7 @@ addLovelace (Lovelace a) (Lovelace b) =
   Lovelace (a + b)
 
 isRankingBlock :: BlockSummary -> Bool
-isRankingBlock RankingBlockProduced{} = True
+isRankingBlock RbPraos{} = True
+isRankingBlock RbCertifying{} = True
 isRankingBlock _ = False
 

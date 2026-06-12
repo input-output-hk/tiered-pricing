@@ -13,7 +13,7 @@ module Design (
 
 import Data.Aeson (FromJSON (..), withObject, (.:), (.:?))
 import Json (Alt (..), taggedSum)
-import Types (Duration (..))
+import Types (Duration (..), PerLane (..))
 
 data Design = Design
   { designLaneStructure :: LaneStructure
@@ -128,8 +128,8 @@ instance FromJSON ControllerSignal where
       ]
 
 data ControllerConfig = ControllerConfig
-  { standardController :: Maybe Eip1559Controller
-  , priorityController :: Maybe Eip1559Controller
+  { laneControllers :: PerLane (Maybe Eip1559Controller)
+  -- ^ a lane without a controller never re-prices
   , multiplierFloor :: Maybe Double
   , absoluteCoeffFloor :: Double
   }
@@ -137,32 +137,40 @@ data ControllerConfig = ControllerConfig
 
 instance FromJSON ControllerConfig where
   parseJSON =
-    withObject "ControllerConfig" \obj ->
-      ControllerConfig
-        <$> obj .:? "standardController"
-        <*> obj .:? "priorityController"
-        <*> obj .:? "multiplierFloor"
-        <*> obj .: "absoluteCoeffFloor"
+    withObject "ControllerConfig" \obj -> do
+      standard <- obj .:? "standardController"
+      priority <- obj .:? "priorityController"
+      multiplierFloor <- obj .:? "multiplierFloor"
+      absoluteCoeffFloor <- obj .: "absoluteCoeffFloor"
+      pure
+        ControllerConfig
+          { laneControllers = PerLane{perStandard = standard, perPriority = priority}
+          , multiplierFloor
+          , absoluteCoeffFloor
+          }
 
 defaultControllerConfig :: ControllerConfig
 defaultControllerConfig =
   ControllerConfig
-    { standardController =
-        Just
-          Eip1559Controller
-            { controllerTargetUtilisation = 0.50
-            , controllerMaxChangeDenominator = 8
-            , controllerInitialCoefficient = 1.0
-            , controllerSignal = CapacityWeightedWindow 20
-            }
-    , priorityController =
-        Just
-          Eip1559Controller
-            { controllerTargetUtilisation = 0.50
-            , controllerMaxChangeDenominator = 8
-            , controllerInitialCoefficient = 16.0
-            , controllerSignal = PriorityReservationUtil
-            }
+    { laneControllers =
+        PerLane
+          { perStandard =
+              Just
+                Eip1559Controller
+                  { controllerTargetUtilisation = 0.50
+                  , controllerMaxChangeDenominator = 8
+                  , controllerInitialCoefficient = 1.0
+                  , controllerSignal = CapacityWeightedWindow 20
+                  }
+          , perPriority =
+              Just
+                Eip1559Controller
+                  { controllerTargetUtilisation = 0.50
+                  , controllerMaxChangeDenominator = 8
+                  , controllerInitialCoefficient = 16.0
+                  , controllerSignal = PriorityReservationUtil
+                  }
+          }
     , multiplierFloor = Nothing -- Just 16.0
     , absoluteCoeffFloor = 1.0
     }

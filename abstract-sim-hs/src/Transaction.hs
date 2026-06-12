@@ -25,7 +25,7 @@ import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Word (Word64, Word8)
 import GHC.Records (HasField (..))
-import Types (BlockDelay (..), Lovelace (..), SlotNo (..), Urgency (..), diffSlots, expectedBlockDelay)
+import Types (BlockDelay (..), Lane (..), Lovelace (..), SlotNo (..), Urgency (..), diffSlots, expectedBlockDelay)
 
 data Script = Script
   { _scriptSize :: Int -- Bytes
@@ -160,13 +160,6 @@ instance ToJSON TxSample where
       , "txValueP" .= sample.sampleTxValueP
       , "urgencyP" .= sample.sampleUrgencyP
       ]
-
-data Lane = Priority | Standard deriving stock (Eq, Ord, Show)
-
-instance ToJSON Lane where
-  toJSON = \case
-    Priority -> toJSON ("Priority" :: String)
-    Standard -> toJSON ("Standard" :: String)
 
 data RejectReason
   = FeeTooLow Lovelace Lovelace -- submitted, required

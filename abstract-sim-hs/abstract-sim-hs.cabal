@@ -52,6 +52,7 @@ library
       Metrics.Value
       Parser
       Pricing
+      Resource
       Retry
       Run
       Sim

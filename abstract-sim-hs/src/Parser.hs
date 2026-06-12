@@ -26,6 +26,7 @@ import Data.Maybe (fromMaybe)
 import Design (ControllerConfig (..), Design (..), LaneStructure (..), ReservationPolicy (..), SelectionPolicy (..))
 import Load (ArrivalProcess)
 import Retry (RetryPolicy, noRetries)
+import Types (PerLane (..))
 
 {- | The sim-config file in raw form: domain values throughout, plus the few
 file-level concerns — the d\/D alias, the optional retry policy, actor
@@ -171,7 +172,7 @@ validateDesign design =
           Left (MismatchedLaneSemantics "cannot use priority-first selection with a single lane structure")
         FifoWithStandardCap{} ->
           Left (MismatchedLaneSemantics "cannot cap standard-lane FIFO selection with a single lane structure")
-      case design.designControllers.priorityController of
+      case design.designControllers.laneControllers.perPriority of
         Nothing -> Right ()
         Just{} ->
           Left (MismatchedLaneSemantics "cannot configure a priority controller with a single lane structure")

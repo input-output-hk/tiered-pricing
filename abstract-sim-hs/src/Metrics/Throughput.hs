@@ -5,11 +5,12 @@ module Metrics.Throughput (
   rankingBlocksFrom,
 ) where
 
-import Block (BlockSummary (..), EndorserBlockSummary (..), RankingBlock (..), RankingBlockSummary (..))
+import Block (BlockSummary (..), BlockUsage (..))
 import Data.Map.Strict qualified as Map
 import Data.Maybe (mapMaybe)
 import Metrics.Accumulator
 import Metrics.Stats (mean, ratio)
+import Resource (Bytes (..), Resources (..))
 
 -- | Metric (6): aggregate throughput and EB utilization.
 data Throughput = Throughput
@@ -36,19 +37,16 @@ throughputFrom slots acc =
         if slots <= 0
           then 0
           else fromIntegral (Map.size acc.accIncludedAt) / fromIntegral slots
-    , ebUtilization = mean (fmap ebUtilization ebSummaries)
+    , ebUtilization = mean (fmap byteFill announcedUsages)
     }
  where
-  ebSummaries =
-    mapMaybe endorserBlockSummary acc.accBlocks
-  ebUtilization summary =
-    ratio
-      (endorserBlockUsedBytes summary)
-      (endorserBlockCapacityBytes summary)
-
-endorserBlockSummary :: BlockSummary -> Maybe EndorserBlockSummary
-endorserBlockSummary (EndorserBlockAnnounced summary) = Just summary
-endorserBlockSummary _ = Nothing
+  announcedUsages =
+    mapMaybe announcedUsage acc.accBlocks
+  announcedUsage = \case
+    EbAnnounced _ usage -> Just usage
+    _ -> Nothing
+  byteFill usage =
+    ratio usage.usageUsed.resBytes.unBytes usage.usageCapacity.resBytes.unBytes
 
 rankingBlocksFrom :: MetricsAcc -> RankingBlockCounts
 rankingBlocksFrom acc =
@@ -62,12 +60,11 @@ emptyRankingBlockCounts =
     }
 
 countRankingBlock :: RankingBlockCounts -> BlockSummary -> RankingBlockCounts
-countRankingBlock counts (RankingBlockProduced summary) =
-  case summary.rankingBlock of
-    PraosBlock txIds
-      | null txIds -> counts
-      | otherwise -> counts{txContainingRbs = counts.txContainingRbs + 1}
-    CertifyingBlock{} ->
-      counts{ebCertifyingRbs = counts.ebCertifyingRbs + 1}
-countRankingBlock counts _ =
-  counts
+countRankingBlock counts = \case
+  RbPraos txIds _
+    | null txIds -> counts
+    | otherwise -> counts{txContainingRbs = counts.txContainingRbs + 1}
+  RbCertifying _ ->
+    counts{ebCertifyingRbs = counts.ebCertifyingRbs + 1}
+  _ ->
+    counts

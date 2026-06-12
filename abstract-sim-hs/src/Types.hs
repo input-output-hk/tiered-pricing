@@ -10,6 +10,10 @@ module Types (
   BlockDelay (..),
   Urgency (..),
   SlotNo (..),
+  Lane (..),
+  PerLane (..),
+  atLane,
+  lanes,
   addDuration,
   addDurations,
   diffSlots,
@@ -65,6 +69,37 @@ diffSlots (SlotNo a) (SlotNo b) = Duration (a - b)
 expectedBlockDelay :: Double -> Duration -> BlockDelay
 expectedBlockDelay f (Duration slots) =
   BlockDelay (max 0 f * fromIntegral (max 0 slots))
+
+data Lane = Priority | Standard deriving stock (Eq, Ord, Show)
+
+instance ToJSON Lane where
+  toJSON = \case
+    Priority -> toJSON ("Priority" :: String)
+    Standard -> toJSON ("Standard" :: String)
+
+{- | One value per lane. 'Lane' is a closed two-constructor enum, so this is
+its representable container: the standard\/priority symmetry becomes
+'Functor'\/'Applicative' structure instead of duplicated field pairs, while
+asymmetric rules stay expressible as named field access.
+-}
+data PerLane a = PerLane
+  { perStandard :: a
+  , perPriority :: a
+  }
+  deriving stock (Eq, Show, Functor, Foldable, Traversable)
+
+-- | Pointwise; @pure@ puts the same value in both lanes.
+instance Applicative PerLane where
+  pure a = PerLane a a
+  PerLane fs fp <*> PerLane s p = PerLane (fs s) (fp p)
+
+atLane :: Lane -> PerLane a -> a
+atLane Standard = (.perStandard)
+atLane Priority = (.perPriority)
+
+-- | Each lane labelled with itself, for indexed zips.
+lanes :: PerLane Lane
+lanes = PerLane Standard Priority
 
 data Urgency = Linear Double | Exponential Double
   deriving (Eq, Ord, Show)

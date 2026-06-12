@@ -3,17 +3,12 @@ module Block (
   EndorserBlock (..),
   InclusionPoint (..),
   PendingEb (..),
-  RankingBlock (..),
+  BlockUsage (..),
   BlockSummary (..),
-  RankingBlockSummary (..),
-  EndorserBlockSummary (..),
-  mkRankingBlockSummary,
-  mkEndorserBlockSummary,
-  laneBytes,
-  txBytes,
+  mkBlockUsage,
+  prioritySignalCapacity,
   selectTxsByPolicy,
   selectRbTxs,
-  priorityTxBytesCap,
   nextEbId,
   selectByBlockCapacity,
   selectByBlockCapacityFrom,
@@ -24,13 +19,16 @@ module Block (
 where
 
 import Data.Aeson (ToJSON (..), object, (.=))
+import Data.Aeson.Key qualified as Key
+import Data.Aeson.Types (Pair)
 import Data.List qualified as List
 import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Sequence (Seq (..), (|>))
 import Design (ReservationPolicy (..), SelectionPolicy (..))
-import Transaction (Lane (..), Script (_scriptExUnits), Tx (..), TxBody (..), TxId)
-import Types (SlotNo)
+import Resource (Bytes (..), ExUnits (..), Resources (..), fitsWithin, scaleResources)
+import Transaction (Script (_scriptExUnits), Tx (..), TxBody (..), TxId)
+import Types (Lane (..), PerLane (..), SlotNo, lanes)
 
 data EbId = EbId Int deriving (Eq, Ord, Show)
 
@@ -75,166 +73,107 @@ instance ToJSON PendingEb where
       , "announced" .= pending.pendingEbAnnounced
       ]
 
-data RankingBlock = CertifyingBlock EbId | PraosBlock [TxId]
+-- | What a produced payload used, against what capacity.
+data BlockUsage = BlockUsage
+  { usageCapacity :: Resources
+  , usageUsed :: Resources
+  , usageLanes :: PerLane Resources
+  -- ^ the used resources, split by lane
+  , usageSignalCapacity :: Resources
+  -- ^ the priority lane's effective capacity — what the priority
+  -- controller's reservation-utilisation signal divides by
+  }
   deriving stock (Eq, Show)
 
-instance ToJSON RankingBlock where
-  toJSON = \case
-    CertifyingBlock ebId ->
-      object
-        [ "tag" .= ("CertifyingBlock" :: String)
-        , "ebId" .= ebId
-        ]
-    PraosBlock txIds ->
-      object
-        [ "tag" .= ("PraosBlock" :: String)
-        , "txIds" .= txIds
-        ]
-
+{- | One slot's produced block, as the price controllers and metrics see it.
+A certifying RB is payload-free by construction: there is no usage to
+fabricate and none to misread.
+-}
 data BlockSummary
-  = RankingBlockProduced RankingBlockSummary
-  | EndorserBlockAnnounced EndorserBlockSummary
-  | EndorserBlockCertified EndorserBlockSummary
+  = RbPraos [TxId] BlockUsage
+  | RbCertifying EbId
+  | EbAnnounced EbId BlockUsage
+  | EbCertified EbId BlockUsage
   deriving stock (Eq, Show)
 
+{- | The wire encoding predates this type's shape and is pinned by the viz
+ingester: ranking blocks carry a nested @block@ tag (Praos\/Certifying), a
+certifying RB serialises as an all-zero usage, and the signal-capacity keys
+are @priorityCapacity*@ on RBs but @prioritySignalCapacity*@ on EBs.
+-}
 instance ToJSON BlockSummary where
   toJSON = \case
-    RankingBlockProduced summary ->
+    RbPraos txIds usage ->
       object
         [ "tag" .= ("RankingBlockProduced" :: String)
-        , "summary" .= summary
+        , "summary"
+            .= object
+              ( ("block" .= object ["tag" .= ("PraosBlock" :: String), "txIds" .= txIds])
+                  : usagePairs "priorityCapacity" usage
+              )
         ]
-    EndorserBlockAnnounced summary ->
+    RbCertifying ebId ->
       object
-        [ "tag" .= ("EndorserBlockAnnounced" :: String)
-        , "summary" .= summary
+        [ "tag" .= ("RankingBlockProduced" :: String)
+        , "summary"
+            .= object
+              ( ("block" .= object ["tag" .= ("CertifyingBlock" :: String), "ebId" .= ebId])
+                  : usagePairs "priorityCapacity" emptyUsage
+              )
         ]
-    EndorserBlockCertified summary ->
+    EbAnnounced ebId usage ->
+      endorserJson "EndorserBlockAnnounced" ebId usage
+    EbCertified ebId usage ->
+      endorserJson "EndorserBlockCertified" ebId usage
+   where
+    endorserJson tag ebId usage =
       object
-        [ "tag" .= ("EndorserBlockCertified" :: String)
-        , "summary" .= summary
+        [ "tag" .= (tag :: String)
+        , "summary" .= object (("id" .= ebId) : usagePairs "prioritySignalCapacity" usage)
         ]
+    emptyUsage =
+      BlockUsage
+        { usageCapacity = mempty
+        , usageUsed = mempty
+        , usageLanes = pure mempty
+        , usageSignalCapacity = mempty
+        }
 
-data RankingBlockSummary = RankingBlockSummary
-  { rankingBlock :: RankingBlock
-  , rankingBlockCapacityBytes :: Int
-  , rankingBlockCapacityExUnits :: Int
-  , rankingBlockUsedBytes :: Int
-  , rankingBlockUsedExUnits :: Int
-  , rankingBlockPriorityBytes :: Int
-  , rankingBlockPriorityExUnits :: Int
-  , rankingBlockStandardBytes :: Int
-  , rankingBlockStandardExUnits :: Int
-  , rankingBlockPriorityCapacityBytes :: Int
-  , rankingBlockPriorityCapacityExUnits :: Int
-  }
-  deriving stock (Eq, Show)
+usagePairs :: String -> BlockUsage -> [Pair]
+usagePairs signalCapacityKey usage =
+  [ "capacityBytes" .= usage.usageCapacity.resBytes.unBytes
+  , "capacityExUnits" .= usage.usageCapacity.resExUnits.unExUnits
+  , "usedBytes" .= usage.usageUsed.resBytes.unBytes
+  , "usedExUnits" .= usage.usageUsed.resExUnits.unExUnits
+  , "priorityBytes" .= usage.usageLanes.perPriority.resBytes.unBytes
+  , "priorityExUnits" .= usage.usageLanes.perPriority.resExUnits.unExUnits
+  , "standardBytes" .= usage.usageLanes.perStandard.resBytes.unBytes
+  , "standardExUnits" .= usage.usageLanes.perStandard.resExUnits.unExUnits
+  , Key.fromString (signalCapacityKey <> "Bytes") .= usage.usageSignalCapacity.resBytes.unBytes
+  , Key.fromString (signalCapacityKey <> "ExUnits") .= usage.usageSignalCapacity.resExUnits.unExUnits
+  ]
 
-instance ToJSON RankingBlockSummary where
-  toJSON summary =
-    object
-      [ "block" .= summary.rankingBlock
-      , "capacityBytes" .= summary.rankingBlockCapacityBytes
-      , "capacityExUnits" .= summary.rankingBlockCapacityExUnits
-      , "usedBytes" .= summary.rankingBlockUsedBytes
-      , "usedExUnits" .= summary.rankingBlockUsedExUnits
-      , "priorityBytes" .= summary.rankingBlockPriorityBytes
-      , "priorityExUnits" .= summary.rankingBlockPriorityExUnits
-      , "standardBytes" .= summary.rankingBlockStandardBytes
-      , "standardExUnits" .= summary.rankingBlockStandardExUnits
-      , "priorityCapacityBytes" .= summary.rankingBlockPriorityCapacityBytes
-      , "priorityCapacityExUnits" .= summary.rankingBlockPriorityCapacityExUnits
-      ]
-
-data EndorserBlockSummary = EndorserBlockSummary
-  { endorserBlockId :: EbId
-  , endorserBlockCapacityBytes :: Int
-  , endorserBlockCapacityExUnits :: Int
-  , endorserBlockUsedBytes :: Int
-  , endorserBlockUsedExUnits :: Int
-  , endorserBlockPriorityBytes :: Int
-  , endorserBlockPriorityExUnits :: Int
-  , endorserBlockStandardBytes :: Int
-  , endorserBlockStandardExUnits :: Int
-  , endorserBlockPrioritySignalCapacityBytes :: Int
-  , endorserBlockPrioritySignalCapacityExUnits :: Int
-  }
-  deriving stock (Eq, Show)
-
-instance ToJSON EndorserBlockSummary where
-  toJSON summary =
-    object
-      [ "id" .= summary.endorserBlockId
-      , "capacityBytes" .= summary.endorserBlockCapacityBytes
-      , "capacityExUnits" .= summary.endorserBlockCapacityExUnits
-      , "usedBytes" .= summary.endorserBlockUsedBytes
-      , "usedExUnits" .= summary.endorserBlockUsedExUnits
-      , "priorityBytes" .= summary.endorserBlockPriorityBytes
-      , "priorityExUnits" .= summary.endorserBlockPriorityExUnits
-      , "standardBytes" .= summary.endorserBlockStandardBytes
-      , "standardExUnits" .= summary.endorserBlockStandardExUnits
-      , "prioritySignalCapacityBytes" .= summary.endorserBlockPrioritySignalCapacityBytes
-      , "prioritySignalCapacityExUnits" .= summary.endorserBlockPrioritySignalCapacityExUnits
-      ]
-
-data SelectionStep acc
-  = Select acc
-  | Skip
-  | Stop
-
-mkRankingBlockSummary :: RankingBlock -> Int -> Int -> Int -> Int -> [Tx] -> RankingBlockSummary
-mkRankingBlockSummary block capacityBytes capacityExUnits priorityCapacityBytes priorityCapacityExUnits txs =
-  RankingBlockSummary
-    { rankingBlock = block
-    , rankingBlockCapacityBytes = capacityBytes
-    , rankingBlockCapacityExUnits = capacityExUnits
-    , rankingBlockUsedBytes = totalBytes txs
-    , rankingBlockUsedExUnits = totalExUnits txs
-    , rankingBlockPriorityBytes = laneBytes Priority txs
-    , rankingBlockPriorityExUnits = laneExUnits Priority txs
-    , rankingBlockStandardBytes = laneBytes Standard txs
-    , rankingBlockStandardExUnits = laneExUnits Standard txs
-    , rankingBlockPriorityCapacityBytes = priorityCapacityBytes
-    , rankingBlockPriorityCapacityExUnits = priorityCapacityExUnits
+mkBlockUsage :: Resources -> Resources -> [Tx] -> BlockUsage
+mkBlockUsage capacity signalCapacity txs =
+  BlockUsage
+    { usageCapacity = capacity
+    , usageUsed = foldMap txBlockResources txs
+    , usageLanes = laneUsage <$> lanes
+    , usageSignalCapacity = signalCapacity
     }
+ where
+  laneUsage lane =
+    foldMap txBlockResources (filter ((== lane) . (.txLane)) txs)
 
-mkEndorserBlockSummary :: EbId -> Int -> Int -> Int -> Int -> [Tx] -> EndorserBlockSummary
-mkEndorserBlockSummary ebId capacityBytes capacityExUnits prioritySignalCapacityBytes prioritySignalCapacityExUnits txs =
-  EndorserBlockSummary
-    { endorserBlockId = ebId
-    , endorserBlockCapacityBytes = capacityBytes
-    , endorserBlockCapacityExUnits = capacityExUnits
-    , endorserBlockUsedBytes = totalBytes txs
-    , endorserBlockUsedExUnits = totalExUnits txs
-    , endorserBlockPriorityBytes = laneBytes Priority txs
-    , endorserBlockPriorityExUnits = laneExUnits Priority txs
-    , endorserBlockStandardBytes = laneBytes Standard txs
-    , endorserBlockStandardExUnits = laneExUnits Standard txs
-    , endorserBlockPrioritySignalCapacityBytes = prioritySignalCapacityBytes
-    , endorserBlockPrioritySignalCapacityExUnits = prioritySignalCapacityExUnits
-    }
-
-laneBytes :: Lane -> [Tx] -> Int
-laneBytes lane =
-  sum . fmap txBytes . filter ((== lane) . txLane)
-
-laneExUnits :: Lane -> [Tx] -> Int
-laneExUnits lane =
-  sum . fmap txExUnits . filter ((== lane) . txLane)
-
-totalBytes :: [Tx] -> Int
-totalBytes =
-  sum . fmap txBytes
-
-totalExUnits :: [Tx] -> Int
-totalExUnits =
-  sum . fmap txExUnits
-
-txBytes :: Tx -> Int
-txBytes tx = tx.txBody._txSize
-
-txExUnits :: Tx -> Int
-txExUnits tx = tx.txBody._txScript._scriptExUnits
+{- | The priority lane's effective RB capacity under a reservation policy:
+the reservation caps its bytes, never its ex-units.
+-}
+prioritySignalCapacity :: ReservationPolicy -> Resources -> Resources
+prioritySignalCapacity reservation rbCapacity =
+  case reservation of
+    PriorityReservationRb reservationBytes ->
+      rbCapacity{resBytes = min rbCapacity.resBytes (Bytes reservationBytes)}
+    NoReservation -> rbCapacity
 
 {- | How a producer orders the mempool into a block, absent any reservation
 rule. EBs always use this directly: the RB reservation does not constrain
@@ -242,50 +181,38 @@ EB content.
 -}
 selectTxsByPolicy ::
   SelectionPolicy ->
-  Int ->
-  Int ->
+  Resources ->
   Seq Tx ->
-  (Seq Tx, Seq Tx, (Int, Int))
-selectTxsByPolicy selection byteCap exUnitCap txs =
+  (Seq Tx, Seq Tx, Resources)
+selectTxsByPolicy selection capacity txs =
   case selection of
     Fifo ->
-      selectByBlockCapacity byteCap exUnitCap txs
+      selectByBlockCapacity capacity txs
     PriorityFirst ->
       let (prioritySelected, afterPriority, priorityUsage) =
-            selectPriorityByBlockCapacity byteCap exUnitCap txs
+            selectPriorityByBlockCapacity capacity txs
           (standardSelected, remainingMempool, totalUsage) =
-            selectByBlockCapacityFrom priorityUsage byteCap exUnitCap afterPriority
+            selectByBlockCapacityFrom priorityUsage capacity afterPriority
        in (prioritySelected <> standardSelected, remainingMempool, totalUsage)
     FifoWithStandardCap standardShare ->
-      selectFifoWithStandardCap standardShare byteCap exUnitCap txs
+      selectFifoWithStandardCap standardShare capacity txs
 
 {- | Ranking-block selection under the design's reservation policy. The
 reservation rule admits only priority txs to RBs, so every selection policy
-collapses to priority-only FIFO under it.
+collapses to priority-only FIFO within the reserved capacity.
 -}
 selectRbTxs ::
   SelectionPolicy ->
   ReservationPolicy ->
-  Int ->
-  Int ->
+  Resources ->
   Seq Tx ->
-  (Seq Tx, Seq Tx, (Int, Int))
-selectRbTxs selection reservation rbTxBytesCap rbExUnitsCap txs =
+  (Seq Tx, Seq Tx, Resources)
+selectRbTxs selection reservation rbCapacity txs =
   case reservation of
-    PriorityReservationRb reservationBytes ->
-      selectPriorityByBlockCapacity
-        (min rbTxBytesCap reservationBytes)
-        rbExUnitsCap
-        txs
+    PriorityReservationRb{} ->
+      selectPriorityByBlockCapacity (prioritySignalCapacity reservation rbCapacity) txs
     NoReservation ->
-      selectTxsByPolicy selection rbTxBytesCap rbExUnitsCap txs
-
--- | The priority lane's effective RB byte capacity under a reservation policy.
-priorityTxBytesCap :: ReservationPolicy -> Int -> Int
-priorityTxBytesCap reservation rbTxBytesCap =
-  case reservation of
-    PriorityReservationRb reservationBytes -> min rbTxBytesCap reservationBytes
-    NoReservation -> rbTxBytesCap
+      selectTxsByPolicy selection rbCapacity txs
 
 nextEbId :: Map EbId EndorserBlock -> EbId
 nextEbId ebs =
@@ -293,87 +220,82 @@ nextEbId ebs =
     Nothing -> EbId 0
     Just (EbId n, _) -> EbId (n + 1)
 
+data SelectionStep acc
+  = Select acc
+  | Skip
+  | Stop
+
 selectByBlockCapacity ::
-  Int ->
-  Int ->
+  Resources ->
   Seq Tx ->
-  (Seq Tx, Seq Tx, (Int, Int))
+  (Seq Tx, Seq Tx, Resources)
 selectByBlockCapacity =
-  selectByBlockCapacityFrom (0, 0)
+  selectByBlockCapacityFrom mempty
 
 {- | Like 'selectByBlockCapacity', but starting from already-used resources —
 for a second selection pass over the same block. The returned usage is the
 cumulative total across passes.
 -}
 selectByBlockCapacityFrom ::
-  (Int, Int) ->
-  Int ->
-  Int ->
+  Resources ->
+  Resources ->
   Seq Tx ->
-  (Seq Tx, Seq Tx, (Int, Int))
+  (Seq Tx, Seq Tx, Resources)
 selectByBlockCapacityFrom usedSoFar =
   selectByBlockCapacityWith (const True) usedSoFar
 
 selectPriorityByBlockCapacity ::
-  Int ->
-  Int ->
+  Resources ->
   Seq Tx ->
-  (Seq Tx, Seq Tx, (Int, Int))
+  (Seq Tx, Seq Tx, Resources)
 selectPriorityByBlockCapacity =
-  selectByBlockCapacityWith ((== Priority) . txLane) (0, 0)
+  selectByBlockCapacityWith ((== Priority) . (.txLane)) mempty
 
 selectFifoWithStandardCap ::
   Double ->
-  Int ->
-  Int ->
+  Resources ->
   Seq Tx ->
-  (Seq Tx, Seq Tx, (Int, Int))
-selectFifoWithStandardCap standardShare byteCap exUnitCap txs =
+  (Seq Tx, Seq Tx, Resources)
+selectFifoWithStandardCap standardShare capacity txs =
   (selected, skipped, overallUsage)
  where
   (selected, skipped, (overallUsage, _standardUsage)) =
-    selectAccumL advance ((0, 0), (0, 0)) txs
+    selectAccumL advance (mempty, mempty) txs
 
-  blockCaps = (byteCap, exUnitCap)
-  standardCaps = (shareOf byteCap, shareOf exUnitCap)
-  shareOf cap =
-    floor (max 0 (min 1 standardShare) * fromIntegral cap) :: Int
+  standardCapacity = scaleResources standardShare capacity
 
   advance (used, standardUsed) tx
-    | not (within (used `plus` cost) blockCaps) = Stop
-    | tx.txLane /= Standard = Select (used `plus` cost, standardUsed)
-    | within (standardUsed `plus` cost) standardCaps =
-        Select (used `plus` cost, standardUsed `plus` cost)
+    | not ((used <> cost) `fitsWithin` capacity) = Stop
+    | tx.txLane /= Standard = Select (used <> cost, standardUsed)
+    | (standardUsed <> cost) `fitsWithin` standardCapacity =
+        Select (used <> cost, standardUsed <> cost)
     | otherwise = Skip
    where
     cost = txBlockResources tx
 
-  plus (a, b) (c, d) = (a + c, b + d)
-  within (a, b) (capA, capB) = a <= capA && b <= capB
-
 selectByBlockCapacityWith ::
   (Tx -> Bool) ->
-  (Int, Int) ->
-  Int ->
-  Int ->
+  Resources ->
+  Resources ->
   Seq Tx ->
-  (Seq Tx, Seq Tx, (Int, Int))
-selectByBlockCapacityWith acceptTx usedSoFar byteCap exUnitCap =
+  (Seq Tx, Seq Tx, Resources)
+selectByBlockCapacityWith acceptTx usedSoFar capacity =
   selectAccumL advanceUsage usedSoFar
  where
-  advanceUsage (usedBytes, usedExUnits) tx
+  advanceUsage used tx
     | not (acceptTx tx) = Skip
     | otherwise =
-        let (bodyBytes, bodyExUnits) = txBlockResources tx
-            usedBytes' = usedBytes + bodyBytes
-            usedExUnits' = usedExUnits + bodyExUnits
-         in if usedBytes' <= byteCap && usedExUnits' <= exUnitCap
-              then Select (usedBytes', usedExUnits')
+        let used' = used <> txBlockResources tx
+         in if used' `fitsWithin` capacity
+              then Select used'
               else Stop
 
-txBlockResources :: Tx -> (Int, Int)
+txBlockResources :: Tx -> Resources
 txBlockResources tx =
-  (txBytes tx, txExUnits tx)
+  Resources
+    { resBytes = Bytes tx.txBody._txSize
+    , resExUnits = ExUnits tx.txBody._txScript._scriptExUnits
+    }
 
 selectAccumL ::
   (acc -> a -> SelectionStep acc) ->

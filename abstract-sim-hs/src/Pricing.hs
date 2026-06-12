@@ -16,18 +16,16 @@ module Pricing (
 )
 where
 
-import Block (BlockSummary (..), EndorserBlockSummary (..), RankingBlock (..), RankingBlockSummary (..))
+import Block (BlockSummary (..), BlockUsage (..))
 import Data.Foldable qualified as Foldable
-import Data.Maybe (mapMaybe)
+import Data.Maybe (catMaybes, fromMaybe, mapMaybe)
 import Data.Sequence (Seq)
 import Design (ControllerConfig (..), ControllerSignal (..), Design (..), Eip1559Controller (..), FeeSemantics (..))
-import Transaction (Lane (..), Script (..), Tx (..), TxBody (..))
-import Types (Lovelace (..), SlotNo, diffSlots)
+import Resource (Bytes (..), ExUnits (..), Resources (..))
+import Transaction (Script (..), Tx (..), TxBody (..))
+import Types (Lane (..), Lovelace (..), PerLane (..), SlotNo, atLane, diffSlots, lanes)
 
-data Prices = Prices
-  { standardCoeff :: Double
-  , priorityCoeff :: Double
-  }
+newtype Prices = Prices {laneCoeffs :: PerLane Double}
   deriving stock (Eq, Show)
 
 data PriceUpdate = PriceUpdate
@@ -42,10 +40,7 @@ initialPrices :: Design -> Prices
 initialPrices design =
   applyPriceFloors
     controllers
-    Prices
-      { standardCoeff = maybe 1.0 controllerInitialCoefficient controllers.standardController
-      , priorityCoeff = maybe 1.0 controllerInitialCoefficient controllers.priorityController
-      }
+    (Prices (fmap (maybe 1.0 (.controllerInitialCoefficient)) controllers.laneControllers))
  where
   controllers = design.designControllers
 
@@ -89,8 +84,7 @@ realisedFee semantics prices tx =
   postedFee = tx.txBody._txFee
 
 laneCoeff :: Prices -> Lane -> Double
-laneCoeff prices Standard = prices.standardCoeff
-laneCoeff prices Priority = prices.priorityCoeff
+laneCoeff prices lane = atLane lane prices.laneCoeffs
 
 {- | The fee a tx must post to enter the mempool: the quote after
 @headroomUpdates@ worst-case controller steps.
@@ -166,21 +160,18 @@ updatePrices design recentBlocks prices =
   controllers = design.designControllers
   currentPrices =
     applyPriceFloors controllers prices
-  standardResult =
-    updateLanePrice design Standard recentBlocks currentPrices.standardCoeff
-      <$> controllers.standardController
-  priorityResult =
-    updateLanePrice design Priority recentBlocks currentPrices.priorityCoeff
-      <$> controllers.priorityController
+  laneResults :: PerLane (Maybe PriceUpdate)
+  laneResults =
+    (\lane coeff -> fmap (updateLanePrice design lane recentBlocks coeff))
+      <$> lanes
+      <*> currentPrices.laneCoeffs
+      <*> controllers.laneControllers
   pricesBeforeFloor =
-    Prices
-      { standardCoeff = maybe currentPrices.standardCoeff priceUpdateNewCoeff standardResult
-      , priorityCoeff = maybe currentPrices.priorityCoeff priceUpdateNewCoeff priorityResult
-      }
+    Prices (fromMaybe <$> currentPrices.laneCoeffs <*> fmap (fmap (.priceUpdateNewCoeff)) laneResults)
   finalPrices =
     applyPriceFloors controllers pricesBeforeFloor
   updates =
-    fmap withFinalFloor (maybe [] pure standardResult <> maybe [] pure priorityResult)
+    withFinalFloor <$> catMaybes (Foldable.toList laneResults)
   withFinalFloor update =
     update{priceUpdateNewCoeff = laneCoeff finalPrices update.priceUpdateLane}
 
@@ -197,10 +188,7 @@ bounded by its own step). Lanes without a controller never move.
 -}
 worstCaseNextPrices :: ControllerConfig -> Prices -> Prices
 worstCaseNextPrices controllers prices =
-  Prices
-    { standardCoeff = scale controllers.standardController prices.standardCoeff
-    , priorityCoeff = scale controllers.priorityController prices.priorityCoeff
-    }
+  Prices (scale <$> controllers.laneControllers <*> prices.laneCoeffs)
  where
   scale Nothing coeff = coeff
   scale (Just controller) coeff =
@@ -211,24 +199,22 @@ applyPriceFloors controllers =
   applyMultiplierFloor controllers . applyAbsoluteFloor controllers
 
 applyAbsoluteFloor :: ControllerConfig -> Prices -> Prices
-applyAbsoluteFloor controllers prices =
-  prices
-    { standardCoeff = max floorCoeff prices.standardCoeff
-    , priorityCoeff = max floorCoeff prices.priorityCoeff
-    }
+applyAbsoluteFloor controllers (Prices coeffs) =
+  Prices (fmap (max floorCoeff) coeffs)
  where
   floorCoeff = max 0 controllers.absoluteCoeffFloor
 
 applyMultiplierFloor :: ControllerConfig -> Prices -> Prices
 applyMultiplierFloor controllers prices =
-  case (controllers.priorityController, controllers.multiplierFloor) of
+  case (controllers.laneControllers.perPriority, controllers.multiplierFloor) of
     (Just _, Just floorMultiplier) ->
-      prices
-        { priorityCoeff =
-            max
-              prices.priorityCoeff
-              (prices.standardCoeff * floorMultiplier)
-        }
+      Prices
+        prices.laneCoeffs
+          { perPriority =
+              max
+                prices.laneCoeffs.perPriority
+                (prices.laneCoeffs.perStandard * floorMultiplier)
+          }
     _ -> prices
 
 updateLanePrice :: Design -> Lane -> Seq BlockSummary -> Double -> Eip1559Controller -> PriceUpdate
@@ -265,7 +251,7 @@ retentionWindow controllers =
   maximum
     ( 1
         : [ signalWindow controller.controllerSignal
-          | Just controller <- [controllers.standardController, controllers.priorityController]
+          | Just controller <- Foldable.toList controllers.laneControllers
           ]
     )
 
@@ -283,75 +269,48 @@ capacityWeightedWindowUtilisation lane windowSize recentBlocks =
   utilisationRatio (fmap laneUsed summaries) (fmap summaryCapacity summaries)
  where
   summaries = takeLast windowSize recentBlocks
-  laneUsed (RankingBlockProduced summary) =
-    rankingLaneBytes lane summary
-  laneUsed (EndorserBlockAnnounced summary) =
-    endorserLaneBytes lane summary
-  laneUsed (EndorserBlockCertified _) =
-    0
+  laneUsed = \case
+    RbPraos _ usage -> laneUsedBytes usage
+    RbCertifying _ -> 0
+    EbAnnounced _ usage -> laneUsedBytes usage
+    -- A certified EB's content already counted at announcement; only the
+    -- priority reservation signal reads certification.
+    EbCertified _ _ -> 0
+  laneUsedBytes usage =
+    (atLane lane usage.usageLanes).resBytes.unBytes
+  summaryCapacity = \case
+    RbPraos _ usage -> usage.usageCapacity.resBytes.unBytes
+    RbCertifying _ -> 0
+    EbAnnounced _ usage -> usage.usageCapacity.resBytes.unBytes
+    EbCertified _ _ -> 0
 
 priorityReservationUtilisation :: Design -> Seq BlockSummary -> Double
 priorityReservationUtilisation _ recentBlocks =
   mean (takeLast 1 (mapMaybe prioritySignalSample (Foldable.toList recentBlocks)))
  where
-  prioritySignalSample (RankingBlockProduced summary) =
-    rankingBlockPrioritySignal summary
-  prioritySignalSample (EndorserBlockAnnounced _) =
-    Nothing
-  prioritySignalSample (EndorserBlockCertified summary) =
-    endorserBlockPrioritySignal summary
+  prioritySignalSample = \case
+    RbPraos _ usage -> Just (priorityFill usage)
+    RbCertifying _ -> Nothing
+    EbAnnounced _ _ -> Nothing
+    EbCertified _ usage -> Just (priorityFill usage)
 
-rankingBlockPrioritySignal :: RankingBlockSummary -> Maybe Double
-rankingBlockPrioritySignal summary =
-  case summary.rankingBlock of
-    PraosBlock{} ->
-      Just
-        ( priorityResourceFill
-            summary.rankingBlockPriorityBytes
-            summary.rankingBlockPriorityExUnits
-            summary.rankingBlockPriorityCapacityBytes
-            summary.rankingBlockPriorityCapacityExUnits
-        )
-    CertifyingBlock{} ->
-      Nothing
-
-endorserBlockPrioritySignal :: EndorserBlockSummary -> Maybe Double
-endorserBlockPrioritySignal summary =
-  Just
-    ( priorityResourceFill
-        summary.endorserBlockPriorityBytes
-        summary.endorserBlockPriorityExUnits
-        summary.endorserBlockPrioritySignalCapacityBytes
-        summary.endorserBlockPrioritySignalCapacityExUnits
-    )
-
-priorityResourceFill :: Int -> Int -> Int -> Int -> Double
-priorityResourceFill usedBytes usedExUnits capacityBytes capacityExUnits =
+{- | How full the priority lane ran against its signal capacity, on the
+binding dimension.
+-}
+priorityFill :: BlockUsage -> Double
+priorityFill usage =
   clamp 0 1 (max bytesFill exUnitsFill)
  where
-  bytesFill = resourceRatio usedBytes capacityBytes
-  exUnitsFill = resourceRatio usedExUnits capacityExUnits
+  priorityUsed = usage.usageLanes.perPriority
+  bytesFill =
+    resourceRatio priorityUsed.resBytes.unBytes usage.usageSignalCapacity.resBytes.unBytes
+  exUnitsFill =
+    resourceRatio priorityUsed.resExUnits.unExUnits usage.usageSignalCapacity.resExUnits.unExUnits
 
 resourceRatio :: Int -> Int -> Double
 resourceRatio _ capacity | capacity <= 0 = 0
 resourceRatio used capacity =
   fromIntegral used / fromIntegral capacity
-
-rankingLaneBytes :: Lane -> RankingBlockSummary -> Int
-rankingLaneBytes Standard = rankingBlockStandardBytes
-rankingLaneBytes Priority = rankingBlockPriorityBytes
-
-endorserLaneBytes :: Lane -> EndorserBlockSummary -> Int
-endorserLaneBytes Standard = endorserBlockStandardBytes
-endorserLaneBytes Priority = endorserBlockPriorityBytes
-
-summaryCapacity :: BlockSummary -> Int
-summaryCapacity (RankingBlockProduced summary) =
-  rankingBlockCapacityBytes summary
-summaryCapacity (EndorserBlockAnnounced summary) =
-  endorserBlockCapacityBytes summary
-summaryCapacity (EndorserBlockCertified _) =
-  0
 
 utilisationRatio :: [Int] -> [Int] -> Double
 utilisationRatio used capacity

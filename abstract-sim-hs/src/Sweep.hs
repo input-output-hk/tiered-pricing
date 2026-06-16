@@ -33,12 +33,14 @@ import Config (SimConfig)
 import Data.Aeson (FromJSON (..), Value, eitherDecode, encode, object, withObject, (.:), (.:?), (.=))
 import Data.Aeson.Key qualified as Key
 import Data.ByteString.Lazy qualified as BL
-import Data.List (nub)
+import Data.List (maximumBy, nub)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
+import Data.Ord (comparing)
 import Metrics (
   DemandLoad (..),
   DistStats (..),
+  InclusionStats (..),
   Metrics (..),
   PriceShock (..),
   PriceStability (..),
@@ -54,7 +56,7 @@ import Run (Run (..), Seed, runWithSeedToFile)
 import System.Directory (copyFile, createDirectoryIfMissing)
 import System.FilePath ((</>))
 import Text.Printf (printf)
-import Types (Lovelace (..))
+import Types (Duration (..), Lane (..), Lovelace (..), Urgency (..))
 
 data SweepSpec = SweepSpec
   { sweepDescription :: Maybe String
@@ -232,14 +234,42 @@ headline =
   , ("units.abandoned", \m -> int m.demandLoad.unitsAbandoned)
   , ("units.unresolved", \m -> int m.demandLoad.unitsUnresolved)
   , ("units.serviceRate", serviceRate)
+  , ("inclusion.standard.submitted", \m -> int (laneInclusionStats Standard m).submitted)
+  , ("inclusion.standard.included", \m -> int (laneInclusionStats Standard m).included)
+  , ("inclusion.standard.serviceRate", laneServiceRate Standard)
+  , ("inclusion.priority.submitted", \m -> int (laneInclusionStats Priority m).submitted)
+  , ("inclusion.priority.included", \m -> int (laneInclusionStats Priority m).included)
+  , ("inclusion.priority.serviceRate", laneServiceRate Priority)
+  , ("inclusion.urgent.submitted", \m -> int (urgentInclusionStats m).submitted)
+  , ("inclusion.urgent.included", \m -> int (urgentInclusionStats m).included)
+  , ("inclusion.urgent.serviceRate", urgentServiceRate)
   , ("load.amplification", loadAmplification)
   , ("load.attemptsMax", \m -> int m.demandLoad.attemptsMax)
   , ("load.postedFeeGrowthMean", \m -> m.demandLoad.postedFeeGrowthMean)
   , ("latency.meanSlots", latencyMeanSlots)
+  , ("latency.standard.count", \m -> int (laneLatencyStats Standard m).statCount)
+  , ("latency.standard.meanSlots", \m -> (laneLatencyStats Standard m).statMean)
+  , ("latency.priority.count", \m -> int (laneLatencyStats Priority m).statCount)
+  , ("latency.priority.meanSlots", \m -> (laneLatencyStats Priority m).statMean)
+  , ("latency.urgent.count", \m -> int (urgentLatencyStats m).statCount)
+  , ("latency.urgent.meanSlots", \m -> (urgentLatencyStats m).statMean)
   , ("latency.meanBlocks", latencyMeanBlocks)
   , ("value.retainedLovelace", \m -> lovelace (sumLovelace (fmap (.retainedValue) (Map.elems m.value))))
   , ("value.lostLovelace", \m -> lovelace (sumLovelace (fmap (.lostValue) (Map.elems m.value))))
   , ("value.unresolvedLovelace", \m -> lovelace (sumLovelace (fmap (.unresolvedValue) (Map.elems m.value))))
+  , ("value.retainedRatio", retainedValueRatio)
+  , ("value.standard.retainedLovelace", \m -> lovelace (laneValueOutcome Standard m).retainedValue)
+  , ("value.standard.lostLovelace", \m -> lovelace (laneValueOutcome Standard m).lostValue)
+  , ("value.standard.unresolvedLovelace", \m -> lovelace (laneValueOutcome Standard m).unresolvedValue)
+  , ("value.standard.retainedRatio", laneRetainedValueRatio Standard)
+  , ("value.priority.retainedLovelace", \m -> lovelace (laneValueOutcome Priority m).retainedValue)
+  , ("value.priority.lostLovelace", \m -> lovelace (laneValueOutcome Priority m).lostValue)
+  , ("value.priority.unresolvedLovelace", \m -> lovelace (laneValueOutcome Priority m).unresolvedValue)
+  , ("value.priority.retainedRatio", laneRetainedValueRatio Priority)
+  , ("value.urgent.retainedLovelace", \m -> lovelace (urgentValueOutcome m).retainedValue)
+  , ("value.urgent.lostLovelace", \m -> lovelace (urgentValueOutcome m).lostValue)
+  , ("value.urgent.unresolvedLovelace", \m -> lovelace (urgentValueOutcome m).unresolvedValue)
+  , ("value.urgent.retainedRatio", urgentRetainedValueRatio)
   , ("revenue.feesCollectedLovelace", \m -> lovelace m.revenue.feesCollected)
   , ("revenue.refundsPaidLovelace", \m -> lovelace m.revenue.refundsPaid)
   , ("throughput.txPerSlot", \m -> m.throughput.txThroughput)
@@ -259,6 +289,119 @@ headlineScalars metrics =
 serviceRate :: Metrics -> Double
 serviceRate m =
   ratio m.demandLoad.unitsServed m.demandLoad.demandUnits
+
+laneServiceRate :: Lane -> Metrics -> Double
+laneServiceRate lane metrics =
+  ratio stats.included stats.submitted
+ where
+  stats = laneInclusionStats lane metrics
+
+laneInclusionStats :: Lane -> Metrics -> InclusionStats
+laneInclusionStats lane metrics =
+  Map.findWithDefault (InclusionStats 0 0) lane metrics.laneInclusion
+
+urgentServiceRate :: Metrics -> Double
+urgentServiceRate metrics =
+  ratio stats.included stats.submitted
+ where
+  stats = urgentInclusionStats metrics
+
+urgentInclusionStats :: Metrics -> InclusionStats
+urgentInclusionStats metrics =
+  maybe
+    (InclusionStats 0 0)
+    (\urgency -> Map.findWithDefault (InclusionStats 0 0) urgency metrics.inclusion)
+    (urgentClass metrics)
+
+laneLatencyStats :: Lane -> Metrics -> DistStats Duration
+laneLatencyStats lane metrics =
+  Map.findWithDefault emptyLatency lane metrics.laneLatency
+ where
+  emptyLatency =
+    DistStats
+      { statCount = 0
+      , statMean = 0
+      , statMedian = Duration 0
+      , statP95 = Duration 0
+      , statMax = Duration 0
+      }
+
+urgentLatencyStats :: Metrics -> DistStats Duration
+urgentLatencyStats metrics =
+  maybe
+    emptyDurationStats
+    (\urgency -> Map.findWithDefault emptyDurationStats urgency metrics.latency)
+    (urgentClass metrics)
+
+laneValueOutcome :: Lane -> Metrics -> ValueOutcome
+laneValueOutcome lane metrics =
+  Map.findWithDefault emptyValue lane metrics.laneValue
+
+urgentValueOutcome :: Metrics -> ValueOutcome
+urgentValueOutcome metrics =
+  maybe
+    emptyValue
+    (\urgency -> Map.findWithDefault emptyValue urgency metrics.value)
+    (urgentClass metrics)
+
+urgentClass :: Metrics -> Maybe Urgency
+urgentClass metrics =
+  case Map.keys metrics.inclusion of
+    [] -> Nothing
+    urgencies -> Just (maximumBy (comparing urgencyScore) urgencies)
+
+urgencyScore :: Urgency -> Double
+urgencyScore = \case
+  Linear rate -> rate
+  Exponential rate -> rate
+
+retainedValueRatio :: Metrics -> Double
+retainedValueRatio metrics =
+  valueRetainedRatio
+    ValueOutcome
+      { retainedValue = sumLovelace (fmap (.retainedValue) outcomes)
+      , lostValue = sumLovelace (fmap (.lostValue) outcomes)
+      , unresolvedValue = sumLovelace (fmap (.unresolvedValue) outcomes)
+      }
+ where
+  outcomes = Map.elems metrics.value
+
+laneRetainedValueRatio :: Lane -> Metrics -> Double
+laneRetainedValueRatio lane metrics =
+  valueRetainedRatio (laneValueOutcome lane metrics)
+
+urgentRetainedValueRatio :: Metrics -> Double
+urgentRetainedValueRatio metrics =
+  valueRetainedRatio (urgentValueOutcome metrics)
+
+valueRetainedRatio :: ValueOutcome -> Double
+valueRetainedRatio outcome =
+  lovelaceRatio
+    outcome.retainedValue
+    (sumLovelace [outcome.retainedValue, outcome.lostValue])
+
+emptyValue :: ValueOutcome
+emptyValue =
+  ValueOutcome
+    { retainedValue = Lovelace 0
+    , lostValue = Lovelace 0
+    , unresolvedValue = Lovelace 0
+    }
+
+emptyDurationStats :: DistStats Duration
+emptyDurationStats =
+  DistStats
+    { statCount = 0
+    , statMean = 0
+    , statMedian = Duration 0
+    , statP95 = Duration 0
+    , statMax = Duration 0
+    }
+
+lovelaceRatio :: Lovelace -> Lovelace -> Double
+lovelaceRatio _ (Lovelace denominator) | denominator <= 0 = 0
+lovelaceRatio (Lovelace numerator) (Lovelace denominator) =
+  fromInteger numerator / fromInteger denominator
 
 loadAmplification :: Metrics -> Double
 loadAmplification m =

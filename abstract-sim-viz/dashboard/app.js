@@ -450,16 +450,19 @@ function renderDistribution() {
   fig.innerHTML = "";
   panelHead("panel-dist", "Latency distribution", "IQR · median · p95 · max", "latency-dist.svg");
   const g = latencyGrouping();
+  // values are stored in slots; show blocks when the run defines slots-per-block
+  const spb = DATA.meta.expectedSlotsPerBlock;
+  const toB = spb ? (sl) => sl / spb : (sl) => sl;
   const rows = g.items.filter((it) => !g.hidden.has(it.id)).map((it) => {
     const s = g.data[it.id];
     return { id: it.id, label: it.label, color: it.color,
-             p25: s.p25, p75: s.p75, median: s.median, p95: s.p95, max: s.max };
+             p25: toB(s.p25), p75: toB(s.p75), median: toB(s.median), p95: toB(s.p95), max: toB(s.max) };
   });
   const node = Plot.plot({
     width: distWidth(), height: 300, marginLeft: 40, marginBottom: 56, marginRight: 8,
     style: { color: t.text, fontSize: "11px" },
     x: { domain: rows.map((r) => r.label), label: null, tickRotate: -30 },
-    y: { grid: false, label: "latency (slots) ↑" },
+    y: { grid: false, label: `latency (${spb ? "blocks" : "slots"}) ↑` },
     marks: [
       Plot.gridY({ stroke: t.grid }),
       Plot.ruleX(rows, { x: "label", y1: "p75", y2: "p95", stroke: (d) => d.color, strokeWidth: 1 }),
@@ -670,9 +673,10 @@ function renderFlow() {
     `<text x="${x0 + 2}" y="${topY - 4}" font-size="9" fill="${t.text}">submitted ↧</text>`,
     `<text x="${x0 + 2}" y="${botY + 13}" font-size="9" fill="${t.text}">included</text>`,
   ];
-  let note = "drag across the time panels above to pick a window";
-  const sel = state.flowSel;
-  if (sel && links.length) {
+  let note = "drag the time panels above to narrow the window";
+  // default to the full visible domain so the panel renders populated; a drag narrows it
+  const sel = state.flowSel || [d0, d1];
+  if (links.length) {
     const lo = Math.min(sel[0], sel[1]), hi = Math.max(sel[0], sel[1]);
     const inSub = (dd) => dd[0] >= lo && dd[0] <= hi;   // submitted in window
     const inInc = (dd) => dd[1] >= lo && dd[1] <= hi;   // included in window
@@ -836,7 +840,10 @@ function syncRunNav() {
     seedSelect.appendChild(option);
   });
   seedSelect.value = String(runIndex);
-  seedSelect.hidden = seeds.length < 2;
+  const oneSeed = seeds.length < 2;
+  seedSelect.hidden = oneSeed;
+  el("seed-prev").hidden = oneSeed;
+  el("seed-next").hidden = oneSeed;
 }
 
 function setupRunNav() {
@@ -853,6 +860,8 @@ function setupRunNav() {
   el("seed-select").onchange = () => switchRun(+el("seed-select").value);
   el("run-prev").onclick = () => cycleVariant(-1);
   el("run-next").onclick = () => cycleVariant(1);
+  el("seed-prev").onclick = () => cycleSeed(-1);
+  el("seed-next").onclick = () => cycleSeed(1);
   document.addEventListener("keydown", (ev) => {
     if (/^(SELECT|INPUT|TEXTAREA)$/.test(ev.target.tagName)) return;
     if (ev.key === "[") cycleVariant(-1);

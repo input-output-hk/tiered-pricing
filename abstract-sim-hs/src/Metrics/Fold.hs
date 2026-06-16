@@ -26,12 +26,14 @@ finalizeMetrics metricsConfig slots acc =
   Metrics
     { inclusion = sliceBy urgencyDim inclusionStats acc
     , value = sliceBy urgencyDim valueOutcome acc
+    , laneValue = sliceBy laneDim valueOutcome acc
     , latency = sliceBy urgencyDim latencyStats acc
     , actualBlockLatency = sliceBy urgencyDim blockLatencyStats acc
     , laneInclusion = sliceBy laneDim inclusionStats acc
     , laneLatency = sliceBy laneDim latencyStats acc
     , laneActualBlockLatency = sliceBy laneDim blockLatencyStats acc
     , urgencyLaneInclusion = sliceBy (urgencyDim >*< laneDim) inclusionStats acc
+    , urgencyLaneValue = sliceBy (urgencyDim >*< laneDim) valueOutcome acc
     , urgencyLaneLatency = sliceBy (urgencyDim >*< laneDim) latencyStats acc
     , urgencyLaneActualBlockLatency = sliceBy (urgencyDim >*< laneDim) blockLatencyStats acc
     , priceShock = priceShockFrom acc

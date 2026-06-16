@@ -7,7 +7,7 @@
     },
     "selection": "fifo",
     "feeSemantics": "eip1559",
-    "priorityPremiumScope": "everywhere",
+    "priorityPremiumScope": "rb-only",
     "controllers": {
       "standardController": {
         "targetUtilisation": 0.5,
@@ -21,7 +21,7 @@
       "priorityController": {
         "targetUtilisation": 0.5,
         "maxChangeDenominator": 8,
-        "initialCoefficient": 16.0,
+        "initialCoefficient": 2.0,
         "signal": "priority-reservation-util"
       },
       "multiplierFloor": null,

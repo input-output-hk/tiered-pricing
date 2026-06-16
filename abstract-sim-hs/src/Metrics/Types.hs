@@ -59,6 +59,8 @@ data Metrics = Metrics
   -- ^ (1) transaction inclusion, by urgency
   , value :: ByUrgency ValueOutcome
   -- ^ (2) retained\/lost value, by urgency
+  , laneValue :: ByLane ValueOutcome
+  -- ^ Diagnostic retained\/lost value, by submitted/serving lane
   , latency :: ByUrgency LatencyStats
   -- ^ (3) inclusion latency, by urgency
   , actualBlockLatency :: ByUrgency BlockLatencyStats
@@ -71,6 +73,8 @@ data Metrics = Metrics
   -- ^ Diagnostic inclusion latency in actual ranking blocks, by submitted lane
   , urgencyLaneInclusion :: ByUrgencyLane InclusionStats
   -- ^ Diagnostic transaction inclusion, by urgency and submitted lane
+  , urgencyLaneValue :: ByUrgencyLane ValueOutcome
+  -- ^ Diagnostic retained\/lost value, by urgency and submitted/serving lane
   , urgencyLaneLatency :: ByUrgencyLane LatencyStats
   -- ^ Diagnostic inclusion latency, by urgency and submitted lane
   , urgencyLaneActualBlockLatency :: ByUrgencyLane BlockLatencyStats

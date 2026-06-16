@@ -6,19 +6,56 @@
   <title>Linear-Leios Dynamic Pricing — Sweep Comparison</title>
   <link rel="stylesheet" href="style.css" />
   <style>
-    /* comparison-page grid: small multiples, one per headline scalar */
-    #compare-charts {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
-      gap: 12px;
-      padding: 0 16px 16px;
+    .compare-section { padding: 0 16px 14px; }
+    .compare-section h2 {
+      font-size: 13px; margin: 14px 0 6px; font-weight: 600;
     }
-    #compare-table { padding: 0 16px 8px; overflow-x: auto; }
-    #compare-table table { border-collapse: collapse; font-size: 12px; }
-    #compare-table th, #compare-table td { padding: 4px 10px; text-align: right; }
-    #compare-table th:first-child, #compare-table td:first-child { text-align: left; }
-    #compare-table thead th { border-bottom: 1px solid #9ca3af; }
-    #compare-table td .sd { opacity: 0.55; font-size: 11px; }
+    #baseline-select { max-width: 220px; }
+    #compare-kpis { padding: 14px 16px 8px; }
+    .kpi-group { margin-bottom: 12px; }
+    .kpi-group h2 { font-size: 13px; margin: 0 0 6px; font-weight: 600; }
+    .kpi-grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 10px;
+    }
+    #compare-kpis .kpi { min-width: 0; }
+    #compare-kpis .winner { font-size: 12px; color: var(--muted); margin-top: 2px; }
+    #compare-kpis .delta { font-size: 11px; margin-top: 4px; }
+    .good { color: #047857; }
+    .bad { color: #b91c1c; }
+    html[data-theme="dark"] .good { color: #34d399; }
+    html[data-theme="dark"] .bad { color: #f87171; }
+    #compare-report { padding: 0 16px 8px; }
+    .metric-group { margin: 12px 0 18px; overflow-x: auto; }
+    .metric-group h3 {
+      font-size: 12px; margin: 0 0 5px; font-weight: 600;
+    }
+    .metric-group table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .metric-group th, .metric-group td {
+      padding: 5px 8px; text-align: right; border-bottom: 1px solid var(--border);
+      vertical-align: top; white-space: nowrap;
+    }
+    .metric-group th:first-child, .metric-group td:first-child {
+      text-align: left; position: sticky; left: 0; background: var(--bg);
+      min-width: 190px; z-index: 1;
+    }
+    .metric-group thead th { color: var(--muted); font-weight: 500; }
+    .metric-cell .main { font-weight: 600; }
+    .metric-cell .spread, .metric-cell .delta { color: var(--muted); font-size: 11px; }
+    .metric-cell .delta.good { color: #047857; }
+    .metric-cell .delta.bad { color: #b91c1c; }
+    html[data-theme="dark"] .metric-cell .delta.good { color: #34d399; }
+    html[data-theme="dark"] .metric-cell .delta.bad { color: #f87171; }
+    #chart-groups { padding: 0 16px 16px; }
+    .chart-group { margin-top: 12px; }
+    .chart-group h3 {
+      font-size: 12px; margin: 0 0 8px; font-weight: 600;
+    }
+    .compare-charts {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
+      gap: 12px;
+    }
   </style>
 </head>
 <body>
@@ -28,12 +65,14 @@
       <div id="subtitle" class="subtitle"></div>
     </div>
     <div id="controls">
+      <select id="baseline-select" title="Baseline variant"></select>
       <button id="toggle-theme" type="button">◐ Theme</button>
     </div>
   </header>
 
-  <div id="compare-table"></div>
-  <div id="compare-charts"></div>
+  <div id="compare-kpis"></div>
+  <div id="compare-report"></div>
+  <div id="chart-groups"></div>
 
   <footer class="subtitle" id="footnote"></footer>
 

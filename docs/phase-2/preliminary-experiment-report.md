@@ -1,5 +1,9 @@
 Discussion of seeded experiment, comparing reserved vs unreserved priority allocation against EIP-1559 and control
 
+### TLDR ###
+
+Preliminary experiment results show that, on average, latency (by ~50%) and value decay (by ~20%, but this depends on the definition of "urgency" and the exact rate-of-decay criteria) can be reduced for urgent transactions by providing network participants with a priority lane to which they can opt to submit transactions, for a premium fee.
+
 ### Question ###
 
 Can reserving space for priority transactions compete with an open, priority-first regime?
@@ -11,7 +15,6 @@ We ask this because a reserved mechanism allows for greater control over the way
 ### Method ###
 
 Each experiment config is run under an identical seeded load. We do this so that differences in outcomes are attributable to the mechanism rather than to differences in demand between runs. Transaction submissions arrive according to a Poisson process whose rate varies over time; for a fixed seed and workload profile, there is a fixed transaction submission schedule, supporting reproducibility, with the mean load determined by the burst criteria. For these experiments, we operate at a mean load of 40 tx/slot between slots 0-249 and slots 1750-1999, and at a mean load of 160 tx/slot between slots 250-1749.
-
 
 <details>
 <summary>Show experiment config</summary>
@@ -53,7 +56,7 @@ Sweep harness config:
 
 ---
 
-**Metrics.** For each run we record seven families of outcome, some of which are sliced by urgency class and (diagnostically) by lane:
+**Metrics.** For each run we record seven families of outcome, some of which are sliced by urgency class by lane:
 
 - **Inclusion** - The percentage of transactions (distinct demand units; retries do not add to the count) that were included in any block
 - **Value** - The sum of transaction value (in Lovelace) captured, lost and unresolved
@@ -572,20 +575,34 @@ A single lane with an EIP-1559 dynamic base fee (one standard controller trackin
 
 ---
 
-### Results ###
+#### What this is not ###
 
-#### Reading the figures ####
+Adversarial actors, workload profile sweep, dependency chain simulation, etc
+
+---
+
+### Results ###
 
 Across ten seeded runs, all mechanisms preserve high overall service rates, but the differences show up in retained value, urgent latency, and the reserved-vs-open tradeoff. Reservation is competitive with open priority-first selection, but it does not dominate it on every metric.
 
-| Variant | Service | Retained value | Urgent retained | Urgent latency | Priority latency | Tx/slot | Price shocks |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| flat-fee | 99.03% | 92.99% | 43.29% | 59.8 | n/a | 128.7 | 0.0 |
-| single-lane-eip1559 | 98.99% | 92.97% | 43.32% | 59.7 | n/a | 128.6 | 3.2 |
-| priority-only-reserved | 98.94% | 93.55% | 50.45% | 49.4 | 39.4 | 127.3 | 55.2 |
-| priority-only-open | 99.09% | 93.48% | 50.63% | 49.6 | 41.3 | 127.5 | 55.4 |
-| both-dynamic-reserved | 98.97% | 93.67% | 51.18% | 46.7 | 42.4 | 121.4 | 61.1 |
-| both-dynamic-open | 98.72% | 93.61% | 51.86% | 44.8 | 39.8 | 122.0 | 60.1 |
+| Variant | Service | Retained value | Urgent retained | Urgent latency (blk / sl) | Priority latency (blk / sl) | Standard latency (blk / sl) | Tx/slot | Median net revenue (B) | Price shocks | Oscillation |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| flat-fee | 98.98% | 93.35% | 44.32% | 2.9 / 56.0 | n/a | 2.9 / 56.2 | 127.4 | 79.4 | 0.0 | 0.00 |
+| single-lane-eip1559 | 98.74% | 93.37% | 44.94% | 2.8 / 54.6 | n/a | 2.8 / 55.2 | 122.9 | 94.4 | 0.9 | 0.19 |
+| priority-only-reserved | 98.94% | 93.55% | 50.45% | 2.5 / 49.4 | 2.1 / 39.4 | 3.0 / 58.2 | 127.3 | 79.6 | 55.2 | 1.74 |
+| priority-only-open | 99.09% | 93.48% | 50.63% | 2.5 / 49.6 | 2.2 / 41.3 | 3.0 / 59.7 | 127.5 | 80.5 | 55.4 | 1.86 |
+| both-dynamic-reserved | 98.97% | 93.67% | 51.18% | 2.5 / 46.7 | 2.3 / 42.4 | 2.9 / 56.7 | 121.4 | 101.6 | 61.1 | 3.21 |
+| both-dynamic-open | 98.72% | 93.61% | 51.86% | 2.4 / 44.8 | 2.3 / 39.8 | 2.9 / 55.0 | 122.0 | 97.9 | 60.1 | 2.93 |
+
+Latency columns report mean latency as actual produced ranking blocks / slots, from first submission to inclusion. Median net revenue is fee revenue minus refunds, in billions of Lovelace.
+
+Urgent retained value is improved, in the best case (both-dynamic-open vs flat-fee), from 44.32% to 51.86%, a ~17% improvement from the baseline value; a narrow lead over both-dynamic-reserved. Additionally, we can see that priority-lane latency, in the best case, improves by almost a full block relative to the flat-fee single lane. This does not, however, mean that urgent transactions reap all of these rewards. Urgent transactions experienced latency improvements of roughly 0.4-0.5 blocks. Still a valuable improvement, but it's clear that the priority lane isn't exclusively occupied by the most urgent transactions; this isn't necessarily a bad thing, since it indicates some degree of inclusiveness.
+
+The most important conclusion to be made from the aggregate table above is that the differences between the open and closed variants are minimal. As such, the reserved variants should be preferred, since they enable ledger enforceability; this is required in order to prevent bribery, as discussed in the introduction.
+
+We must also note that not everything is an improvement over the flat-fee and EIP-1559 variants. Throughput is slightly lower, at ~122 tx/slot (~6 less than baseline) for the both-dynamic variants and ~127 tx/slot (~1 less than baseline) for the priority-dynamic variants.
+
+#### Reading the figures ####
 
 ![both-dynamic-reserved, seed 2](figures/both-dynamic-reserved-seed-2.png)
 Here we can see the results of one seed from the both-dynamic-reserved config. Across the top, note the key info cards. Note also the chart elements:

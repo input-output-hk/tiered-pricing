@@ -264,25 +264,37 @@ def build_sim_data(acc, params=None, target_buckets=300, source="events.jsonl", 
 
     grouped_class = latency_mod.join_latencies(acc)
     grouped_lane = latency_mod.join_latencies_by_lane(acc)
+    grouped_block_class = latency_mod.join_block_latencies(acc)
+    grouped_block_lane = latency_mod.join_block_latencies_by_lane(acc)
+    grouped_block_class_incl = latency_mod.join_block_latencies_by_inclusion(acc)
+    grouped_block_lane_incl = latency_mod.join_block_latencies_by_lane_inclusion(acc)
     all_lat = [lat for pairs in grouped_class.values() for (_, lat) in pairs]
     bin_w = _shared_bin_width(all_lat)  # shared across class AND lane groupings for comparability
 
-    def stats_for(grouped, keys):
+    def stats_for(grouped, grouped_blocks, grouped_blocks_incl, keys):
         # iterate the known keys so every class/lane appears (zero-filled if no inclusions)
         out = {}
         for key in keys:
             pairs = grouped.get(key, [])
             lats = [lat for (_, lat) in pairs]
+            block_pairs = grouped_blocks.get(key, [])
+            block_lats = [lat for (_, lat) in block_pairs]
             s = latency_mod.class_stats(lats)
+            s["blocks"] = latency_mod.class_stats(block_lats)
             s["histogram"] = {"binWidth": bin_w, "bins": histogram_bins(lats, bin_w)}
             s["overTime"] = latency_mod.over_time(pairs, width, slot_count)  # by submission slot
             s["overTimeIncl"] = latency_mod.over_time(   # by inclusion slot (submit + latency)
                 [(sub + lat, lat) for (sub, lat) in pairs], width, slot_count)
+            s["overTimeBlocks"] = latency_mod.over_time(block_pairs, width, slot_count)
+            s["overTimeInclBlocks"] = latency_mod.over_time(
+                grouped_blocks_incl.get(key, []), width, slot_count)
             out[key] = s
         return out
 
-    latency_by_class = stats_for(grouped_class, [c["id"] for c in classes])
-    latency_by_lane = stats_for(grouped_lane, lanes)
+    latency_by_class = stats_for(
+        grouped_class, grouped_block_class, grouped_block_class_incl, [c["id"] for c in classes])
+    latency_by_lane = stats_for(
+        grouped_lane, grouped_block_lane, grouped_block_lane_incl, lanes)
 
     return {
         "meta": {

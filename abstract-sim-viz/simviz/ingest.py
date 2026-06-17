@@ -110,6 +110,7 @@ class Accumulator:
             unit = self.units.get(self.tx_origin.get(tx_id))
             if unit is not None and unit["includedAt"] is None and unit["abandonedAt"] is None:
                 unit["includedAt"] = slot
+                unit["includedBlock"] = self.rb_count
                 unit["route"] = self.included_route[tx_id]
                 unit["servingLane"] = self.tx_meta.get(tx_id, {}).get("lane")
         elif tag == "TxRejected":
@@ -167,12 +168,14 @@ class Accumulator:
             # attempt, which fixes the unit's origin facts
             self.units[origin] = {
                 "firstSubmitted": tx.get("originSubmitted", tx["submitted"]),
+                "firstSubmittedBlock": self.rb_count,
                 "meta": dict(self.tx_meta[tx_id]),
                 "value": tx.get("value") or 0,
                 "actor": event.get("actorId"),
                 "attempts": attempt,
                 "lastTxId": tx_id,
                 "includedAt": None,
+                "includedBlock": None,
                 "route": None,
                 "servingLane": None,
                 "abandonedAt": None,

@@ -1,6 +1,6 @@
 module Main (main) where
 
-import Actor (Actor (..), ActorId (..), ActorType (..), LaneLatencyEstimate (..))
+import Actor (Actor (..), ActorId (..), ActorType (..), LaneLatencyEstimate (..), SubmissionEnv (..), resubmitTransaction)
 import Block (BlockSummary (..), BlockUsage (..), EbId (..), InclusionPoint (..))
 import Config (SimConfig (..))
 import Control.Monad (unless)
@@ -9,7 +9,7 @@ import Data.Aeson (eitherDecode)
 import Data.ByteString.Lazy qualified as BL
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Sequence qualified as Seq
-import Design (ControllerConfig (..), ControllerSignal (..), Design (..), Eip1559Controller (..), FeeSemantics (..), PriorityPremiumScope (..), defaultDesign)
+import Design (ControllerConfig (..), ControllerSignal (..), Design (..), Eip1559Controller (..), FeeSemantics (..), LaneStructure (..), PriorityPremiumScope (..), defaultDesign)
 import Load (severeCongestionLoad)
 import Metrics.Accumulator (MetricsAcc (..), emptyMetricsAcc)
 import Metrics.Price (PriceStability (..), priceStabilityFrom)
@@ -34,6 +34,7 @@ main = do
   assertPriceStabilityExcludesTransient
   assertNeverSettlingPriceNeverConverges
   assertEmptyPriceTraceHasNoStability
+  assertSingleLaneActorHasReservationPrice
 
 {- The JSON under test/fixtures/ is test-owned data, frozen independently of
 config/, which is free to change with whatever experiment is being run. Only
@@ -342,6 +343,45 @@ priceChangesAcc changes =
         | (slot, lane, oldCoeff, newCoeff) <- reverse changes
         ]
     }
+
+{- | A single-lane actor has a value-based reservation price: when the fee
+exceeds what its transaction is worth, it declines to submit, exactly as the
+two-lane lane choice does ('Actor.chooseLane'). Without this, single-lane
+demand is price-inelastic and the EIP-1559 controller has nothing to push
+against under congestion, so the base fee compounds without bound.
+-}
+assertSingleLaneActorHasReservationPrice :: IO ()
+assertSingleLaneActorHasReservationPrice = do
+  assertEqual
+    "single-lane actor declines when the fee exceeds the tx value"
+    Nothing
+    (submittedLane (singleLaneEnvAt (Prices (PerLane 100.0 100.0))))
+  assertEqual
+    "single-lane actor submits when the value covers the fee"
+    (Just Standard)
+    (submittedLane (singleLaneEnvAt (Prices (PerLane 1.0 1.0))))
+ where
+  submittedLane env =
+    fmap (.txLane) (resubmitTransaction env FreshDemand 1 1.2 (fixtureActor 0) reservationDemand)
+  singleLaneEnvAt prices =
+    SubmissionEnv
+      { envLaneStructure = One
+      , envF = 0.05
+      , envSlot = SlotNo 0
+      , envPrices = prices
+      , envLatency =
+          LaneLatencyEstimate
+            { expectedStandardLatency = Duration 50
+            , expectedPriorityLatency = Duration 25
+            }
+      }
+  reservationDemand =
+    Demand
+      { demandValue = Lovelace 1_000_000
+      , demandUrgency = Exponential 0.04
+      , demandSize = 500
+      , demandScript = Script{_scriptSize = 0, _scriptExUnits = 0}
+      }
 
 withFee :: Lovelace -> Tx -> Tx
 withFee fee tx =

@@ -149,8 +149,10 @@ function renderKpis() {
   const std = c.Standard || {};
   const lat = DATA.latency.byLane || {};
   const sub = DATA.meta.submittedByLane || {};
-  const spb = DATA.meta.expectedSlotsPerBlock;
-  const blk = (sl) => (spb ? ` (${(sl / spb).toFixed(1)} blk)` : "");
+  const latencyKpi = (s) =>
+    s.blocks && s.blocks.count
+      ? `${s.blocks.mean.toFixed(1)} blk (${s.mean.toFixed(1)} sl)`
+      : `${s.mean.toFixed(1)} sl`;
   const drop = (l) => { const tot = sub[l] || 0, inc = (lat[l] || {}).count || 0; return tot ? Math.round(100 * (tot - inc) / tot) : 0; };
   const cards = [
     kpi("Priority conv. time", prio.convergenceTime == null ? "—" : `${prio.convergenceTime} slots`, "#7c3aed"),
@@ -158,8 +160,8 @@ function renderKpis() {
     kpi("# shocks (>10%)", String(shocks), "#ef4444"),
     kpi("Std oscillation", `±${fmt(std.oscillationAmplitude, 3)}`, "#2563eb"),
   ];
-  if (lat.Priority) cards.push(kpi("Priority median latency", `${lat.Priority.median} sl${blk(lat.Priority.median)}`, "#7c3aed"));
-  if (lat.Standard) cards.push(kpi("Standard median latency", `${lat.Standard.median} sl${blk(lat.Standard.median)}`, "#2563eb"));
+  if (lat.Priority) cards.push(kpi("Priority mean latency", latencyKpi(lat.Priority), "#7c3aed"));
+  if (lat.Standard) cards.push(kpi("Standard mean latency", latencyKpi(lat.Standard), "#2563eb"));
   cards.push(kpi("Drop rate · Pri / Std", `${drop("Priority")}% / ${drop("Standard")}%`, "#ef4444"));
   const dm = DATA.meta.demand;
   if (dm && dm.units) {
@@ -192,17 +194,15 @@ function latencyGrouping() {
 
 function renderLatencyTable() {
   const g = latencyGrouping();
-  const spb = DATA.meta.expectedSlotsPerBlock;   // 1/f, expected (matches expectedBlockDelay)
-  const blk = (sl) => (spb ? ` <span class="muted">(${(sl / spb).toFixed(1)})</span>` : "");
+  const hasBlocks = g.items.some((it) => (g.data[it.id] || {}).blocks && g.data[it.id].blocks.count);
+  const stat = (s, key) => hasBlocks && s.blocks ? s.blocks[key] : s[key];
   const rows = g.items.map((it) => {
     const s = g.data[it.id];
     return `<tr><td style="color:${it.color}">${it.label}</td>
-      <td>${s.median}${blk(s.median)}</td><td>${s.p95}${blk(s.p95)}</td><td>${s.max}${blk(s.max)}</td>
+      <td>${stat(s, "median")}</td><td>${stat(s, "p95")}</td><td>${stat(s, "max")}</td>
       <td>${s.count.toLocaleString()}</td></tr>`;
   }).join("");
-  const note = spb
-    ? `latency in slots <span class="muted">(expected blocks)</span> · 1 block = ${spb.toFixed(0)} slots (f=${DATA.meta.f})`
-    : "latency in slots";
+  const note = hasBlocks ? "latency in actual produced ranking blocks" : "latency in slots";
   el("latency-table").innerHTML =
     `<table class="lat"><thead><tr><th>${g.tableHead}</th><th>med</th><th>p95</th><th>max</th><th>n</th></tr></thead>
      <tbody>${rows}</tbody></table>
@@ -351,12 +351,10 @@ function renderLatencyTimePanel() {
   const fig = el("panel-latency");
   fig.innerHTML = "";
   const g = latencyGrouping();
-  const spb = DATA.meta.expectedSlotsPerBlock;   // 1/f, expected (matches expectedBlockDelay)
   const byIncl = state.latencyX === "incl";
   const otKey = byIncl ? "overTimeIncl" : "overTime";
   panelHead("panel-latency", g.title,
-    (spb ? "median · slots (left) · expected blocks (right)" : "median · slots")
-      + " · " + (state.p95Band ? "median→p95 band" : "median only"),
+    "median · slots · " + (state.p95Band ? "median→p95 band" : "median only"),
     "latency-time.svg",
     byIncl ? "x: production slot (by inclusion)" : "x: submission slot");
   latencyLegend("panel-latency", g);
@@ -370,9 +368,6 @@ function renderLatencyTimePanel() {
   items.forEach((it) => marks.push(Plot.line(g.data[it.id][otKey], {
     x: "slot", y: "median", stroke: it.color, strokeWidth: 2.6, curve: "monotone-x",
   })));
-  if (spb) {
-    marks.push(Plot.axisY({ anchor: "right", tickFormat: (d) => (d / spb).toFixed(1), label: "blocks ↑" }));
-  }
   const node = Plot.plot({
     width: focusWidth(), height: 190, marginLeft: 44, marginRight: focusRight(), marginBottom: 26,
     style: { color: t.text, fontSize: "11px" },
@@ -450,19 +445,18 @@ function renderDistribution() {
   fig.innerHTML = "";
   panelHead("panel-dist", "Latency distribution", "IQR · median · p95 · max", "latency-dist.svg");
   const g = latencyGrouping();
-  // values are stored in slots; show blocks when the run defines slots-per-block
-  const spb = DATA.meta.expectedSlotsPerBlock;
-  const toB = spb ? (sl) => sl / spb : (sl) => sl;
+  const hasBlocks = g.items.some((it) => (g.data[it.id] || {}).blocks && g.data[it.id].blocks.count);
   const rows = g.items.filter((it) => !g.hidden.has(it.id)).map((it) => {
     const s = g.data[it.id];
+    const src = hasBlocks && s.blocks ? s.blocks : s;
     return { id: it.id, label: it.label, color: it.color,
-             p25: toB(s.p25), p75: toB(s.p75), median: toB(s.median), p95: toB(s.p95), max: toB(s.max) };
+             p25: src.p25, p75: src.p75, median: src.median, p95: src.p95, max: src.max };
   });
   const node = Plot.plot({
     width: distWidth(), height: 300, marginLeft: 40, marginBottom: 56, marginRight: 8,
     style: { color: t.text, fontSize: "11px" },
     x: { domain: rows.map((r) => r.label), label: null, tickRotate: -30 },
-    y: { grid: false, label: `latency (${spb ? "blocks" : "slots"}) ↑` },
+    y: { grid: false, label: `latency (${hasBlocks ? "blocks" : "slots"}) ↑` },
     marks: [
       Plot.gridY({ stroke: t.grid }),
       Plot.ruleX(rows, { x: "label", y1: "p75", y2: "p95", stroke: (d) => d.color, strokeWidth: 1 }),

@@ -41,14 +41,17 @@ const METRIC_GROUPS = [
       metric("value.lostLovelace", "Lost value", "lovelace", "lower"),
       metric("value.unresolvedLovelace", "Unresolved value", "lovelace", "lower"),
       metric("value.unresolvedShare", "Unresolved value share", "percent", "lower", true),
+      metric("latency.meanBlocks", "Mean latency, blocks", "ratio", "lower"),
       metric("latency.meanSlots", "Mean latency, slots", "ratio", "lower"),
       metric("latency.priority.count", "Priority latency observations", "count", "neutral"),
+      metric("latency.priority.meanBlocks", "Priority mean latency, blocks", "ratio", "lower"),
       metric("latency.priority.meanSlots", "Priority mean latency, slots", "ratio", "lower"),
       metric("latency.standard.count", "Standard latency observations", "count", "neutral"),
+      metric("latency.standard.meanBlocks", "Standard mean latency, blocks", "ratio", "lower"),
       metric("latency.standard.meanSlots", "Standard mean latency, slots", "ratio", "lower"),
       metric("latency.urgent.count", "Urgent latency observations", "count", "neutral"),
+      metric("latency.urgent.meanBlocks", "Urgent mean latency, blocks", "ratio", "lower"),
       metric("latency.urgent.meanSlots", "Urgent mean latency, slots", "ratio", "lower"),
-      metric("latency.meanBlocks", "Mean latency, blocks", "ratio", "lower"),
       metric("value.priority.retainedRatio", "Priority retained value ratio", "percent", "higher"),
       metric("value.priority.retainedLovelace", "Priority retained value", "lovelace", "higher"),
       metric("value.priority.lostLovelace", "Priority lost value", "lovelace", "lower"),
@@ -93,7 +96,7 @@ const HERO_GROUPS = [
   {
     title: "Overall best",
     cards: [
-      hero("Best for overall latency", "latency.meanSlots"),
+      hero("Best for overall latency", "latency.meanBlocks"),
       hero("Best for overall inclusion", "units.serviceRate"),
       hero("Best for overall retained value", "value.retainedRatio"),
     ],
@@ -101,9 +104,9 @@ const HERO_GROUPS = [
   {
     title: "Priority lane best",
     cards: [
-      hero("Best for priority lane latency", "latency.priority.meanSlots", "latency.priority.count", [], [
-        comparison("baseline urgent", "latency.urgent.meanSlots"),
-        comparison("baseline overall", "latency.meanSlots"),
+      hero("Best for priority lane latency", "latency.priority.meanBlocks", "latency.priority.count", [], [
+        comparison("baseline urgent", "latency.urgent.meanBlocks"),
+        comparison("baseline overall", "latency.meanBlocks"),
       ]),
       hero("Best for priority lane inclusion", "inclusion.priority.serviceRate", "inclusion.priority.submitted", [], [
         comparison("baseline urgent", "inclusion.urgent.serviceRate"),
@@ -121,8 +124,8 @@ const HERO_GROUPS = [
   {
     title: "Standard lane best",
     cards: [
-      hero("Best for standard lane latency", "latency.standard.meanSlots", "latency.standard.count", [], [
-        comparison("baseline overall", "latency.meanSlots"),
+      hero("Best for standard lane latency", "latency.standard.meanBlocks", "latency.standard.count", [], [
+        comparison("baseline overall", "latency.meanBlocks"),
       ]),
       hero("Best for standard lane inclusion", "inclusion.standard.serviceRate", "inclusion.standard.submitted", [], [
         comparison("baseline overall", "units.serviceRate"),

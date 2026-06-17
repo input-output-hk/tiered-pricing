@@ -15,6 +15,11 @@ def _included(tx_id, slot):
             "inclusionPoint": {"tag": "IncludedInRb"}}
 
 
+def _rb(slot):
+    return {"tag": "BlockProduced", "slot": slot,
+            "summary": {"tag": "RankingBlockProduced", "summary": {"block": {"tag": "PraosBlock"}}}}
+
+
 def test_class_id():
     assert class_id("Exponential", 5.0e-4) == "Exponential:0.0005"
 
@@ -47,6 +52,23 @@ def test_join_latencies_by_lane():
     grouped = join_latencies_by_lane(acc)
     assert sorted(grouped["Standard"]) == [(0, 10)]
     assert sorted(grouped["Priority"]) == [(0, 3), (5, 2)]
+
+
+def test_join_block_latencies_count_actual_ranking_blocks():
+    from simviz.latency import join_block_latencies_by_lane
+    acc = Accumulator()
+    for e in [
+        _submitted(1, 0, "Priority", 0.01),
+        _rb(10),
+        _rb(20),
+        _included(1, 20),
+        _submitted(2, 21, "Priority", 0.01),
+        _rb(40),
+        _included(2, 40),
+    ]:
+        acc.ingest(e)
+    grouped = join_block_latencies_by_lane(acc)
+    assert sorted(grouped["Priority"]) == [(0, 2), (21, 1)]
 
 
 def test_class_stats():

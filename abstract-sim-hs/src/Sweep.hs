@@ -249,10 +249,13 @@ headline =
   , ("latency.meanSlots", latencyMeanSlots)
   , ("latency.standard.count", \m -> int (laneLatencyStats Standard m).statCount)
   , ("latency.standard.meanSlots", \m -> (laneLatencyStats Standard m).statMean)
+  , ("latency.standard.meanBlocks", \m -> (laneBlockLatencyStats Standard m).statMean)
   , ("latency.priority.count", \m -> int (laneLatencyStats Priority m).statCount)
   , ("latency.priority.meanSlots", \m -> (laneLatencyStats Priority m).statMean)
+  , ("latency.priority.meanBlocks", \m -> (laneBlockLatencyStats Priority m).statMean)
   , ("latency.urgent.count", \m -> int (urgentLatencyStats m).statCount)
   , ("latency.urgent.meanSlots", \m -> (urgentLatencyStats m).statMean)
+  , ("latency.urgent.meanBlocks", \m -> (urgentBlockLatencyStats m).statMean)
   , ("latency.meanBlocks", latencyMeanBlocks)
   , ("value.retainedLovelace", \m -> lovelace (sumLovelace (fmap (.retainedValue) (Map.elems m.value))))
   , ("value.lostLovelace", \m -> lovelace (sumLovelace (fmap (.lostValue) (Map.elems m.value))))
@@ -326,11 +329,22 @@ laneLatencyStats lane metrics =
       , statMax = Duration 0
       }
 
+laneBlockLatencyStats :: Lane -> Metrics -> DistStats Int
+laneBlockLatencyStats lane metrics =
+  Map.findWithDefault emptyBlockLatency lane metrics.laneActualBlockLatency
+
 urgentLatencyStats :: Metrics -> DistStats Duration
 urgentLatencyStats metrics =
   maybe
     emptyDurationStats
     (\urgency -> Map.findWithDefault emptyDurationStats urgency metrics.latency)
+    (urgentClass metrics)
+
+urgentBlockLatencyStats :: Metrics -> DistStats Int
+urgentBlockLatencyStats metrics =
+  maybe
+    emptyBlockLatency
+    (\urgency -> Map.findWithDefault emptyBlockLatency urgency metrics.actualBlockLatency)
     (urgentClass metrics)
 
 laneValueOutcome :: Lane -> Metrics -> ValueOutcome
@@ -396,6 +410,16 @@ emptyDurationStats =
     , statMedian = Duration 0
     , statP95 = Duration 0
     , statMax = Duration 0
+    }
+
+emptyBlockLatency :: DistStats Int
+emptyBlockLatency =
+  DistStats
+    { statCount = 0
+    , statMean = 0
+    , statMedian = 0
+    , statP95 = 0
+    , statMax = 0
     }
 
 lovelaceRatio :: Lovelace -> Lovelace -> Double

@@ -124,7 +124,7 @@ resubmitTransaction env provenance counter escalationFactor actor demand =
 submitDemand :: SubmissionEnv -> Provenance -> Int -> Double -> Actor -> Demand -> Maybe Tx
 submitDemand env provenance counter feeBuffer actor demand = do
   lane <- case env.envLaneStructure of
-    One -> Just Standard
+    One -> chooseSingleLane actor env.envF env.envLatency alreadyElapsed demand.demandUrgency demand.demandValue standardFee
     Two -> chooseLane actor env.envF env.envLatency alreadyElapsed demand.demandUrgency demand.demandValue standardFee priorityFee
   let quotedFee = quotedFeeFor env.envPrices lane demand.demandSize demand.demandScript
       txBody =
@@ -154,6 +154,18 @@ submitDemand env provenance counter feeBuffer actor demand = do
   standardFee = quotedFeeFor env.envPrices Standard demand.demandSize demand.demandScript
   priorityFee = quotedFeeFor env.envPrices Priority demand.demandSize demand.demandScript
 
+{- | The single-lane analogue of 'chooseLane': an honest actor submits only
+when the standard-lane fee clears its value-based reservation price, so demand
+is price-elastic; the fixed-disposition actors always submit (Standard is the
+only lane). Without the reservation gate, single-lane demand never sheds as the
+fee rises and the EIP-1559 controller has nothing to push against.
+-}
+chooseSingleLane :: Actor -> Double -> LaneLatencyEstimate -> Duration -> Urgency -> Lovelace -> Lovelace -> Maybe Lane
+chooseSingleLane actor f latencyEstimate alreadyElapsed urgency value standardFee
+  | actor.actorType == Patient || actor.actorType == Impatient = Just Standard
+  | standardLaneUtility actor f latencyEstimate alreadyElapsed urgency value standardFee >= 0 = Just Standard
+  | otherwise = Nothing
+
 {- | Lane choice by expected utility. @alreadyElapsed@ is the time the demand
 unit has waited across earlier attempts (zero for fresh demand): retained
 value decays over elapsed wait plus the expected latency ahead, so demand
@@ -168,18 +180,23 @@ chooseLane actor f latencyEstimate alreadyElapsed urgency value standardFee prio
   | priorityUtility >= 0 = Just Priority
   | otherwise = Nothing
  where
-  retainedValueAfter latency =
-    retainedValueFor (expectedBlockDelay f (addDurations alreadyElapsed latency)) urgency value
-
   standardUtility =
-    lovelaceDifference
-      (retainedValueAfter latencyEstimate.expectedStandardLatency)
-      (scaleLovelace actor.actorMinValueFeeMultiple standardFee)
-
+    standardLaneUtility actor f latencyEstimate alreadyElapsed urgency value standardFee
   priorityUtility =
     lovelaceDifference
-      (retainedValueAfter latencyEstimate.expectedPriorityLatency)
+      (retainedValueFor (expectedBlockDelay f (addDurations alreadyElapsed latencyEstimate.expectedPriorityLatency)) urgency value)
       priorityFee
+
+{- | Expected surplus on the standard lane: retained value after the standard
+wait, less the fee scaled by the actor's minimum value\/fee multiple. A
+non-negative result means the fee is still within the actor's value-based
+reservation price; negative means the fee has outrun what the tx is worth.
+-}
+standardLaneUtility :: Actor -> Double -> LaneLatencyEstimate -> Duration -> Urgency -> Lovelace -> Lovelace -> Integer
+standardLaneUtility actor f latencyEstimate alreadyElapsed urgency value standardFee =
+  lovelaceDifference
+    (retainedValueFor (expectedBlockDelay f (addDurations alreadyElapsed latencyEstimate.expectedStandardLatency)) urgency value)
+    (scaleLovelace actor.actorMinValueFeeMultiple standardFee)
 
 lovelaceDifference :: Lovelace -> Lovelace -> Integer
 lovelaceDifference (Lovelace a) (Lovelace b) =

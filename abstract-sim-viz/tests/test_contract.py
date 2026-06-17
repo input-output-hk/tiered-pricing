@@ -57,6 +57,7 @@ def test_block_conversion_pins_f_and_keeps_realized_as_sanity():
     cls = data["meta"]["urgencyClasses"][0]
     assert round(cls["halfLifeBlocks"], 1) == 69.3         # independent of cadence
     assert round(cls["halfLifeSlots"]) == 1386             # 69.3 / f (NOT * 25)
+    assert data["latency"]["byClass"][cls["id"]]["blocks"]["median"] == 4
 
 
 def _price(lane, slot, old, new, util=0.0):
@@ -131,8 +132,11 @@ def test_build_sim_data_structure_and_values():
     cls_id = data["meta"]["urgencyClasses"][0]["id"]
     assert data["latency"]["byClass"][cls_id]["count"] == 1
     assert data["latency"]["byClass"][cls_id]["max"] == 2
+    assert data["latency"]["byClass"][cls_id]["blocks"]["max"] == 0
     assert "overTime" in data["latency"]["byClass"][cls_id]      # by submission slot
     assert "overTimeIncl" in data["latency"]["byClass"][cls_id]  # by inclusion slot
+    assert "overTimeBlocks" in data["latency"]["byClass"][cls_id]
+    assert "overTimeInclBlocks" in data["latency"]["byClass"][cls_id]
 
     # flow: tx1 submitted slot 0, included slot 2 via RB, lane Standard
     assert data["flow"]["links"] == [[0, 2, 0, 0]]   # [submit, incl, route=RB(0), lane=Standard(0)]

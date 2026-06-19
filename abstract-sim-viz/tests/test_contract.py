@@ -88,7 +88,9 @@ def test_lanes_include_static_traffic_lanes():
     assert data["meta"]["lanes"] == ["Standard", "Priority"]
     assert data["price"]["byLane"]["Standard"] == []
     assert data["shock"]["byLane"]["Standard"]["maxJump"] == 0.0
-    assert data["convergence"]["byLane"]["Standard"]["oscillationAmplitude"] == 0.0
+    assert data["oscillation"]["byLane"]["Standard"]["oscillationCycleCount"] == 0
+    assert data["oscillation"]["byLane"]["Standard"]["reversals"] == []
+    assert data["convergence"]["byLane"]["Standard"]["settledCoefficientRange"] == 0.0
 
 
 def test_lanes_present_without_any_price_changes():
@@ -124,6 +126,9 @@ def test_build_sim_data_structure_and_values():
     assert data["price"]["byLane"]["Priority"][0]["jump"] == 0.375
     assert data["shock"]["byLane"]["Priority"]["shockCount"] == 1
     assert data["shock"]["byLane"]["Standard"]["shockCount"] == 0
+    assert data["oscillation"]["byLane"]["Priority"]["oscillationReversalCount"] == 0
+    assert data["oscillation"]["byLane"]["Priority"]["maxOscillationAmplitude"] == 0.0
+    assert data["oscillation"]["byLane"]["Priority"]["reversals"] == []
 
     # convergence + load + latency keys present
     assert "loadRegimes" in data["convergence"]
@@ -161,6 +166,24 @@ def test_build_sim_data_structure_and_values():
     fr = data["fairness"]
     assert fr["nActors"] == 1 and fr["jainIndex"] == 1.0 and fr["starvedTxs"] == 0
     assert fr["actors"] == [{"id": 0, "submitted": 1, "included": 1, "rate": 1.0}]
+
+
+def test_build_sim_data_carries_oscillation_reversal_markers():
+    acc = Accumulator()
+    for e in [
+        _price("Priority", 10, 1.0, 2.0),
+        _price("Priority", 20, 2.0, 1.0),
+        _price("Priority", 30, 1.0, 2.0),
+    ]:
+        acc.ingest(e)
+
+    data = build_sim_data(acc)
+    oscillation = data["oscillation"]["byLane"]["Priority"]
+    assert oscillation["oscillationCycleCount"] == 1
+    assert oscillation["reversals"] == [
+        {"slot": 20, "coeff": 2.0, "fromDirection": "up", "toDirection": "down"},
+        {"slot": 30, "coeff": 1.0, "fromDirection": "down", "toDirection": "up"},
+    ]
 
 
 def test_blocks_section_counts_rb_tx_vs_cert():

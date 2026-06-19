@@ -243,6 +243,12 @@ def build_sim_data(acc, params=None, target_buckets=300, source="events.jsonl", 
         lane: price_mod.shock_stats(price_by_lane[lane], params["shockThreshold"])
         for lane in lanes
     }
+    oscillation_by_lane = {}
+    for lane in lanes:
+        oscillation_by_lane[lane] = price_mod.oscillation_stats(
+            price_by_lane[lane], params["convergenceBandPct"])
+        oscillation_by_lane[lane]["reversals"] = price_mod.oscillation_reversals(
+            price_by_lane[lane], params["convergenceBandPct"])
 
     rate = load_mod.smooth_rate(acc.submissions_per_slot, slot_count, width)
     regimes = load_mod.detect_regimes(rate, params["loadChangePct"])
@@ -258,7 +264,8 @@ def build_sim_data(acc, params=None, target_buckets=300, source="events.jsonl", 
             price_by_lane[lane], regimes, params["convergenceBandPct"])
         conv_by_lane[lane] = {
             "convergenceTime": conv_time,
-            "oscillationAmplitude": price_mod.oscillation_amplitude(price_by_lane[lane]),
+            "settledCoefficientRange": price_mod.settled_coefficient_range(
+                price_by_lane[lane], params["convergenceBandPct"]),
             "regimes": regime_results,
         }
 
@@ -314,6 +321,7 @@ def build_sim_data(acc, params=None, target_buckets=300, source="events.jsonl", 
         "params": params,
         "price": {"byLane": price_by_lane},
         "shock": {"byLane": shock_by_lane},
+        "oscillation": {"byLane": oscillation_by_lane},
         "convergence": {"loadRegimes": regimes, "byLane": conv_by_lane},
         "latency": {"byClass": latency_by_class, "byLane": latency_by_lane},
         "load": load_obj,

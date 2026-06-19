@@ -12,7 +12,7 @@ import Data.Sequence qualified as Seq
 import Design (ControllerConfig (..), ControllerSignal (..), Design (..), Eip1559Controller (..), FeeSemantics (..), LaneStructure (..), PriorityPremiumScope (..), defaultDesign)
 import Load (severeCongestionLoad)
 import Metrics.Accumulator (MetricsAcc (..), emptyMetricsAcc)
-import Metrics.Price (PriceStability (..), priceStabilityFrom)
+import Metrics.Price (PriceOscillation (..), PriceStability (..), priceOscillationFrom, priceStabilityFrom)
 import Parser (parseDesign, parseSimConfig)
 import Pricing (ControllerInput (..), PriceUpdate (..), Prices (..), admissionRequiredFee, coversProducerHeadroom, initialPrices, quotedFee, realisedFee, updatePrices)
 import Resource (Bytes (..), ExUnits (..), Resources (..))
@@ -34,6 +34,12 @@ main = do
   assertPriceStabilityExcludesTransient
   assertNeverSettlingPriceNeverConverges
   assertEmptyPriceTraceHasNoStability
+  assertEmptyPriceTraceHasNoOscillation
+  assertMonotonePriceHasNoOscillation
+  assertBurstRecoveryIsNotCompletedOscillation
+  assertRepeatedReversalCountsAsOscillation
+  assertOscillationIgnoresDeadbandMoves
+  assertOscillationAggregatesAcrossLanes
   assertSingleLaneActorHasReservationPrice
 
 {- The JSON under test/fixtures/ is test-owned data, frozen independently of
@@ -274,7 +280,7 @@ assertPremiumScopeChargesByInclusionPoint = do
     (realisedFee PremiumRbOnly FixedFee prices (IncludedInEb (EbId 0)) priorityTx)
 
 {- Price stability is judged against the final (steady-state) coefficient:
-the transient ramp must not count towards oscillation amplitude, and a lane
+the transient ramp must not count towards settled coefficient range, and a lane
 whose price is out of band right up to its last update never converged. -}
 assertPriceStabilityExcludesTransient :: IO ()
 assertPriceStabilityExcludesTransient = do
@@ -293,9 +299,9 @@ assertPriceStabilityExcludesTransient = do
     (Just (Duration 30))
     stability.convergenceTime
   assertEqual
-    "oscillation amplitude covers the settled tail only"
+    "settled coefficient range covers the settled tail only"
     0.25
-    stability.oscillationAmplitude
+    stability.settledCoefficientRange
 
 assertNeverSettlingPriceNeverConverges :: IO ()
 assertNeverSettlingPriceNeverConverges = do
@@ -319,13 +325,89 @@ assertNeverSettlingPriceNeverConverges = do
   assertEqual
     "a never-settling lane reports its full swing"
     8.0
-    stability.oscillationAmplitude
+    stability.settledCoefficientRange
 
 assertEmptyPriceTraceHasNoStability :: IO ()
 assertEmptyPriceTraceHasNoStability = do
   let stability = priceStabilityFrom 0.05 emptyMetricsAcc
   assertEqual "no price changes: no convergence" Nothing stability.convergenceTime
-  assertEqual "no price changes: no oscillation" 0.0 stability.oscillationAmplitude
+  assertEqual "no price changes: no settled coefficient range" 0.0 stability.settledCoefficientRange
+
+assertEmptyPriceTraceHasNoOscillation :: IO ()
+assertEmptyPriceTraceHasNoOscillation = do
+  assertEqual
+    "no price changes: no oscillation"
+    (PriceOscillation 0 0 0 0)
+    (priceOscillationFrom 0.05 emptyMetricsAcc)
+
+assertMonotonePriceHasNoOscillation :: IO ()
+assertMonotonePriceHasNoOscillation = do
+  assertEqual
+    "monotone ramp has no oscillation"
+    (PriceOscillation 0 0 0 0)
+    ( priceOscillationFrom 0.05 $
+        priceChangesAcc
+          [ (10, Standard, 1.0, 2.0)
+          , (20, Standard, 2.0, 4.0)
+          , (30, Standard, 4.0, 8.0)
+          ]
+    )
+
+assertBurstRecoveryIsNotCompletedOscillation :: IO ()
+assertBurstRecoveryIsNotCompletedOscillation = do
+  let oscillation =
+        priceOscillationFrom 0.05 $
+          priceChangesAcc
+            [ (10, Standard, 1.0, 2.0)
+            , (20, Standard, 2.0, 1.0)
+            ]
+  assertEqual "burst/recovery reversal count" 1 oscillation.oscillationReversalCount
+  assertEqual "burst/recovery has no completed cycle" 0 oscillation.oscillationCycleCount
+  assertEqual "burst/recovery amplitude" 1.0 oscillation.maxOscillationAmplitude
+  assertClose "burst/recovery excess travel" (2 * log 2) oscillation.oscillationExcessTravel
+
+assertRepeatedReversalCountsAsOscillation :: IO ()
+assertRepeatedReversalCountsAsOscillation = do
+  let oscillation =
+        priceOscillationFrom 0.05 $
+          priceChangesAcc
+            [ (10, Standard, 1.0, 2.0)
+            , (20, Standard, 2.0, 1.0)
+            , (30, Standard, 1.0, 2.0)
+            ]
+  assertEqual "up/down/up reversal count" 2 oscillation.oscillationReversalCount
+  assertEqual "up/down/up completed cycle" 1 oscillation.oscillationCycleCount
+  assertEqual "up/down/up amplitude" 1.0 oscillation.maxOscillationAmplitude
+  assertClose "up/down/up excess travel" (2 * log 2) oscillation.oscillationExcessTravel
+
+assertOscillationIgnoresDeadbandMoves :: IO ()
+assertOscillationIgnoresDeadbandMoves = do
+  assertEqual
+    "deadband moves are ignored"
+    (PriceOscillation 0 0 0 0)
+    ( priceOscillationFrom 0.05 $
+        priceChangesAcc
+          [ (10, Standard, 1.0, 1.04)
+          , (20, Standard, 1.04, 1.0)
+          , (30, Standard, 1.0, 2.0)
+          ]
+    )
+
+assertOscillationAggregatesAcrossLanes :: IO ()
+assertOscillationAggregatesAcrossLanes = do
+  let oscillation =
+        priceOscillationFrom 0.05 $
+          priceChangesAcc
+            [ (10, Standard, 1.0, 2.0)
+            , (20, Standard, 2.0, 1.0)
+            , (30, Standard, 1.0, 2.0)
+            , (10, Priority, 4.0, 2.0)
+            , (20, Priority, 2.0, 4.0)
+            , (30, Priority, 4.0, 2.0)
+            ]
+  assertEqual "multi-lane reversal count" 4 oscillation.oscillationReversalCount
+  assertEqual "multi-lane cycle count" 2 oscillation.oscillationCycleCount
+  assertEqual "multi-lane max amplitude" 2.0 oscillation.maxOscillationAmplitude
 
 -- | The accumulator stores price changes newest-first.
 priceChangesAcc :: [(Int, Lane, Double, Double)] -> MetricsAcc
@@ -426,4 +508,12 @@ assertTrue :: String -> Bool -> IO ()
 assertTrue label cond =
   unless cond do
     putStrLn ("assertion failed: " <> label)
+    exitFailure
+
+assertClose :: String -> Double -> Double -> IO ()
+assertClose label expected actual =
+  unless (abs (actual - expected) < 1.0e-9) do
+    putStrLn ("unexpected " <> label)
+    putStrLn ("expected: " <> show expected)
+    putStrLn ("actual:   " <> show actual)
     exitFailure

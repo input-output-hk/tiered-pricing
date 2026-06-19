@@ -87,7 +87,11 @@ const METRIC_GROUPS = [
     metrics: [
       metric("price.maxJump", "Max price jump", "percent", "lower"),
       metric("price.shockCount", "Price-shock count", "count", "lower"),
-      metric("price.oscillationAmplitude", "Oscillation amplitude", "ratio", "lower"),
+      metric("price.settledCoefficientRange", "Settled coeff. range", "ratio", "lower"),
+      metric("price.oscillationReversalCount", "Oscillation reversals", "count", "lower"),
+      metric("price.oscillationCycleCount", "Oscillation cycles", "count", "lower"),
+      metric("price.oscillationMaxAmplitude", "Oscillation max amp", "ratio", "lower"),
+      metric("price.oscillationExcessTravel", "Oscillation excess travel", "ratio", "lower"),
     ],
   },
 ];

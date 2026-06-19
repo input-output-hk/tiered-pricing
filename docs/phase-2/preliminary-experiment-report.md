@@ -2,7 +2,7 @@ Discussion of seeded experiment, comparing reserved vs unreserved priority alloc
 
 ### TLDR ###
 
-Preliminary experiment results show that, on average, latency (by ~50%) and value decay (by ~20%, but this depends on the definition of "urgency" and the exact rate-of-decay criteria) can be reduced for urgent transactions by providing network participants with a priority lane to which they can opt to submit transactions, for a premium fee.
+Preliminary experiment results show that, on average, latency (by ~20%) and value decay (by ~17%, but this depends on the definition of "urgency" and the exact rate-of-decay criteria) can be reduced for urgent transactions by providing network participants with a priority lane to which they can opt to submit transactions, for a premium fee.
 
 ### Question ###
 
@@ -62,7 +62,8 @@ Sweep harness config:
 - **Value** - The sum of transaction value (in Lovelace) captured, lost and unresolved
 - **Latency** - The delay (in blocks) between first submission of transactions and their inclusion in a block
 - **Price shock** - Largest single-step relative price move
-- **Price stability** - The tendency for the price to remain converged
+- **Settled coefficient range** - Residual peak-to-peak coefficient movement after convergence
+- **Price oscillation** - Significant repeated direction reversals (moves larger than the 5% convergence-band deadband) in the coefficient
 - **Revenue** - The sum of fees
 - **Throughput** - The number of transactions per slot
 ---
@@ -257,8 +258,7 @@ The entire ranking block is reserved for priority traffic (`priority-reservation
 
 Unreserved space, two lanes, priority only:
 
-The same as the first design, titled here as: "Unreserved space, two lanes, both dynamic", except the only the priority lane is dynamically priced, while the standard lane is fixed-fee.
-
+The same as the first design, titled here as: "Unreserved space, two lanes, both dynamic", except only the priority lane is dynamically priced, while the standard lane is fixed-fee.
 
 <details>
 <summary>Show config</summary>
@@ -575,7 +575,7 @@ A single lane with an EIP-1559 dynamic base fee (one standard controller trackin
 
 ---
 
-#### What this is not ###
+### What this is not ###
 
 Adversarial actors, workload profile sweep, dependency chain simulation, etc
 
@@ -583,18 +583,18 @@ Adversarial actors, workload profile sweep, dependency chain simulation, etc
 
 ### Results ###
 
-Across ten seeded runs, all mechanisms preserve high overall service rates, but the differences show up in retained value, urgent latency, and the reserved-vs-open tradeoff. Reservation is competitive with open priority-first selection, but it does not dominate it on every metric.
+Across ten seeded runs, all mechanisms preserve high overall inclusion rates, but the differences show up in retained value, urgent latency, and the reserved-vs-open tradeoff. Reservation is competitive with open priority-first selection, but it does not dominate it on every metric.
 
-| Variant | Service | Retained value | Urgent retained | Urgent latency (blk / sl) | Priority latency (blk / sl) | Standard latency (blk / sl) | Tx/slot | Median net revenue (B) | Price shocks | Oscillation |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| flat-fee | 98.98% | 93.35% | 44.32% | 2.9 / 56.0 | n/a | 2.9 / 56.2 | 127.4 | 79.4 | 0.0 | 0.00 |
-| single-lane-eip1559 | 98.74% | 93.37% | 44.94% | 2.8 / 54.6 | n/a | 2.8 / 55.2 | 122.9 | 94.4 | 0.9 | 0.19 |
-| priority-only-reserved | 98.94% | 93.55% | 50.45% | 2.5 / 49.4 | 2.1 / 39.4 | 3.0 / 58.2 | 127.3 | 79.6 | 55.2 | 1.74 |
-| priority-only-open | 99.09% | 93.48% | 50.63% | 2.5 / 49.6 | 2.2 / 41.3 | 3.0 / 59.7 | 127.5 | 80.5 | 55.4 | 1.86 |
-| both-dynamic-reserved | 98.97% | 93.67% | 51.18% | 2.5 / 46.7 | 2.3 / 42.4 | 2.9 / 56.7 | 121.4 | 101.6 | 61.1 | 3.21 |
-| both-dynamic-open | 98.72% | 93.61% | 51.86% | 2.4 / 44.8 | 2.3 / 39.8 | 2.9 / 55.0 | 122.0 | 97.9 | 60.1 | 2.93 |
+| Variant | Inclusion | Retained value | Urgent retained | Urgent latency (blk / sl) | Priority latency (blk / sl) | Standard latency (blk / sl) | Tx/slot | Median net revenue (B) | Price shocks | Osc. cycles | Osc. max amp | Osc. excess travel | Settled coeff. range |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| flat-fee | 98.98% | 93.35% | 44.32% | 2.9 / 56.0 | n/a | 2.9 / 56.2 | 127.4 | 79.4 | 0.0 | 0.0 | 0.00 | 0.00 | 0.00 |
+| single-lane-eip1559 | 98.74% | 93.37% | 44.94% | 2.8 / 54.6 | n/a | 2.8 / 55.2 | 122.9 | 94.4 | 0.9 | 0.2 | 0.74 | 0.82 | 0.19 |
+| priority-only-reserved | 98.94% | 93.55% | 50.45% | 2.5 / 49.4 | 2.1 / 39.4 | 3.0 / 58.2 | 127.3 | 79.6 | 55.2 | 14.8 | 1.45 | 8.13 | 1.74 |
+| priority-only-open | 99.09% | 93.48% | 50.63% | 2.5 / 49.6 | 2.2 / 41.3 | 3.0 / 59.7 | 127.5 | 80.5 | 55.4 | 14.9 | 1.42 | 8.09 | 1.86 |
+| both-dynamic-reserved | 98.97% | 93.67% | 51.18% | 2.5 / 46.7 | 2.3 / 42.4 | 2.9 / 56.7 | 121.4 | 101.6 | 61.1 | 15.7 | 2.04 | 9.37 | 3.21 |
+| both-dynamic-open | 98.72% | 93.61% | 51.86% | 2.4 / 44.8 | 2.3 / 39.8 | 2.9 / 55.0 | 122.0 | 97.9 | 60.1 | 15.8 | 2.36 | 9.37 | 2.93 |
 
-Latency columns report mean latency as actual produced ranking blocks / slots, from first submission to inclusion. Median net revenue is fee revenue minus refunds, in billions of Lovelace.
+Latency columns report mean latency as actual produced ranking blocks / slots, from first submission to inclusion. Median net revenue is fee revenue minus refunds, in billions of Lovelace. Price shocks and oscillation cycles are mean counts per run; oscillation cycles count completed significant direction-reversal cycles after the convergence-band deadband. Oscillation max amplitude is the largest local coefficient peak-to-trough range, while oscillation excess travel is the extra significant log-price path length beyond the net start-to-end movement.
 
 Urgent retained value is improved, in the best case (both-dynamic-open vs flat-fee), from 44.32% to 51.86%, a ~17% improvement from the baseline value; a narrow lead over both-dynamic-reserved. Additionally, we can see that priority-lane latency, in the best case, improves by almost a full block relative to the flat-fee single lane. This does not, however, mean that urgent transactions reap all of these rewards. Urgent transactions experienced latency improvements of roughly 0.4-0.5 blocks. Still a valuable improvement, but it's clear that the priority lane isn't exclusively occupied by the most urgent transactions; this isn't necessarily a bad thing, since it indicates some degree of inclusiveness.
 

@@ -1,7 +1,7 @@
 # abstract-sim-viz
 
 Interactive, SVG-exportable dashboard for `abstract-sim-hs` event traces. Focuses on
-price per lane, price convergence, price shock, and transaction latency per urgency class.
+price per lane, price convergence, price shock, true price oscillation, and transaction latency per urgency class.
 
 ## Usage
 
@@ -31,8 +31,11 @@ from the trace filenames: `two-lane-open-seed3.events.jsonl` is experiment
 ## What it shows
 
 - **Price coefficient / lane** — log overlay or per-lane small multiples, with a ±5%
-  convergence band. Toggle the view top-right.
+  convergence band and markers for significant oscillation reversals. Toggle the
+  view top-right.
 - **Price shock** — relative jump `|Δ|/old` per price update, against the 10% threshold.
+- **Price oscillation** — significant direction reversals after the ±5% deadband,
+  reported as completed cycles, max peak-to-trough amplitude, and excess travel.
 - **Latency / urgency class** — median over time with a median→p95 tail band, plus a
   per-class distribution box (IQR / median / p95 / max) and summary table.
 - **Load strip** — submissions/slot; brush it to zoom all time panels; double-click resets.
@@ -41,8 +44,8 @@ from the trace filenames: `two-lane-open-seed3.events.jsonl` is experiment
 
 - Metric definitions mirror the simulator (`Metrics.Price`, `Metrics.Latency`,
   `Metrics.Accumulator`): jump `|Δ|/old`, shock threshold 0.10, convergence band ±5%,
-  latency = inclusion − submission (last-wins by txId), the `quantile` rule, run length
-  `1 + maxSlot`.
+  oscillation = deadbanded coefficient direction reversals, latency = inclusion −
+  submission (last-wins by txId), the `quantile` rule, run length `1 + maxSlot`.
 - **Load regimes are inferred** from observed submissions/slot, because `events.jsonl`
   does not contain the run configuration. If the simulator later emits its config, the
   preprocessor can be extended to use exact regimes.

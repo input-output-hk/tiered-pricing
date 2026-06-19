@@ -87,6 +87,113 @@ function priceAt(lane, slot) {
   return v;
 }
 
+function relativeJump(oldCoeff, newCoeff) {
+  return oldCoeff > 0 ? Math.abs(newCoeff - oldCoeff) / oldCoeff : 0;
+}
+
+function emptyOscillation() {
+  return {
+    oscillationReversalCount: 0,
+    oscillationCycleCount: 0,
+    maxOscillationAmplitude: 0,
+    oscillationExcessTravel: 0,
+    reversals: [],
+  };
+}
+
+function directionLabel(direction) { return direction > 0 ? "up" : "down"; }
+
+function significantOscillationMoves(series, deadbandPct) {
+  if (!series.length) return [];
+  const moves = [];
+  let old = series[0].oldCoeff;
+  for (const point of series) {
+    const next = point.newCoeff;
+    if (old > 0 && next > 0 && relativeJump(old, next) > Math.max(0, deadbandPct)) {
+      if (next > old) moves.push({ slot: point.slot, direction: 1, old, new: next });
+      else if (next < old) moves.push({ slot: point.slot, direction: -1, old, new: next });
+    }
+    old = next;
+  }
+  return moves;
+}
+
+function segmentEndpoints(moves) {
+  if (!moves.length) return [];
+  const points = [moves[0].old];
+  let direction = moves[0].direction, end = moves[0].new;
+  for (const move of moves.slice(1)) {
+    if (move.direction === direction) {
+      end = move.new;
+    } else {
+      points.push(move.old);
+      direction = move.direction;
+      end = move.new;
+    }
+  }
+  points.push(end);
+  return points;
+}
+
+function logDistance(a, b) {
+  return a > 0 && b > 0 ? Math.abs(Math.log(b) - Math.log(a)) : 0;
+}
+
+function deriveOscillation(series, deadbandPct) {
+  const moves = significantOscillationMoves(series, deadbandPct);
+  if (!moves.length) return emptyOscillation();
+
+  const reversals = [];
+  const directions = [moves[0].direction];
+  let direction = moves[0].direction;
+  for (const move of moves.slice(1)) {
+    if (move.direction === direction) continue;
+    reversals.push({
+      slot: move.slot,
+      coeff: move.old,
+      fromDirection: directionLabel(direction),
+      toDirection: directionLabel(move.direction),
+    });
+    directions.push(move.direction);
+    direction = move.direction;
+  }
+
+  const endpoints = segmentEndpoints(moves);
+  const amplitudes = [];
+  for (let i = 0; i + 2 < endpoints.length; i += 1) {
+    const xs = endpoints.slice(i, i + 3);
+    amplitudes.push(Math.max(...xs) - Math.min(...xs));
+  }
+  const travel = endpoints.slice(1).reduce((a, x, i) => a + logDistance(endpoints[i], x), 0);
+  const net = endpoints.length > 1 ? logDistance(endpoints[0], endpoints[endpoints.length - 1]) : 0;
+  const reversalCount = Math.max(0, directions.length - 1);
+  return {
+    oscillationReversalCount: reversalCount,
+    oscillationCycleCount: Math.floor(reversalCount / 2),
+    maxOscillationAmplitude: amplitudes.length ? Math.max(...amplitudes) : 0,
+    oscillationExcessTravel: Math.max(0, travel - net),
+    reversals,
+  };
+}
+
+function oscillationForLane(lane) {
+  const byLane = ((DATA.oscillation || {}).byLane) || {};
+  const known = byLane[lane] || {};
+  const needsDerived =
+    !Array.isArray(known.reversals) ||
+    known.oscillationCycleCount == null ||
+    known.maxOscillationAmplitude == null ||
+    known.oscillationExcessTravel == null;
+  const derived = needsDerived
+    ? deriveOscillation(DATA.price.byLane[lane] || [], ((DATA.params || {}).convergenceBandPct) || 0.05)
+    : null;
+  return {
+    ...(derived || {}),
+    ...known,
+    reversals: Array.isArray(known.reversals) ? known.reversals : (derived || emptyOscillation()).reversals,
+  };
+}
+
 // Responsive widths: charts fill their column instead of a fixed 760px.
 function focusWidth() { return Math.max(360, el("focus").clientWidth || 760); }
 function distWidth() { return Math.max(200, el("panel-dist").clientWidth || 230); }
@@ -142,9 +249,12 @@ function renderKpis() {
   const c = DATA.convergence.byLane;
   const s = DATA.shock.byLane;
   const lanes = DATA.meta.lanes;
+  const oscillations = lanes.map((l) => oscillationForLane(l));
   // static lanes (or a flat-fee run) have no price-derived entries at all
   const maxJump = Math.max(0, ...lanes.map((l) => (s[l] || {}).maxJump || 0));
   const shocks = lanes.reduce((a, l) => a + ((s[l] || {}).shockCount || 0), 0);
+  const oscCycles = oscillations.reduce((a, o) => a + (o.oscillationCycleCount || 0), 0);
+  const oscAmp = Math.max(0, ...oscillations.map((o) => o.maxOscillationAmplitude || 0));
   const prio = c.Priority || {};
   const std = c.Standard || {};
   const lat = DATA.latency.byLane || {};
@@ -158,7 +268,9 @@ function renderKpis() {
     kpi("Priority conv. time", prio.convergenceTime == null ? "—" : `${prio.convergenceTime} slots`, "#7c3aed"),
     kpi("Max price jump", `${(maxJump * 100).toFixed(1)}%`, "#f59e0b"),
     kpi("# shocks (>10%)", String(shocks), "#ef4444"),
-    kpi("Std oscillation", `±${fmt(std.oscillationAmplitude, 3)}`, "#2563eb"),
+    kpi("Oscillation cycles", String(oscCycles), "#dc2626"),
+    kpi("Max oscill. amp", fmt(oscAmp, 3), "#d97706"),
+    kpi("Std coeff. range", fmt(std.settledCoefficientRange, 3), "#2563eb"),
   ];
   if (lat.Priority) cards.push(kpi("Priority mean latency", latencyKpi(lat.Priority), "#7c3aed"));
   if (lat.Standard) cards.push(kpi("Standard mean latency", latencyKpi(lat.Standard), "#2563eb"));
@@ -233,6 +345,45 @@ function convergenceBandMarks(lane) {
     }));
 }
 
+function oscillationMarkerMarks(lanes) {
+  const marks = [];
+  lanes.forEach((lane) => {
+    const color = LANE_COLOR[lane] || "#888";
+    const reversals = oscillationForLane(lane).reversals.map((r) => ({ ...r, lane }));
+    if (!reversals.length) return;
+    marks.push(Plot.dot(reversals, {
+      x: "slot",
+      y: "coeff",
+      r: 4,
+      fill: (d) => d.toDirection === "down" ? "#ef4444" : "#16a34a",
+      stroke: color,
+      strokeWidth: 1.4,
+      title: (d) =>
+        `${d.lane} reversal: ${d.fromDirection} -> ${d.toDirection}\n` +
+        `slot ${d.slot}, coeff ${fmt(d.coeff, 3)}`,
+    }));
+  });
+  return marks;
+}
+
+function renderOscillationSummary(lanes) {
+  if (!lanes.length) return null;
+  const rows = lanes.map((lane) => {
+    const o = oscillationForLane(lane);
+    return `<tr><td style="color:${LANE_COLOR[lane] || "#888"}">${lane}</td>` +
+      `<td>${o.oscillationCycleCount || 0}</td>` +
+      `<td>${fmt(o.maxOscillationAmplitude || 0, 3)}</td>` +
+      `<td>${fmt(o.oscillationExcessTravel || 0, 3)}</td>` +
+      `<td>${(o.reversals || []).length}</td></tr>`;
+  }).join("");
+  const div = document.createElement("div");
+  div.className = "osc-summary";
+  div.innerHTML =
+    `<table class="lat osc"><thead><tr><th>lane</th><th>cycles</th><th>max amp</th>` +
+    `<th>excess travel</th><th>markers</th></tr></thead><tbody>${rows}</tbody></table>`;
+  return div;
+}
+
 function renderPriceOverlaid(t, lanes) {
   const marks = [Plot.gridY({ stroke: t.grid })];
   lanes.forEach((lane) => marks.push(...convergenceBandMarks(lane)));
@@ -241,6 +392,7 @@ function renderPriceOverlaid(t, lanes) {
       x: "slot", y: "newCoeff", stroke: LANE_COLOR[lane] || "#888",
       strokeWidth: 1.8, curve: "step-after",
     })));
+  marks.push(...oscillationMarkerMarks(lanes));
   const pinned = pinnedPriceDomain(lanes);
   return Plot.plot({
     width: focusWidth(), height: 170, marginLeft: 44, marginRight: focusRight(), marginBottom: 18,
@@ -269,6 +421,7 @@ function renderPricePerLane(t, lanes) {
           x: "slot", y: "newCoeff", stroke: LANE_COLOR[lane] || "#888",
           strokeWidth: 1.8, curve: "step-after",
         }),
+        ...oscillationMarkerMarks([lane]),
       ],
     });
     wrap.appendChild(sub);
@@ -296,6 +449,8 @@ function renderPricePanel() {
     ? renderPriceOverlaid(t, lanes)
     : renderPricePerLane(t, lanes);
   fig.appendChild(node);
+  const summary = renderOscillationSummary(lanes);
+  if (summary) fig.appendChild(summary);
 }
 
 function renderShockPanel() {

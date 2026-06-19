@@ -42,6 +42,7 @@ import Metrics (
   DistStats (..),
   InclusionStats (..),
   Metrics (..),
+  PriceOscillation (..),
   PriceShock (..),
   PriceStability (..),
   Revenue (..),
@@ -279,7 +280,11 @@ headline =
   , ("throughput.ebUtilization", \m -> m.throughput.ebUtilization)
   , ("price.maxJump", \m -> m.priceShock.maxPriceJump)
   , ("price.shockCount", \m -> int m.priceShock.shockCount)
-  , ("price.oscillationAmplitude", \m -> m.priceStability.oscillationAmplitude)
+  , ("price.settledCoefficientRange", \m -> m.priceStability.settledCoefficientRange)
+  , ("price.oscillationReversalCount", \m -> int m.priceOscillation.oscillationReversalCount)
+  , ("price.oscillationCycleCount", \m -> int m.priceOscillation.oscillationCycleCount)
+  , ("price.oscillationMaxAmplitude", \m -> m.priceOscillation.maxOscillationAmplitude)
+  , ("price.oscillationExcessTravel", \m -> m.priceOscillation.oscillationExcessTravel)
   ]
  where
   int = fromIntegral

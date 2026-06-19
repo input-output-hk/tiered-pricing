@@ -14,7 +14,7 @@ import Metrics.Demand (demandLoadFrom)
 import Metrics.Inclusion (inclusionStats)
 import Metrics.Invariants (invariantBreachesFrom)
 import Metrics.Latency (blockLatencyStats, latencyStats)
-import Metrics.Price (priceChangesFrom, priceShockFrom, priceStabilityFrom)
+import Metrics.Price (priceChangesFrom, priceOscillationFrom, priceShockFrom, priceStabilityFrom)
 import Metrics.Revenue (revenueFrom)
 import Metrics.Slice (laneDim, sliceBy, urgencyDim, (>*<))
 import Metrics.Throughput (rankingBlocksFrom, throughputFrom)
@@ -37,6 +37,8 @@ finalizeMetrics metricsConfig slots acc =
     , urgencyLaneLatency = sliceBy (urgencyDim >*< laneDim) latencyStats acc
     , urgencyLaneActualBlockLatency = sliceBy (urgencyDim >*< laneDim) blockLatencyStats acc
     , priceShock = priceShockFrom acc
+    , priceOscillation =
+        priceOscillationFrom metricsConfig.metricsPriceConvergenceBandPct acc
     , priceChanges = priceChangesFrom acc
     , revenue = revenueFrom acc
     , throughput = throughputFrom slots acc

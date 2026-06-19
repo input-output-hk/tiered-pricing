@@ -19,6 +19,7 @@ module Metrics.Types (
 
   -- * Aggregate measures
   PriceShock (..),
+  PriceOscillation (..),
   PriceUpdate (..),
   Revenue (..),
   Throughput (..),
@@ -36,7 +37,7 @@ import Metrics.Demand (DemandLoad (..))
 import Metrics.Inclusion (InclusionStats (..))
 import Metrics.Invariants (InvariantBreach (..), InvariantKind (..))
 import Metrics.Latency (BlockLatencyStats, LatencyStats)
-import Metrics.Price (PriceShock (..), PriceStability (..))
+import Metrics.Price (PriceOscillation (..), PriceShock (..), PriceStability (..))
 import Metrics.Revenue (Revenue (..))
 import Metrics.Throughput (RankingBlockCounts (..), Throughput (..))
 import Metrics.Value (ValueOutcome (..))
@@ -81,6 +82,8 @@ data Metrics = Metrics
   -- ^ Diagnostic inclusion latency in actual ranking blocks, by urgency and submitted lane
   , priceShock :: PriceShock
   -- ^ (4) price shock
+  , priceOscillation :: PriceOscillation
+  -- ^ Diagnostic true price oscillation
   , priceChanges :: [(SlotNo, PriceUpdate)]
   -- ^ Dynamic price update trace, in event order
   , revenue :: Revenue
@@ -90,7 +93,7 @@ data Metrics = Metrics
   , rankingBlocks :: RankingBlockCounts
   -- ^ Diagnostic counts of tx-containing and EB-certifying RBs
   , priceStability :: PriceStability
-  -- ^ (7) price convergence\/oscillation
+  -- ^ (7) price convergence\/residual range
   , invariantBreaches :: [InvariantBreach]
   -- ^ (8) invariant breaches
   , demandLoad :: DemandLoad

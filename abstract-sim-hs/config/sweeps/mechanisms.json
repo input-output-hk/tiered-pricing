@@ -1,5 +1,5 @@
 {
-  "description": "Phase-2 mechanism set: flat-fee control vs the five live dynamic-pricing candidates, severe congestion",
+  "description": "Phase-2 mechanism set: controls, live dynamic-pricing candidates, and windowed-priority companions under severe congestion",
   "seeds": 10,
   "slots": 2000,
   "out": "sweep-results/mechanisms",
@@ -9,6 +9,22 @@
     { "name": "priority-only-reserved", "config": "config/variants/priority-only-reserved.json" },
     { "name": "priority-only-open", "config": "config/variants/priority-only-open.json" },
     { "name": "both-dynamic-reserved", "config": "config/default-sim-config.json" },
-    { "name": "both-dynamic-open", "config": "config/variants/no-reservation.json" }
+    { "name": "both-dynamic-open", "config": "config/variants/no-reservation.json" },
+    { "name": "priority-only-reserved-window3", "config": "config/variants/priority-only-reserved-window3.json" },
+    { "name": "priority-only-open-window3", "config": "config/variants/priority-only-open-window3.json" },
+    { "name": "both-dynamic-reserved-window3", "config": "config/variants/both-dynamic-reserved-window3.json" },
+    { "name": "both-dynamic-open-window3", "config": "config/variants/both-dynamic-open-window3.json" },
+    { "name": "priority-only-reserved-windowed", "config": "config/variants/priority-only-reserved-windowed.json" },
+    { "name": "priority-only-open-windowed", "config": "config/variants/priority-only-open-windowed.json" },
+    { "name": "both-dynamic-reserved-windowed", "config": "config/variants/both-dynamic-reserved-windowed.json" },
+    { "name": "both-dynamic-open-windowed", "config": "config/variants/both-dynamic-open-windowed.json" },
+    { "name": "priority-only-reserved-window10", "config": "config/variants/priority-only-reserved-window10.json" },
+    { "name": "priority-only-open-window10", "config": "config/variants/priority-only-open-window10.json" },
+    { "name": "both-dynamic-reserved-window10", "config": "config/variants/both-dynamic-reserved-window10.json" },
+    { "name": "both-dynamic-open-window10", "config": "config/variants/both-dynamic-open-window10.json" },
+    { "name": "priority-only-reserved-window20", "config": "config/variants/priority-only-reserved-window20.json" },
+    { "name": "priority-only-open-window20", "config": "config/variants/priority-only-open-window20.json" },
+    { "name": "both-dynamic-reserved-window20", "config": "config/variants/both-dynamic-reserved-window20.json" },
+    { "name": "both-dynamic-open-window20", "config": "config/variants/both-dynamic-open-window20.json" }
   ]
 }

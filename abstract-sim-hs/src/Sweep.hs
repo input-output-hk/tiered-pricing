@@ -54,6 +54,7 @@ import Metrics (
  )
 import Parser (parseSimConfig)
 import Run (Run (..), Seed, runWithSeedToFile)
+import Control.Exception (evaluate)
 import System.Directory (copyFile, createDirectoryIfMissing)
 import System.FilePath ((</>))
 import Text.Printf (printf)
@@ -73,6 +74,8 @@ data SweepVariant = SweepVariant
   , variantConfig :: FilePath
   }
   deriving (Eq, Show)
+
+type RunScalars = [(String, Double)]
 
 -- | Command-line overrides on top of the manifest, for quick iteration
 -- without editing the committed experiment definition.
@@ -197,7 +200,7 @@ runSweep spec = do
   BL.writeFile summaryPath (encode (summaryJson spec variants))
   putStrLn ("wrote " <> summaryPath)
 
-runVariant :: SweepSpec -> SweepVariant -> IO (SweepVariant, [(Seed, Metrics)])
+runVariant :: SweepSpec -> SweepVariant -> IO (SweepVariant, [(Seed, RunScalars)])
 runVariant spec variant = do
   -- the output directory is self-contained for reproduction: the exact
   -- config of every variant rides along with the traces it produced
@@ -207,12 +210,19 @@ runVariant spec variant = do
     traverse (runPoint spec variant.variantName config) (fromIntegral <$> [0 .. spec.sweepSeeds - 1])
   pure (variant, runs)
 
-runPoint :: SweepSpec -> String -> SimConfig -> Seed -> IO (Seed, Metrics)
+runPoint :: SweepSpec -> String -> SimConfig -> Seed -> IO (Seed, RunScalars)
 runPoint spec name config seed = do
   let tracePath = spec.sweepOutDir </> (name <> "-seed" <> show seed <> ".events.jsonl")
   result <- runWithSeedToFile config tracePath seed spec.sweepSlots
-  putStrLn (name <> " seed " <> show seed <> ": " <> progressLine result._runResult)
-  pure (seed, result._runResult)
+  let metrics = result._runResult
+      scalars = headlineScalars metrics
+  forceScalars scalars
+  putStrLn (name <> " seed " <> show seed <> ": " <> progressLine metrics)
+  pure (seed, scalars)
+
+forceScalars :: RunScalars -> IO ()
+forceScalars scalars =
+  evaluate (foldl' (\acc (_, value) -> value `seq` acc) () scalars)
 
 progressLine :: Metrics -> String
 progressLine metrics =
@@ -452,7 +462,7 @@ latencyMeanBlocks m =
 
 -- | The resolved spec is embedded so the summary is self-describing: which
 -- experiment, which designs, which configs produced these numbers.
-summaryJson :: SweepSpec -> [(SweepVariant, [(Seed, Metrics)])] -> Value
+summaryJson :: SweepSpec -> [(SweepVariant, [(Seed, RunScalars)])] -> Value
 summaryJson spec variants =
   object
     [ "description" .= spec.sweepDescription
@@ -468,10 +478,10 @@ summaryJson spec variants =
       , "runs" .= fmap runJson runs
       , "aggregates" .= object (fmap aggregateJson (aggregate runs))
       ]
-  runJson (seed, metrics) =
+  runJson (seed, scalars) =
     object
       [ "seed" .= seed
-      , "scalars" .= object [Key.fromString key .= value | (key, value) <- headlineScalars metrics]
+      , "scalars" .= object [Key.fromString key .= value | (key, value) <- scalars]
       ]
   aggregateJson (key, stats) =
     Key.fromString key .= statsJson stats
@@ -490,12 +500,16 @@ data SummaryStats = SummaryStats
   , statsMax :: Double
   }
 
-aggregate :: [(Seed, Metrics)] -> [(String, SummaryStats)]
+aggregate :: [(Seed, RunScalars)] -> [(String, SummaryStats)]
 aggregate [] = []
 aggregate runs =
-  [ (key, summaryStats [scalar metrics | (_, metrics) <- runs])
-  | (key, scalar) <- headline
+  [ (key, summaryStats [lookupScalar key scalars | (_, scalars) <- runs])
+  | (key, _) <- headline
   ]
+
+lookupScalar :: String -> RunScalars -> Double
+lookupScalar key scalars =
+  fromMaybe (error ("internal error: missing sweep scalar " <> show key)) (lookup key scalars)
 
 -- | Sample standard deviation; zero when fewer than two observations.
 summaryStats :: [Double] -> SummaryStats

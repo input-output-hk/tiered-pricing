@@ -14,7 +14,7 @@ import Load (severeCongestionLoad)
 import Metrics.Accumulator (MetricsAcc (..), emptyMetricsAcc)
 import Metrics.Price (PriceOscillation (..), PriceStability (..), priceOscillationFrom, priceStabilityFrom)
 import Parser (parseDesign, parseSimConfig)
-import Pricing (ControllerInput (..), PriceUpdate (..), Prices (..), admissionRequiredFee, coversProducerHeadroom, initialPrices, quotedFee, realisedFee, updatePrices)
+import Pricing (ControllerInput (..), PriceUpdate (..), Prices (..), admissionRequiredFee, coversProducerHeadroom, initialPrices, quotedFee, realisedFee, retentionWindow, updatePrices)
 import Resource (Bytes (..), ExUnits (..), Resources (..))
 import Retry (noRetries)
 import Sweep (SweepSpec (..), SweepVariant (..), loadSweepSpec)
@@ -30,6 +30,10 @@ main = do
   assertLiveConfigsParse
   assertHeadroomInvariant
   assertPriorityControllerReadsCurrentProduction
+  assertPriorityReservationWindowUsesRbEquivalentCapacity
+  assertPriorityReservationWindowRetention
+  assertCapacityWeightedWindowCountsCertifiedEbs
+  assertCapacityWeightedWindowUsesExUnits
   assertPremiumScopeChargesByInclusionPoint
   assertPriceStabilityExcludesTransient
   assertNeverSettlingPriceNeverConverges
@@ -128,13 +132,29 @@ assertLiveConfigsParse = do
   mapM_ (parseSimConfig . (.variantConfig)) sweepSpec.sweepVariants
   mechanisms <- loadSweepSpec "config/sweeps/mechanisms.json"
   assertEqual
-    "mechanism sweep covers the phase-2 candidate set plus the flat-fee control"
+    "mechanism sweep covers controls, phase-2 candidates, and windowed-priority companions"
     [ "flat-fee"
     , "single-lane-eip1559"
     , "priority-only-reserved"
     , "priority-only-open"
     , "both-dynamic-reserved"
     , "both-dynamic-open"
+    , "priority-only-reserved-window3"
+    , "priority-only-open-window3"
+    , "both-dynamic-reserved-window3"
+    , "both-dynamic-open-window3"
+    , "priority-only-reserved-windowed"
+    , "priority-only-open-windowed"
+    , "both-dynamic-reserved-windowed"
+    , "both-dynamic-open-windowed"
+    , "priority-only-reserved-window10"
+    , "priority-only-open-window10"
+    , "both-dynamic-reserved-window10"
+    , "both-dynamic-open-window10"
+    , "priority-only-reserved-window20"
+    , "priority-only-open-window20"
+    , "both-dynamic-reserved-window20"
+    , "both-dynamic-open-window20"
     ]
     (fmap (.variantName) mechanisms.sweepVariants)
   mapM_ (parseSimConfig . (.variantConfig)) mechanisms.sweepVariants
@@ -239,6 +259,191 @@ assertPriorityControllerReadsCurrentProduction = do
       assertEqual "priority coeff after update" 18.0 (atLane Priority newPrices.laneCoeffs)
     _ -> do
       putStrLn ("expected exactly one priority update, got " <> show (length updates))
+      exitFailure
+
+assertPriorityReservationWindowUsesRbEquivalentCapacity :: IO ()
+assertPriorityReservationWindowUsesRbEquivalentCapacity = do
+  let reservation = Resources{resBytes = Bytes 100, resExUnits = ExUnits 1_000}
+      ebCapacity = Resources{resBytes = Bytes 1_000, resExUnits = ExUnits 10_000}
+      rbCapacity = reservation
+      usage capacity priorityBytes priorityExUnits =
+        BlockUsage
+          { usageCapacity = capacity
+          , usageUsed = Resources{resBytes = Bytes priorityBytes, resExUnits = ExUnits priorityExUnits}
+          , usageLanes =
+              PerLane
+                { perStandard = mempty
+                , perPriority = Resources{resBytes = Bytes priorityBytes, resExUnits = ExUnits priorityExUnits}
+                }
+          , usageSignalCapacity = reservation
+          }
+      priorityWindow =
+        ControllerConfig
+          { laneControllers =
+              PerLane
+                { perStandard = Nothing
+                , perPriority =
+                    Just
+                      Eip1559Controller
+                        { controllerTargetUtilisation = 0.50
+                        , controllerMaxChangeDenominator = 8
+                        , controllerInitialCoefficient = 2.0
+                        , controllerSignal = PriorityReservationWindow 2
+                        }
+                }
+          , multiplierFloor = Nothing
+          , absoluteCoeffFloor = 1.0
+          }
+      input =
+        ControllerInput
+          { recentBlocks =
+              Seq.fromList
+                [ RbPraos [] (usage rbCapacity 100 1_000)
+                , EbAnnounced (EbId 1) (usage ebCapacity 100 1_000)
+                , RbPraos [] (usage rbCapacity 25 0)
+                , EbCertified (EbId 2) (usage ebCapacity 200 4_000)
+                ]
+          , currentProduction = mempty
+          }
+      (newPrices, updates) = updatePrices priorityWindow input (Prices (PerLane 1.0 8.0))
+  case updates of
+    [update] -> do
+      assertEqual "priority-window update lane" Priority update.priceUpdateLane
+      assertEqual "priority-window aggregate utilisation" 0.625 update.priceUpdateUtilisation
+      assertEqual "priority-window new coeff" 8.25 update.priceUpdateNewCoeff
+      assertEqual "priority coeff after window update" 8.25 (atLane Priority newPrices.laneCoeffs)
+    _ -> do
+      putStrLn ("expected exactly one priority update, got " <> show (length updates))
+      exitFailure
+
+assertPriorityReservationWindowRetention :: IO ()
+assertPriorityReservationWindowRetention = do
+  let priorityWindow =
+        ControllerConfig
+          { laneControllers =
+              PerLane
+                { perStandard = Nothing
+                , perPriority =
+                    Just
+                      Eip1559Controller
+                        { controllerTargetUtilisation = 0.50
+                        , controllerMaxChangeDenominator = 8
+                        , controllerInitialCoefficient = 2.0
+                        , controllerSignal = PriorityReservationWindow 20
+                        }
+                }
+          , multiplierFloor = Nothing
+          , absoluteCoeffFloor = 1.0
+          }
+  assertEqual "priority-reservation window retention" 60 (retentionWindow priorityWindow)
+
+assertCapacityWeightedWindowCountsCertifiedEbs :: IO ()
+assertCapacityWeightedWindowCountsCertifiedEbs = do
+  let ebCapacity = Resources{resBytes = Bytes 100, resExUnits = ExUnits 1_000}
+      announcedFullStandard =
+        BlockUsage
+          { usageCapacity = ebCapacity
+          , usageUsed = Resources{resBytes = Bytes 100, resExUnits = ExUnits 0}
+          , usageLanes =
+              PerLane
+                { perStandard = Resources{resBytes = Bytes 100, resExUnits = ExUnits 0}
+                , perPriority = mempty
+                }
+          , usageSignalCapacity = mempty
+          }
+      certifiedHalfStandard =
+        BlockUsage
+          { usageCapacity = ebCapacity
+          , usageUsed = Resources{resBytes = Bytes 50, resExUnits = ExUnits 0}
+          , usageLanes =
+              PerLane
+                { perStandard = Resources{resBytes = Bytes 50, resExUnits = ExUnits 0}
+                , perPriority = mempty
+                }
+          , usageSignalCapacity = mempty
+          }
+      standardOnly =
+        ControllerConfig
+          { laneControllers =
+              PerLane
+                { perStandard =
+                    Just
+                      Eip1559Controller
+                        { controllerTargetUtilisation = 0.50
+                        , controllerMaxChangeDenominator = 8
+                        , controllerInitialCoefficient = 1.0
+                        , controllerSignal = CapacityWeightedWindow 10
+                        }
+                , perPriority = Nothing
+                }
+          , multiplierFloor = Nothing
+          , absoluteCoeffFloor = 1.0
+          }
+      input =
+        ControllerInput
+          { recentBlocks =
+              Seq.fromList
+                [ EbAnnounced (EbId 1) announcedFullStandard
+                , EbCertified (EbId 1) certifiedHalfStandard
+                ]
+          , currentProduction = mempty
+          }
+      (newPrices, updates) = updatePrices standardOnly input (Prices (PerLane 8.0 1.0))
+  case updates of
+    [update] -> do
+      assertEqual "capacity-window update lane" Standard update.priceUpdateLane
+      assertEqual "capacity-window certified EB utilisation" 0.5 update.priceUpdateUtilisation
+      assertEqual "capacity-window ignores EB announcement" 8.0 update.priceUpdateNewCoeff
+      assertEqual "standard coeff after capacity-window update" 8.0 (atLane Standard newPrices.laneCoeffs)
+    _ -> do
+      putStrLn ("expected exactly one standard update, got " <> show (length updates))
+      exitFailure
+
+assertCapacityWeightedWindowUsesExUnits :: IO ()
+assertCapacityWeightedWindowUsesExUnits = do
+  let ebCapacity = Resources{resBytes = Bytes 100, resExUnits = ExUnits 1_000}
+      certifiedExUnitBound =
+        BlockUsage
+          { usageCapacity = ebCapacity
+          , usageUsed = Resources{resBytes = Bytes 10, resExUnits = ExUnits 1_000}
+          , usageLanes =
+              PerLane
+                { perStandard = Resources{resBytes = Bytes 10, resExUnits = ExUnits 1_000}
+                , perPriority = mempty
+                }
+          , usageSignalCapacity = mempty
+          }
+      standardOnly =
+        ControllerConfig
+          { laneControllers =
+              PerLane
+                { perStandard =
+                    Just
+                      Eip1559Controller
+                        { controllerTargetUtilisation = 0.50
+                        , controllerMaxChangeDenominator = 8
+                        , controllerInitialCoefficient = 1.0
+                        , controllerSignal = CapacityWeightedWindow 10
+                        }
+                , perPriority = Nothing
+                }
+          , multiplierFloor = Nothing
+          , absoluteCoeffFloor = 1.0
+          }
+      input =
+        ControllerInput
+          { recentBlocks = Seq.fromList [EbCertified (EbId 1) certifiedExUnitBound]
+          , currentProduction = mempty
+          }
+      (newPrices, updates) = updatePrices standardOnly input (Prices (PerLane 8.0 1.0))
+  case updates of
+    [update] -> do
+      assertEqual "capacity-window update lane" Standard update.priceUpdateLane
+      assertEqual "capacity-window ex-unit utilisation" 1.0 update.priceUpdateUtilisation
+      assertEqual "capacity-window ex-units can bind" 9.0 update.priceUpdateNewCoeff
+      assertEqual "standard coeff after ex-unit-bound update" 9.0 (atLane Standard newPrices.laneCoeffs)
+    _ -> do
+      putStrLn ("expected exactly one standard update, got " <> show (length updates))
       exitFailure
 
 {- | The Giorgos design ('PremiumRbOnly'): the priority premium buys RB

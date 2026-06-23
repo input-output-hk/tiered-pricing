@@ -60,6 +60,23 @@ def test_block_conversion_pins_f_and_keeps_realized_as_sanity():
     assert data["latency"]["byClass"][cls["id"]]["blocks"]["median"] == 4
 
 
+def test_value_decay_uses_actual_ranking_block_delay_not_expected_slots():
+    acc = Accumulator()
+    submitted = _submitted(1, 0.5, tag="Linear")
+    submitted["tx"]["value"] = 3
+    acc.ingest(submitted)
+    acc.ingest(_ranking_block(20))
+    acc.ingest(_included(1, 99))
+
+    data = build_sim_data(acc, f=0.05)
+    cls_id = data["meta"]["urgencyClasses"][0]["id"]
+    value = data["value"]["byClass"][cls_id]
+
+    assert data["latency"]["byClass"][cls_id]["blocks"]["max"] == 1
+    assert value["retained"] == 1
+    assert value["lost"] == 2
+
+
 def _price(lane, slot, old, new, util=0.0):
     return {"tag": "PriceUpdated", "slot": slot, "lane": lane,
             "oldCoeff": old, "newCoeff": new, "utilisation": util}

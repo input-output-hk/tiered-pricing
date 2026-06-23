@@ -82,6 +82,15 @@ def retention_ratio(tag, rate, blocks):
     return 1.0
 
 
+def retained_value(value, ratio):
+    """Lovelace retained after decay, mirroring Transaction.scaleRetainedValue."""
+    if ratio <= 0:
+        return 0
+    if ratio >= 1:
+        return value
+    return max(0, min(value, math.floor(value * ratio)))
+
+
 def build_fate(acc, lanes, classes):
     """Per demand unit (one count however many attempts it took): included /
     abandoned (terminal failure: actor gave up after rejection or eviction) /
@@ -105,12 +114,13 @@ def build_fate(acc, lanes, classes):
     return {"byLane": by_lane, "byClass": by_class, "byClassLane": by_class_lane}
 
 
-def build_value(acc, lanes, classes, f):
+def build_value(acc, lanes, classes):
     """Retained vs lost demand-unit value by lane and urgency class. Every unit
     lands in exactly one column: served units retain value *
-    retentionRatio(f * latency from FIRST submission) — so retry wait counts —
-    abandoned units lose their full value, and units still in flight at the
-    run horizon are reported as unresolved rather than lost."""
+    retentionRatio(actual produced ranking-block latency from FIRST submission)
+    — so retry wait counts — abandoned units lose their full value, and units
+    still in flight at the run horizon are reported as unresolved rather than
+    lost."""
     def blank():
         return {"total": 0, "retained": 0, "lost": 0, "unresolved": 0}
     by_lane = {l: blank() for l in lanes}
@@ -122,9 +132,10 @@ def build_value(acc, lanes, classes, f):
         fate = unit_fate(acc, unit)
         ret = lost = unresolved = 0
         if fate == "included":
-            blocks = f * max(0, unit["includedAt"] - unit["firstSubmitted"])
+            blocks = max(0, unit["includedBlock"] - unit["firstSubmittedBlock"])
             r = retention_ratio(meta["tag"], meta["rate"], blocks)
-            ret, lost = round(v * r), round(v * (1.0 - r))
+            ret = retained_value(v, r)
+            lost = v - ret
         elif fate == "abandoned":
             lost = v
         else:
@@ -207,9 +218,9 @@ def build_sim_data(acc, params=None, target_buckets=300, source="events.jsonl", 
     params = {**DEFAULT_PARAMS, **(params or {})}
     slot_count = acc.slot_count
     width = load_mod.bucket_width(slot_count, target_buckets)
-    # Slots <-> blocks uses the configured active-slot coefficient f (expected),
-    # matching the sim's expectedBlockDelay (blocks = f * slots). The realized RB
-    # cadence is kept only as a sanity check, not used for conversions.
+    # Slot equivalents for labels use the configured active-slot coefficient f
+    # (expected), matching the sim's expectedBlockDelay. Retained value and
+    # block-latency panels use the actual produced-ranking-block counter.
     expected_spb = (1.0 / f) if f else None
     realized_spb = (slot_count / acc.rb_count) if acc.rb_count else None
 
@@ -327,7 +338,7 @@ def build_sim_data(acc, params=None, target_buckets=300, source="events.jsonl", 
         "load": load_obj,
         "flow": build_flow_sample(acc),
         "fate": build_fate(acc, lanes, classes),
-        "value": build_value(acc, lanes, classes, f),
+        "value": build_value(acc, lanes, classes),
         "fairness": build_fairness(acc),
         "blocks": {
             "rbTotal": acc.rb_count,

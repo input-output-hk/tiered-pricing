@@ -250,6 +250,8 @@ controllerUtilisation lane input controller =
       capacityWeightedWindowUtilisation lane (signalWindow signal) input.recentBlocks
     PriorityReservationUtil ->
       priorityReservationUtilisation input.currentProduction
+    PriorityReservationWindow windowSize ->
+      priorityReservationWindowUtilisation windowSize input.recentBlocks
 
 {- | How much retained history a controller signal reads. Per-block signals
 read none of it — they consume 'currentProduction' — so retention cannot
@@ -259,6 +261,7 @@ signalWindow :: ControllerSignal -> Int
 signalWindow = \case
   CapacityWeightedWindow windowSize -> max 1 windowSize
   PriorityReservationUtil -> 0
+  PriorityReservationWindow windowSize -> 3 * max 1 windowSize
 
 {- | How far back the price controllers can read the recent-block history.
 Derived from 'signalWindow' so the engine's retention and the signals'
@@ -284,23 +287,29 @@ applyEip1559Update controller oldCoeff utilisationValue =
 
 capacityWeightedWindowUtilisation :: Lane -> Int -> Seq BlockSummary -> Double
 capacityWeightedWindowUtilisation lane windowSize recentBlocks =
-  utilisationRatio (fmap laneUsed summaries) (fmap summaryCapacity summaries)
+  max
+    (utilisationRatio (fmap laneUsedBytes summaries) (fmap summaryCapacityBytes summaries))
+    (utilisationRatio (fmap laneUsedExUnits summaries) (fmap summaryCapacityExUnits summaries))
  where
   summaries = takeLast windowSize recentBlocks
-  laneUsed = \case
-    RbPraos _ usage -> laneUsedBytes usage
-    RbCertifying _ -> 0
-    EbAnnounced _ usage -> laneUsedBytes usage
-    -- A certified EB's content already counted at announcement; only the
-    -- priority reservation signal reads certification.
-    EbCertified _ _ -> 0
-  laneUsedBytes usage =
-    (atLane lane usage.usageLanes).resBytes.unBytes
+  laneUsedBytes summary =
+    (atLane lane (summaryLaneUsage summary)).resBytes.unBytes
+  laneUsedExUnits summary =
+    (atLane lane (summaryLaneUsage summary)).resExUnits.unExUnits
+  summaryCapacityBytes summary =
+    (summaryCapacity summary).resBytes.unBytes
+  summaryCapacityExUnits summary =
+    (summaryCapacity summary).resExUnits.unExUnits
+  summaryLaneUsage = \case
+    RbPraos _ usage -> usage.usageLanes
+    RbCertifying _ -> pure mempty
+    EbAnnounced _ _ -> pure mempty
+    EbCertified _ usage -> usage.usageLanes
   summaryCapacity = \case
-    RbPraos _ usage -> usage.usageCapacity.resBytes.unBytes
-    RbCertifying _ -> 0
-    EbAnnounced _ usage -> usage.usageCapacity.resBytes.unBytes
-    EbCertified _ _ -> 0
+    RbPraos _ usage -> usage.usageCapacity
+    RbCertifying _ -> mempty
+    EbAnnounced _ _ -> mempty
+    EbCertified _ usage -> usage.usageCapacity
 
 {- | The design doc's @priorityUtil(b)@, per priced block: the controller
 event in this update's block production — a Praos RB's fill of the
@@ -311,13 +320,21 @@ contains exactly one event, so the mean is that single sample.
 -}
 priorityReservationUtilisation :: Seq BlockSummary -> Double
 priorityReservationUtilisation production =
-  mean (mapMaybe prioritySignalSample (Foldable.toList production))
+  mean (fmap priorityFill (mapMaybe prioritySignalSample (Foldable.toList production)))
+
+priorityReservationWindowUtilisation :: Int -> Seq BlockSummary -> Double
+priorityReservationWindowUtilisation windowSize recentBlocks =
+  aggregatePriorityFill samples
  where
-  prioritySignalSample = \case
-    RbPraos _ usage -> Just (priorityFill usage)
-    RbCertifying _ -> Nothing
-    EbAnnounced _ _ -> Nothing
-    EbCertified _ usage -> Just (priorityFill usage)
+  samples =
+    takeLast (max 1 windowSize) (mapMaybe prioritySignalSample (Foldable.toList recentBlocks))
+
+prioritySignalSample :: BlockSummary -> Maybe BlockUsage
+prioritySignalSample = \case
+  RbPraos _ usage -> Just usage
+  RbCertifying _ -> Nothing
+  EbAnnounced _ _ -> Nothing
+  EbCertified _ usage -> Just usage
 
 {- | How full the priority lane ran against its signal capacity, on the
 binding dimension.
@@ -331,6 +348,27 @@ priorityFill usage =
     resourceRatio priorityUsed.resBytes.unBytes usage.usageSignalCapacity.resBytes.unBytes
   exUnitsFill =
     resourceRatio priorityUsed.resExUnits.unExUnits usage.usageSignalCapacity.resExUnits.unExUnits
+
+aggregatePriorityFill :: [BlockUsage] -> Double
+aggregatePriorityFill usages =
+  clamp 0 1 (max bytesFill exUnitsFill)
+ where
+  bytesFill =
+    resourceRatio
+      (sum (fmap cappedPriorityBytes usages))
+      (sum (fmap (\usage -> usage.usageSignalCapacity.resBytes.unBytes) usages))
+  exUnitsFill =
+    resourceRatio
+      (sum (fmap cappedPriorityExUnits usages))
+      (sum (fmap (\usage -> usage.usageSignalCapacity.resExUnits.unExUnits) usages))
+  cappedPriorityBytes usage =
+    min
+      usage.usageLanes.perPriority.resBytes.unBytes
+      usage.usageSignalCapacity.resBytes.unBytes
+  cappedPriorityExUnits usage =
+    min
+      usage.usageLanes.perPriority.resExUnits.unExUnits
+      usage.usageSignalCapacity.resExUnits.unExUnits
 
 resourceRatio :: Int -> Int -> Double
 resourceRatio _ capacity | capacity <= 0 = 0

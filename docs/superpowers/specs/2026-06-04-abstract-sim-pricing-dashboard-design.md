@@ -115,12 +115,26 @@ abstract-sim-viz/
     "byLane": { "<lane>": { "maxJump": <float>, "shockCount": <int> } }
   },
 
+  "oscillation": {
+    "byLane": {
+      "<lane>": {
+        "oscillationReversalCount": <int>,
+        "oscillationCycleCount": <int>,
+        "maxOscillationAmplitude": <float>,
+        "oscillationExcessTravel": <float>,
+        "reversals": [
+          { "slot": <int>, "coeff": <float>, "fromDirection": "up|down", "toDirection": "up|down" }
+        ]
+      }
+    }
+  },
+
   "convergence": {
     "loadRegimes": [ { "start", "end", "meanArrival" } ],   // inferred from submissions/slot
     "byLane": {
       "<lane>": {
         "convergenceTime": <int|null>,        // max across regimes of (convergenceSlot − regimeStart); null = never
-        "oscillationAmplitude": <float>,      // peak-to-peak of this lane's coeffs across the run (max − min)
+        "settledCoefficientRange": <float>,   // peak-to-peak of this lane's coeffs after settling (max − min)
         "regimes": [
           { "start", "end", "reference", "band": [<lo>, <hi>], "convergenceSlot": <int|null> }
         ]
@@ -177,6 +191,11 @@ end. Option (b) keeps memory bounded by slot count, not event count — preferre
   distribution panel is comparable — e.g. a nice-rounded `globalP99 / 30`), and the `overTime`
   series (bucket each latency by its **submit** slot; per bucket emit median, p95, n).
 - Per-lane `maxJump` and `shockCount = #{jump > shockThreshold}` from the price series.
+- Per-lane true oscillation from the price series: ignore moves within
+  `convergenceBandPct`, collapse same-direction significant moves, then count
+  direction reversals, completed cycles (`reversals div 2`), max three-endpoint
+  peak-to-trough amplitude, excess log-price travel, and reversal markers for
+  chart annotation.
 - **Load regimes:** smooth `submissions`/slot, walk slots detecting material change
   (`|new−old|/old > loadChangePct`, with the `old ≤ 0` edge case from `materialLoadChange`),
   emit `{start, end, meanArrival}` regimes.
@@ -185,8 +204,8 @@ end. Option (b) keeps memory bounded by slot count, not event count — preferre
   later in-regime prices stay within `±convergenceBandPct` of the reference (its `band` is
   `reference·(1±bandPct)`); record that `convergenceSlot`. The lane's `convergenceTime` is the
   **max across regimes** of `convergenceSlot − regimeStart` (`null` if any regime never
-  converges), mirroring `convergenceTimeFrom`. `oscillationAmplitude` = peak-to-peak (max − min)
-  of the lane's old+new coeffs across the run, mirroring `amplitude`; the run-level KPI is the
+  converges), mirroring `convergenceTimeFrom`. `settledCoefficientRange` = peak-to-peak (max − min)
+  of the lane's coeffs after settling, mirroring `priceStabilityFrom`; the run-level KPI is the
   max across lanes.
 
 ## 7. Dashboard panels & interactions
@@ -208,7 +227,8 @@ shock → latency causation be read directly.
 
 Plus a thin **load strip** (submissions & inclusions per bucket) with inferred regime
 boundaries, and a **KPI strip** (per-lane convergence time, max price jump, shock count,
-oscillation).
+oscillation cycles/amplitude, settled coefficient range). The price panel annotates
+significant oscillation reversals directly on the coefficient trace.
 
 **Interactions:** shared crosshair across the time panels; brush-to-zoom on the time axis
 (rescales all time panels together); hover tooltips; legend click to toggle lanes/classes;
@@ -228,14 +248,15 @@ All computations mirror the Haskell metric code:
 | Shock threshold | `0.10` | `priceShockThreshold` (Price) |
 | maxJump / shockCount | max jump; `#{jump > 0.10}` | `priceShockFrom` |
 | Convergence band | `±0.05` | `metricsConfigDefault` |
+| Price oscillation | deadbanded coefficient direction reversals/cycles, max three-endpoint amplitude, excess log travel | `priceOscillationFrom` |
 | Material load change | `>0.10` relative | `materialLoadChange` / default |
 | Convergence time | first slot price enters & stays in band per regime; max across regimes | `convergenceTimeFrom` |
-| Oscillation amplitude | peak-to-peak (max−min) of a lane's coeffs; run KPI = max across lanes | `amplitude` / `priceStabilityFrom` |
+| Settled coefficient range | peak-to-peak (max−min) of a lane's coeffs after settling; run KPI = max across lanes | `priceStabilityFrom` |
 
 > **Update (2026-06-12):** the simulator's own metrics no longer use load
 > regimes. `convergenceTime` is now the settling time against each lane's
 > *final* coefficient (max across lanes; `null` if a lane was still out of
-> band at its last update), and `oscillationAmplitude` is the peak-to-peak
+> band at its last update), and `settledCoefficientRange` is the peak-to-peak
 > ripple *after* settling (full-run swing for a never-settling lane). The
 > dashboard's inferred load regimes remain a display concern; its per-regime
 > convergence summaries no longer mirror a simulator metric.

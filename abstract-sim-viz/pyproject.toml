@@ -1,0 +1,12 @@
+[project]
+name = "abstract-sim-viz"
+version = "0.1.0"
+description = "Visualization preprocessor for abstract-sim-hs event traces"
+requires-python = ">=3.10"
+
+[project.optional-dependencies]
+dev = ["pytest>=7"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

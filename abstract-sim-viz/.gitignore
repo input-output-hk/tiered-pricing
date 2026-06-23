@@ -1,0 +1,5 @@
+dashboard/data.js
+dashboard/compare-data.js
+__pycache__/
+.pytest_cache/
+*.pyc

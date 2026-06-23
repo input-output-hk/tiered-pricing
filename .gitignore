@@ -1,0 +1,22 @@
+# Haskell build output
+**/.stack-work/
+**/dist-newstyle/
+**/dist/
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+
+# Local generated evidence/cache data
+cip-evidence/**/.cache/
+
+# Local simulation traces
+events.jsonl
+abstract-sim-hs/events.jsonl
+
+# Brainstorming visual companion
+.superpowers/
+
+# Editor backups
+*~
+sweep-results/

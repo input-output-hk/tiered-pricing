@@ -4,7 +4,7 @@ Title: Transaction Urgency Signalling On Linear-Leios
 Category: Consensus
 Status: Proposed
 Authors:
-  - Will Gould <will.gould@iohk.com>
+  - Will Gould <will.gould@iohk.io>
 Implementors: []
 Discussions: []
 Solution-To:

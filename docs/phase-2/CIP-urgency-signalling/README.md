@@ -29,6 +29,8 @@ See CPS-0031 for more information.
 
 ## Specification
 
+This CIP introduces a transaction-level urgency signal with two lanes: standard and urgent. Urgent transactions pay a different, dynamic fee quote and are eligible for inclusion in both Ranking Blocks and Endorser Blocks. Standard transactions are eligible only for Endorser Blocks. The ledger enforces that Ranking Blocks contain only urgent-paying transactions.
+
 The specification touches a few different areas:
 
 ### Mempool
@@ -49,17 +51,17 @@ Block producers need to be cognisant of fee change over time, with respect to dy
 * A Praos block is produced, but the submitted transaction misses it due to the congestion.
 * The price increases, and the submitted transaction thus becomes stale, wasting mempool space during the time it was queued.
 
+As such, in order for the system to operate, transactions must be submitted with a suitable buffer. In order for adding a buffer to be palatable, a mechanism must be present to refund the difference between the posted fee and the actual price a transaction is charged for admission to the block. This mechanism is described in <fee change CIP link>.
+
 ### Incentives
 
 
 
 ## Rationale: how does this CIP achieve its goals?
 
-
+This CIP specifies a design, reinforces the design choice with experimental evidence, validates the design with formal specifications and proofs, and proves implementability with a prototype.
 
 ## Path to Active
-
-
 
 ### Acceptance Criteria
 

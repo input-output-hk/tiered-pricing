@@ -15,7 +15,7 @@ python3 preprocess.py \
 # 2. Open the dashboard
 xdg-open dashboard/index.html  # Linux
 open dashboard/index.html      # macOS
-# Or open the file directly in a browser; it works from file://.
+# Or open the file directly in a browser.
 ```
 
 Options: `--shock-threshold` (default 0.10), `--band-pct` (0.05),

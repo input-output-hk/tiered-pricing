@@ -7,13 +7,15 @@ price per lane, price convergence, price shock, true price oscillation, and tran
 
 ```bash
 # 1. Distil one or more traces into dashboard/data.js (streaming; stdlib only)
-python preprocess.py ../abstract-sim-hs/events.jsonl
+python3 preprocess.py ../abstract-sim-hs/events.jsonl
 # e.g. a whole sweep — every variant with all its seeds:
-python preprocess.py sweep-results/example/*.events.jsonl
+python3 preprocess.py \
+  ../abstract-sim-hs/sweep-results/mechanisms/*.events.jsonl
 
 # 2. Open the dashboard
-open dashboard/index.html        # or just open the file in a browser
-# (works from file://; alternatively: python -m http.server -d dashboard)
+xdg-open dashboard/index.html  # Linux
+open dashboard/index.html      # macOS
+# Or open the file directly in a browser; it works from file://.
 ```
 
 Options: `--shock-threshold` (default 0.10), `--band-pct` (0.05),
@@ -52,4 +54,4 @@ from the trace filenames: `two-lane-open-seed3.events.jsonl` is experiment
 
 ## Tests
 
-`python -m pytest` (covers the preprocessor; the dashboard is verified manually).
+`python3 -m pytest` (covers the preprocessor; the dashboard is verified manually).

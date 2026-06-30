@@ -43,11 +43,20 @@ cd abstract-sim-hs
 stack test
 ```
 
-To reproduce the phase-2 mechanism experiment using its committed design
-matrix, seed count, run length, and output location:
+To reproduce the phase-2 mechanism experiment, select a load profile for the
+whole committed design matrix at invocation time. These are the two committed
+profiles:
 
 ```sh
-stack run -- sweep config/sweeps/mechanisms.json
+# 40 tx/slot, rising to 160 tx/slot from slots 250 through 1749
+stack run -- sweep config/sweeps/mechanisms.json \
+  --load-profile config/loads/severe-congestion.json \
+  --out sweep-results/mechanisms-severe-congestion
+
+# Alternating 20 tx/slot recovery and 320/400 tx/slot EB-overload phases
+stack run -- sweep config/sweeps/mechanisms.json \
+  --load-profile config/loads/eb-capacity-stress.json \
+  --out sweep-results/mechanisms-eb-capacity-stress
 ```
 
 The sweep writes one JSONL trace per design and seed, plus a combined
@@ -55,7 +64,9 @@ The sweep writes one JSONL trace per design and seed, plus a combined
 definitions live in
 [`config/sweeps/`](abstract-sim-hs/config/sweeps/), while individual mechanism
 configurations live in
-[`config/variants/`](abstract-sim-hs/config/variants/).
+[`config/variants/`](abstract-sim-hs/config/variants/) and reusable workloads
+live in [`config/loads/`](abstract-sim-hs/config/loads/). A selected load
+profile is copied into the output directory and recorded in `summary.json`.
 
 To inspect the experiment traces in the dashboard, leave the Nix shell active
 and run:
@@ -63,8 +74,11 @@ and run:
 ```sh
 cd ../abstract-sim-viz
 python3 preprocess.py \
-  ../abstract-sim-hs/sweep-results/mechanisms/*.events.jsonl
+  ../abstract-sim-hs/sweep-results/mechanisms-severe-congestion/*.events.jsonl
 ```
+
+For the stress profile, use the `mechanisms-eb-capacity-stress` output
+directory instead.
 
 Open `dashboard/index.html` with your browser of choice.
 
@@ -85,7 +99,9 @@ When submitting a pull request:
 - Explain the problem, the proposed approach, and any modelling assumptions.
 - Keep experiments reproducible: commit mechanism configurations under
   [`config/variants/`](abstract-sim-hs/config/variants/) and experiment matrices
-  under [`config/sweeps/`](abstract-sim-hs/config/sweeps/).
+  under [`config/sweeps/`](abstract-sim-hs/config/sweeps/). Put reusable
+  workloads under [`config/loads/`](abstract-sim-hs/config/loads/) rather than
+  duplicating them across mechanism configs.
 - Add or update tests for behavioural changes, and update the relevant
   documentation when metrics, configuration, or mechanism semantics change.
 - Include the commands used to validate the change and, for experimental work,

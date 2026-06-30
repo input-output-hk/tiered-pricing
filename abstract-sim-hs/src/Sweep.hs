@@ -15,7 +15,8 @@ a reviewable, versionable artifact rather than a shell invocation:
 
 Every (variant, seed) pair is one full traced run. The output directory is
 self-contained for reproduction: the resolved spec is embedded in
-@summary.json@ and each variant's config is copied alongside the traces.
+@summary.json@, each variant's config is copied alongside the traces, and an
+optional @--load-profile@ file is copied as @selected-load-profile.json@.
 @f@ and @D@ are not sweep axes: they stay fixed at the justified values in
 each config.
 -}
@@ -29,7 +30,8 @@ module Sweep (
   runSweep,
 ) where
 
-import Config (SimConfig)
+import Config (SimConfig (..))
+import Control.Exception (evaluate)
 import Data.Aeson (FromJSON (..), Value, eitherDecode, encode, object, withObject, (.:), (.:?), (.=))
 import Data.Aeson.Key qualified as Key
 import Data.ByteString.Lazy qualified as BL
@@ -37,6 +39,7 @@ import Data.List (maximumBy, nub)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
 import Data.Ord (comparing)
+import LoadProfile (LoadProfile (..), loadLoadProfile)
 import Metrics (
   DemandLoad (..),
   DistStats (..),
@@ -54,7 +57,6 @@ import Metrics (
  )
 import Parser (parseSimConfig)
 import Run (Run (..), Seed, runWithSeedToFile)
-import Control.Exception (evaluate)
 import System.Directory (copyFile, createDirectoryIfMissing)
 import System.FilePath ((</>))
 import Text.Printf (printf)
@@ -65,6 +67,7 @@ data SweepSpec = SweepSpec
   , sweepSeeds :: Int
   , sweepSlots :: Int
   , sweepOutDir :: FilePath
+  , sweepLoadProfilePath :: Maybe FilePath
   , sweepVariants :: [SweepVariant]
   }
   deriving (Eq, Show)
@@ -83,11 +86,12 @@ data SweepOverrides = SweepOverrides
   { overrideSeeds :: Maybe Int
   , overrideSlots :: Maybe Int
   , overrideOut :: Maybe FilePath
+  , overrideLoadProfilePath :: Maybe FilePath
   }
   deriving (Eq, Show)
 
 parseSweepArgs :: [String] -> Either String (FilePath, SweepOverrides)
-parseSweepArgs = go (Nothing, SweepOverrides Nothing Nothing Nothing)
+parseSweepArgs = go (Nothing, SweepOverrides Nothing Nothing Nothing Nothing)
  where
   go (manifest, overrides) = \case
     [] ->
@@ -102,6 +106,8 @@ parseSweepArgs = go (Nothing, SweepOverrides Nothing Nothing Nothing)
       go (manifest, overrides{overrideSlots = Just slots}) rest
     "--out" : dir : rest ->
       go (manifest, overrides{overrideOut = Just dir}) rest
+    "--load-profile" : path : rest ->
+      go (manifest, overrides{overrideLoadProfilePath = Just path}) rest
     arg : rest
       | take 2 arg == "--" -> Left ("sweep: unknown flag " <> arg)
       | Nothing <- manifest -> go (Just arg, overrides) rest
@@ -119,6 +125,7 @@ applyOverrides overrides spec =
     { sweepSeeds = fromMaybe spec.sweepSeeds overrides.overrideSeeds
     , sweepSlots = fromMaybe spec.sweepSlots overrides.overrideSlots
     , sweepOutDir = fromMaybe spec.sweepOutDir overrides.overrideOut
+    , sweepLoadProfilePath = overrides.overrideLoadProfilePath
     }
 
 data ParseSweepSpec = ParseSweepSpec
@@ -172,6 +179,7 @@ fromParseSweepSpec parsed = do
       , sweepSeeds = fromMaybe 10 parsed.parseSweepSeeds
       , sweepSlots = fromMaybe 2_000 parsed.parseSweepSlots
       , sweepOutDir = fromMaybe "sweep-results" parsed.parseSweepOut
+      , sweepLoadProfilePath = Nothing
       , sweepVariants = variants
       }
  where
@@ -194,18 +202,31 @@ fromParseSweepSpec parsed = do
 
 runSweep :: SweepSpec -> IO ()
 runSweep spec = do
+  selectedProfile <- traverse loadSelectedProfile spec.sweepLoadProfilePath
   createDirectoryIfMissing True spec.sweepOutDir
-  variants <- traverse (runVariant spec) spec.sweepVariants
+  copySelectedProfile spec selectedProfile
+  variants <- traverse (runVariant spec (snd <$> selectedProfile)) spec.sweepVariants
   let summaryPath = spec.sweepOutDir </> "summary.json"
-  BL.writeFile summaryPath (encode (summaryJson spec variants))
+  BL.writeFile summaryPath (encode (summaryJson spec selectedProfile variants))
   putStrLn ("wrote " <> summaryPath)
+ where
+  loadSelectedProfile path = (path,) <$> loadLoadProfile path
 
-runVariant :: SweepSpec -> SweepVariant -> IO (SweepVariant, [(Seed, RunScalars)])
-runVariant spec variant = do
+copySelectedProfile :: SweepSpec -> Maybe (FilePath, LoadProfile) -> IO ()
+copySelectedProfile _ Nothing = pure ()
+copySelectedProfile spec (Just (path, _)) =
+  copyFile path (spec.sweepOutDir </> "selected-load-profile.json")
+
+runVariant :: SweepSpec -> Maybe LoadProfile -> SweepVariant -> IO (SweepVariant, [(Seed, RunScalars)])
+runVariant spec selectedProfile variant = do
   -- the output directory is self-contained for reproduction: the exact
-  -- config of every variant rides along with the traces it produced
+  -- base config of every variant rides alongside the optional load override
   copyFile variant.variantConfig (spec.sweepOutDir </> (variant.variantName <> ".config.json"))
-  config <- parseSimConfig variant.variantConfig
+  baseConfig <- parseSimConfig variant.variantConfig
+  let config =
+        case selectedProfile of
+          Nothing -> baseConfig
+          Just profile -> baseConfig{simConfigLoad = profile.loadProfileProcess}
   runs <-
     traverse (runPoint spec variant.variantName config) (fromIntegral <$> [0 .. spec.sweepSeeds - 1])
   pure (variant, runs)
@@ -462,15 +483,23 @@ latencyMeanBlocks m =
 
 -- | The resolved spec is embedded so the summary is self-describing: which
 -- experiment, which designs, which configs produced these numbers.
-summaryJson :: SweepSpec -> [(SweepVariant, [(Seed, RunScalars)])] -> Value
-summaryJson spec variants =
+summaryJson :: SweepSpec -> Maybe (FilePath, LoadProfile) -> [(SweepVariant, [(Seed, RunScalars)])] -> Value
+summaryJson spec selectedProfile variants =
   object
     [ "description" .= spec.sweepDescription
     , "slots" .= spec.sweepSlots
     , "seeds" .= spec.sweepSeeds
+    , "loadProfile" .= fmap loadProfileJson selectedProfile
     , "variants" .= fmap variantJson variants
     ]
  where
+  loadProfileJson (source, profile) =
+    object
+      [ "name" .= profile.loadProfileName
+      , "description" .= profile.loadProfileDescription
+      , "source" .= source
+      , "copy" .= ("selected-load-profile.json" :: FilePath)
+      ]
   variantJson (variant, runs) =
     object
       [ "name" .= variant.variantName

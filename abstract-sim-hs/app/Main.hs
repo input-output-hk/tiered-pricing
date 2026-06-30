@@ -25,7 +25,9 @@ usage =
     , "  abstract-sim-hs-exe"
     , "      single traced run of config/default-sim-config.json"
     , "  abstract-sim-hs-exe sweep MANIFEST [--seeds N] [--slots N] [--out DIR]"
+    , "      [--load-profile FILE]"
     , "      the experiment sweep defined by MANIFEST (see config/sweeps/):"
     , "      one traced run per variant x seed, per-variant aggregates in"
-    , "      DIR/summary.json; flags override the manifest for quick iteration"
+    , "      DIR/summary.json; --load-profile applies one workload to every"
+    , "      variant without changing its config; other flags override the manifest"
     ]

@@ -10,14 +10,15 @@ import Data.ByteString.Lazy qualified as BL
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Sequence qualified as Seq
 import Design (ControllerConfig (..), ControllerSignal (..), Design (..), Eip1559Controller (..), FeeSemantics (..), LaneStructure (..), PriorityPremiumScope (..), defaultDesign)
-import Load (severeCongestionLoad)
+import Load (BurstEffect (..), arrivalRateAt, severeCongestionLoad, tryBurstEffectAt)
+import LoadProfile (LoadProfile (..), loadLoadProfile)
 import Metrics.Accumulator (MetricsAcc (..), emptyMetricsAcc)
 import Metrics.Price (PriceOscillation (..), PriceStability (..), priceOscillationFrom, priceStabilityFrom)
 import Parser (parseDesign, parseSimConfig)
 import Pricing (ControllerInput (..), PriceUpdate (..), Prices (..), admissionRequiredFee, coversProducerHeadroom, initialPrices, quotedFee, realisedFee, retentionWindow, updatePrices)
 import Resource (Bytes (..), ExUnits (..), Resources (..))
 import Retry (noRetries)
-import Sweep (SweepSpec (..), SweepVariant (..), loadSweepSpec)
+import Sweep (SweepOverrides (..), SweepSpec (..), SweepVariant (..), applyOverrides, loadSweepSpec, parseSweepArgs)
 import System.Exit (exitFailure)
 import Transaction (Demand (..), Lane (..), Provenance (..), Script (..), Tx (..), TxBody (..), hash)
 import Types (Duration (..), Lovelace (..), PerLane (..), SlotNo (..), Urgency (..), atLane)
@@ -27,7 +28,9 @@ main = do
   assertDesignFixture
   assertSimConfigFixture
   assertSweepFixture
+  assertSweepLoadProfileOverride
   assertLiveConfigsParse
+  assertLoadProfiles
   assertHeadroomInvariant
   assertPriorityControllerReadsCurrentProduction
   assertPriorityReservationWindowUsesRbEquivalentCapacity
@@ -115,19 +118,35 @@ expectedFixtureSweep =
     , sweepSeeds = 3
     , sweepSlots = 500
     , sweepOutDir = "/tmp/fixture-sweep"
+    , sweepLoadProfilePath = Nothing
     , sweepVariants =
         [ SweepVariant "a" "test/fixtures/sim-config.json"
         , SweepVariant "b" "test/fixtures/sim-config.json"
         ]
     }
 
-{- The live configs are not content-asserted — only that they still parse,
-including every variant config the example sweep manifest references.
+assertSweepLoadProfileOverride :: IO ()
+assertSweepLoadProfileOverride = do
+  let profilePath = "config/loads/eb-capacity-stress.json"
+      overrides = SweepOverrides Nothing Nothing Nothing (Just profilePath)
+  assertEqual
+    "load profile command-line argument"
+    (Right ("config/sweeps/mechanisms.json", overrides))
+    (parseSweepArgs ["config/sweeps/mechanisms.json", "--load-profile", profilePath])
+  assertEqual
+    "load profile applied to sweep spec"
+    (Just profilePath)
+    (applyOverrides overrides expectedFixtureSweep).sweepLoadProfilePath
+
+{- The live configs are not generally content-asserted — only that they still
+parse, that the mechanism set remains complete, and that selecting a workload
+at run time has not mutated their embedded historical load.
 -}
 assertLiveConfigsParse :: IO ()
 assertLiveConfigsParse = do
   _ <- parseDesign "config/default-design.json"
-  _ <- parseSimConfig "config/default-sim-config.json"
+  defaultConfig <- parseSimConfig "config/default-sim-config.json"
+  assertEqual "default config retains its original load" severeCongestionLoad defaultConfig.simConfigLoad
   sweepSpec <- loadSweepSpec "config/sweeps/example.json"
   mapM_ (parseSimConfig . (.variantConfig)) sweepSpec.sweepVariants
   mechanisms <- loadSweepSpec "config/sweeps/mechanisms.json"
@@ -157,7 +176,55 @@ assertLiveConfigsParse = do
     , "both-dynamic-open-window20"
     ]
     (fmap (.variantName) mechanisms.sweepVariants)
-  mapM_ (parseSimConfig . (.variantConfig)) mechanisms.sweepVariants
+  mechanismConfigs <- traverse (parseSimConfig . (.variantConfig)) mechanisms.sweepVariants
+  assertTrue
+    "mechanism configs retain their original load"
+    (all ((== severeCongestionLoad) . (.simConfigLoad)) mechanismConfigs)
+
+assertLoadProfiles :: IO ()
+assertLoadProfiles = do
+  severe <- loadLoadProfile "config/loads/severe-congestion.json"
+  assertEqual "severe-congestion profile name" "severe-congestion" severe.loadProfileName
+  assertEqual
+    "standalone severe-congestion profile matches the embedded preset"
+    severeCongestionLoad
+    severe.loadProfileProcess
+  profile <- loadLoadProfile "config/loads/eb-capacity-stress.json"
+  assertEqual "EB capacity stress profile name" "eb-capacity-stress" profile.loadProfileName
+  let process = profile.loadProfileProcess
+  assertEqual
+    "EB capacity stress phase rates"
+    [40, 40, 320, 320, 20, 20, 400, 400, 20, 20, 320, 320, 20, 20, 400, 400, 40, 40]
+    (arrivalRateAt process . SlotNo <$> boundarySamples)
+  assertEqual
+    "EB capacity stress rate after the 2,000-slot experiment"
+    0
+    (arrivalRateAt process (SlotNo 2_000))
+  assertEqual
+    "EB capacity stress phases do not alter value or urgency mix"
+    (Just (BurstEffect 1 1))
+    (tryBurstEffectAt process (SlotNo 650))
+ where
+  boundarySamples =
+    [ 0
+    , 199
+    , 200
+    , 449
+    , 450
+    , 649
+    , 650
+    , 899
+    , 900
+    , 1_099
+    , 1_100
+    , 1_349
+    , 1_350
+    , 1_549
+    , 1_550
+    , 1_799
+    , 1_800
+    , 1_999
+    ]
 
 {- | The design's central safety argument, as code: the admission fee is
 monotone in the headroom horizon, and a tx admitted with a horizon of one

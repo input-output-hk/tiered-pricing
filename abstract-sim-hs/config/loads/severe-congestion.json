@@ -1,0 +1,19 @@
+{
+  "name": "severe-congestion",
+  "description": "40 tx/slot baseline with a sustained 160 tx/slot interval from slot 250 through 1749",
+  "load": {
+    "type": "burst",
+    "bursts": [
+      {
+        "baseRate": 40,
+        "burstRate": 160,
+        "burstStart": 250,
+        "burstEnd": 1750,
+        "burstEffect": {
+          "valueMultiplier": 1,
+          "urgencyMultiplier": 1
+        }
+      }
+    ]
+  }
+}

@@ -8,8 +8,10 @@ price per lane, price convergence, price shock, true price oscillation, and tran
 ```bash
 # 1. Distil one or more traces into dashboard/data.js (streaming; stdlib only)
 python preprocess.py ../abstract-sim-hs/events.jsonl
-# e.g. a whole sweep — every variant with all its seeds:
-python preprocess.py sweep-results/example/*.events.jsonl
+# e.g. the sustained severe-congestion sweep — every variant and seed:
+python preprocess.py ../abstract-sim-hs/sweep-results/mechanisms-severe-congestion/*.events.jsonl
+# or the alternating EB-capacity-stress sweep:
+python preprocess.py ../abstract-sim-hs/sweep-results/mechanisms-eb-capacity-stress/*.events.jsonl
 
 # 2. Open the dashboard
 open dashboard/index.html        # or just open the file in a browser

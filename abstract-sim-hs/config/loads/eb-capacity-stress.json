@@ -1,0 +1,99 @@
+{
+  "name": "eb-capacity-stress",
+  "description": "Alternating EB-capacity overload and recovery shocks over a 2,000-slot sweep",
+  "load": {
+    "type": "burst",
+    "bursts": [
+      {
+        "baseRate": 0,
+        "burstRate": 40,
+        "burstStart": 0,
+        "burstEnd": 200,
+        "burstEffect": {
+          "valueMultiplier": 1,
+          "urgencyMultiplier": 1
+        }
+      },
+      {
+        "baseRate": 0,
+        "burstRate": 320,
+        "burstStart": 200,
+        "burstEnd": 450,
+        "burstEffect": {
+          "valueMultiplier": 1,
+          "urgencyMultiplier": 1
+        }
+      },
+      {
+        "baseRate": 0,
+        "burstRate": 20,
+        "burstStart": 450,
+        "burstEnd": 650,
+        "burstEffect": {
+          "valueMultiplier": 1,
+          "urgencyMultiplier": 1
+        }
+      },
+      {
+        "baseRate": 0,
+        "burstRate": 400,
+        "burstStart": 650,
+        "burstEnd": 900,
+        "burstEffect": {
+          "valueMultiplier": 1,
+          "urgencyMultiplier": 1
+        }
+      },
+      {
+        "baseRate": 0,
+        "burstRate": 20,
+        "burstStart": 900,
+        "burstEnd": 1100,
+        "burstEffect": {
+          "valueMultiplier": 1,
+          "urgencyMultiplier": 1
+        }
+      },
+      {
+        "baseRate": 0,
+        "burstRate": 320,
+        "burstStart": 1100,
+        "burstEnd": 1350,
+        "burstEffect": {
+          "valueMultiplier": 1,
+          "urgencyMultiplier": 1
+        }
+      },
+      {
+        "baseRate": 0,
+        "burstRate": 20,
+        "burstStart": 1350,
+        "burstEnd": 1550,
+        "burstEffect": {
+          "valueMultiplier": 1,
+          "urgencyMultiplier": 1
+        }
+      },
+      {
+        "baseRate": 0,
+        "burstRate": 400,
+        "burstStart": 1550,
+        "burstEnd": 1800,
+        "burstEffect": {
+          "valueMultiplier": 1,
+          "urgencyMultiplier": 1
+        }
+      },
+      {
+        "baseRate": 0,
+        "burstRate": 40,
+        "burstStart": 1800,
+        "burstEnd": 2000,
+        "burstEffect": {
+          "valueMultiplier": 1,
+          "urgencyMultiplier": 1
+        }
+      }
+    ]
+  }
+}

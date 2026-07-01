@@ -15,11 +15,14 @@ a reviewable, versionable artifact rather than a shell invocation:
 
 Every (variant, seed) pair is one full traced run. The output directory is
 self-contained for reproduction: the resolved spec is embedded in
-@summary.json@ and each variant's config is copied alongside the traces.
+@summary.json@, each variant's config is copied alongside the traces, and an
+optional @--load-profile@ file is copied as @selected-load-profile.json@.
+Preset and file overrides are written into those effective variant configs.
 @f@ and @D@ are not sweep axes: they stay fixed at the justified values in
 each config.
 -}
 module Sweep (
+  LoadOverride (..),
   SweepSpec (..),
   SweepVariant (..),
   SweepOverrides (..),
@@ -31,6 +34,7 @@ module Sweep (
 
 import Config (SimConfig)
 import Control.Applicative ((<|>))
+import Control.Exception (evaluate)
 import Data.Aeson (FromJSON (..), Value (Object, String), eitherDecode, encode, object, withObject, (.:), (.:?), (.=))
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KeyMap
@@ -40,6 +44,7 @@ import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
 import Data.Ord (comparing)
 import Data.Text qualified as T
+import LoadProfile (LoadProfile (..), loadLoadProfile)
 import Metrics (
   DemandLoad (..),
   DistStats (..),
@@ -57,22 +62,25 @@ import Metrics (
  )
 import Parser (parseSimConfig)
 import Run (Run (..), Seed, runWithSeedToFile)
-import Control.Exception (evaluate)
 import System.Directory (copyFile, createDirectoryIfMissing)
 import System.FilePath ((</>))
 import Text.Printf (printf)
 import Types (Duration (..), Lane (..), Lovelace (..), Urgency (..))
+
+data LoadOverride
+  = LoadPreset String
+  | LoadProfileFile FilePath
+  deriving (Eq, Show)
 
 data SweepSpec = SweepSpec
   { sweepDescription :: Maybe String
   , sweepSeeds :: Int
   , sweepSlots :: Int
   , sweepOutDir :: FilePath
-  , sweepLoadOverride :: Maybe String
-  -- ^ when set, forces every variant's load profile to this preset, overriding
-  -- whatever each variant config declares; lets one variant set run against
-  -- different loads without forking the configs. Set by a manifest @"load"@
-  -- field or the @--load@ flag.
+  , sweepLoadOverride :: Maybe LoadOverride
+  -- ^ Forces every variant onto either a named preset or a file-backed load
+  -- profile. Manifest @"load"@ values select presets; command-line flags can
+  -- select either form.
   , sweepVariants :: [SweepVariant]
   }
   deriving (Eq, Show)
@@ -91,7 +99,7 @@ data SweepOverrides = SweepOverrides
   { overrideSeeds :: Maybe Int
   , overrideSlots :: Maybe Int
   , overrideOut :: Maybe FilePath
-  , overrideLoad :: Maybe String
+  , overrideLoad :: Maybe LoadOverride
   }
   deriving (Eq, Show)
 
@@ -112,7 +120,9 @@ parseSweepArgs = go (Nothing, SweepOverrides Nothing Nothing Nothing Nothing)
     "--out" : dir : rest ->
       go (manifest, overrides{overrideOut = Just dir}) rest
     "--load" : value : rest ->
-      go (manifest, overrides{overrideLoad = Just value}) rest
+      go (manifest, overrides{overrideLoad = Just (LoadPreset value)}) rest
+    "--load-profile" : path : rest ->
+      go (manifest, overrides{overrideLoad = Just (LoadProfileFile path)}) rest
     arg : rest
       | take 2 arg == "--" -> Left ("sweep: unknown flag " <> arg)
       | Nothing <- manifest -> go (Just arg, overrides) rest
@@ -186,7 +196,7 @@ fromParseSweepSpec parsed = do
       , sweepSeeds = fromMaybe 10 parsed.parseSweepSeeds
       , sweepSlots = fromMaybe 2_000 parsed.parseSweepSlots
       , sweepOutDir = fromMaybe "sweep-results" parsed.parseSweepOut
-      , sweepLoadOverride = parsed.parseSweepLoad
+      , sweepLoadOverride = LoadPreset <$> parsed.parseSweepLoad
       , sweepVariants = variants
       }
  where
@@ -209,36 +219,58 @@ fromParseSweepSpec parsed = do
 
 runSweep :: SweepSpec -> IO ()
 runSweep spec = do
+  resolvedLoad <- traverse resolveLoadOverride spec.sweepLoadOverride
   createDirectoryIfMissing True spec.sweepOutDir
-  variants <- traverse (runVariant spec) spec.sweepVariants
+  copySelectedProfile spec resolvedLoad
+  variants <- traverse (runVariant spec (loadValue <$> resolvedLoad)) spec.sweepVariants
   let summaryPath = spec.sweepOutDir </> "summary.json"
-  BL.writeFile summaryPath (encode (summaryJson spec variants))
+  BL.writeFile summaryPath (encode (summaryJson spec resolvedLoad variants))
   putStrLn ("wrote " <> summaryPath)
 
-runVariant :: SweepSpec -> SweepVariant -> IO (SweepVariant, [(Seed, RunScalars)])
-runVariant spec variant = do
+data ResolvedLoad
+  = ResolvedPreset String
+  | ResolvedProfile FilePath LoadProfile
+
+resolveLoadOverride :: LoadOverride -> IO ResolvedLoad
+resolveLoadOverride = \case
+  LoadPreset name -> pure (ResolvedPreset name)
+  LoadProfileFile path -> ResolvedProfile path <$> loadLoadProfile path
+
+loadValue :: ResolvedLoad -> Value
+loadValue = \case
+  ResolvedPreset name -> String (T.pack name)
+  ResolvedProfile _ profile -> profile.loadProfileValue
+
+copySelectedProfile :: SweepSpec -> Maybe ResolvedLoad -> IO ()
+copySelectedProfile _ Nothing = pure ()
+copySelectedProfile _ (Just ResolvedPreset{}) = pure ()
+copySelectedProfile spec (Just (ResolvedProfile path _)) =
+  copyFile path (spec.sweepOutDir </> "selected-load-profile.json")
+
+runVariant :: SweepSpec -> Maybe Value -> SweepVariant -> IO (SweepVariant, [(Seed, RunScalars)])
+runVariant spec selectedLoad variant = do
   -- the output directory is self-contained for reproduction: the exact
   -- config of every variant rides along with the traces it produced. When a
   -- load override is in force we write the effective config (with the load
   -- swapped) rather than copying, so the saved config matches what actually ran.
   let savedConfig = spec.sweepOutDir </> (variant.variantName <> ".config.json")
-  writeEffectiveConfig spec.sweepLoadOverride variant.variantConfig savedConfig
+  writeEffectiveConfig selectedLoad variant.variantConfig savedConfig
   config <- parseSimConfig savedConfig
   runs <-
     traverse (runPoint spec variant.variantName config) (fromIntegral <$> [0 .. spec.sweepSeeds - 1])
   pure (variant, runs)
 
-{- | Copy a variant config into the sweep output, optionally forcing its
-@"load"@ field to a named preset. Parsing the written file (rather than the
-source) keeps the saved config and the run in lock-step.
+{- | Copy a variant config into the sweep output, optionally replacing its
+@"load"@ field. Parsing the written file (rather than the source) keeps the
+saved config and the run in lock-step.
 -}
-writeEffectiveConfig :: Maybe String -> FilePath -> FilePath -> IO ()
+writeEffectiveConfig :: Maybe Value -> FilePath -> FilePath -> IO ()
 writeEffectiveConfig Nothing src dest = copyFile src dest
-writeEffectiveConfig (Just loadName) src dest = do
+writeEffectiveConfig (Just selectedLoad) src dest = do
   bytes <- BL.readFile src
   case eitherDecode bytes of
     Right (Object o) ->
-      BL.writeFile dest (encode (Object (KeyMap.insert "load" (String (T.pack loadName)) o)))
+      BL.writeFile dest (encode (Object (KeyMap.insert "load" selectedLoad o)))
     Right _ -> fail ("variant config " <> src <> " is not a JSON object")
     Left err -> fail ("cannot parse variant config " <> src <> ": " <> err)
 
@@ -494,15 +526,40 @@ latencyMeanBlocks m =
 
 -- | The resolved spec is embedded so the summary is self-describing: which
 -- experiment, which designs, which configs produced these numbers.
-summaryJson :: SweepSpec -> [(SweepVariant, [(Seed, RunScalars)])] -> Value
-summaryJson spec variants =
+summaryJson :: SweepSpec -> Maybe ResolvedLoad -> [(SweepVariant, [(Seed, RunScalars)])] -> Value
+summaryJson spec resolvedLoad variants =
   object
     [ "description" .= spec.sweepDescription
     , "slots" .= spec.sweepSlots
     , "seeds" .= spec.sweepSeeds
+    , "loadOverride" .= fmap loadOverrideJson resolvedLoad
+    , "loadProfile" .= (resolvedLoad >>= selectedProfileJson)
     , "variants" .= fmap variantJson variants
     ]
  where
+  loadOverrideJson = \case
+    ResolvedPreset name ->
+      object
+        [ "type" .= ("preset" :: String)
+        , "name" .= name
+        ]
+    ResolvedProfile source profile ->
+      object
+        [ "type" .= ("profile" :: String)
+        , "name" .= profile.loadProfileName
+        , "source" .= source
+        , "copy" .= ("selected-load-profile.json" :: FilePath)
+        ]
+  selectedProfileJson = \case
+    ResolvedPreset{} -> Nothing
+    ResolvedProfile source profile ->
+      Just $
+        object
+          [ "name" .= profile.loadProfileName
+          , "description" .= profile.loadProfileDescription
+          , "source" .= source
+          , "copy" .= ("selected-load-profile.json" :: FilePath)
+          ]
   variantJson (variant, runs) =
     object
       [ "name" .= variant.variantName

@@ -70,6 +70,16 @@ Sweep harness config:
 
 </details>
 
+The offered-demand table below translates these arrival rates into the resources they place on the endorser block - bytes from each transaction's body size (`txBody._txSize`, mean ~1,234 B) and ex-units from its script (mean ~615k). Measured from the flat-fee runs, averaged over the ten seeds:
+
+| Slot range | Mean arrivals / slot | Offered bytes/slot (% of EB byte cap) | Offered ex-units/slot (% of EB ex-unit cap) |
+|---|---:|---:|---:|
+| 0–249 | ~40 | 8% | 5% |
+| 250–1749 | ~160 | 33% | 21% |
+| 1750–1999 | ~40 | 8% | 5% |
+
+Even at the burst, this load offers only ~33% of EB byte capacity, so the endorser block has ample headroom and the ranking block is the relevant constraint. (The `eb-capacity-stress` profile, discussed later, pushes peak byte demand to ~88% of EB capacity by contrast.)
+
 ---
 
 **Metrics.** For each run we record eight families of outcome, some of which are sliced by urgency class by lane:
@@ -899,6 +909,113 @@ The 20-sample window open variant is the clearest service failure in seed 2: dem
 
 </details>
 
+
+### Low load (below RB capacity) ###
+
+<!-- Points to write around:
+- Third load profile, `low` = constant 3.0 tx/slot; same variant set, seeds, and caps. Offers ~82% of RB byte capacity and ~1% of EB capacity, so the ranking block is the only active block and the endorser block sits idle. This is the uncongested / below-RB-capacity flank of the load spectrum (see ladder table).
+- Because there is no standard-lane congestion, the standard-lane controller never leaves its floor, so both-dynamic degenerates to priority-only here (their rows are identical). The meaningful contrast is reserved vs open.
+- Headline reversal: the reserved variants now regress *below* the no-mechanism baselines. flat-fee / single-lane-eip1559 retain ~58.8% of urgent value at 1.85 blk; reserved 5-window retains 56.8% at 1.95 blk; open 5-window retains 61.4% at 1.70 blk.
+- Mechanism (the cost of reservation when capacity is abundant): reserving the whole RB for priority idles it. RB byte fill drops from ~91% median under open/flat-fee to ~34% median under reserved, because the RB is priority-only and priority demand is sparse at this load; standard traffic is denied the fast RB and pushed onto the ~20-slot EB cadence, which adds latency and loses urgent value.
+- So at low load reservation has a real cost and no offsetting benefit, while open captures the priority-lane upside (61.4% vs 58.8% flat-fee) without paying it. This is the mirror image of the congested loads and is the regime that most exposes reservation's structural downside.
+- Columns defined as in the `severe-congestion` table; all rows are means over the same ten seeds.
+-->
+
+The three load profiles span the block-capacity hierarchy (byte fill measured from the flat-fee runs; "reserved" shown where it differs materially):
+
+| Load | RB byte fill | EB byte fill | Binding resource |
+|---|---:|---:|---|
+| `low` (this section) | ~71% open / ~34% reserved | ~1% | neither saturates; EB idle, RB the only active block |
+| `severe-congestion` (main results) | ~98% | ~56% | RB |
+| `eb-capacity-stress` | ~98% | ~93% | RB + EB |
+
+<details>
+<summary>Show load profile</summary>
+
+```
+lowLoad :: ArrivalProcess
+lowLoad = ConstantLoad 3.0
+```
+
+A constant 3.0 tx/slot. The RB holds ~73 transactions and is produced at ~f, so its throughput saturates near ~3.5 tx/slot; 3.0 fills the RB to ~80% (offered ~82% of RB byte capacity, ~1% of EB capacity) without saturating it — non-trivial, but uncongested.
+
+</details>
+
+| Family | Priority signal | Inclusion | Urgent retained | Urgent latency (blk) | Priority latency (blk) | Tx/slot | Shock count | Osc. cycles | Osc. max amp | Settled coeff. range |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| flat-fee | n/a | 98.24% | 58.79% | 1.85 | n/a | 2.9 | 0.0 | 0.0 | 0.000 | 0.000 |
+| single-lane-eip1559 | n/a | 98.24% | 58.82% | 1.85 | n/a | 2.9 | 0.9 | 0.1 | 0.118 | 0.015 |
+| priority-only-reserved | 5-sample window | 97.68% | 56.77% | 1.95 | 2.00 | 2.9 | 8.7 | 5.2 | 0.938 | 0.319 |
+| priority-only-open | 5-sample window | 98.26% | 61.38% | 1.70 | 1.76 | 2.9 | 8.0 | 4.7 | 0.955 | 0.129 |
+| priority-only-conditional | 5-sample window | 97.85% | 64.07% | 1.56 | 1.64 | 2.9 | 11.5 | 5.6 | 0.967 | 0.414 |
+| both-dynamic-reserved | 5-sample window | 97.68% | 56.77% | 1.95 | 2.00 | 2.9 | 8.7 | 5.2 | 0.938 | 0.319 |
+| both-dynamic-open | 5-sample window | 98.26% | 61.43% | 1.70 | 1.75 | 2.9 | 8.3 | 4.7 | 0.931 | 0.132 |
+| priority-only-reserved | instant (worst) | 97.54% | 56.22% | 1.97 | 2.06 | 2.9 | 37.3 | 15.3 | 0.997 | 0.713 |
+
+---
+
+### EB-stressing load ###
+
+<!-- Points to write around:
+- Second load profile, `eb-capacity-stress`; same variant set, seeds, and caps as the `severe-congestion` table above. Only the load profile differs.
+- Binding constraint is the EB byte capacity (12 MB), not the RB: across the burst (slots 250–1749, ten seeds) EBs run at/near 100% of the byte cap for the majority of blocks under the static and priority-only variants; EB ex-unit usage stays near half (peak ~67%).
+- Oversubscription is moderate, not extreme: new demand exceeds realised inclusion by ~1.1× during the burst.
+- Row selection: two single-lane baselines + the 5-sample-window operating point for each family + the single worst windowed row (by urgent retained value).
+- 5-sample window is shown for cross-load comparability, NOT as the per-family best — under this load it is no longer the family maximum in every family (e.g. both-dynamic-open instant 40.32% > 5-window 38.87%; both-dynamic-reserved 10-window 38.05% > 5-window 37.57%).
+- Columns defined as in the `severe-congestion` table; all rows are means over the same ten seeds.
+-->
+
+The `eb-capacity-stress` profile differs from `severe-congestion` only in its arrival schedule (same variant set, seeds, and caps). Rather than one flat burst, it cycles through repeated high-rate peaks separated by troughs, with peak demand (~396 tx/slot) roughly 2.5× the `severe-congestion` burst rate (160), which is what drives demand against the endorser-block byte capacity.
+
+<details>
+<summary>Show load profile</summary>
+
+> Note: the `eb-capacity-stress` preset is not present in the committed source (it was a local edit on the machine that produced the sweep). The block below is a behaviourally-equivalent reconstruction: `arrivalRateAt` sums the bursts, and this sum reproduces the per-slot arrival schedule measured from the runs (table below) exactly. The arrival counts constrain the rates only; the `BurstEffect` value/urgency multipliers are assumed `1 1`, as in `severeCongestionLoad`.
+
+```
+ebCapacityStressLoad :: ArrivalProcess
+ebCapacityStressLoad =
+  BurstLoad
+    -- arrivalRateAt sums these bursts; trailing comment is the resulting total rate
+    [ Burst { baseRate = 20.0, burstRate =  20.0, burstStart = SlotNo    0, burstEnd = SlotNo 2000, burstEffect = BurstEffect 1 1 }  -- constant 20 baseline
+    , Burst { baseRate =  0.0, burstRate =  20.0, burstStart = SlotNo    0, burstEnd = SlotNo  200, burstEffect = BurstEffect 1 1 }  -- shoulder -> 40
+    , Burst { baseRate =  0.0, burstRate =  20.0, burstStart = SlotNo 1800, burstEnd = SlotNo 2000, burstEffect = BurstEffect 1 1 }  -- shoulder -> 40
+    , Burst { baseRate =  0.0, burstRate = 297.0, burstStart = SlotNo  200, burstEnd = SlotNo  450, burstEffect = BurstEffect 1 1 }  -- peak    -> 317
+    , Burst { baseRate =  0.0, burstRate = 376.0, burstStart = SlotNo  650, burstEnd = SlotNo  900, burstEffect = BurstEffect 1 1 }  -- peak    -> 396
+    , Burst { baseRate =  0.0, burstRate = 297.0, burstStart = SlotNo 1100, burstEnd = SlotNo 1350, burstEffect = BurstEffect 1 1 }  -- peak    -> 317
+    , Burst { baseRate =  0.0, burstRate = 376.0, burstStart = SlotNo 1550, burstEnd = SlotNo 1800, burstEffect = BurstEffect 1 1 }  -- peak    -> 396
+    ]
+```
+
+</details>
+
+Arrival schedule measured from the runs (fresh first-attempt submissions per slot; taken from the flat-fee runs, whose fixed low fee means almost nothing is declined at generation, so submissions track the raw arrival rate; averaged over the ten seeds). The offered-demand columns translate the arrival count into the resources it places on the endorser block — bytes from each transaction's body size (`txBody._txSize`, mean ~1,233 B) and ex-units from its script (mean ~614k) — expressed as a fraction of the EB capacity per slot (the 12 MB / 9.5 G caps amortised at the ~0.046 EB/slot production rate):
+
+| Slot range | Mean arrivals / slot | Offered bytes/slot (% of EB byte cap) | Offered ex-units/slot (% of EB ex-unit cap) |
+|---|---:|---:|---:|
+| 0–199 | ~40 | 9% | 6% |
+| 200–449 | ~317 | 71% | 45% |
+| 450–649 | ~20 | 4% | 3% |
+| 650–899 | ~396 | 88% | 56% |
+| 900–1099 | ~20 | 4% | 3% |
+| 1100–1349 | ~317 | 70% | 45% |
+| 1350–1549 | ~20 | 4% | 3% |
+| 1550–1799 | ~396 | 88% | 56% |
+| 1800–1999 | ~40 | 9% | 6% |
+
+At the peaks, offered byte demand reaches ~88% of EB capacity while ex-unit demand is only ~56% — bytes are ~1.6× tighter, so they saturate first. These are per-slot averages; because EBs are produced only every ~22 slots, demand accumulates into a backlog between them, so the realised per-EB byte fill reaches ~100% at the peaks even though the per-slot offered average is ~88%.
+
+| Family | Priority signal | Inclusion | Urgent retained | Urgent latency (blk) | Priority latency (blk) | Tx/slot | Shock count | Osc. cycles | Osc. max amp | Settled coeff. range |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| flat-fee | n/a | 93.42% | 30.12% | 3.88 | n/a | 179.4 | 0.0 | 0.0 | 0.000 | 0.000 |
+| single-lane-eip1559 | n/a | 95.05% | 34.63% | 3.35 | n/a | 152.4 | 30.4 | 3.3 | 4.183 | 1.311 |
+| priority-only-reserved | 5-sample window | 94.54% | 32.92% | 3.58 | 3.13 | 181.7 | 44.0 | 4.3 | 2.609 | 2.513 |
+| priority-only-open | 5-sample window | 93.78% | 33.37% | 3.46 | 2.99 | 180.3 | 35.0 | 4.3 | 2.295 | 2.038 |
+| both-dynamic-reserved | 5-sample window | 95.67% | 37.57% | 3.05 | 3.78 | 163.8 | 59.3 | 7.3 | 4.253 | 4.857 |
+| both-dynamic-open | 5-sample window | 95.76% | 38.87% | 3.03 | 4.42 | 164.5 | 59.9 | 8.5 | 4.420 | 4.173 |
+| priority-only-reserved | 20-sample window (worst) | 91.78% | 30.41% | 3.81 | 4.61 | 176.5 | 14.9 | 1.9 | 3.613 | 2.662 |
+
+---
 
 ### Summary ###
 

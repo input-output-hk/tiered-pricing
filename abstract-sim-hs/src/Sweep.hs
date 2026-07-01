@@ -30,13 +30,16 @@ module Sweep (
 ) where
 
 import Config (SimConfig)
-import Data.Aeson (FromJSON (..), Value, eitherDecode, encode, object, withObject, (.:), (.:?), (.=))
+import Control.Applicative ((<|>))
+import Data.Aeson (FromJSON (..), Value (Object, String), eitherDecode, encode, object, withObject, (.:), (.:?), (.=))
 import Data.Aeson.Key qualified as Key
+import Data.Aeson.KeyMap qualified as KeyMap
 import Data.ByteString.Lazy qualified as BL
 import Data.List (maximumBy, nub)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
 import Data.Ord (comparing)
+import Data.Text qualified as T
 import Metrics (
   DemandLoad (..),
   DistStats (..),
@@ -65,6 +68,11 @@ data SweepSpec = SweepSpec
   , sweepSeeds :: Int
   , sweepSlots :: Int
   , sweepOutDir :: FilePath
+  , sweepLoadOverride :: Maybe String
+  -- ^ when set, forces every variant's load profile to this preset, overriding
+  -- whatever each variant config declares; lets one variant set run against
+  -- different loads without forking the configs. Set by a manifest @"load"@
+  -- field or the @--load@ flag.
   , sweepVariants :: [SweepVariant]
   }
   deriving (Eq, Show)
@@ -83,11 +91,12 @@ data SweepOverrides = SweepOverrides
   { overrideSeeds :: Maybe Int
   , overrideSlots :: Maybe Int
   , overrideOut :: Maybe FilePath
+  , overrideLoad :: Maybe String
   }
   deriving (Eq, Show)
 
 parseSweepArgs :: [String] -> Either String (FilePath, SweepOverrides)
-parseSweepArgs = go (Nothing, SweepOverrides Nothing Nothing Nothing)
+parseSweepArgs = go (Nothing, SweepOverrides Nothing Nothing Nothing Nothing)
  where
   go (manifest, overrides) = \case
     [] ->
@@ -102,6 +111,8 @@ parseSweepArgs = go (Nothing, SweepOverrides Nothing Nothing Nothing)
       go (manifest, overrides{overrideSlots = Just slots}) rest
     "--out" : dir : rest ->
       go (manifest, overrides{overrideOut = Just dir}) rest
+    "--load" : value : rest ->
+      go (manifest, overrides{overrideLoad = Just value}) rest
     arg : rest
       | take 2 arg == "--" -> Left ("sweep: unknown flag " <> arg)
       | Nothing <- manifest -> go (Just arg, overrides) rest
@@ -119,6 +130,7 @@ applyOverrides overrides spec =
     { sweepSeeds = fromMaybe spec.sweepSeeds overrides.overrideSeeds
     , sweepSlots = fromMaybe spec.sweepSlots overrides.overrideSlots
     , sweepOutDir = fromMaybe spec.sweepOutDir overrides.overrideOut
+    , sweepLoadOverride = overrides.overrideLoad <|> spec.sweepLoadOverride
     }
 
 data ParseSweepSpec = ParseSweepSpec
@@ -126,6 +138,7 @@ data ParseSweepSpec = ParseSweepSpec
   , parseSweepSeeds :: Maybe Int
   , parseSweepSlots :: Maybe Int
   , parseSweepOut :: Maybe FilePath
+  , parseSweepLoad :: Maybe String
   , parseSweepVariants :: [ParseSweepVariant]
   }
 
@@ -137,6 +150,7 @@ instance FromJSON ParseSweepSpec where
         <*> obj .:? "seeds"
         <*> obj .:? "slots"
         <*> obj .:? "out"
+        <*> obj .:? "load"
         <*> obj .: "variants"
 
 data ParseSweepVariant = ParseSweepVariant
@@ -172,6 +186,7 @@ fromParseSweepSpec parsed = do
       , sweepSeeds = fromMaybe 10 parsed.parseSweepSeeds
       , sweepSlots = fromMaybe 2_000 parsed.parseSweepSlots
       , sweepOutDir = fromMaybe "sweep-results" parsed.parseSweepOut
+      , sweepLoadOverride = parsed.parseSweepLoad
       , sweepVariants = variants
       }
  where
@@ -203,12 +218,29 @@ runSweep spec = do
 runVariant :: SweepSpec -> SweepVariant -> IO (SweepVariant, [(Seed, RunScalars)])
 runVariant spec variant = do
   -- the output directory is self-contained for reproduction: the exact
-  -- config of every variant rides along with the traces it produced
-  copyFile variant.variantConfig (spec.sweepOutDir </> (variant.variantName <> ".config.json"))
-  config <- parseSimConfig variant.variantConfig
+  -- config of every variant rides along with the traces it produced. When a
+  -- load override is in force we write the effective config (with the load
+  -- swapped) rather than copying, so the saved config matches what actually ran.
+  let savedConfig = spec.sweepOutDir </> (variant.variantName <> ".config.json")
+  writeEffectiveConfig spec.sweepLoadOverride variant.variantConfig savedConfig
+  config <- parseSimConfig savedConfig
   runs <-
     traverse (runPoint spec variant.variantName config) (fromIntegral <$> [0 .. spec.sweepSeeds - 1])
   pure (variant, runs)
+
+{- | Copy a variant config into the sweep output, optionally forcing its
+@"load"@ field to a named preset. Parsing the written file (rather than the
+source) keeps the saved config and the run in lock-step.
+-}
+writeEffectiveConfig :: Maybe String -> FilePath -> FilePath -> IO ()
+writeEffectiveConfig Nothing src dest = copyFile src dest
+writeEffectiveConfig (Just loadName) src dest = do
+  bytes <- BL.readFile src
+  case eitherDecode bytes of
+    Right (Object o) ->
+      BL.writeFile dest (encode (Object (KeyMap.insert "load" (String (T.pack loadName)) o)))
+    Right _ -> fail ("variant config " <> src <> " is not a JSON object")
+    Left err -> fail ("cannot parse variant config " <> src <> ": " <> err)
 
 runPoint :: SweepSpec -> String -> SimConfig -> Seed -> IO (Seed, RunScalars)
 runPoint spec name config seed = do

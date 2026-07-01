@@ -6,6 +6,7 @@ module Pricing (
   quotedFee,
   quotedFeeFor,
   realisedFee,
+  realisedFeeAtStandardRate,
   admissionRequiredFee,
   coversProducerHeadroom,
   feeStillValid,
@@ -77,6 +78,21 @@ inclusion is quoted at the standard lane ('Design.PriorityPremiumScope').
 -}
 realisedFee :: PriorityPremiumScope -> FeeSemantics -> Prices -> InclusionPoint -> Tx -> Lovelace
 realisedFee scope semantics prices inclusionPoint tx =
+  realisedFeeAtLane chargedLane semantics prices tx
+ where
+  chargedLane =
+    case (scope, inclusionPoint) of
+      (PremiumRbOnly, IncludedInEb _) -> Standard
+      _ -> tx.txLane
+
+-- | Charge a transaction as standard service. The conditional-reservation
+-- experiment uses this for a priority transaction included in a mixed RB:
+-- it received no exclusive RB service, so its priority premium is refunded.
+realisedFeeAtStandardRate :: FeeSemantics -> Prices -> Tx -> Lovelace
+realisedFeeAtStandardRate = realisedFeeAtLane Standard
+
+realisedFeeAtLane :: Lane -> FeeSemantics -> Prices -> Tx -> Lovelace
+realisedFeeAtLane chargedLane semantics prices tx =
   case semantics of
     FixedFee -> postedFee
     HonourSubmissionQuoteFor _ -> postedFee
@@ -84,10 +100,6 @@ realisedFee scope semantics prices inclusionPoint tx =
       min postedFee (quotedFeeFor prices chargedLane tx.txBody._txSize tx.txBody._txScript)
  where
   postedFee = tx.txBody._txFee
-  chargedLane =
-    case (scope, inclusionPoint) of
-      (PremiumRbOnly, IncludedInEb _) -> Standard
-      _ -> tx.txLane
 
 laneCoeff :: Prices -> Lane -> Double
 laneCoeff prices lane = atLane lane prices.laneCoeffs

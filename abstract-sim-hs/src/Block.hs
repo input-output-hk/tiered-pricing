@@ -5,6 +5,7 @@ module Block (
   PendingEb (..),
   BlockUsage (..),
   BlockSummary (..),
+  RbSelectionMode (..),
   mkBlockUsage,
   prioritySignalCapacity,
   selectTxsByPolicy,
@@ -96,6 +97,11 @@ data BlockSummary
   | EbCertified EbId BlockUsage
   deriving stock (Eq, Show)
 
+-- | Whether a transaction-carrying RB applied the priority-only rule or used
+-- all of its capacity for a mixed block because the queued transactions fit.
+data RbSelectionMode = ReservedRb | MixedRb
+  deriving stock (Eq, Show)
+
 {- | The wire encoding predates this type's shape and is pinned by the viz
 ingester: ranking blocks carry a nested @block@ tag (Praos\/Certifying), a
 certifying RB serialises as an all-zero usage, and the signal-capacity keys
@@ -173,6 +179,8 @@ prioritySignalCapacity reservation rbCapacity =
   case reservation of
     PriorityReservationRb reservationBytes ->
       rbCapacity{resBytes = min rbCapacity.resBytes (Bytes reservationBytes)}
+    PriorityReservationRbIfEbNeeded reservationBytes ->
+      rbCapacity{resBytes = min rbCapacity.resBytes (Bytes reservationBytes)}
     NoReservation -> rbCapacity
 
 {- | How a producer orders the mempool into a block, absent any reservation
@@ -197,22 +205,32 @@ selectTxsByPolicy selection capacity txs =
     FifoWithStandardCap standardShare ->
       selectFifoWithStandardCap standardShare capacity txs
 
-{- | Ranking-block selection under the design's reservation policy. The
-reservation rule admits only priority txs to RBs, so every selection policy
-collapses to priority-only FIFO within the reserved capacity.
+{- | Ranking-block selection under the design's reservation policy.
+
+The experimental conditional policy first tries a normal mixed RB. If every
+queued transaction fits, it uses that work-conserving selection. Otherwise it
+falls back to the same priority-only selection as strict reservation, leaving
+the overflow for an EB.
 -}
 selectRbTxs ::
   SelectionPolicy ->
   ReservationPolicy ->
   Resources ->
   Seq Tx ->
-  (Seq Tx, Seq Tx, Resources)
+  (Seq Tx, Seq Tx, Resources, RbSelectionMode)
 selectRbTxs selection reservation rbCapacity txs =
   case reservation of
     PriorityReservationRb{} ->
-      selectPriorityByBlockCapacity (prioritySignalCapacity reservation rbCapacity) txs
+      withMode ReservedRb $ selectPriorityByBlockCapacity (prioritySignalCapacity reservation rbCapacity) txs
+    PriorityReservationRbIfEbNeeded{} ->
+      let mixed@(_, mixedRemainder, _) = selectTxsByPolicy selection rbCapacity txs
+       in if null mixedRemainder
+            then withMode MixedRb mixed
+            else withMode ReservedRb $ selectPriorityByBlockCapacity (prioritySignalCapacity reservation rbCapacity) txs
     NoReservation ->
-      selectTxsByPolicy selection rbCapacity txs
+      withMode MixedRb $ selectTxsByPolicy selection rbCapacity txs
+ where
+  withMode mode (selected, remaining, usage) = (selected, remaining, usage, mode)
 
 nextEbId :: Map EbId EndorserBlock -> EbId
 nextEbId ebs =

@@ -89,6 +89,7 @@ instance FromJSON PriorityPremiumScope where
 
 data ReservationPolicy
   = PriorityReservationRb Int
+  | PriorityReservationRbIfEbNeeded Int
   | NoReservation
   deriving stock (Eq, Show)
 
@@ -98,6 +99,7 @@ instance FromJSON ReservationPolicy where
       "reservation policy"
       [ ("no-reservation", Nullary NoReservation)
       , ("priority-reservation-rb", WithFields \obj -> PriorityReservationRb <$> obj .: "bytes")
+      , ("priority-reservation-rb-if-eb-needed", WithFields \obj -> PriorityReservationRbIfEbNeeded <$> obj .: "bytes")
       ]
 
 data LaneStructure = One | Two deriving stock (Eq, Show)

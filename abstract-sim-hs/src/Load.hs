@@ -5,6 +5,7 @@ module Load (
   arrivalRateAt,
   tryBurstEffectAt,
   moderateLoad,
+  lowLoad,
   congestedLoad,
   burstLoad,
   severeCongestionLoad,
@@ -29,6 +30,7 @@ instance FromJSON ArrivalProcess where
       (taggedSum "arrival process preset")
       value
       [ ("moderate", Nullary moderateLoad)
+      , ("low", Nullary lowLoad)
       , ("congested", Nullary congestedLoad)
       , ("burst", Nullary burstLoad)
       , ("severe-congestion", Nullary severeCongestionLoad)
@@ -43,6 +45,15 @@ instance FromJSON ArrivalProcess where
 
 moderateLoad :: ArrivalProcess
 moderateLoad = ConstantLoad 2.0
+
+{- | An uncongested, below-ranking-block-capacity load. The RB holds ~73
+transactions and is produced at ~f, so its throughput saturates near ~3.5
+tx/slot; a constant 3.0 tx/slot fills the RB to ~80-85% without saturating it,
+keeping the run non-trivial (the RB is a genuinely-used resource) while staying
+clear of the contention regime exercised by 'severeCongestionLoad'.
+-}
+lowLoad :: ArrivalProcess
+lowLoad = ConstantLoad 3.0
 
 congestedLoad :: ArrivalProcess
 congestedLoad = ConstantLoad 20.0

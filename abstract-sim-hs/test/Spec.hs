@@ -1,7 +1,7 @@
 module Main (main) where
 
 import Actor (Actor (..), ActorId (..), ActorType (..), LaneLatencyEstimate (..), SubmissionEnv (..), resubmitTransaction)
-import Block (BlockSummary (..), BlockUsage (..), EbId (..), InclusionPoint (..))
+import Block (BlockSummary (..), BlockUsage (..), EbId (..), InclusionPoint (..), RbSelectionMode (..), selectRbTxs)
 import Config (SimConfig (..))
 import Control.Monad (unless)
 import Curve (curvesDefault)
@@ -9,12 +9,12 @@ import Data.Aeson (eitherDecode)
 import Data.ByteString.Lazy qualified as BL
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Sequence qualified as Seq
-import Design (ControllerConfig (..), ControllerSignal (..), Design (..), Eip1559Controller (..), FeeSemantics (..), LaneStructure (..), PriorityPremiumScope (..), defaultDesign)
+import Design (ControllerConfig (..), ControllerSignal (..), Design (..), Eip1559Controller (..), FeeSemantics (..), LaneStructure (..), PriorityPremiumScope (..), ReservationPolicy (..), SelectionPolicy (..), defaultDesign)
 import Load (severeCongestionLoad)
 import Metrics.Accumulator (MetricsAcc (..), emptyMetricsAcc)
 import Metrics.Price (PriceOscillation (..), PriceStability (..), priceOscillationFrom, priceStabilityFrom)
 import Parser (parseDesign, parseSimConfig)
-import Pricing (ControllerInput (..), PriceUpdate (..), Prices (..), admissionRequiredFee, coversProducerHeadroom, initialPrices, quotedFee, realisedFee, retentionWindow, updatePrices)
+import Pricing (ControllerInput (..), PriceUpdate (..), Prices (..), admissionRequiredFee, coversProducerHeadroom, initialPrices, quotedFee, realisedFee, realisedFeeAtStandardRate, retentionWindow, updatePrices)
 import Resource (Bytes (..), ExUnits (..), Resources (..))
 import Retry (noRetries)
 import Sweep (SweepSpec (..), SweepVariant (..), loadSweepSpec)
@@ -35,6 +35,8 @@ main = do
   assertCapacityWeightedWindowCountsCertifiedEbs
   assertCapacityWeightedWindowUsesExUnits
   assertPremiumScopeChargesByInclusionPoint
+  assertConditionalReservationSelection
+  assertMixedRbRefundsPriorityPremium
   assertPriceStabilityExcludesTransient
   assertNeverSettlingPriceNeverConverges
   assertEmptyPriceTraceHasNoStability
@@ -115,6 +117,7 @@ expectedFixtureSweep =
     , sweepSeeds = 3
     , sweepSlots = 500
     , sweepOutDir = "/tmp/fixture-sweep"
+    , sweepLoadOverride = Just "low"
     , sweepVariants =
         [ SweepVariant "a" "test/fixtures/sim-config.json"
         , SweepVariant "b" "test/fixtures/sim-config.json"
@@ -144,6 +147,7 @@ assertLiveConfigsParse = do
     , "both-dynamic-reserved-window3"
     , "both-dynamic-open-window3"
     , "priority-only-reserved-windowed"
+    , "priority-only-conditional-windowed"
     , "priority-only-open-windowed"
     , "both-dynamic-reserved-windowed"
     , "both-dynamic-open-windowed"
@@ -484,6 +488,34 @@ assertPremiumScopeChargesByInclusionPoint = do
     posted
     (realisedFee PremiumRbOnly FixedFee prices (IncludedInEb (EbId 0)) priorityTx)
 
+assertConditionalReservationSelection :: IO ()
+assertConditionalReservationSelection = do
+  let capacity = Resources{resBytes = Bytes 1_000, resExUnits = ExUnits 10_000_000}
+      reservation = PriorityReservationRbIfEbNeeded 1_000
+      priorityTx = withSize 400 (testTx Priority)
+      standardTx = withSize 400 (testTx Standard)
+      overflowTx = withSize 400 (testTx Standard)
+      (mixedSelected, mixedRemaining, _, mixedMode) =
+        selectRbTxs Fifo reservation capacity (Seq.fromList [standardTx, priorityTx])
+      (reservedSelected, reservedRemaining, _, reservedMode) =
+        selectRbTxs Fifo reservation capacity (Seq.fromList [standardTx, priorityTx, overflowTx])
+  assertEqual "conditional reservation uses mixed RB when all txs fit" MixedRb mixedMode
+  assertEqual "conditional mixed RB includes standard and priority" 2 (length mixedSelected)
+  assertEqual "conditional mixed RB leaves no EB overflow" 0 (length mixedRemaining)
+  assertEqual "conditional reservation activates on overflow" ReservedRb reservedMode
+  assertTrue "conditional reserved RB contains only priority" (all ((== Priority) . (.txLane)) reservedSelected)
+  assertEqual "conditional reserved RB leaves both standard txs for EB" 2 (length reservedRemaining)
+
+assertMixedRbRefundsPriorityPremium :: IO ()
+assertMixedRbRefundsPriorityPremium = do
+  let prices = initialPrices defaultDesign
+      posted = Lovelace 10_000_000
+      priorityTx = withFee posted (testTx Priority)
+  assertEqual
+    "mixed RB refunds priority tx to the standard quote"
+    (quotedFee prices (testTx Standard))
+    (realisedFeeAtStandardRate Eip1559 prices priorityTx)
+
 {- Price stability is judged against the final (steady-state) coefficient:
 the transient ramp must not count towards settled coefficient range, and a lane
 whose price is out of band right up to its last update never converged. -}
@@ -673,6 +705,10 @@ assertSingleLaneActorHasReservationPrice = do
 withFee :: Lovelace -> Tx -> Tx
 withFee fee tx =
   tx{txBody = tx.txBody{_txFee = fee}}
+
+withSize :: Int -> Tx -> Tx
+withSize size tx =
+  tx{txBody = tx.txBody{_txSize = size}}
 
 testTx :: Lane -> Tx
 testTx lane =

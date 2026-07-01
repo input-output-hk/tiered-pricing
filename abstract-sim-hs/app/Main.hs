@@ -24,8 +24,10 @@ usage =
     [ "usage:"
     , "  abstract-sim-hs-exe"
     , "      single traced run of config/default-sim-config.json"
-    , "  abstract-sim-hs-exe sweep MANIFEST [--seeds N] [--slots N] [--out DIR]"
+    , "  abstract-sim-hs-exe sweep MANIFEST [--seeds N] [--slots N] [--out DIR] [--load PRESET]"
     , "      the experiment sweep defined by MANIFEST (see config/sweeps/):"
     , "      one traced run per variant x seed, per-variant aggregates in"
-    , "      DIR/summary.json; flags override the manifest for quick iteration"
+    , "      DIR/summary.json; flags override the manifest for quick iteration."
+    , "      --load forces every variant onto one load preset (e.g. low,"
+    , "      severe-congestion), overriding the load in each variant config"
     ]

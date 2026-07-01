@@ -15,6 +15,7 @@
     { "name": "both-dynamic-reserved-window3", "config": "config/variants/both-dynamic-reserved-window3.json" },
     { "name": "both-dynamic-open-window3", "config": "config/variants/both-dynamic-open-window3.json" },
     { "name": "priority-only-reserved-windowed", "config": "config/variants/priority-only-reserved-windowed.json" },
+    { "name": "priority-only-conditional-windowed", "config": "config/variants/priority-only-conditional-windowed.json" },
     { "name": "priority-only-open-windowed", "config": "config/variants/priority-only-open-windowed.json" },
     { "name": "both-dynamic-reserved-windowed", "config": "config/variants/both-dynamic-reserved-windowed.json" },
     { "name": "both-dynamic-open-windowed", "config": "config/variants/both-dynamic-open-windowed.json" },

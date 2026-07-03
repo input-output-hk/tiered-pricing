@@ -35,6 +35,8 @@ This CIP introduces a transaction-level urgency signal with two lanes: standard 
 
 We specify that Ranking Blocks can only contain urgent transactions to prevent bribery of block producers. If bribery is allowed, a block producer has the incentive to accept a bribe over a legitimate urgent transaction, because it means they'll get to keep the entire bribe. If, instead, they chose to include a legitimate urgent transaction, the excess fees would go to rewards or the treasury, depending on the policy we decide. As such, preventing that incentive is necessary.
 
+TODO: this rule is amended by the conditional reservation described in [Conditional reservation](#conditional-reservation-mixed-rbs-when-the-eb-path-is-idle); reconcile the two statements once that section is written.
+
 <details>
 <summary>Show glossary of terms</summary>
 
@@ -42,9 +44,9 @@ We specify that Ranking Blocks can only contain urgent transactions to prevent b
 
 **Standard transaction**: A transaction which is not attempting to pay to enter the urgent lane. Cardano's current transactions.
 
-**Urgent transaction**: A transaction which has attempting to pay to enter the urgent lane. This signals that the transaction should be included before standard transactions, where possible.
+**Urgent transaction**: A transaction which is attempting to pay to enter the urgent lane. This signals that the transaction should be included before standard transactions, where possible.
 
-**Reserved**: A urgent lane mechanism under which RB block space is reserved for urgent transactions, enforced on-chain.
+**Reserved**: An urgent lane mechanism under which RB block space is reserved for urgent transactions, enforced on-chain.
 
 **Reservation policy - ceiling**: A reservation policy that enforces a maximum on the share of block space occupied by urgent transactions. For example, a concrete version of this policy could be that no more than 85% of a block's bytes may carry urgent transactions. If urgent demand exceeds the cap and standard demand is below the remainder, the cap leaves block space unused.
 
@@ -163,6 +165,38 @@ Block producers need to be cognisant of fee change over time, with respect to dy
 
 As such, in order for the system to operate, transactions must be submitted with a suitable buffer. In order for adding a buffer to be palatable, a mechanism must be present to refund the difference between the posted fee and the actual price a transaction is charged for admission to the block. This mechanism is described in <fee change CIP link>.
 
+### Conditional reservation (mixed RBs when the EB path is idle)
+
+TODO: this is the load-bearing open design question — the rest of the specification depends
+on its answer. The experiment report shows that strict RB reservation *regresses below the
+flat-fee baseline at low load* (urgent latency 1.95 vs 1.85 blocks, urgent retained value
+56.77% vs 58.79%): reserving the RB forces standard transactions onto the EB path even when
+the RB has room, and the resulting EB certificates then crowd urgent transactions out of RBs.
+The conditional variant (both-dynamic-conditional, 5-sample window) repairs this and more: at
+low load it beats the open variant (+2.66 ± 0.71 pp urgent retained, 10/10 seeds) and flat-fee
+(+5.30 ± 1.28 pp, 10/10 seeds) while remaining enforceable, and under congestion it matches
+strict reservation exactly by construction (the mixed-RB case never fires under backlog).
+
+TODO: state the rule in a ledger-checkable form. The simulator's rule ("if every queued
+transaction fits in one RB, produce a mixed RB") references the producer's local mempool and
+cannot be validated on-chain. A candidate objective rule: an RB may contain standard
+transactions only if it announces/certifies no EB. Both facts are in the block, so validators
+can check it. Decide and specify precisely.
+
+TODO: re-run the bribery analysis for the chosen rule. The carve-out reopens a corner of the
+incentive hole that reservation closed: under congestion, a producer could *decline to
+announce an EB* in order to sell RB space to bribing standard transactions. What does the
+producer forfeit by suppressing the EB? Is the deterrent incentive-based (forfeited rewards)
+or structural (rule references pending certified EBs rather than the producer's choice)?
+
+TODO: specify the fairness refund. Urgent transactions included in a mixed RB alongside
+standard transactions should be refunded down to the standard quote (see experiment report,
+"Low load" section). Reference the fee change return mechanism CIP.
+
+TODO: fallback position. If no clean enforceable rule survives the bribery analysis, the
+specification reverts to strict reservation, and we accept the quantified low-load latency
+regression above. State this explicitly either way.
+
 ### Incentives
 
 
@@ -181,10 +215,16 @@ Our experimental setup was as follows:
 | single-lane-eip1559 | none | dynamic | n/a | n/a |
 | priority-only-open | open priority-first | fixed | dynamic | instant, windowed 3-20 |
 | priority-only-reserved | RB reserved | fixed | dynamic | instant, windowed 3-20 |
+| priority-only-conditional | RB reserved unless whole queue fits one RB | fixed | dynamic | windowed 5 |
 | both-dynamic-open | open priority-first | dynamic | dynamic | instant, windowed 3-20 |
 | both-dynamic-reserved | RB reserved | dynamic | dynamic | instant, windowed 3-20 |
+| both-dynamic-conditional | RB reserved unless whole queue fits one RB | dynamic | dynamic | windowed 5 |
 
-We ran 10 seeds of a 2000 slot simulation with a mean load of 40 tx/slot between slots 0-249 and slots 1750-1999, and at a mean load of 160 tx/slot between slots 250-1749.
+We ran 10 seeds of a 2000 slot simulation under three load profiles: `severe-congestion` (mean 40 tx/slot in slots 0-249 and 1750-1999, mean 160 tx/slot in slots 250-1749), `low` (constant 3 tx/slot, below RB saturation), and `eb-capacity-stress` (repeated peaks up to ~396 tx/slot driving demand against the EB byte cap).
+
+The recommended mechanism is both-dynamic-conditional with a 5-sample signal window. Under severe congestion it improves urgent retained value from 44.32% (flat fee) to 51.55% (+7.23 ± 1.64 percentage points, paired over ten seeds) and reduces urgent mean latency from 2.91 to 2.44 blocks. At low load it is the only ledger-enforceable variant that beats both the open variant (+2.66 ± 0.71 percentage points, ten of ten seeds) and flat fee (+5.30 ± 1.28 percentage points, ten of ten seeds). Under the EB-stressing load it is level with the best enforceable alternative.
+
+The other families were eliminated as follows. Flat fee and single-lane EIP-1559 provide no way to signal urgency, and leave urgent value on the table at every load. The open variants cannot be enforced on the ledger, and therefore permit bribery, as discussed in the Specification. Strict reservation falls below the flat-fee baseline at low load, because it forces standard transactions onto the EB path even when the RB has room for them. Long signal windows (10-20 samples) reduce shock counts but trade retention for larger peak-to-trough price swings; the 5-sample window is the compromise point.
 
 <link to experiment report>
 

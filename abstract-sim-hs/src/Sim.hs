@@ -9,7 +9,7 @@ module Sim (
 ) where
 
 import Actor (Actor (..), ActorId, SubmissionEnv (..), TxSubmission (TxSubmission), generateTransaction, resubmitTransaction)
-import Block (BlockSummary (..), EbId, EndorserBlock (..), InclusionPoint (..), PendingEb (..), RbSelectionMode (..), mkBlockUsage, nextEbId, prioritySignalCapacity, selectRbTxs, selectTxsByPolicy)
+import Block (BlockSummary (..), EbId, EndorserBlock (..), InclusionPoint (..), PendingEb (..), mkBlockUsage, nextEbId, prioritySignalCapacity, selectRbTxs, selectTxsByPolicy, txsBytes)
 import Config (SimConfig (..))
 import Control.Monad (join, replicateM)
 import Control.Monad.Reader (MonadReader (..), ReaderT, asks)
@@ -29,7 +29,7 @@ import Event (SimEvent (..))
 import Load (arrivalRateAt, tryBurstEffectAt)
 import Data.List (sortOn)
 import Mempool (Mempool (..), admitToMempool, emptyMempool, removeFromMempool, setMempoolTxs)
-import Pricing (ControllerInput (..), Prices (..), admissionRequiredFee, coversProducerHeadroom, feeStillValid, initialPrices, quotedFee, realisedFee, realisedFeeAtStandardRate, retentionWindow, updatePrices)
+import Pricing (ControllerInput (..), Prices (..), admissionRequiredFee, coversProducerHeadroom, feeStillValid, initialPrices, quotedFee, realisedFee, retentionWindow, updatePrices)
 import Resource (Bytes (..), ExUnits (..), Resources (..))
 import Retry (PendingRetry (..), RetryPolicy (..), capture)
 import System.Random (StdGen, uniformR)
@@ -448,26 +448,17 @@ producePraosBlock design slot rbCapacity = do
   mempool <- gets _simMempool
   let (feeCheckedMempool, evictionEvents) =
         evictStaleFees design.designFeeSemantics slot prices mempool
-      (selectedTxs, remainingTxs, _usage, selectionMode) =
+      (selectedTxs, remainingTxs, _usage, _selectionMode) =
         selectRbTxs design.designSelection design.designReservationPolicy rbCapacity feeCheckedMempool.mempoolTxs
       selectedTxList = toList selectedTxs
       mempool' = setMempoolTxs remainingTxs
-      refundPriorityPremium =
-        case (design.designReservationPolicy, selectionMode) of
-          (PriorityReservationRbIfEbNeeded{}, MixedRb) -> True
-          _ -> False
       summary =
         RbPraos
           (fmap (.txId) selectedTxList)
           (mkBlockUsage rbCapacity (prioritySignalCapacity design.designReservationPolicy rbCapacity) selectedTxList)
       events =
         BlockProduced slot summary
-          : fmap
-            ( if refundPriorityPremium
-                then includedEventAtStandardRate design prices slot IncludedInRb
-                else includedEvent design prices slot IncludedInRb
-            )
-            selectedTxList
+          : fmap (includedEvent design prices slot IncludedInRb) selectedTxList
   modify' \st -> st{_simMempool = mempool'}
   pure (evictionEvents >< Seq.fromList events)
 
@@ -483,17 +474,8 @@ includedEvent design prices slot inclusionPoint tx =
     inclusionPoint
     (realisedFee design.designPriorityPremiumScope design.designFeeSemantics prices inclusionPoint tx)
 
-includedEventAtStandardRate :: Design -> Prices -> SlotNo -> InclusionPoint -> Tx -> SimEvent
-includedEventAtStandardRate design prices slot inclusionPoint tx =
-  TxIncluded
-    slot
-    tx.txId
-    inclusionPoint
-    (realisedFeeAtStandardRate design.designFeeSemantics prices tx)
-
 announceEndorserBlock :: SlotNo -> Resources -> SimM (Seq SimEvent)
 announceEndorserBlock slot rbSignalCapacity = do
-  rbCapacity <- rbCapacityFromConfig
   ebCapacity <- ebCapacityFromConfig
   ebs <- gets _simEbs
   prices <- gets _simPrices
@@ -514,10 +496,8 @@ announceEndorserBlock slot rbSignalCapacity = do
       selectedTxList = toList selectedTxs
       ebNeeded =
         case design.designReservationPolicy of
-          PriorityReservationRbIfEbNeeded{} ->
-            let (_, rbRemainder, _) =
-                  selectTxsByPolicy design.designSelection rbCapacity feeCheckedMempool.mempoolTxs
-             in not (null rbRemainder)
+          PriorityReservationRbEbThreshold _ thresholdBytes ->
+            txsBytes selectedTxs >= thresholdBytes
           _ -> True
   if null selectedTxList || not ebNeeded
     then do

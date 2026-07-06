@@ -16,6 +16,7 @@ module Block (
   selectFifoWithStandardCap,
   selectPriorityByBlockCapacity,
   txBlockResources,
+  txsBytes,
 )
 where
 
@@ -179,7 +180,7 @@ prioritySignalCapacity reservation rbCapacity =
   case reservation of
     PriorityReservationRb reservationBytes ->
       rbCapacity{resBytes = min rbCapacity.resBytes (Bytes reservationBytes)}
-    PriorityReservationRbIfEbNeeded reservationBytes ->
+    PriorityReservationRbEbThreshold reservationBytes _ ->
       rbCapacity{resBytes = min rbCapacity.resBytes (Bytes reservationBytes)}
     NoReservation -> rbCapacity
 
@@ -205,12 +206,10 @@ selectTxsByPolicy selection capacity txs =
     FifoWithStandardCap standardShare ->
       selectFifoWithStandardCap standardShare capacity txs
 
-{- | Ranking-block selection under the design's reservation policy.
-
-The experimental conditional policy first tries a normal mixed RB. If every
-queued transaction fits, it uses that work-conserving selection. Otherwise it
-falls back to the same priority-only selection as strict reservation, leaving
-the overflow for an EB.
+{- | Ranking-block selection under the design's reservation policy. Both
+reservation policies keep the RB priority-only; the EB-threshold policy
+differs only in when an EB may be announced, which is decided at
+announcement time (see @ebNeeded@ in "Sim"), not here.
 -}
 selectRbTxs ::
   SelectionPolicy ->
@@ -222,15 +221,17 @@ selectRbTxs selection reservation rbCapacity txs =
   case reservation of
     PriorityReservationRb{} ->
       withMode ReservedRb $ selectPriorityByBlockCapacity (prioritySignalCapacity reservation rbCapacity) txs
-    PriorityReservationRbIfEbNeeded{} ->
-      let mixed@(_, mixedRemainder, _) = selectTxsByPolicy selection rbCapacity txs
-       in if null mixedRemainder
-            then withMode MixedRb mixed
-            else withMode ReservedRb $ selectPriorityByBlockCapacity (prioritySignalCapacity reservation rbCapacity) txs
+    PriorityReservationRbEbThreshold{} ->
+      withMode ReservedRb $ selectPriorityByBlockCapacity (prioritySignalCapacity reservation rbCapacity) txs
     NoReservation ->
       withMode MixedRb $ selectTxsByPolicy selection rbCapacity txs
  where
   withMode mode (selected, remaining, usage) = (selected, remaining, usage, mode)
+
+-- | Total body bytes of a set of transactions — the byte footprint the
+-- set would occupy as an EB payload.
+txsBytes :: Seq Tx -> Int
+txsBytes = sum . fmap ((._txSize) . (.txBody))
 
 nextEbId :: Map EbId EndorserBlock -> EbId
 nextEbId ebs =

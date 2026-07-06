@@ -6,7 +6,6 @@ module Pricing (
   quotedFee,
   quotedFeeFor,
   realisedFee,
-  realisedFeeAtStandardRate,
   admissionRequiredFee,
   coversProducerHeadroom,
   feeStillValid,
@@ -84,12 +83,6 @@ realisedFee scope semantics prices inclusionPoint tx =
     case (scope, inclusionPoint) of
       (PremiumRbOnly, IncludedInEb _) -> Standard
       _ -> tx.txLane
-
--- | Charge a transaction as standard service. The conditional-reservation
--- experiment uses this for a priority transaction included in a mixed RB:
--- it received no exclusive RB service, so its priority premium is refunded.
-realisedFeeAtStandardRate :: FeeSemantics -> Prices -> Tx -> Lovelace
-realisedFeeAtStandardRate = realisedFeeAtLane Standard
 
 realisedFeeAtLane :: Lane -> FeeSemantics -> Prices -> Tx -> Lovelace
 realisedFeeAtLane chargedLane semantics prices tx =

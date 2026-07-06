@@ -89,7 +89,10 @@ instance FromJSON PriorityPremiumScope where
 
 data ReservationPolicy
   = PriorityReservationRb Int
-  | PriorityReservationRbIfEbNeeded Int
+  | -- | Strict RB reservation (never mixed) with a gated EB: an EB may only
+    -- be announced when its payload reaches the threshold in bytes. Standard
+    -- transactions are served exclusively through EBs, in batches.
+    PriorityReservationRbEbThreshold Int Int
   | NoReservation
   deriving stock (Eq, Show)
 
@@ -99,7 +102,10 @@ instance FromJSON ReservationPolicy where
       "reservation policy"
       [ ("no-reservation", Nullary NoReservation)
       , ("priority-reservation-rb", WithFields \obj -> PriorityReservationRb <$> obj .: "bytes")
-      , ("priority-reservation-rb-if-eb-needed", WithFields \obj -> PriorityReservationRbIfEbNeeded <$> obj .: "bytes")
+      ,
+        ( "priority-reservation-rb-eb-threshold"
+        , WithFields \obj -> PriorityReservationRbEbThreshold <$> obj .: "bytes" <*> obj .: "ebThresholdBytes"
+        )
       ]
 
 data LaneStructure = One | Two deriving stock (Eq, Show)

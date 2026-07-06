@@ -2,13 +2,23 @@
   "design": {
     "laneStructure": "two",
     "reservationPolicy": {
-      "type": "priority-reservation-rb-if-eb-needed",
+      "type": "priority-reservation-rb-eb-threshold",
+      "ebThresholdBytes": 45056,
       "bytes": 90112
     },
     "selection": "fifo",
     "feeSemantics": "eip1559",
     "priorityPremiumScope": "rb-only",
     "controllers": {
+      "standardController": {
+        "targetUtilisation": 0.5,
+        "maxChangeDenominator": 8,
+        "initialCoefficient": 1.0,
+        "signal": {
+          "type": "capacity-weighted-window",
+          "window": 20
+        }
+      },
       "priorityController": {
         "targetUtilisation": 0.5,
         "maxChangeDenominator": 8,

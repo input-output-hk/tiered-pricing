@@ -15,7 +15,7 @@ import LoadProfile (LoadProfile (..), loadLoadProfile)
 import Metrics.Accumulator (MetricsAcc (..), emptyMetricsAcc)
 import Metrics.Price (PriceOscillation (..), PriceStability (..), priceOscillationFrom, priceStabilityFrom)
 import Parser (parseDesign, parseSimConfig)
-import Pricing (ControllerInput (..), PriceUpdate (..), Prices (..), admissionRequiredFee, coversProducerHeadroom, initialPrices, quotedFee, realisedFee, realisedFeeAtStandardRate, retentionWindow, updatePrices)
+import Pricing (ControllerInput (..), PriceUpdate (..), Prices (..), admissionRequiredFee, coversProducerHeadroom, initialPrices, quotedFee, realisedFee, retentionWindow, updatePrices)
 import Resource (Bytes (..), ExUnits (..), Resources (..))
 import Retry (noRetries)
 import Sweep (LoadOverride (..), SweepOverrides (..), SweepSpec (..), SweepVariant (..), applyOverrides, loadSweepSpec, parseSweepArgs)
@@ -38,8 +38,7 @@ main = do
   assertCapacityWeightedWindowCountsCertifiedEbs
   assertCapacityWeightedWindowUsesExUnits
   assertPremiumScopeChargesByInclusionPoint
-  assertConditionalReservationSelection
-  assertMixedRbRefundsPriorityPremium
+  assertStrictEbThresholdSelection
   assertPriceStabilityExcludesTransient
   assertNeverSettlingPriceNeverConverges
   assertEmptyPriceTraceHasNoStability
@@ -170,7 +169,8 @@ assertLiveConfigsParse = do
     , "both-dynamic-reserved-window3"
     , "both-dynamic-open-window3"
     , "priority-only-reserved-windowed"
-    , "priority-only-conditional-windowed"
+    , "priority-only-strict-threshold-rb2-windowed"
+    , "both-dynamic-strict-threshold-rb2-windowed"
     , "priority-only-open-windowed"
     , "both-dynamic-reserved-windowed"
     , "both-dynamic-open-windowed"
@@ -559,33 +559,21 @@ assertPremiumScopeChargesByInclusionPoint = do
     posted
     (realisedFee PremiumRbOnly FixedFee prices (IncludedInEb (EbId 0)) priorityTx)
 
-assertConditionalReservationSelection :: IO ()
-assertConditionalReservationSelection = do
+{- | The strict EB-threshold policy never produces a mixed RB: the RB is
+priority-only even when the whole queue would fit, and the threshold gates
+only the EB announcement (checked in the simulation, not in selection).
+-}
+assertStrictEbThresholdSelection :: IO ()
+assertStrictEbThresholdSelection = do
   let capacity = Resources{resBytes = Bytes 1_000, resExUnits = ExUnits 10_000_000}
-      reservation = PriorityReservationRbIfEbNeeded 1_000
+      reservation = PriorityReservationRbEbThreshold 1_000 500
       priorityTx = withSize 400 (testTx Priority)
       standardTx = withSize 400 (testTx Standard)
-      overflowTx = withSize 400 (testTx Standard)
-      (mixedSelected, mixedRemaining, _, mixedMode) =
+      (selected, remaining, _, mode) =
         selectRbTxs Fifo reservation capacity (Seq.fromList [standardTx, priorityTx])
-      (reservedSelected, reservedRemaining, _, reservedMode) =
-        selectRbTxs Fifo reservation capacity (Seq.fromList [standardTx, priorityTx, overflowTx])
-  assertEqual "conditional reservation uses mixed RB when all txs fit" MixedRb mixedMode
-  assertEqual "conditional mixed RB includes standard and priority" 2 (length mixedSelected)
-  assertEqual "conditional mixed RB leaves no EB overflow" 0 (length mixedRemaining)
-  assertEqual "conditional reservation activates on overflow" ReservedRb reservedMode
-  assertTrue "conditional reserved RB contains only priority" (all ((== Priority) . (.txLane)) reservedSelected)
-  assertEqual "conditional reserved RB leaves both standard txs for EB" 2 (length reservedRemaining)
-
-assertMixedRbRefundsPriorityPremium :: IO ()
-assertMixedRbRefundsPriorityPremium = do
-  let prices = initialPrices defaultDesign
-      posted = Lovelace 10_000_000
-      priorityTx = withFee posted (testTx Priority)
-  assertEqual
-    "mixed RB refunds priority tx to the standard quote"
-    (quotedFee prices (testTx Standard))
-    (realisedFeeAtStandardRate Eip1559 prices priorityTx)
+  assertEqual "strict EB-threshold always reserves the RB" ReservedRb mode
+  assertTrue "strict EB-threshold RB contains only priority" (all ((== Priority) . (.txLane)) selected)
+  assertEqual "strict EB-threshold leaves standard txs for the EB" 1 (length remaining)
 
 {- Price stability is judged against the final (steady-state) coefficient:
 the transient ramp must not count towards settled coefficient range, and a lane

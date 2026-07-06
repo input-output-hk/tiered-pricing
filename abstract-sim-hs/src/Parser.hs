@@ -163,8 +163,8 @@ validateDesign design =
         NoReservation -> Right ()
         PriorityReservationRb{} ->
           Left (MismatchedLaneSemantics "cannot reserve priority ranking-block bytes with a single lane structure")
-        PriorityReservationRbIfEbNeeded{} ->
-          Left (MismatchedLaneSemantics "cannot conditionally reserve priority ranking-block bytes with a single lane structure")
+        PriorityReservationRbEbThreshold{} ->
+          Left (MismatchedLaneSemantics "cannot reserve priority ranking-block bytes with a single lane structure")
       case design.designSelection of
         Fifo -> Right ()
         PriorityFirst ->

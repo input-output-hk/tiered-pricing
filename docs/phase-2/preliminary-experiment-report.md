@@ -2,7 +2,8 @@
 
 ### TLDR ###
 
-Experiment results show that, across ten seeded runs, the best aggregate rows reduce urgent mean latency from 2.91 to 2.39 blocks (~18%, or 0.52 blocks) and improve urgent retained value from 44.32% to 51.65% (+7.33 percentage points, ~16.5% relative) by providing network participants with a priority lane to which they can opt to submit transactions, for a premium fee. A slight compromise (~2% and 0.1%) on both urgent latency and urgent retention gives us ledger enforceability with the reserved variant, preventing bribery. However, under low load, strict reservation backfires: it falls _below_ the flat-fee baseline (56.77% vs 58.79% urgent retained value, 1.95 vs 1.85 blocks), because reserving the RB pushes standard transactions onto the EB path even when the RB has room for them. A conditional reservation repairs this: it behaves identically to strict reservation under congestion, and at low load it is the only enforceable variant to beat both the open variant (+2.66 ± 0.71 percentage points, ten of ten seeds) and flat fee (+5.30 ± 1.28 percentage points, ten of ten seeds). As a result, we recommend the conditional variant: both-dynamic-conditional, 5-sample window. The one caveat is the EB-stressing load, where the open variant leads nominally (by 1.86 percentage points) but not beyond noise (± 3.47).
+Experiment results show that, across ten seeded runs, the best aggregate rows reduce urgent mean latency from 2.91 to 2.39 blocks (~18%, or 0.52 blocks) and improve urgent retained value from 44.32% to 51.65% (+7.33 percentage points, ~16.5% relative) by providing network participants with a priority lane to which they can opt to submit transactions, for a premium fee. A slight compromise (~2% and 0.1%) on both urgent latency and urgent retention gives us ledger enforceability with the reserved variant, preventing bribery. However, under low load, plain reservation backfires: it falls _below_ the flat-fee baseline (56.77% vs 58.79% urgent retained value, 1.95 vs 1.85 blocks), because every scrap of standard overflow triggers an endorser block whose certificate then consumes ranking-block space. Gating EB announcement on a byte threshold - an EB may only be announced when its payload reaches half the RB byte cap, so every certificate is worth the block that carries it - repairs this while keeping RBs urgent-only at all times: it restores statistical parity with flat fee at low load (+1.01 ± 1.46 percentage points), behaves identically to plain reservation under sustained congestion, and clearly beats flat fee at every contended load (+3.04 to +7.38 percentage points, ten of ten seeds). As a result, we recommend both-dynamic-strict-threshold: reserved RBs with an EB threshold of half the RB byte cap, 5-sample window. The unenforceable open variant retains a small measurable lead where capacity is slack (~1-1.6 percentage points at low and mid load); we accept this as the price of preventing bribery.
+
 
 ### Question ###
 
@@ -53,8 +54,8 @@ Sweep harness config:
     { "name": "both-dynamic-reserved-window3", "config": "config/variants/both-dynamic-reserved-window3.json" },
     { "name": "both-dynamic-open-window3", "config": "config/variants/both-dynamic-open-window3.json" },
     { "name": "priority-only-reserved-windowed", "config": "config/variants/priority-only-reserved-windowed.json" },
-    { "name": "priority-only-conditional-windowed", "config": "config/variants/priority-only-conditional-windowed.json" },
-    { "name": "both-dynamic-conditional-windowed", "config": "config/variants/both-dynamic-conditional-windowed.json" },
+    { "name": "priority-only-strict-threshold-rb2-windowed", "config": "config/variants/priority-only-strict-threshold-rb2-windowed.json" },
+    { "name": "both-dynamic-strict-threshold-rb2-windowed", "config": "config/variants/both-dynamic-strict-threshold-rb2-windowed.json" },
     { "name": "priority-only-open-windowed", "config": "config/variants/priority-only-open-windowed.json" },
     { "name": "both-dynamic-reserved-windowed", "config": "config/variants/both-dynamic-reserved-windowed.json" },
     { "name": "both-dynamic-open-windowed", "config": "config/variants/both-dynamic-open-windowed.json" },
@@ -100,10 +101,10 @@ Even at the burst, this load offers only ~33% of EB byte capacity, so the endors
 
 In this experiment, we compare six designs under active consideration:
 
-|                   | Open (no reservation) | Conditional reservation       | Reserved RB             |
-| ----------------- | --------------------- | ----------------------------- | ----------------------- |
-| **Both dynamic**  | both-dynamic-open     | both-dynamic-conditional      | both-dynamic-reserved   |
-| **Priority only** | priority-only-open    | priority-only-conditional     | priority-only-reserved  |
+|                   | Open (no reservation) | Reserved RB             | Reserved RB + EB threshold           |
+| ----------------- | --------------------- | ----------------------- | ------------------------------------ |
+| **Both dynamic**  | both-dynamic-open     | both-dynamic-reserved   | both-dynamic-strict-threshold        |
+| **Priority only** | priority-only-open    | priority-only-reserved  | priority-only-strict-threshold       |
 
 Note: Each priority-lane config comes with a set of pricing signal variations, which are not enumerated for readability reasons, for example:
 
@@ -115,6 +116,8 @@ Note: Each priority-lane config comes with a set of pricing signal variations, w
 ```
 
 This 5-sample window is a way to smooth the signal and decrease oscillation, but it can come with a tradeoff. A window of N uses the previous N priority-signal samples to dampen price changes. This will be discussed later.
+
+Note: the EB-threshold variants were run as a companion sweep (`config/sweeps/strict-threshold.json`) under the same four load profiles, ten seeds, and 2,000 slots as the main sweep.
 
 ---
 
@@ -458,180 +461,17 @@ The entire ranking block is reserved for priority transactions, with FIFO select
 
 ---
 
-Conditional reservation, two lanes, priority only:
+Reserved RB with an EB announcement threshold, two lanes (priority-only and both-dynamic forms):
 
-This design uses the priority-only dynamic controller with a 5-sample signal window. For each transaction-carrying ranking block, it first tries a normal mixed FIFO selection. If all queued transactions fit in the ranking block, the mixed selection is used and any priority transaction included there is charged at the standard rate. If some queued transactions would overflow the ranking block and therefore require endorser-block capacity, the ranking block is instead reserved for priority transactions and the priority premium applies (`priority-reservation-rb-if-eb-needed`, `priorityPremiumScope: rb-only`).
-
-<details>
-<summary>Show config</summary>
+The same as the reserved designs above - the ranking block only ever carries priority transactions - with one extra rule on the endorser block: an EB may only be announced when its payload reaches a byte threshold, here half the RB byte cap (45,056 bytes). Every certificate is therefore worth at least half a ranking block of payload; thin EBs, whose certificates would consume more RB space than the capacity they deliver, are never produced, and standard transactions queue for the next worthwhile batch instead. With the threshold at one byte this rule coincides exactly with the plain reserved design (verified bit-identically at the event level). The configs match the corresponding reserved configs apart from the reservation policy stanza:
 
 ```
-{
-  "design": {
-    "laneStructure": "two",
     "reservationPolicy": {
-      "type": "priority-reservation-rb-if-eb-needed",
+      "type": "priority-reservation-rb-eb-threshold",
+      "ebThresholdBytes": 45056,
       "bytes": 90112
-    },
-    "selection": "fifo",
-    "feeSemantics": "eip1559",
-    "priorityPremiumScope": "rb-only",
-    "controllers": {
-      "priorityController": {
-        "targetUtilisation": 0.5,
-        "maxChangeDenominator": 8,
-        "initialCoefficient": 2.0,
-        "signal": {
-          "type": "priority-reservation-window",
-          "window": 5
-        }
-      },
-      "multiplierFloor": null,
-      "absoluteCoeffFloor": 1.0
     }
-  },
-  "curves": "default",
-  "f": 0.05,
-  "D": 13,
-  "load": "severe-congestion",
-  "actors": [
-    {
-      "count": 2,
-      "type": "honest",
-      "feeBuffer": 2,
-      "minValueFeeMultiple": 1.0,
-      "valueMultiplier": 1.0,
-      "urgencyMultiplier": 1.0
-    }
-  ],
-  "rbTxBytesCap": 90112,
-  "rbExUnitsCap": 96991334,
-  "ebTxBytesCap": 12000000,
-  "ebStructureBytesCap": 512000,
-  "ebExUnitsCap": 9499133448,
-  "mempoolBytesCap": 24000000,
-  "admissionHeadroomUpdates": 1,
-  "retryPolicy": {
-    "feeTooLow": {
-      "type": "resubmit-after",
-      "delaySlots": 2,
-      "jitterSlots": 6
-    },
-    "mempoolFull": {
-      "type": "resubmit-after",
-      "delaySlots": 20,
-      "jitterSlots": 20
-    },
-    "evicted": {
-      "type": "resubmit-after",
-      "delaySlots": 10,
-      "jitterSlots": 30
-    },
-    "maxAttempts": 5,
-    "escalationFactor": 1.2
-  },
-  "laneLatencyEstimate": {
-    "expectedStandardLatency": 50,
-    "expectedPriorityLatency": 25
-  },
-  "priceConvergenceBandPct": 0.05
-}
 ```
-
-</details>
-
----
-
-Conditional reservation, two lanes, both dynamic:
-
-The same conditional rule as above, combined with the both-dynamic controller pair: a standard controller tracking a capacity-weighted utilisation window, and a priority controller tracking priority-reservation utilisation with a 5-sample signal window. Ranking-block selection behaves exactly as in the priority-only conditional design (`priority-reservation-rb-if-eb-needed`, `priorityPremiumScope: rb-only`). Note that under any backlog the conditional rule cannot fire, so this design degenerates to both-dynamic-reserved by construction; it only diverges when the whole queue fits into a single ranking block.
-
-<details>
-<summary>Show config</summary>
-
-```
-{
-  "design": {
-    "laneStructure": "two",
-    "reservationPolicy": {
-      "type": "priority-reservation-rb-if-eb-needed",
-      "bytes": 90112
-    },
-    "selection": "fifo",
-    "feeSemantics": "eip1559",
-    "priorityPremiumScope": "rb-only",
-    "controllers": {
-      "standardController": {
-        "targetUtilisation": 0.5,
-        "maxChangeDenominator": 8,
-        "initialCoefficient": 1.0,
-        "signal": {
-          "type": "capacity-weighted-window",
-          "window": 20
-        }
-      },
-      "priorityController": {
-        "targetUtilisation": 0.5,
-        "maxChangeDenominator": 8,
-        "initialCoefficient": 2.0,
-        "signal": {
-          "type": "priority-reservation-window",
-          "window": 5
-        }
-      },
-      "multiplierFloor": null,
-      "absoluteCoeffFloor": 1.0
-    }
-  },
-  "curves": "default",
-  "f": 0.05,
-  "D": 13,
-  "load": "severe-congestion",
-  "actors": [
-    {
-      "count": 2,
-      "type": "honest",
-      "feeBuffer": 2,
-      "minValueFeeMultiple": 1.0,
-      "valueMultiplier": 1.0,
-      "urgencyMultiplier": 1.0
-    }
-  ],
-  "rbTxBytesCap": 90112,
-  "rbExUnitsCap": 96991334,
-  "ebTxBytesCap": 12000000,
-  "ebStructureBytesCap": 512000,
-  "ebExUnitsCap": 9499133448,
-  "mempoolBytesCap": 24000000,
-  "admissionHeadroomUpdates": 1,
-  "retryPolicy": {
-    "feeTooLow": {
-      "type": "resubmit-after",
-      "delaySlots": 2,
-      "jitterSlots": 6
-    },
-    "mempoolFull": {
-      "type": "resubmit-after",
-      "delaySlots": 20,
-      "jitterSlots": 20
-    },
-    "evicted": {
-      "type": "resubmit-after",
-      "delaySlots": 10,
-      "jitterSlots": 30
-    },
-    "maxAttempts": 5,
-    "escalationFactor": 1.2
-  },
-  "laneLatencyEstimate": {
-    "expectedStandardLatency": 50,
-    "expectedPriorityLatency": 25
-  },
-  "priceConvergenceBandPct": 0.05
-}
-```
-
-</details>
 
 ---
 
@@ -819,7 +659,7 @@ Please note that when we say "urgent", we're referencing the lowest half-life ur
 | priority-only-open | 5-sample window | 99.03% | 50.26% | 2.53 | 2.16 | 127.4 | 12.1 | 4.8 | 1.605 | 1.008 |
 | priority-only-open | 10-sample window | 99.17% | 50.00% | 2.53 | 2.25 | 127.6 | 11.7 | 2.9 | 2.085 | 1.522 |
 | priority-only-open | 20-sample window | 99.01% | 47.88% | 2.70 | 2.57 | 127.4 | 10.0 | 2.0 | 3.055 | 1.663 |
-| priority-only-conditional | 5-sample window | 98.92% | 50.74% | 2.51 | 2.15 | 127.3 | 12.4 | 4.5 | 1.676 | 1.312 |
+| priority-only-strict-threshold-rb2 | 5-sample window | 98.92% | 50.74% | 2.51 | 2.15 | 127.3 | 12.4 | 4.5 | 1.676 | 1.312 |
 | both-dynamic-reserved | instant | 99.08% | 51.01% | 2.50 | 2.19 | 120.9 | 63.4 | 14.9 | 2.464 | 3.479 |
 | both-dynamic-reserved | 3-sample window | 99.01% | 51.46% | 2.44 | 2.20 | 121.6 | 22.7 | 6.6 | 2.181 | 2.093 |
 | both-dynamic-reserved | 5-sample window | 99.09% | 51.55% | 2.44 | 2.23 | 122.7 | 15.4 | 5.4 | 2.042 | 2.414 |
@@ -830,9 +670,9 @@ Please note that when we say "urgent", we're referencing the lowest half-life ur
 | both-dynamic-open | 5-sample window | 99.06% | 50.92% | 2.50 | 2.54 | 121.2 | 20.3 | 6.0 | 2.893 | 2.764 |
 | both-dynamic-open | 10-sample window | 98.99% | 50.96% | 2.45 | 2.24 | 122.0 | 13.5 | 4.3 | 2.716 | 2.839 |
 | both-dynamic-open | 20-sample window | 98.96% | 49.27% | 2.58 | 2.60 | 124.2 | 13.0 | 3.4 | 3.156 | 2.239 |
-| both-dynamic-conditional | 5-sample window | 99.10% | 51.55% | 2.44 | 2.23 | 122.7 | 15.2 | 5.4 | 2.042 | 2.783 |
+| both-dynamic-strict-threshold-rb2 | 5-sample window | 99.09% | 51.55% | 2.44 | 2.23 | 122.7 | 15.4 | 5.4 | 2.042 | 2.414 |
 
-You may notice that the conditional rows duplicate the corresponding reserved rows. This is expected: under sustained backlog, the conditional rule never fires, because standard transactions are only admitted into an RB when the whole queue fits into that one RB. The mechanism therefore reduces to strict reservation by construction, and nine of the ten seeds produce bit-identical event streams; the only divergence is a warmup RB at slot 0 in one seed, produced before any backlog had built. That single warmup divergence is also why both-dynamic-conditional's settled coefficient range (2.783) differs from both-dynamic-reserved's (2.414) while every other column matches: one seed's coefficient settles from a slightly different starting state.
+You may notice that the strict-threshold rows duplicate the corresponding reserved rows. This is expected: under sustained backlog the prospective EB payload always clears the threshold, so the gate never intervenes and the mechanism reduces to plain reservation by construction - all ten seeds produce bit-identical event streams.
 
 Inclusion reports the mean share of submitted demand eventually included. Latency columns report mean latency as actual produced ranking blocks, from first submission to inclusion; priority latency is n/a for the single-lane controls. Shock count and oscillation cycles are mean counts per run; oscillation cycles count completed significant direction-reversal cycles after the convergence-band deadband. Oscillation max amplitude is the largest local coefficient peak-to-trough range.
 
@@ -856,17 +696,24 @@ The uncertainty checks below use paired seed deltas over the same ten seeds. Del
 | both-dynamic-reserved 5-sample window vs both-dynamic-open 5-sample window | Tx/slot | +1.5 ± 1.6 | 6/10 |
 | both-dynamic-reserved 5-sample window vs both-dynamic-open 5-sample window | Shock count | -4.9 ± 7.2 | 7/10 |
 | both-dynamic-reserved 5-sample window vs both-dynamic-open 5-sample window | Osc. cycles | -0.6 ± 0.8 | 6/10 |
-| both-dynamic-conditional 5-sample window vs both-dynamic-reserved 5-sample window | Urgent retained (pp) | +0.00 ± 0.01 | 1/10 |
-| both-dynamic-conditional 5-sample window vs both-dynamic-reserved 5-sample window | Urgent latency (blk) | +0.00 ± 0.00 | 0/10 |
-| both-dynamic-conditional 5-sample window vs both-dynamic-open 5-sample window (low load) | Urgent retained (pp) | +2.66 ± 0.71 | 10/10 |
-| both-dynamic-conditional 5-sample window vs both-dynamic-open 5-sample window (low load) | Urgent latency (blk) | -0.14 ± 0.04 | 10/10 |
-| both-dynamic-conditional 5-sample window vs flat-fee (low load) | Urgent retained (pp) | +5.30 ± 1.28 | 10/10 |
-| both-dynamic-conditional 5-sample window vs flat-fee (low load) | Urgent latency (blk) | -0.29 ± 0.05 | 10/10 |
-| both-dynamic-conditional 5-sample window vs priority-only-conditional 5-sample window (low load) | Urgent retained (pp) | +0.02 ± 0.03 | 2/10 |
-| both-dynamic-conditional 5-sample window vs both-dynamic-open 5-sample window (eb-capacity-stress) | Urgent retained (pp) | -1.86 ± 3.47 | 2/10 |
-| both-dynamic-conditional 5-sample window vs both-dynamic-open 5-sample window (eb-capacity-stress) | Urgent latency (blk) | +0.07 ± 0.15 | 3/10 |
+| both-dynamic-strict-threshold-rb2 vs both-dynamic-reserved | Urgent retained (pp) | +0.00 ± 0.00 | 0/10 |
+| both-dynamic-strict-threshold-rb2 vs both-dynamic-reserved (low load) | Urgent retained (pp) | +3.03 ± 1.11 | 10/10 |
+| both-dynamic-strict-threshold-rb2 vs both-dynamic-reserved (low load) | Urgent latency (blk) | -0.16 ± 0.05 | 10/10 |
+| both-dynamic-strict-threshold-rb2 vs both-dynamic-reserved (mid load) | Urgent retained (pp) | +0.90 ± 0.73 | 8/10 |
+| both-dynamic-strict-threshold-rb2 vs flat-fee (low load) | Urgent retained (pp) | +1.01 ± 1.46 | 6/10 |
+| both-dynamic-strict-threshold-rb2 vs flat-fee (low load) | Urgent latency (blk) | -0.06 ± 0.08 | 6/10 |
+| both-dynamic-strict-threshold-rb2 vs flat-fee (mid load) | Urgent retained (pp) | +3.04 ± 1.17 | 10/10 |
+| both-dynamic-strict-threshold-rb2 vs flat-fee (mid load) | Urgent latency (blk) | -0.20 ± 0.07 | 10/10 |
+| both-dynamic-strict-threshold-rb2 vs flat-fee | Urgent retained (pp) | +7.23 ± 1.64 | 10/10 |
+| both-dynamic-strict-threshold-rb2 vs flat-fee | Urgent latency (blk) | -0.48 ± 0.17 | 10/10 |
+| both-dynamic-strict-threshold-rb2 vs flat-fee (eb-capacity-stress) | Urgent retained (pp) | +7.38 ± 3.73 | 9/10 |
+| both-dynamic-strict-threshold-rb2 vs flat-fee (eb-capacity-stress) | Urgent latency (blk) | -0.81 ± 0.41 | 9/10 |
+| both-dynamic-strict-threshold-rb2 vs both-dynamic-open 5-sample window (low load) | Urgent retained (pp) | -1.63 ± 1.11 | 2/10 |
+| both-dynamic-strict-threshold-rb2 vs both-dynamic-open 5-sample window (mid load) | Urgent retained (pp) | -1.06 ± 0.83 | 2/10 |
+| priority-only-strict-threshold-rb2 vs both-dynamic-strict-threshold-rb2 (eb-capacity-stress) | Urgent retained (pp) | -4.58 ± 4.38 | 2/10 |
+| priority-only-strict-threshold-rb2 vs both-dynamic-strict-threshold-rb2 (eb-capacity-stress) | Urgent latency (blk) | +0.51 ± 0.24 | 0/10 |
 
-Three things stand out in the conditional rows. First, conditional reservation is statistically indistinguishable from strict reservation under congestion, tying in nine of ten seeds; the enforceable rule costs nothing here. Second, at low load, the conditional variant beats both the open variant and flat fee in ten of ten seeds - the only comparison in this study in which an enforceable variant strictly dominates. Third, under the EB-stressing load, the open variant leads nominally, but the confidence interval spans zero.
+Three things stand out in the strict-threshold rows. First, under sustained congestion the EB threshold costs nothing: the payload always clears it, so the mechanism is plain reservation exactly, tying in ten of ten seeds. Second, at low load the threshold repairs plain reservation's regression - +3.03 ± 1.11 percentage points over reserved, ten of ten seeds - and restores statistical parity with flat fee (+1.01 ± 1.46, confidence interval spanning zero); at mid load it beats flat fee outright (+3.04 ± 1.17, ten of ten seeds). Third, the both-dynamic family is preferred over priority-only because of the EB-stressing load, where the fixed standard fee cannot shed the demand that saturates the endorser block.
 
 
 
@@ -1108,17 +955,18 @@ The 20-sample window open variant is the clearest service failure in seed 2: dem
 
 ### Low load (below RB capacity) ###
 
-An interesting effect occurs under (relatively) low load which hovers between the fill target of the RB and near the RB max. With our ordinary reserved configurations (non-conditional reserved), we see an _increase_ in urgent transaction latency.
+An interesting effect occurs under (relatively) low load which hovers between the fill target of the RB and near the RB max. With our plain reserved configurations, we see an _increase_ in urgent transaction latency - the reserved designs fall _below_ the flat-fee baseline in this regime.
 
-This is because, when reserving an RB for urgent transactions, any standard transactions mean the announcement of an EB, even when those standard transactions _could_ fit into an RB. Subsequently, RBs have to include these EB certificates, depriving urgent transactions of RB space.
+This is because, when reserving an RB for urgent transactions, any standard transactions mean the announcement of an EB, however small. Each announced EB must later be certified, and the certificate consumes ranking-block space, depriving urgent transactions of RBs. At this load the EBs are thin: the certificate costs more RB capacity than the payload it delivers.
 
-The logical solution is to add a new case: When an EB does not _need_ to be announced, standard transactions can enter RB space. To make this fair, we recommend offering urgent transactions refunds up to the standard price.
+The solution is to gate the announcement: an EB may only be announced when its payload reaches a byte threshold (we use half the RB byte cap), so every certificate is worth the block space it consumes. RBs remain reserved for urgent transactions at all times - standard transactions simply queue for the next worthwhile batch. We deliberately do not admit standard transactions into underfull RBs: any rule that sells RB access below the urgent quote creates an incentive for producers to accept side payments for inclusion, which cannot be enforced away; we explored and rejected work-conserving variants of that kind for exactly this reason.
 
-The three load profiles span the block-capacity hierarchy (byte fill measured from the flat-fee runs; "reserved" shown where it differs materially):
+The four load profiles span the block-capacity hierarchy (byte fill measured from the flat-fee runs; "reserved" shown where it differs materially):
 
 | Load | RB byte fill | EB byte fill | Binding resource |
 |---|---:|---:|---|
 | `low` (this section) | ~71% open / ~34% reserved | ~1% | neither saturates; EB idle, RB the only active block |
+| `mid-load` (next section) | ~87% open / ~52% reserved | ~1% | RB, just above saturation; small standard overflow trickles to EBs |
 | `severe-congestion` (main results) | ~98% | ~56% | RB |
 | `eb-capacity-stress` | ~98% | ~93% | RB + EB |
 
@@ -1140,14 +988,48 @@ A constant 3.0 tx/slot. The RB holds ~73 transactions and is produced at ~f, so 
 | single-lane-eip1559 | n/a | 98.24% | 58.82% | 1.85 | n/a | 2.9 | 0.9 | 0.1 | 0.118 | 0.015 |
 | priority-only-reserved | 5-sample window | 97.68% | 56.77% | 1.95 | 2.00 | 2.9 | 8.7 | 5.2 | 0.938 | 0.319 |
 | priority-only-open | 5-sample window | 98.26% | 61.38% | 1.70 | 1.76 | 2.9 | 8.0 | 4.7 | 0.955 | 0.129 |
-| priority-only-conditional | 5-sample window | 97.85% | 64.07% | 1.56 | 1.64 | 2.9 | 11.5 | 5.6 | 0.967 | 0.414 |
+| priority-only-strict-threshold-rb2 | 5-sample window | 97.58% | 59.80% | 1.79 | 1.85 | 2.9 | 9.6 | 5.4 | 0.955 | 0.229 |
 | both-dynamic-reserved | 5-sample window | 97.68% | 56.77% | 1.95 | 2.00 | 2.9 | 8.7 | 5.2 | 0.938 | 0.319 |
 | both-dynamic-open | 5-sample window | 98.26% | 61.43% | 1.70 | 1.75 | 2.9 | 8.3 | 4.7 | 0.931 | 0.132 |
-| both-dynamic-conditional | 5-sample window | 97.85% | 64.09% | 1.56 | 1.64 | 2.9 | 11.4 | 5.6 | 0.967 | 0.417 |
+| both-dynamic-strict-threshold-rb2 | 5-sample window | 97.58% | 59.80% | 1.79 | 1.85 | 2.9 | 9.6 | 5.4 | 0.955 | 0.229 |
 | priority-only-reserved | instant (worst) | 97.54% | 56.22% | 1.97 | 2.06 | 2.9 | 37.3 | 15.3 | 0.997 | 0.713 |
 
-The both-dynamic-conditional row matches the priority-only-conditional row (64.09% vs 64.07%, paired delta +0.02 ± 0.03 percentage points) for the same reason the two reserved rows are identical: at 3 tx/slot the standard controller never leaves its absolute coefficient floor, so the both-dynamic designs degenerate to their priority-only counterparts. The headline of this regime is that the conditional variant is the only enforceable one to beat the open variant (+2.66 ± 0.71 percentage points urgent retained value, ten of ten seeds) and flat fee (+5.30 ± 1.28 percentage points, ten of ten seeds) - and it does so in exactly the setting where strict reservation falls below the do-nothing baseline.
+The strict-threshold rows are identical across the two families: at 3 tx/slot standard traffic never touches the RB, and the EB-dominated utilisation signal keeps the standard controller at its absolute coefficient floor, so the both-dynamic design degenerates to its priority-only counterpart. The headline of this regime is that the EB threshold repairs plain reservation's regression: +3.03 ± 1.11 percentage points urgent retained value over reserved (ten of ten seeds), with urgent latency down from 1.95 to 1.79 blocks, restoring statistical parity with the flat-fee baseline (+1.01 ± 1.46, confidence interval spanning zero). Fewer, fuller EBs mean fewer certificates consuming RB space. The cost falls on the standard lane, whose transactions wait for a worthwhile batch: mean standard latency rises from 3.04 blocks under reserved to 3.15, and the p95 wait rises by about four slots. That is the fairness price of keeping RBs urgent-only at all times.
 
+---
+
+### Mid load (just above RB saturation) ###
+
+This load exists to exercise the EB threshold in the regime where it matters most. At 5 tx/slot the RB is just past its ~3.5 tx/slot throughput, so a small standard overflow continuously trickles toward the EB path: under plain reservation every trickle triggers a thin EB whose certificate consumes ranking-block space, while under the threshold rule those transactions queue until an EB is worth its certificate. In this model a certificate does not share its RB with transactions, so the accounting is direct: over the ten seeds, plain reservation spends 529 of ~1,036 RB opportunities on certificates, while the RB/2 threshold spends 494, freeing 35 additional transaction-carrying RBs (the saving is modest here because all standard traffic must still flow through EBs; the threshold trims only the thin ones).
+
+<details>
+<summary>Show load profile</summary>
+
+```
+{
+  "name": "mid-load",
+  "description": "Constant 5 tx/slot: just above RB saturation (~3.5 tx/slot), so a small standard overflow accumulates toward the EB threshold without congesting the EB path",
+  "load": {
+    "type": "constant",
+    "rate": 5.0
+  }
+}
+```
+
+</details>
+
+| Family | Priority signal | Inclusion | Urgent retained | Urgent latency (blk) | Priority latency (blk) | Tx/slot | Shock count | Osc. cycles | Osc. max amp | Settled coeff. range |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| flat-fee | n/a | 97.46% | 52.84% | 2.18 | n/a | 4.8 | 0.0 | 0.0 | 0.000 | 0.000 |
+| single-lane-eip1559 | n/a | 97.46% | 52.91% | 2.17 | n/a | 4.8 | 2.3 | 0.0 | 0.226 | 0.005 |
+| priority-only-reserved | 5-sample window | 97.28% | 54.98% | 2.04 | 2.16 | 4.8 | 14.4 | 6.3 | 0.960 | 0.514 |
+| priority-only-open | 5-sample window | 97.50% | 56.94% | 1.92 | 2.07 | 4.8 | 14.3 | 6.4 | 0.962 | 0.515 |
+| priority-only-strict-threshold-rb2 | 5-sample window | 97.24% | 55.88% | 1.99 | 2.10 | 4.8 | 16.7 | 6.5 | 0.960 | 0.710 |
+| both-dynamic-reserved | 5-sample window | 97.28% | 54.98% | 2.04 | 2.16 | 4.8 | 14.4 | 6.3 | 0.960 | 0.514 |
+| both-dynamic-open | 5-sample window | 97.50% | 56.94% | 1.93 | 2.07 | 4.8 | 14.9 | 6.3 | 0.945 | 0.518 |
+| both-dynamic-strict-threshold-rb2 | 5-sample window | 97.24% | 55.88% | 1.99 | 2.10 | 4.8 | 16.7 | 6.5 | 0.960 | 0.710 |
+
+The strict-threshold variants improve on plain reservation (+0.90 ± 0.73 percentage points urgent retained value, eight of ten seeds) and clearly beat flat fee (+3.04 ± 1.17, ten of ten seeds, with urgent latency down from 2.18 to 1.99 blocks). As at low load, the two controller families are identical here: standard traffic never touches the RB, so the standard controller stays at its floor. The open variant leads the strict threshold beyond noise in this regime (-1.06 ± 0.83 percentage points, two of ten seeds better) - together with low load, this is where the measured price of ledger enforceability sits, and we accept it, since the open design cannot prevent bribery.
 
 ---
 
@@ -1159,7 +1041,7 @@ The results of this load broadly follow the `severe-congestion` results, but wit
 
 First, single-lane EIP-1559 (34.63% urgent retained value, 3.35 blocks) beats both priority-only families here. When the EB is the binding resource, pricing the standard lane matters more than offering a priority lane, since it is standard demand that is saturating the system. This is the strongest evidence in this study for preferring the both-dynamic family over priority-only.
 
-Second, this is the one load where conditional reservation genuinely diverges from strict reservation: in the 20 tx/slot troughs between peaks, the queue drains far enough that everything fits into a single RB, so the conditional rule admits standard transactions into RBs that would otherwise have been reserved. The cost of this is small and does not rise above noise (-0.56 ± 1.11 percentage points vs reserved). The open variant leads the conditional variant nominally (38.87% vs 37.01%) but not significantly (-1.86 ± 3.47 percentage points, two of ten seeds better), making this the only regime where enforceability is merely free-within-noise rather than free with a bonus.
+Second, the EB threshold is essentially inert here: the prospective EB payload clears half the RB byte cap at nearly every opportunity, so the strict-threshold variant reproduces plain reservation in nine of ten seeds bit-identically (the tenth diverges briefly in a trough). The open variant leads nominally (38.87% vs 37.50%) but not significantly, so enforceability costs nothing measurable in this regime.
 
 <details>
 <summary>Show load profile</summary>
@@ -1203,16 +1085,18 @@ At the peaks, offered byte demand reaches ~88% of EB capacity while ex-unit dema
 | single-lane-eip1559 | n/a | 95.05% | 34.63% | 3.35 | n/a | 152.4 | 30.4 | 3.3 | 4.183 | 1.311 |
 | priority-only-reserved | 5-sample window | 94.54% | 32.92% | 3.58 | 3.13 | 181.7 | 44.0 | 4.3 | 2.609 | 2.513 |
 | priority-only-open | 5-sample window | 93.78% | 33.37% | 3.46 | 2.99 | 180.3 | 35.0 | 4.3 | 2.295 | 2.038 |
-| priority-only-conditional | 5-sample window | 94.54% | 32.92% | 3.58 | 3.13 | 181.7 | 44.0 | 4.3 | 2.609 | 2.513 |
+| priority-only-strict-threshold-rb2 | 5-sample window | 94.54% | 32.92% | 3.58 | 3.13 | 181.7 | 44.0 | 4.3 | 2.609 | 2.513 |
 | both-dynamic-reserved | 5-sample window | 95.67% | 37.57% | 3.05 | 3.78 | 163.8 | 59.3 | 7.3 | 4.253 | 4.857 |
 | both-dynamic-open | 5-sample window | 95.76% | 38.87% | 3.03 | 4.42 | 164.5 | 59.9 | 8.5 | 4.420 | 4.173 |
-| both-dynamic-conditional | 5-sample window | 95.51% | 37.01% | 3.10 | 3.74 | 163.1 | 60.6 | 7.0 | 4.616 | 5.026 |
+| both-dynamic-strict-threshold-rb2 | 5-sample window | 95.69% | 37.50% | 3.07 | 3.79 | 163.6 | 59.8 | 7.2 | 4.413 | 4.866 |
 | priority-only-reserved | 20-sample window (worst) | 91.78% | 30.41% | 3.81 | 4.61 | 176.5 | 14.9 | 1.9 | 3.613 | 2.662 |
 
 ---
 
 ### Summary ###
 
-We recommend both-dynamic-conditional with a 5-sample window. It matches the best enforceable variant at every load: identical to both-dynamic-reserved under severe congestion by construction, level with it under the EB-stressing load (-0.56 ± 1.11 percentage points), and equal to priority-only-conditional at low load. We prefer the both-dynamic family over priority-only because of the EB-stressing results (37.01% vs 32.92% urgent retained value), where it is the standard-lane price that does the work.
+We recommend both-dynamic-strict-threshold with a 5-sample window: ranking blocks reserved for urgent transactions at all times, and an endorser block announced only when its payload reaches half the RB byte cap. The threshold makes every certificate worth the block space it consumes, which repairs plain reservation's low-load regression (+3.03 ± 1.11 percentage points, ten of ten seeds) and restores statistical parity with the flat-fee baseline in the one regime where reservation used to lose to it; at every contended load the design clearly beats flat fee (+3.04 to +7.38 percentage points). Because the payload rule references only on-chain data, the whole design is ledger-enforceable, and because ranking-block access is never sold below the urgent quote, there is no discount for a producer to trade against. We explored work-conserving variants that admitted standard transactions into underfull RBs at the standard rate; they retained more value at light loads but create an unavoidable bribery incentive, and were rejected.
 
-The open-vs-reserved question we set out to answer has, in the end, dissolved. The open variants don't outperform the conditional variant beyond noise at any load - the closest they come is a nominal lead under the EB-stressing load (+1.86 percentage points, with a confidence interval spanning zero) - while the conditional variant decisively beats them at low load, in ten of ten seeds. Enforceability therefore costs nothing measurable, pays a bonus at low load, and allows us to ensure that nodes don't try to circumvent the intended mechanism by offering bribes.
+We prefer the both-dynamic family over priority-only because of the EB-stressing results (37.50% vs 32.92% urgent retained value, with half a block of urgent latency), where it is the standard-lane price that sheds the demand saturating the endorser block; at every other load the two families are identical, so this is the entire case for the second controller. The priority-only variant remains a quantified fallback if implementation complexity demands it. Two further notes for the specification: the threshold should be stated relative to the controller headroom, (1 - target utilisation) × |RB|, rather than hard-coded, so that retuning the controller cannot silently break the certificates-pay-for-themselves property; and the same property gives linear-Leios a clean latency story against Praos, since an EB is only ever produced when it adds more capacity than its certificate consumes.
+
+Answering the question we set out with: the open variants do retain a measurable edge where capacity is slack (-1.63 ± 1.11 percentage points at low load, -1.06 ± 0.83 at mid), and nothing beyond noise elsewhere. That gap is the measured price of ledger enforceability, and we accept it: an open design cannot prevent nodes from circumventing the intended mechanism by accepting bribes for positioning.

@@ -1,9 +1,0 @@
-{
-  "description": "Incremental sweep: the missing both-dynamic-conditional cell of the {priority-only, both-dynamic} x {open, reserved, conditional} design matrix",
-  "seeds": 10,
-  "slots": 2000,
-  "out": "sweep-results/both-dynamic-conditional",
-  "variants": [
-    { "name": "both-dynamic-conditional-windowed", "config": "config/variants/both-dynamic-conditional-windowed.json" }
-  ]
-}

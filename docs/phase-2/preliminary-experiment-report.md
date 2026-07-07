@@ -2,7 +2,7 @@
 
 ### TLDR ###
 
-Experiment results show that, across ten seeded runs, the best aggregate rows reduce urgent mean latency from 2.91 to 2.39 blocks (~18%, or 0.52 blocks) and improve urgent retained value from 44.32% to 51.65% (+7.33 percentage points, ~16.5% relative) by providing network participants with a priority lane to which they can opt to submit transactions, for a premium fee. A slight compromise (~2% and 0.1%) on both urgent latency and urgent retention gives us ledger enforceability with the reserved variant, preventing bribery. However, under low load, plain reservation backfires: it falls _below_ the flat-fee baseline (56.77% vs 58.79% urgent retained value, 1.95 vs 1.85 blocks), because every scrap of standard overflow triggers an endorser block whose certificate then consumes ranking-block space. Gating EB announcement on a byte threshold - an EB may only be announced when its payload reaches half the RB byte cap, so every certificate is worth the block that carries it - repairs this while keeping RBs urgent-only at all times: it restores statistical parity with flat fee at low load (+1.01 ± 1.46 percentage points), behaves identically to plain reservation under sustained congestion, and clearly beats flat fee at every contended load (+3.04 to +7.38 percentage points, ten of ten seeds). As a result, we recommend both-dynamic-strict-threshold: reserved RBs with an EB threshold of half the RB byte cap, 5-sample window. The unenforceable open variant retains a small measurable lead where capacity is slack (~1-1.6 percentage points at low and mid load); we accept this as the price of preventing bribery.
+Experiment results show that, across ten seeded runs, the best aggregate rows reduce urgent mean latency from 2.91 to 2.39 blocks (~18%, or 0.52 blocks) and improve urgent retained value from 44.32% to 51.65% (+7.33 percentage points, ~16.5% relative) by providing network participants with a priority lane to which they can opt to submit transactions, for a premium fee. A slight compromise (~2% and 0.1%) on both urgent latency and urgent retention gives us ledger enforceability with the reserved variant, preventing bribery. However, under low load, plain reservation backfires: it falls _below_ the flat-fee baseline (56.77% vs 58.79% urgent retained value, 1.95 vs 1.85 blocks), because every scrap of standard overflow triggers an endorser block whose certificate then consumes ranking-block space. Gating EB announcement on a byte threshold - an EB may only be announced when its payload reaches half the RB byte cap, so every certificate is worth the block that carries it - repairs this while keeping RBs urgent-only at all times: it restores statistical parity with flat fee at low load (+1.01 ± 1.46 percentage points), behaves identically to plain reservation under sustained congestion, and clearly beats flat fee at every contended load (+3.04 to +7.38 percentage points, ten of ten seeds). As a result, we recommend both-dynamic-strict-threshold: reserved RBs with an EB threshold of half the RB byte cap, 5-sample window. The unenforceable open variant retains a small measurable lead where capacity is slack (~1-1.6 percentage points at low and mid load); we accept this as the price of preventing bribery. Under a launch-day profile (sustained saturation with the urgency mix skewed upward, calibrated to the January 2022 SundaeSwap launch), the recommendation still clearly beats flat fee (+5.83 ± 4.22 percentage points, eight of ten seeds), though through admission rather than latency, while reservation over a statically-priced standard lane delivers nothing: unpriced standard traffic squats in the shared mempool and starves the reserved lane, so ledger enforceability requires the both-dynamic family.
 
 
 ### Question ###
@@ -1093,10 +1093,69 @@ At the peaks, offered byte demand reaches ~88% of EB capacity while ex-unit dema
 
 ---
 
+### Launch-day load (sustained saturation with urgency-skewed demand) ###
+
+**Ten seeds, window-5 signal variants only.**
+
+The `launch-day` profile models the regime a major dApp launch creates: offered demand pinned at the endorser-block byte capacity for longer than the run horizon, with the urgency mix shifted upward. It is the first profile to exercise a burst `urgencyMultiplier` above 1. Its shape and levels follow per-block chain data from the January 2022 SundaeSwap launch ([`launch-day-daily-chain-load.csv`](launch-day-daily-chain-load.csv)): measured byte fullness ran ~31% baseline → ~60% build-up → ~88% pre-launch surge → pinned at ~93% from launch onward, mapped here onto the EB byte capacity (~36% → ~65% → ~96% → ~134% onset → ~100% plateau). The mapping preserves the event's saturation fractions, not its absolute volume: the 2022 chain's ~195k transactions per day would not stress linear-Leios at all, so the profile models a launch event that saturates this chain's capacity the way SundaeSwap saturated the 2022 chain's. The onset overshoot and the urgency multipliers (×2 surge and plateau, ×4 onset) are modelling assumptions: fullness data is capacity-pinned and cannot show either.
+
+<details>
+<summary>Show load profile</summary>
+
+```json
+{
+  "name": "launch-day",
+  "load": {
+    "type": "burst",
+    "bursts": [
+      { "baseRate": 0, "burstRate": 160, "burstStart": 0,    "burstEnd": 300,  "burstEffect": { "valueMultiplier": 1, "urgencyMultiplier": 1 } },
+      { "baseRate": 0, "burstRate": 290, "burstStart": 300,  "burstEnd": 700,  "burstEffect": { "valueMultiplier": 1, "urgencyMultiplier": 1 } },
+      { "baseRate": 0, "burstRate": 430, "burstStart": 700,  "burstEnd": 950,  "burstEffect": { "valueMultiplier": 1, "urgencyMultiplier": 2 } },
+      { "baseRate": 0, "burstRate": 600, "burstStart": 950,  "burstEnd": 1150, "burstEffect": { "valueMultiplier": 1, "urgencyMultiplier": 4 } },
+      { "baseRate": 0, "burstRate": 450, "burstStart": 1150, "burstEnd": 2000, "burstEffect": { "valueMultiplier": 1, "urgencyMultiplier": 2 } }
+    ]
+  }
+}
+```
+
+</details>
+
+Measurement notes: the time-varying multiplier fragments the urgency bands, so the summary's urgency-class metrics are unusable here; urgent columns are recomputed from the event streams by base band (high + critical, ~8% of demand). And because the dynamic-standard variants shed 44–50% of demand before submission, ratio metrics have unequal denominators; retained value is therefore expressed against the offered value of the identical seeded schedule (1.34T lovelace).
+
+| Family | Priority signal | Retained value (% of offered) | Units submitted | Priority admit rate | Priority latency (blk) | Standard latency (blk) | Tx/slot | Shock count |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| flat-fee | n/a | 53.4% | 758k | n/a | n/a | 5.44 | 242.7 | 0.0 |
+| single-lane-eip1559 | n/a | 57.2% | 376k | n/a | n/a | 3.22 | 180.5 | 12.2 |
+| priority-only-reserved | 5-sample window | 53.6% | 758k | 22.1% | 3.59 | 5.59 | 243.8 | 21.2 |
+| priority-only-open | 5-sample window | 55.7% | 758k | 22.8% | 3.11 | 5.29 | 251.4 | 17.8 |
+| priority-only-strict-threshold-rb2 | 5-sample window | 53.6% | 758k | 22.1% | 3.59 | 5.59 | 243.8 | 21.2 |
+| both-dynamic-reserved | 5-sample window | 59.2% | 425k | 66.2% | 3.65 | 3.29 | 196.1 | 44.5 |
+| both-dynamic-open | 5-sample window | 59.7% | 423k | 66.2% | 3.26 | 3.39 | 196.5 | 51.2 |
+| both-dynamic-strict-threshold-rb2 | 5-sample window | 59.2% | 425k | 66.2% | 3.65 | 3.29 | 196.1 | 44.5 |
+
+As under `eb-capacity-stress`, the strict-threshold variants reproduce plain reservation bit-identically (all ten seeds): saturated EBs always clear the announcement threshold, so the low-load repair costs nothing here.
+
+**How the mechanism wins changes at saturation.** At every other contended load the priority lane's value shows up as latency. Here the lanes converge (3.65 vs 3.29 blocks reserved; 3.26 vs 3.39 open), because urgency-skewed demand overwhelms the ranking block's share of throughput, yet both-dynamic still clearly beats flat fee (+5.83 ± 4.22 percentage points of offered value, eight of ten seeds), through admission rather than speed:
+
+| Family | Urgent units submitted | Ever included | Mean delay (blk) | Urgent retained (G lovelace) |
+|---|---:|---:|---:|---:|
+| flat-fee | 52.0k | 50.6% | 4.34 | 22.14 |
+| single-lane-eip1559 | 17.8k | 92.6% | 3.26 | 23.43 |
+| priority-only-reserved | 52.4k | 50.4% | 4.30 | 23.62 |
+| priority-only-open | 52.2k | 53.6% | 3.85 | 26.63 |
+| both-dynamic-reserved | 21.6k | 87.1% | 3.22 | 26.67 |
+| both-dynamic-open | 21.4k | 87.8% | 3.06 | 27.77 |
+
+Under flat fee, nearly half of urgent demand is never included at all: it queues in a jammed mempool, decays, and abandons. Under both-dynamic, the rising standard quote makes low-surplus demand decline to submit (paying or abstaining at the posted price is itself the urgency signal), and what remains is included with near-certainty (87.1% vs 50.6%), a block sooner, retaining +20% urgent-band value over flat fee (26.67G vs 22.14G). The benefit degrades gracefully from speed into admission.
+
+**Reservation over a static standard lane delivers nothing at this load.** Priority-only-reserved is statistically indistinguishable from the flat-fee baseline (+0.21 ± 3.94 percentage points, five of ten seeds): the enforcement machinery and premium fees buy an outcome no better than no mechanism at all, and unlike the low-load regression the EB threshold cannot help. A statically-priced lane can neither shed demand nor be evicted, so standard traffic squats in the shared mempool and priority transactions bounce at admission (22.1% admitted vs 66.2% for both-dynamic under the same reservation rule), leaving the reserved ranking blocks starved behind a jammed front door. Priority-only-open shares the jam (22.8%) but survives it, because its RBs may backfill with standard transactions: reservation is what turns the jam into starvation. Within the designs tested, a reserved RB partition is only worth having when standard-lane mempool occupancy can be repriced out from under it: ledger enforceability requires the both-dynamic family, which delivers +5.83 ± 4.22 under the same reservation rule. The open variant's lead over reserved is meanwhile within noise (+0.49 ± 3.43), so as under `eb-capacity-stress`, enforceability costs nothing measurable in this regime. (Caveats: the sim models neither transaction validity intervals, whose expiry would give a static lane some mempool turnover, nor certificates sharing RBs with transactions; see the mid-load note.)
+
+---
+
 ### Summary ###
 
 We recommend both-dynamic-strict-threshold with a 5-sample window: ranking blocks reserved for urgent transactions at all times, and an endorser block announced only when its payload reaches half the RB byte cap. The threshold makes every certificate worth the block space it consumes, which repairs plain reservation's low-load regression (+3.03 ± 1.11 percentage points, ten of ten seeds) and restores statistical parity with the flat-fee baseline in the one regime where reservation used to lose to it; at every contended load the design clearly beats flat fee (+3.04 to +7.38 percentage points). Because the payload rule references only on-chain data, the whole design is ledger-enforceable, and because ranking-block access is never sold below the urgent quote, there is no discount for a producer to trade against. We explored work-conserving variants that admitted standard transactions into underfull RBs at the standard rate; they retained more value at light loads but create an unavoidable bribery incentive, and were rejected.
 
-We prefer the both-dynamic family over priority-only because of the EB-stressing results (37.50% vs 32.92% urgent retained value, with half a block of urgent latency), where it is the standard-lane price that sheds the demand saturating the endorser block; at every other load the two families are identical, so this is the entire case for the second controller. The priority-only variant remains a quantified fallback if implementation complexity demands it. Two further notes for the specification: the threshold should be stated relative to the controller headroom, (1 - target utilisation) × |RB|, rather than hard-coded, so that retuning the controller cannot silently break the certificates-pay-for-themselves property; and the same property gives linear-Leios a clean latency story against Praos, since an EB is only ever produced when it adds more capacity than its certificate consumes.
+We prefer the both-dynamic family over priority-only because of the EB-stressing results (37.50% vs 32.92% urgent retained value, with half a block of urgent latency), where it is the standard-lane price that sheds the demand saturating the endorser block, and because of the launch-day results, where reservation over a statically-priced standard lane delivers nothing at all (unpriced standard traffic squats in the shared mempool and starves the reserved lane at admission) while both-dynamic under the same reservation rule beats flat fee by +5.83 ± 4.22 percentage points; at the remaining loads the two families are identical. The priority-only variant remains a quantified fallback if implementation complexity demands it, though the launch-day result bounds what that fallback delivers under sustained saturation. Two further notes for the specification: the threshold should be stated relative to the controller headroom, (1 - target utilisation) × |RB|, rather than hard-coded, so that retuning the controller cannot silently break the certificates-pay-for-themselves property; and the same property gives linear-Leios a clean latency story against Praos, since an EB is only ever produced when it adds more capacity than its certificate consumes.
 
 Answering the question we set out with: the open variants do retain a measurable edge where capacity is slack (-1.63 ± 1.11 percentage points at low load, -1.06 ± 0.83 at mid), and nothing beyond noise elsewhere. That gap is the measured price of ledger enforceability, and we accept it: an open design cannot prevent nodes from circumventing the intended mechanism by accepting bribes for positioning.

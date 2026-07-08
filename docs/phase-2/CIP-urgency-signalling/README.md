@@ -17,7 +17,7 @@ License: CC-BY-4.0
 
 We propose a solution with two pathways a transaction can submit to a node with: urgent and standard. Only urgent transactions can enter Praos blocks, while both urgent and standard transactions can enter endorser blocks. Since Praos blocks will be produced more frequently than Leios blocks, and are included on-chain immediately, this offers users who submit urgent transactions a route to quicker inclusion.
 
-We show, using a simulation, that we can increase retention of value for urgent transactions by a significant amount.
+The urgency rule is enforced by the ledger: ranking blocks may only contain transactions paying the urgent quote, so producers cannot sell fast-lane access below the posted price. In simulation over ten seeded runs, the mechanism raises urgent retained value under severe congestion from 44.32% to 51.55% - an increase of 7.23 ± 1.64 percentage points, or ~16% relative to the flat-fee baseline - and never falls below that baseline at any load tested.
 
 ## Motivation: why is this CIP necessary?
 
@@ -48,11 +48,6 @@ Additionally, in order to solve a problem that arises under low-ish load circums
 
 **Reserved**: An urgent lane mechanism under which RB block space is reserved for urgent transactions, enforced on-chain.
 
-**Reservation policy - ceiling**: A reservation policy that enforces a maximum on the share of block space occupied by urgent transactions. For example, a concrete version of this policy could be that no more than 85% of a block's bytes may carry urgent transactions. If urgent demand exceeds the cap and standard demand is below the remainder, the cap leaves block space unused.
-
-**Reservation policy - floor**: A reservation policy that reserves a minimum portion of block space exclusively for urgent transactions; standard transactions cannot occupy it. For example, with a 15% floor, if no urgent transactions exist and standard demand is 100% of block size, only 85% of block space will be occupied.
-
-
 #### Lanes and routing
 
 **Standard lane**: A pathway for transactions that do not pay the urgent fee.
@@ -70,28 +65,28 @@ Additionally, in order to solve a problem that arises under low-ish load circums
 
 **Urgent premium**: The difference between the urgent lane quote and the standard lane quote.
 
-**Absolute coefficient floor**: The minimum allowed lane pricing coefficient, expressed as a multiple of the transaction's ordinary Cardano minimum fee. In the current simulator configurations this is `1.0`, meaning the lowest possible quote is `1.0 × minFee(tx)`, i.e. the ordinary Cardano minimum fee.
+**Absolute coefficient floor**: The minimum allowed lane pricing coefficient, set to `1.0`: no quote may fall below the ordinary Cardano minimum fee.
 
-**Static (pricing)**: Basic Cardano fee, as today.
+**Fixed (pricing)**: Basic Cardano fee, as today.
 
 **Dynamic (pricing)**: EIP-1559 style dynamic fee.
 
-**EIP-1559 (controller)**: todo
+**EIP-1559 (controller)**: The feedback mechanism that adjusts a lane's pricing coefficient after each block: up when utilisation is above target, down when below, by a bounded step.
 
-**Smoothing window**: todo
+**Signal window**: The number of recent blocks over which the controller measures utilisation, so a single unusual block cannot swing the price.
 
-**Target utilisation**: todo
+**Target utilisation**: The block fill level the controller steers towards (0.5 in the default configuration); utilisation above it raises the price, below it lowers the price.
 
 **Quote drift**: Potential or true delta between a quote at the time of transaction submission vs the time of inclusion.
 
 
 #### User-side fee fields
 
-**Posted fee vs actual fee**: todo
+**Posted fee vs actual fee**: The posted fee is the amount attached to the transaction at submission; the actual fee is the quote at inclusion time, with the difference refunded.
 
 **Refund**: The process of returning the unnecessary excess of a fee to a specified address.
 
-**Max fee (max_fee_lovelace / fee ceiling on the user side)**: todo
+**Max fee (max_fee_lovelace / fee ceiling on the user side)**: The most a user is willing to pay, posted with the transaction; it buffers against quote drift, and the transaction cannot be included if the quote exceeds it.
 
 
 #### Welfare / actors
@@ -99,8 +94,6 @@ Additionally, in order to solve a problem that arises under low-ish load circums
 **Urgency**: The rate at which the value of a transaction decays.
 
 **Retained value / welfare**: The sum of transaction value that did not decay prior to inclusion.
-
-**Mispriced actor**: todo
 </details>
 
 <br>
@@ -109,21 +102,25 @@ The specification touches a few different areas:
 
 ### Mempool
 
-We have proven <put link here> that causally independent transactions can be re-ordered, with the exception of governance actions. This means that no significant changes are required to the mempool, although we do need to adjust the validation performed when a transaction with the urgent flag enters the mempool. This is because we need to ensure that the transaction is valid both at the end of the entire mempool, _and_ at the end of the urgent queue. This comes with a (slightly less than) doubling of the phase-1 validation check costs for urgent transactions. Since phase-1 check costs are very low, we consider this to be an acceptable trade-off.
+We are proving <link: commutativity proof - formal-ledger-specifications, polina/commutativity> that causally independent transactions can be re-ordered, with the exception of governance actions. This means that no significant changes are required to the mempool, although we do need to adjust the validation performed when a transaction with the urgent flag enters the mempool. This is because we need to ensure that the transaction is valid both at the end of the entire mempool, _and_ at the end of the urgent queue. This comes with a (slightly less than) doubling of the phase-1 validation check costs for urgent transactions. Since phase-1 check costs are very low, we consider this to be an acceptable trade-off.
 
 <add a description of changes to the mempool algorithm if any>
 
 #### Queue structure
 
-TODO: describe whether nodes maintain separate standard/urgent views, whether urgent
-transactions are selected from a distinct queue, and how this interacts with the existing
-mempool order.
+The queue structure remains as it does today, but with an additional component. It must contain a view of urgent transaction indices (the indices point at the main queue). This view is consulted when constructing an RB.
+
+EB construction operates the same way Praos block construction operations today: we consult the canonical queue in a FIFO manner.
+
+Mempool structure remains node policy, so this is not enforced.
 
 #### Admission validation
 
-TODO: urgent transactions must be valid both against the full mempool state and against
-the urgent-only selection state. Link to reordering proof and describe governance-action
-exception.
+A proof of commutativity for transactions up to governance actions and dependencies is in progress <link: commutativity proof - formal-ledger-specifications, polina/commutativity>. The proof's current form reaches this via conservative restrictions (disjoint certificate credentials, disjoint withdrawals, no DRep certificates); these are proof-stage approximations of causal independence, not separate exclusions. In its final form, two transactions are causally linked if they share any ledger state (UTxOs, certificate credentials, withdrawal accounts, DRep state); causally independent transactions may be reordered freely, causally linked transactions retain their relative order, and governance actions are excluded entirely. All causal-link channels are syntactically visible in transaction bodies, so linkage is decidable at admission from the candidate transaction and the queue alone.
+
+The commutativity result means that we can cheaply validate incoming urgent transactions both at the end of the canonical mempool queue _and_ at the end of the urgent transaction view.
+
+As such, governance actions may not enter RBs, and ordering of causally linked transactions must be maintained.
 
 #### Revalidation and stale fees
 
@@ -169,13 +166,21 @@ As such, in order for the system to operate, transactions must be submitted with
 
 The reservation rule above creates a pathology at light loads. When the RB is reserved for urgent transactions, any standard traffic - however small - forces the announcement of an endorser block, and each announced EB must later be certified, with the certificate consuming ranking-block space. At loads below RB saturation the EBs are thin, so a certificate costs more RB capacity than the payload it delivers, and urgent transactions lose ranking blocks to certificates: the experiment report shows plain reservation falling _below_ the flat-fee baseline in this regime (56.77% vs 58.79% urgent retained value, 1.95 vs 1.85 blocks urgent latency).
 
-We therefore specify a threshold on EB announcement: an EB may only be announced when its payload reaches a byte threshold, set to half the RB byte cap. Every certificate is then worth at least the block space it consumes, and thin EBs are never produced; standard transactions queue for the next worthwhile batch. This repairs the regression (+3.03 ± 1.11 percentage points urgent retained value over plain reservation at low load, ten of ten seeds, restoring statistical parity with flat fee) while leaving the ranking-block rule untouched: RBs carry only urgent-paying transactions, at all loads, at all times.
+We therefore specify a threshold on EB announcement: an EB may only be announced when its payload reaches a byte threshold, defined as
+
+```
+ebThresholdBytes = max((1 - targetUtilisation) × |RB|, |RB| / 2)
+```
+
+which equals half the RB byte cap at the default target utilisation of 0.5. Every certificate is then worth at least the block space it consumes, and thin EBs are never produced; standard transactions queue for the next worthwhile batch. This repairs the regression (+3.03 ± 1.11 percentage points urgent retained value over plain reservation at low load, ten of ten seeds, restoring statistical parity with flat fee) while leaving the ranking-block rule untouched: RBs carry only urgent-paying transactions, at all loads, at all times.
 
 Both halves of the design are checkable from on-chain data alone. Fee validation enforces that every RB transaction pays the urgent quote, and the announced EB's payload size is present in the block, so validators can check the threshold directly. No rule references mempool state.
 
 The bribery analysis is correspondingly short. Because RB access is never sold below the urgent quote, there is no discount for a producer to trade against. The residual behaviour is EB suppression - a producer declining to announce a qualifying EB - which is profitless: the RB remains urgent-only regardless, the producer gains nothing by withholding, and the next producer announces the batch, so the harm is bounded at one RB interval of standard-lane delay. We explored work-conserving variants that admitted standard transactions into underfull RBs at the standard rate; they retain more value at light loads, but the discount they create is precisely a bribery incentive (a producer can sell suppressed-EB inclusion for any fraction of the urgent premium), no ledger rule can compel announcement, and so they were rejected.
 
-TODO: specify the threshold parameter relative to the controller headroom, `(1 - targetUtilisation) × |RB|`, rather than as a constant, so that retuning the controller cannot silently break the certificates-pay-for-themselves property. Decide whether it is an updatable protocol parameter.
+The threshold expression tracks the fee controller's headroom, but never falls below half the RB byte cap. Both halves of the rule were validated in a parameter stress test (ten seeds, three load profiles, target utilisation and fee-change denominator swept around their defaults; see the experiment report). The intuition: a low target utilisation deliberately runs ranking blocks emptier, so the urgent lane needs more of them to move the same traffic, and certificates must be correspondingly rarer - the threshold rises with headroom. But a certificate's cost does not shrink when the controller runs blocks hotter, so the threshold must not follow shrinking headroom downward - hence the floor, below which certificates stop paying for the block space they consume.
+
+The same stress test bounds the controller parameters themselves. The design's advantage over a flat fee holds across target utilisation 0.5-0.75 and fee-change denominator 8-16, and degrades sharply outside that envelope: at target utilisation 0.25 the mechanism retains less value than a flat fee under launch-day load. The threshold expression and the controller parameters are therefore specified as updatable protocol parameters, with the swept envelope recorded alongside them; retuning outside it should be treated as a mechanism change requiring re-analysis, not a routine parameter update. See the [parameter stress test section of the experiment report](https://github.com/input-output-hk/tiered-pricing/blob/main/docs/phase-2/preliminary-experiment-report.md#parameter-stress-test-controller-settings-and-the-threshold-rule).
 
 TODO: describe the standard-lane batching cost in the UX/fairness discussion: a standard transaction's wait includes the EB accumulation time (p95 roughly four slots above plain reservation at low load). Urgent transactions that end up included in an EB rather than an RB are refunded down to the standard quote; reference the fee change return mechanism CIP.
 
@@ -202,13 +207,15 @@ Our experimental setup was as follows:
 | both-dynamic-reserved | RB reserved | dynamic | dynamic | instant, windowed 3-20 |
 | both-dynamic-strict-threshold | RB reserved; EB announced only at ≥ half-RB payload | dynamic | dynamic | windowed 5 |
 
-We ran 10 seeds of a 2000 slot simulation under four load profiles: `severe-congestion` (mean 40 tx/slot in slots 0-249 and 1750-1999, mean 160 tx/slot in slots 250-1749), `low` (constant 3 tx/slot, below RB saturation), `mid-load` (constant 5 tx/slot, just above RB saturation), and `eb-capacity-stress` (repeated peaks up to ~396 tx/slot driving demand against the EB byte cap).
+We ran 10 seeds of a 2000 slot simulation under five load profiles: `severe-congestion` (mean 40 tx/slot in slots 0-249 and 1750-1999, mean 160 tx/slot in slots 250-1749), `low` (constant 3 tx/slot, below RB saturation), `mid-load` (constant 5 tx/slot, just above RB saturation), `eb-capacity-stress` (repeated peaks up to ~396 tx/slot driving demand against the EB byte cap), and `launch-day` (offered demand pinned at the EB byte capacity with the urgency mix skewed upward, calibrated to the January 2022 SundaeSwap launch).
 
-The recommended mechanism is both-dynamic-strict-threshold with a 5-sample signal window. Under severe congestion it improves urgent retained value from 44.32% (flat fee) to 51.55% (+7.23 ± 1.64 percentage points, paired over ten seeds) and reduces urgent mean latency from 2.91 to 2.44 blocks. At mid load it beats flat fee by +3.04 ± 1.17 percentage points (ten of ten seeds), and under the EB-stressing load by +7.38 ± 3.73 (nine of ten). At low load - the regime where plain reservation regresses below flat fee - the EB threshold restores statistical parity with the flat-fee baseline (+1.01 ± 1.46, confidence interval spanning zero).
+The recommended mechanism is both-dynamic-strict-threshold with a 5-sample signal window. Under severe congestion it improves urgent retained value from 44.32% (flat fee) to 51.55% (+7.23 ± 1.64 percentage points, paired over ten seeds) and reduces urgent mean latency from 2.91 to 2.44 blocks. At mid load it beats flat fee by +3.04 ± 1.17 percentage points (ten of ten seeds), and under the EB-stressing load by +7.38 ± 3.73 (nine of ten). At low load - the regime where plain reservation regresses below flat fee - the EB threshold restores statistical parity with the flat-fee baseline (+1.01 ± 1.46, confidence interval spanning zero). Under the launch-day profile it beats flat fee by +5.83 ± 4.22 percentage points of offered value (eight of ten seeds), through admission rather than latency: the rising standard quote makes low-surplus demand decline to submit, and what remains is included with near-certainty rather than decaying in a jammed mempool.
 
-The other families were eliminated as follows. Flat fee and single-lane EIP-1559 provide no way to signal urgency, and leave urgent value on the table at every contended load. The open variants cannot be enforced on the ledger, and therefore permit bribery, as discussed in the Specification; they retain a small measurable lead where capacity is slack (~1-1.6 percentage points at low and mid load), which we accept as the price of enforceability. Plain reservation falls below the flat-fee baseline at low load, because every scrap of standard overflow triggers a thin EB whose certificate consumes ranking-block space. Work-conserving variants that admitted standard transactions into underfull RBs at the standard rate retained the most value at light loads, but create an unavoidable bribery incentive and were rejected. Long signal windows (10-20 samples) reduce shock counts but trade retention for larger peak-to-trough price swings; the 5-sample window is the compromise point. We prefer both-dynamic over priority-only because of the EB-stressing load (37.50% vs 32.92% urgent retained value), where the standard-lane price sheds the demand that saturates the endorser block; the two families are identical at every other load.
+The other families were eliminated as follows. Flat fee and single-lane EIP-1559 provide no way to signal urgency, and leave urgent value on the table at every contended load. The open variants cannot be enforced on the ledger, and therefore permit bribery, as discussed in the Specification; they retain a small measurable lead where capacity is slack (~1-1.6 percentage points at low and mid load), which we accept as the price of enforceability. Plain reservation falls below the flat-fee baseline at low load, because every scrap of standard overflow triggers a thin EB whose certificate consumes ranking-block space. Work-conserving variants that admitted standard transactions into underfull RBs at the standard rate retained the most value at light loads, but create an unavoidable bribery incentive and were rejected. Long signal windows (10-20 samples) reduce shock counts but trade retention for larger peak-to-trough price swings; the 5-sample window is the compromise point. We prefer both-dynamic over priority-only for two reasons. Under the EB-stressing load (37.50% vs 32.92% urgent retained value), it is the standard-lane price that sheds the demand saturating the endorser block. Under the launch-day load the preference hardens into a requirement: reservation over a statically-priced standard lane delivers nothing at all - unpriced standard traffic squats in the shared mempool and starves the reserved lane at admission, leaving priority-only-reserved statistically indistinguishable from flat fee - while both-dynamic under the same reservation rule clearly beats it. Ledger enforceability therefore requires the both-dynamic family. At the remaining loads (low, mid, severe congestion), where standard traffic never contends for the ranking block, the two families behave identically.
 
-<link to experiment report>
+Finally, the recommended design was stress-tested along the parameter axis as well as the load axis: a sweep of target utilisation {0.25, 0.5, 0.75} × fee-change denominator {4, 8, 16}, ten seeds, under low, severe-congestion, and launch-day loads. Its advantage over flat fee is preserved across target utilisation 0.5-0.75 and denominator 8-16, and the failures outside that envelope are informative rather than gradual: at target utilisation 0.25 the mechanism retains less value than flat fee under launch-day load, and at denominator 4 price stability degrades at every load. The threshold expression in the Specification is the direct product of this test.
+
+Full details, including method, configs, per-load tables, paired seed deltas, and figures: [preliminary experiment report](https://github.com/input-output-hk/tiered-pricing/blob/main/docs/phase-2/preliminary-experiment-report.md).
 
 ## Path to Active
 

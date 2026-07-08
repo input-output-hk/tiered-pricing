@@ -1,0 +1,19 @@
+{
+  "description": "Parameter robustness sweep for the recommended mechanism (both-dynamic-strict-threshold, window 5). Lockstep grid over targetUtilisation {0.25, 0.5, 0.75} x maxChangeDenominator {4, 8, 16} on both controllers, with ebThresholdBytes derived per point from (1 - targetUtilisation) x rbTxBytesCap; the tu50-d8 anchor is the existing recommended config. Two isolation variants pin the threshold at RB/2 (45056 B) while the controller moves off-default, separating mechanism robustness from the threshold formula's contribution. Run once per load profile (low preset, severe-congestion, launch-day) with matching --out directories",
+  "seeds": 10,
+  "slots": 2000,
+  "out": "sweep-results/param-robustness",
+  "variants": [
+    { "name": "bdst-tu25-d4", "config": "config/variants/param-robustness/bdst-tu25-d4.json" },
+    { "name": "bdst-tu25-d8", "config": "config/variants/param-robustness/bdst-tu25-d8.json" },
+    { "name": "bdst-tu25-d16", "config": "config/variants/param-robustness/bdst-tu25-d16.json" },
+    { "name": "bdst-tu50-d4", "config": "config/variants/param-robustness/bdst-tu50-d4.json" },
+    { "name": "bdst-tu50-d8", "config": "config/variants/both-dynamic-strict-threshold-rb2-windowed.json" },
+    { "name": "bdst-tu50-d16", "config": "config/variants/param-robustness/bdst-tu50-d16.json" },
+    { "name": "bdst-tu75-d4", "config": "config/variants/param-robustness/bdst-tu75-d4.json" },
+    { "name": "bdst-tu75-d8", "config": "config/variants/param-robustness/bdst-tu75-d8.json" },
+    { "name": "bdst-tu75-d16", "config": "config/variants/param-robustness/bdst-tu75-d16.json" },
+    { "name": "bdst-tu25-d8-fixed-thr", "config": "config/variants/param-robustness/bdst-tu25-d8-fixed-thr.json" },
+    { "name": "bdst-tu75-d8-fixed-thr", "config": "config/variants/param-robustness/bdst-tu75-d8-fixed-thr.json" }
+  ]
+}

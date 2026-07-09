@@ -2,7 +2,7 @@
 
 ### TLDR ###
 
-Experiment results show that, across ten seeded runs, the best aggregate rows reduce urgent mean latency from 2.91 to 2.39 blocks (~18%, or 0.52 blocks) and improve urgent retained value from 44.32% to 51.65% (+7.33 percentage points, ~16.5% relative) by providing network participants with a priority lane to which they can opt to submit transactions, for a premium fee. A slight compromise (~2% and 0.1%) on both urgent latency and urgent retention gives us ledger enforceability with the reserved variant, preventing bribery. However, under low load, plain reservation backfires: it falls _below_ the flat-fee baseline (56.77% vs 58.79% urgent retained value, 1.95 vs 1.85 blocks), because every scrap of standard overflow triggers an endorser block whose certificate then consumes ranking-block space. Gating EB announcement on a byte threshold - an EB may only be announced when its payload reaches half the RB byte cap, so every certificate is worth the block that carries it - repairs this while keeping RBs urgent-only at all times: it restores statistical parity with flat fee at low load (+1.01 ± 1.46 percentage points), behaves identically to plain reservation under sustained congestion, and clearly beats flat fee at every contended load (+3.04 to +7.38 percentage points, ten of ten seeds). As a result, we recommend both-dynamic-strict-threshold: reserved RBs with an EB threshold of half the RB byte cap, 5-sample window. A parameter stress test (target utilisation × fee-change denominator, ten seeds, three loads) confirms the recommendation is not parameter-fragile: its advantage holds across target utilisation 0.5-0.75 and denominator 8-16, fails informatively outside that envelope (target utilisation 0.25 falls below flat fee under launch-day load), and fixes the threshold specification at max((1 - targetUtilisation) × |RB|, |RB| / 2). The unenforceable open variant retains a small measurable lead where capacity is slack (~1-1.6 percentage points at low and mid load); we accept this as the price of preventing bribery. Under a launch-day profile (sustained saturation with the urgency mix skewed upward, calibrated to the January 2022 SundaeSwap launch), the recommendation still clearly beats flat fee (+5.83 ± 4.22 percentage points, eight of ten seeds), though through admission rather than latency, while reservation over a statically-priced standard lane delivers nothing: unpriced standard traffic squats in the shared mempool and starves the reserved lane, so ledger enforceability requires the both-dynamic family.
+Experiment results show that, across ten seeded runs, the best aggregate rows reduce urgent mean latency from 2.91 to 2.39 blocks (~18%, or 0.52 blocks) and improve urgent retained value from 44.32% to 51.65% (+7.33 percentage points, ~16.5% relative) by providing network participants with a priority lane to which they can opt to submit transactions, for a premium fee. A slight compromise (~2% and 0.1%) on both urgent latency and urgent retention gives us ledger enforceability with the reserved variant, preventing bribery. However, under low load, plain reservation backfires: it falls _below_ the flat-fee baseline (56.77% vs 58.79% urgent retained value, 1.95 vs 1.85 blocks), because every scrap of standard overflow triggers an endorser block whose certificate then consumes ranking-block space. Gating EB announcement on a byte threshold - an EB may only be announced when its payload reaches half the RB byte cap, so every certificate is worth the block that carries it - repairs this while keeping RBs urgent-only at all times: it restores statistical parity with flat fee at low load (+1.01 ± 1.46 percentage points), behaves identically to plain reservation under sustained congestion, and clearly beats flat fee at every contended load (+3.04 to +7.38 percentage points, ten of ten seeds). As a result, we recommend both-dynamic-strict-threshold: reserved RBs with an EB threshold of half the RB byte cap, 5-sample window, calibrated at target utilisation 0.5 with max-change denominator 16 (welfare-equivalent to the denominator-8 anchor used in the comparison tables - all paired CIs span zero - while eliminating price shocks at three of four loads). A parameter stress test (target utilisation × max-change denominator, ten seeds, four loads) confirms the recommendation is not parameter-fragile: inside the envelope of target utilisation 0.5-0.75 and denominator 8-16 it never falls below the flat-fee baseline (the advantage holds at every load at target 0.5, and at every load except EB-saturating traffic at 0.75), fails informatively outside that envelope (target utilisation 0.25 falls below flat fee under launch-day load), fixes the threshold specification at max((1 - targetUtilisation) × |RB|, |RB| / 2), and rejects the cross-lane multiplier floor carried by the mechanism-design doc and the prototype (-9.25 percentage points at low load at 3×; at 16× the severe-congestion advantage is erased entirely). Two further stress tests close the programme: a demand-elasticity sweep confirms the advantage over flat fee at every mix tested and shows it growing with the share of high-value demand (up to +8,624G over a matched flat-fee control at launch-day), while scoping denominator 16's welfare-equivalence to baseline elasticity; and a trickle sweep validates the EB announcement age escape (K = 10 ranking-block intervals), which repairs total standard-lane starvation at 0.1 tx/slot (+83 percentage points standard retained value, ten of ten seeds) at no urgent-lane cost while remaining bit-identical to the pure threshold at ordinary loads. The unenforceable open variant retains a small measurable lead where capacity is slack (~1-1.6 percentage points at low and mid load); we accept this as the price of preventing bribery. Under a launch-day profile (sustained saturation with the urgency mix skewed upward, calibrated to the January 2022 SundaeSwap launch), the recommendation still clearly beats flat fee (+5.83 ± 4.22 percentage points, eight of ten seeds), though through admission rather than latency, while reservation over a statically-priced standard lane delivers nothing: unpriced standard traffic squats in the shared mempool and starves the reserved lane, so ledger enforceability requires the both-dynamic family.
 
 
 ### Question ###
@@ -1154,11 +1154,11 @@ Under flat fee, nearly half of urgent demand is never included at all: it queues
 
 ### Parameter stress test (controller settings and the threshold rule) ###
 
-**Ten seeds, both-dynamic-strict-threshold window-5 only; low, severe-congestion, and launch-day loads.**
+**Ten seeds, both-dynamic-strict-threshold window-5 only; low, severe-congestion, launch-day, and eb-capacity-stress loads.**
 
-Everything above stresses the mechanism along the load axis while holding the controller at a single setting: target utilisation 0.5, fee-change denominator 8, EB announcement threshold 45,056 B (half the RB byte cap). This section stresses the parameter axis instead. It answers two questions: whether the recommendation depends on a fragile parameter point (our elimination criteria require that it must not), and how the EB threshold should be specified when the controller is retuned - as a constant, or as a function of the controller's headroom.
+Everything above stresses the mechanism along the load axis while holding the controller at a single setting: target utilisation 0.5, max-change denominator 8, EB announcement threshold 45,056 B (half the RB byte cap). This section stresses the parameter axis instead. It answers two questions: whether the recommendation depends on a fragile parameter point (our elimination criteria require that it must not), and how the EB threshold should be specified when the controller is retuned - as a constant, or as a function of the controller's headroom.
 
-We sweep a lockstep grid over target utilisation {0.25, 0.5, 0.75} and fee-change denominator {4, 8, 16}, applied to both controllers, with the EB threshold derived at each grid point from the controller headroom, (1 - targetUtilisation) × |RB|: 67,584 B at 0.25, 45,056 B at 0.5, 22,528 B at 0.75. Two isolation variants pin the threshold at 45,056 B while the controller moves off-default (target utilisation 0.25 and 0.75, denominator 8), separating the mechanism's own robustness from the threshold rule's contribution. Sweep manifest: `config/sweeps/param-robustness.json`. The (0.5, 8) point is the recommended configuration; it reproduces the severe-congestion main-table row exactly (51.55% urgent retained value), validating the invocation.
+We sweep a lockstep grid over target utilisation {0.25, 0.5, 0.75} and max-change denominator {4, 8, 16}, applied to both controllers. (The max-change denominator D bounds the controller's per-block price step: one update moves a lane's coefficient by at most ±1/D of its current value, so the swept values allow at most ±25%, ±12.5%, and ±6.25% per block respectively - a lower denominator is a faster, twitchier controller.) The EB threshold is derived at each grid point from the controller headroom, (1 - targetUtilisation) × |RB|: 67,584 B at 0.25, 45,056 B at 0.5, 22,528 B at 0.75. Two isolation variants pin the threshold at 45,056 B while the controller moves off-default (target utilisation 0.25 and 0.75, denominator 8), separating the mechanism's own robustness from the threshold rule's contribution. Sweep manifest: `config/sweeps/param-robustness.json`. The (0.5, 8) point is the anchor: the calibration behind every comparison table in this report. It reproduces the severe-congestion main-table row exactly (51.55% urgent retained value), validating the invocation.
 
 Low load:
 
@@ -1208,6 +1208,22 @@ Launch-day (retained value expressed against the offered value of the identical 
 
 For reference, flat fee retains 53.4% of offered value (715.6G) at this load with 64.1% inclusion. The tu75-d8 fixed-threshold isolation variant is bit-identical to its formula counterpart here; the tu25-d8 pair differs marginally (544.62G fixed vs 547.13G formula).
 
+EB-capacity stress:
+
+| Target util | Denom | EB threshold (B) | Inclusion | Urgent retained | Urgent latency (blk) | Tx/slot | Shock count | Osc. cycles | Osc. max amp |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 0.25 | 4 | 67,584 | 73.45% | 34.24% | 2.69 | 82.0 | 160.5 | 8.6 | 398.684 |
+| 0.25 | 8 | 67,584 | 82.99% | 39.47% | 2.63 | 87.2 | 124.9 | 7.1 | 73.799 |
+| 0.25 | 16 | 67,584 | 96.53% | 46.22% | 2.59 | 100.6 | 31.9 | 4.6 | 13.053 |
+| 0.5 | 4 | 45,056 | 91.47% | 31.87% | 3.40 | 165.8 | 121.5 | 8.4 | 9.483 |
+| 0.5 | 8 | 45,056 | 95.69% | 37.50% | 3.07 | 163.6 | 59.8 | 7.2 | 4.413 |
+| 0.5 | 16 | 45,056 | 96.78% | 38.50% | 3.02 | 166.6 | 0.0 | 3.5 | 2.225 |
+| 0.75 | 4 | 22,528 | 92.27% | 30.78% | 3.64 | 176.6 | 23.0 | 6.3 | 1.975 |
+| 0.75 | 8 | 22,528 | 93.84% | 31.48% | 3.50 | 179.0 | 7.1 | 0.0 | 0.000 |
+| 0.75 | 16 | 22,528 | 93.64% | 31.39% | 3.61 | 179.8 | 0.0 | 0.0 | 0.000 |
+
+The anchor reproduces the main eb-capacity-stress strict-threshold row exactly (37.50%). The tu75-d8 isolation variant is bit-identical to its formula counterpart; the tu25-d8 pair differs marginally (39.15% fixed vs 39.47% formula).
+
 Paired seed deltas, same conventions as the main results table:
 
 | Comparison | Metric | Mean paired delta ± 95% CI | Seeds better |
@@ -1233,10 +1249,14 @@ Paired seed deltas, same conventions as the main results table:
 | tu 0.75 / d 4 vs flat-fee (launch-day) | Retained (pp of offered) | +6.30 ± 5.72 | 7/10 |
 | tu 0.75 / d 8 vs flat-fee (launch-day) | Retained (pp of offered) | +11.58 ± 3.00 | 10/10 |
 | tu 0.75 / d 16 vs flat-fee (launch-day) | Retained (pp of offered) | +6.42 ± 4.36 | 9/10 |
+| tu 0.25 / d 16 vs anchor (eb-capacity-stress) | Urgent retained (pp) | +8.72 ± 3.91 | 10/10 |
+| tu 0.5 / d 4 vs anchor (eb-capacity-stress) | Urgent retained (pp) | -5.63 ± 2.91 | 0/10 |
+| tu 0.5 / d 16 vs anchor (eb-capacity-stress) | Urgent retained (pp) | +1.00 ± 3.08 | 4/10 |
+| tu 0.75 / d 8 vs anchor (eb-capacity-stress) | Urgent retained (pp) | -6.02 ± 2.97 | 0/10 |
 
 Four findings.
 
-**The recommendation is not parameter-fragile within target utilisation 0.5-0.75 and denominator 8-16.** Every point in that sub-grid beats flat fee at both contended loads (severe congestion: 48.7-51.6% urgent retained vs 44.32%; launch-day: +5.83 to +11.58 pp of offered, all confidence intervals excluding zero) and holds low-load urgent retention within about a point of the flat-fee aggregate (58.6-60.6% vs 58.79%; unpaired comparison, see caveats). Within the envelope, target 0.75 trades roughly 2.5-2.8 pp of urgent retention under severe congestion for the strongest launch-day result (+11.58 ± 3.00, ten of ten seeds) at a visibly lower inclusion rate (83.3% vs 92.7%); the default 0.5 remains the recommended point.
+**The recommendation is not parameter-fragile within target utilisation 0.5-0.75 and denominator 8-16.** Every point in that sub-grid beats flat fee at both contended loads (severe congestion: 48.7-51.6% urgent retained vs 44.32%; launch-day: +5.83 to +11.58 pp of offered, all confidence intervals excluding zero) and holds low-load urgent retention within about a point of the flat-fee aggregate (58.6-60.6% vs 58.79%; unpaired comparison, see caveats). Within the envelope, target 0.75 trades roughly 2.5-2.8 pp of urgent retention under severe congestion for the strongest launch-day result (+11.58 ± 3.00, ten of ten seeds) at a visibly lower inclusion rate (83.3% vs 92.7%); the default 0.5 remains the recommended point. One qualifier: under eb-capacity-stress, target 0.75 loses ~6 pp against the anchor (-6.02 ± 2.97, zero of ten seeds), landing at ~31.4% urgent retained against flat fee's 30.12% - approximate parity, not advantage. The envelope criterion is therefore worth stating precisely: inside the envelope the mechanism never falls below the flat-fee baseline at any load. At target 0.5 the advantage holds at every load; at 0.75 it holds at every load except EB-stressing traffic, where it narrows to parity - the same worst case the design itself accepts at low load.
 
 **Outside the envelope the mechanism fails informatively, not gracefully.** Target utilisation 0.25 falls below the flat-fee baseline at launch-day at every denominator (-10.46 to -23.19 pp of offered, zero of ten seeds better): aiming for quarter-full blocks makes the controller shed demand the chain could have served, and at (0.25, 4) the price coefficient melts down outright (oscillation max amplitude ~1,486). Under severe congestion the same settings collapse throughput to 79-87 tx/slot against ~123 elsewhere. Denominator 4 fails on stability at every load (shock counts 5-9× the anchor's) and costs retention under severe congestion (-3.00 ± 0.92 pp, zero of ten). These corners are excluded, and the exclusion matters for governance: a parameter update that wanders here does not degrade the mechanism, it inverts it.
 
@@ -1254,15 +1274,114 @@ The event streams show the mechanism directly, in the same accounting style as t
 
 One refinement: the certificate rate responds to the threshold sublinearly. Scaling as 1/threshold would predict formula-to-fixed certificate ratios of 0.67 (target 0.25) and 2.00 (target 0.75); the measured ratios are 0.84 and 1.26. Mean announced payloads (113-153 kB) sit far above every threshold tested because announcement is limited by EB production opportunities as well as by the threshold: standard traffic often accumulates well past the threshold before the next opportunity arrives, so moving the threshold only changes behaviour in the intervals where accumulation lands between the two values. The threshold is a guard rail, not a proportional dial - which is itself an argument for the conservative max() rule over any finely-tuned per-parameter optimum.
 
-**Denominator 16 is a candidate improvement over the default 8.** Its retention is statistically indistinguishable from the anchor's at every load (severe: -0.58 ± 1.26 pp), with zero shocks at two of the three loads and much smaller oscillation amplitude. The caveat is that this sweep does not include `eb-capacity-stress`, whose fast transients are exactly where a slower controller would suffer; we would want that run before promoting it.
+**Denominator 16 replaces 8 as the recommended calibration.** Its retention is statistically indistinguishable from the anchor's at every swept load (severe: -0.58 ± 1.26 pp; eb-capacity-stress: +1.00 ± 3.08 pp), with zero shocks at three of the four loads and a fraction of the oscillation amplitude. The eb-capacity-stress run was the test it was most likely to fail - fast transients punish a slow controller - and it passed with zero shocks and a quarter of the anchor's amplitude. Since the stability gain costs nothing in welfare at baseline demand elasticity, we adopt denominator 16 in the recommendation; the comparison tables throughout this report remain on the denominator-8 anchor, which is welfare-equivalent at that elasticity. (The mid-load profile was not part of this sweep, so there the equivalence is inferred rather than measured; and the demand-elasticity stress test below shows the equivalence is elasticity-scoped - under an extreme high-value mix, denominator 8 retains ~2 pp more at a large stability cost. The rationale for keeping 16 is given there.) (The same run shows (0.25, 16) beating the anchor by +8.72 ± 3.91, ten of ten seeds. This is the EB-stressing section's mechanism at work, dialled up: when the endorser block is the binding resource, it is the standard-lane price that sheds the saturating demand, and a lower standard target sheds more of it. It does not rescue target 0.25, which launch-day still disqualifies outright.)
 
-Caveats. The `eb-capacity-stress` profile was not swept. The low-load flat-fee comparison is against the aggregate in the low-load section rather than paired per-seed, because the earlier sweep outputs were not retained; the margins involved are within about a point either way, so we describe low-load behaviour as parity, not improvement. Finally, certificate counts compared across different targets at the same threshold (44.8 at target 0.25 vs 28.7 at 0.75, both at 45,056 B) confound two channels: the threshold mechanics above, and lane migration - a higher target makes the urgent lane cheaper, drawing demand out of the standard lane and shrinking EB traffic on its own. The isolation pairs are clean because they hold the target fixed; cross-target comparisons are not.
+**Cross-lane multiplier floor: tested and rejected.** The mechanism-design document carries a cross-lane multiplier floor default (urgent coefficient ≥ 16 × standard coefficient) and the prototype enforces one at 3×, but every experiment above runs with the floor off (`multiplierFloor: null`) - the component had no evidence behind it in either direction. (This is distinct from the absolute coefficient floor, which bounds each lane's own quote below, and from the half-RB floor in the threshold expression.) A three-point test (off / 3× / 16×) on the recommended configuration rejects it decisively (sweep: `config/sweeps/multiplier-floor.json`). At low load the standard coefficient rests at its minimum, so the floor pins the urgent price at a multiple of the minimum exactly when it should approach parity: -9.25 ± 1.81 pp urgent retained at 3× and -15.30 ± 2.32 pp at 16×, zero of ten seeds better in either case. Under severe congestion, 3× costs -2.80 ± 1.39 pp, and 16× drives urgent retention to 44.28%: statistically indistinguishable from the flat-fee control (44.32%), erasing the mechanism's entire advantage. At launch-day the differences are within noise, with the urgent lane priced out of use altogether under 16×. The floor does not enter the specification.
+
+Caveats. The low-load flat-fee comparison is against the aggregate in the low-load section rather than paired per-seed, because the earlier sweep outputs were not retained; the margins involved are within about a point either way, so we describe low-load behaviour as parity, not improvement. Finally, certificate counts compared across different targets at the same threshold (44.8 at target 0.25 vs 28.7 at 0.75, both at 45,056 B) confound two channels: the threshold mechanics above, and lane migration - a higher target makes the urgent lane cheaper, drawing demand out of the standard lane and shrinking EB traffic on its own. The isolation pairs are clean because they hold the target fixed; cross-target comparisons are not.
+
+---
+
+### Demand elasticity stress test ###
+
+**Ten seeds; severe-congestion and launch-day loads; recommended calibration (target 0.5, denominator 16, window 5), each demand mix paired with its own flat-fee control.**
+
+The stability results above were all produced at one demand elasticity: the default actor calibration. Stability is not a property of the controller alone - the loop gain that decides whether prices converge is the product of the controller's step size and the demand curve's steepness - so elasticity is an environment parameter sitting under every stability claim. This sweep varies it (`config/sweeps/elasticity.json`). The mixes: `base` (the standard calibration), `all10x` (every actor's values scaled 10×, so demand sheds roughly ten times later), and `hv10`/`hv25` (10% and 25% of arrivals at 100× values - a bounded-inelastic tranche with very high but finite willingness to pay). Each mix carries its own flat-fee control because the mix changes offered value: paired deltas must compare like against like. A final variant runs the harshest mix at denominator 8 to test the envelope's fast edge under steep demand. The base pair reproduces its known numbers exactly (50.97% / 44.32% urgent retained under severe congestion), validating the invocation.
+
+Severe congestion (mechanism variants; the paired table below carries the flat-fee comparisons):
+
+| Mix | Denom | Urgent retained | Urgent latency (blk) | Inclusion | Shock count | Osc. max amp | Settled coeff. range |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| base | 16 | 50.97% | 2.52 | 99.20% | 0.0 | 1.233 | 0.374 |
+| all10x | 16 | 49.90% | 2.59 | 99.21% | 0.0 | 8.669 | 5.134 |
+| hv10 | 16 | 50.80% | 2.90 | 99.01% | 0.0 | 19.981 | 12.934 |
+| hv25 | 16 | 50.27% | 2.77 | 99.10% | 0.0 | 20.614 | 26.499 |
+| hv25 | 8 | 52.13% | 2.74 | 98.76% | 29.4 | 68.208 | 56.588 |
+
+Launch-day (retained value in G lovelace; each mix's offered value differs, so only within-mix comparisons are meaningful):
+
+| Mix | Denom | Retained (G) | Matched flat-fee (G) | Inclusion | Shock count | Osc. max amp |
+|---|---:|---:|---:|---:|---:|---:|
+| base | 16 | 800.00 | 716 | 94.10% | 0.0 | 6.54 |
+| all10x | 16 | 7,766.98 | 6,445 | 74.25% | 0.0 | 59.63 |
+| hv10 | 16 | 11,777.60 | 7,531 | 92.75% | 0.0 | 14.78 |
+| hv25 | 16 | 26,818.68 | 18,195 | 88.19% | 0.0 | 0.00 |
+| hv25 | 8 | 28,804.47 | 18,195 | 95.34% | 53.3 | 272.47 |
+
+| Comparison | Metric | Mean paired delta ± 95% CI | Seeds better |
+|---|---|---:|---:|
+| mech vs matched flat, base (severe) | Urgent retained (pp) | +6.65 ± 2.40 | 9/10 |
+| mech vs matched flat, all10x (severe) | Urgent retained (pp) | +6.43 ± 2.03 | 10/10 |
+| mech vs matched flat, hv10 (severe) | Urgent retained (pp) | +7.28 ± 2.54 | 10/10 |
+| mech vs matched flat, hv25 (severe) | Urgent retained (pp) | +6.13 ± 2.02 | 10/10 |
+| mech vs matched flat, base (launch-day) | Retained (G) | +83.53 ± 44.75 | 9/10 |
+| mech vs matched flat, all10x (launch-day) | Retained (G) | +1,321.75 ± 444.53 | 10/10 |
+| mech vs matched flat, hv10 (launch-day) | Retained (G) | +4,247.09 ± 557.24 | 10/10 |
+| mech vs matched flat, hv25 (launch-day) | Retained (G) | +8,623.68 ± 1,156.76 | 10/10 |
+| denominator 8 vs 16 at hv25 (severe) | Urgent retained (pp) | +1.85 ± 1.08 | 9/10 |
+| denominator 8 vs 16 at hv25 (launch-day) | Retained (G) | +1,985.79 ± 1,363.52 | 9/10 |
+
+Three findings.
+
+**The advantage over flat fee holds at every elasticity tested, and grows with the share of high-value demand.** Against matched controls the mechanism wins at every mix under both loads, and the launch-day progression is steep: +83G at base, +1,322G at all10x, +4,247G at hv10, +8,624G at hv25, ten of ten seeds at every non-base mix. The mechanism delivers the most value exactly when high-willingness-to-pay demand exists, which is the demand an urgency lane is for.
+
+**At denominator 16 the price is shock-free at every elasticity, but its excursions grow with demand steepness.** Shock counts are exactly zero at every mix - the ±6.25% step cap cannot produce a shock - while oscillation amplitude rises from 1.2 (base) to ~20 (hv mixes) and the settled coefficient range from 0.37 to 26.5 under severe congestion: pricing a 100× tranche requires the coefficient to travel a long way, and it does so smoothly but far. Stability claims should therefore be scoped: block-to-block predictability holds at all tested elasticities; a narrow settled band does not. No mix produces runaway pricing - the bounded tranche is always eventually priced.
+
+**Denominators 8 and 16 are welfare-equivalent only at baseline elasticity.** Under the hv25 mix, denominator 8 retains +1.85 ± 1.08 pp more at severe congestion and +1,986 ± 1,364 G more at launch-day (nine of ten seeds each): the faster controller tracks the fast-moving equilibrium better. It pays in stability everywhere: 29-53 shocks and amplitude up to 272 under the same mixes, and 15-60 shocks at baseline mixes where it buys nothing. We keep denominator 16 as the recommendation on the asymmetry of the error modes: choosing 16 in an hv25-shaped world costs a slice of an advantage that remains overwhelming (+6.13 pp / +8,624G over flat fee), while choosing 8 in a baseline-shaped world imposes chronic price shocks at every load for no welfare return; the hv25 mix is a constructed stress bracket rather than a demand forecast (the empirically calibrated launch-day profile at baseline elasticity shows the two statistically tied); and the denominator is an updatable protocol parameter inside a validated envelope, so a persistent steep-demand regime can be met by moving toward 8 without a mechanism change.
+
+Caveats. Low load was not swept: prices rest at the floor there and elasticity barely engages. Mid-load was not swept. The hv mixes are synthetic brackets, not calibrated demand. And the sim's actors respond to price shocks only by re-quoting and resubmitting, so retained-value metrics understate what instability costs real users in fee predictability; welfare ties between calibrations should be read alongside the stability columns, not instead of them.
+
+---
+
+### Trickle loads and the announcement age escape ###
+
+**Ten seeds; trickle-0.1 and trickle-0.5 tx/slot plus the low profile; recommended calibration with age-escape variants K ∈ {5, 10, 20}; plain reservation (threshold 1 B, the K → 0 limit) and flat fee as brackets.**
+
+The pure announcement threshold can starve a trickle: standard traffic that never accumulates to the byte bar pools forever, and anything depending on its outputs waits with it (first observed live in the engineering prototype). The specified repair is a time-gated escape - an EB may be announced below the threshold once at least K ranking blocks have been produced since the last EB announcement, a condition on chain history only. This sweep (`config/sweeps/trickle-aging.json`, using the simulator's new `ebAgeEscapeRbIntervals` policy field) calibrates K and checks that the escape stays inert when the threshold crosses naturally.
+
+| Load | Variant | Inclusion | Unresolved units | Standard latency (blk) | Urgent retained | Standard retained |
+|---|---|---:|---:|---:|---:|---:|
+| 0.1 tx/slot | no escape | 90.55% | 19.1 | n/a | 66.67% | 0.00% |
+| 0.1 tx/slot | K = 5 | 99.22% | 1.6 | 8.41 | 66.06% | 89.67% |
+| 0.1 tx/slot | K = 10 | 99.22% | 1.6 | 14.72 | 65.55% | 83.39% |
+| 0.1 tx/slot | K = 20 | 99.22% | 1.6 | 22.50 | 65.55% | 74.91% |
+| 0.1 tx/slot | plain reservation | 99.22% | 1.6 | 2.94 | 65.52% | 95.81% |
+| 0.1 tx/slot | flat fee | 99.26% | 1.5 | 1.00 | 75.54% | 97.54% |
+| 0.5 tx/slot | no escape | 97.15% | 28.5 | 4.31 | 73.42% | 93.27% |
+| 0.5 tx/slot | K = 10 | 98.94% | 10.7 | 6.60 | 73.42% | 91.21% |
+| 0.5 tx/slot | plain reservation | 98.94% | 10.7 | 3.02 | 72.26% | 95.50% |
+| 0.5 tx/slot | flat fee | 98.94% | 10.7 | 1.00 | 73.92% | 97.48% |
+| low (3 tx/slot) | no escape | 97.81% | 131.4 | 3.15 | 59.81% | 96.19% |
+| low (3 tx/slot) | K = 5 | 97.81% | 131.6 | 3.13 | 59.63% | 96.20% |
+| low (3 tx/slot) | K = 10 | 97.81% | 131.4 | 3.15 | 59.81% | 96.19% |
+| low (3 tx/slot) | K = 20 | 97.81% | 131.4 | 3.15 | 59.81% | 96.19% |
+
+The headline rows are the first and second: with no escape at a 0.1 tx/slot trickle, the standard lane retains 0.00% of its value - total starvation, every pooled transaction unresolved or abandoned - and the escape repairs it: +83.39 ± 8.59 pp standard retained value (K = 10 vs no escape, ten of ten seeds) at no measurable urgent-lane cost (-1.12 ± 1.74 pp, confidence interval spanning zero; certificates are nearly free when ranking blocks run this empty). The K rows form a clean monotone tradeoff (standard wait roughly 1.5 × K slots' worth of blocks against certificate frequency), with no urgent cost at any K.
+
+The inertness check is the strongest available result: at the low profile, K = 10 and K = 20 are **bit-identical to the no-escape runs in every seed** - when standard traffic crosses the threshold naturally, the escape never fires, so it imposes no steady tax outside the regime it exists for. K = 5 fires occasionally at low load (harmlessly: -0.18 pp urgent retained, within noise). K = 10 is therefore adopted as the default: fully inert at ordinary loads, with a ~15-block worst-case standard wait at the deepest trickle tested.
+
+Two honest notes. At 0.1 tx/slot the urgent-retention comparison against flat fee is noise-dominated (-9.99 ± 19.85 pp, roughly twenty urgent-class transactions per run); at 0.5 tx/slot it is tight parity (-0.50 ± 0.80). We report the trickle regime as statistical parity with flat fee, on the same criterion used at low load. And the sim does not model dependency chains, so the deadlock variant of starvation observed in the prototype (dependents of pooled transactions wedging) is repaired here only by implication: the escape unblocks the parents; the chained consequence is untested.
 
 ---
 
 ### Summary ###
 
-We recommend both-dynamic-strict-threshold with a 5-sample window: ranking blocks reserved for urgent transactions at all times, and an endorser block announced only when its payload reaches half the RB byte cap. The threshold makes every certificate worth the block space it consumes, which repairs plain reservation's low-load regression (+3.03 ± 1.11 percentage points, ten of ten seeds) and restores statistical parity with the flat-fee baseline in the one regime where reservation used to lose to it; at every contended load the design clearly beats flat fee (+3.04 to +7.38 percentage points). Because the payload rule references only on-chain data, the whole design is ledger-enforceable, and because ranking-block access is never sold below the urgent quote, there is no discount for a producer to trade against. We explored work-conserving variants that admitted standard transactions into underfull RBs at the standard rate; they retained more value at light loads but create an unavoidable bribery incentive, and were rejected.
+We recommend both-dynamic-strict-threshold with a 5-sample window: ranking blocks reserved for urgent transactions at all times, and an endorser block announced only when its payload reaches half the RB byte cap or when K = 10 ranking blocks have passed since the last announcement (the age escape, which repairs standard-lane starvation at trickle loads and is bit-identical to the pure threshold whenever traffic crosses the threshold naturally). The full recommended construction:
+
+| Component | Setting |
+|---|---|
+| Lanes | Two: standard and urgent |
+| Ranking blocks | Urgent-only at all loads (ledger-enforced), FIFO selection |
+| EB announcement threshold | Payload ≥ max((1 - targetUtilisation) × RB byte cap, RB byte cap / 2); 45,056 B at the default target |
+| EB announcement age escape | Announce below threshold once K = 10 ranking blocks have passed since the last EB announcement; inert at ordinary loads, repairs trickle starvation (+83 pp standard retained at 0.1 tx/slot) |
+| Fee semantics | Per-lane EIP-1559 coefficient applied to the ordinary min fee |
+| Premium scope | rb-only: an urgent transaction included via an EB is refunded down to the standard quote |
+| Standard controller | Target utilisation 0.5, max-change denominator 16, capacity-weighted 20-block signal window |
+| Urgent controller | Target utilisation 0.5, max-change denominator 16, priority-reservation signal, 5-sample window |
+| Floors | Absolute coefficient floor 1.0 (no quote below the ordinary min fee); no cross-lane multiplier floor |
+| Validated envelope | Target utilisation 0.5-0.75 and max-change denominator 8-16, from a swept grid of {0.25, 0.5, 0.75} × {4, 8, 16}: target 0.25 and denominator 4 tested and excluded, and 0.75 narrows to flat-fee parity under EB-saturating load |
+
+The calibration names denominator 16 rather than the denominator-8 anchor used in the comparison tables: the parameter stress test shows the two are welfare-equivalent at every swept load (all paired CIs span zero) while 16 eliminates price shocks at three of four loads. The threshold makes every certificate worth the block space it consumes, which repairs plain reservation's low-load regression (+3.03 ± 1.11 percentage points, ten of ten seeds) and restores statistical parity with the flat-fee baseline in the one regime where reservation used to lose to it; at every contended load the design clearly beats flat fee (+3.04 to +7.38 percentage points). Because the payload rule references only on-chain data, the whole design is ledger-enforceable, and because ranking-block access is never sold below the urgent quote, there is no discount for a producer to trade against. We explored work-conserving variants that admitted standard transactions into underfull RBs at the standard rate; they retained more value at light loads but create an unavoidable bribery incentive, and were rejected.
 
 We prefer the both-dynamic family over priority-only because of the EB-stressing results (37.50% vs 32.92% urgent retained value, with half a block of urgent latency), where it is the standard-lane price that sheds the demand saturating the endorser block, and because of the launch-day results, where reservation over a statically-priced standard lane delivers nothing at all (unpriced standard traffic squats in the shared mempool and starves the reserved lane at admission) while both-dynamic under the same reservation rule beats flat fee by +5.83 ± 4.22 percentage points; at the remaining loads the two families are identical. The priority-only variant remains a quantified fallback if implementation complexity demands it, though the launch-day result bounds what that fallback delivers under sustained saturation. Two further notes for the specification: the parameter stress test fixes the threshold expression at max((1 - targetUtilisation) × |RB|, |RB| / 2) - tracking the controller headroom when headroom is large, never falling below the half-RB floor where certificates stop paying for themselves - so that retuning the controller cannot silently break the certificates-pay-for-themselves property; and the same property gives linear-Leios a clean latency story against Praos, since an EB is only ever produced when it adds more capacity than its certificate consumes.
 

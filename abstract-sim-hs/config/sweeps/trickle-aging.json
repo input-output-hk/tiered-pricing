@@ -1,0 +1,14 @@
+{
+  "description": "EB announcement age-escape calibration on the recommended mechanism (both-dynamic-strict-threshold, window 5, target 0.5, denominator 16). thr-noescape is the pure threshold (starvation candidate at trickle loads); thr-k5/k10/k20 add the age escape (announce below threshold once K ranking blocks have passed since the last EB announcement); plain-reserved-ref sets the threshold to 1 byte (announce at every opportunity - the K -> 0 limit, bit-identical to plain reservation); flat-fee is the control. Run under trickle-0p1, trickle-0p5, and low load profiles: the trickles probe starvation and the escape's certificate cost, low checks the escape stays inert when the threshold crosses naturally",
+  "seeds": 10,
+  "slots": 2000,
+  "out": "sweep-results/trickle-aging",
+  "variants": [
+    { "name": "thr-noescape", "config": "config/variants/param-robustness/bdst-tu50-d16.json" },
+    { "name": "thr-k5", "config": "config/variants/trickle-aging/thr-k5.json" },
+    { "name": "thr-k10", "config": "config/variants/trickle-aging/thr-k10.json" },
+    { "name": "thr-k20", "config": "config/variants/trickle-aging/thr-k20.json" },
+    { "name": "plain-reserved-ref", "config": "config/variants/trickle-aging/plain-reserved-ref.json" },
+    { "name": "flat-fee", "config": "config/variants/flat-fee.json" }
+  ]
+}

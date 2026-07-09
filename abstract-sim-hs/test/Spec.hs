@@ -566,7 +566,7 @@ only the EB announcement (checked in the simulation, not in selection).
 assertStrictEbThresholdSelection :: IO ()
 assertStrictEbThresholdSelection = do
   let capacity = Resources{resBytes = Bytes 1_000, resExUnits = ExUnits 10_000_000}
-      reservation = PriorityReservationRbEbThreshold 1_000 500
+      reservation = PriorityReservationRbEbThreshold 1_000 500 Nothing
       priorityTx = withSize 400 (testTx Priority)
       standardTx = withSize 400 (testTx Standard)
       (selected, remaining, _, mode) =

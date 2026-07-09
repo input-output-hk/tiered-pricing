@@ -1,0 +1,11 @@
+{
+  "description": "Cross-lane price floor test on the recommended mechanism (both-dynamic-strict-threshold, window 5). The floor enforces priority coefficient >= floor x standard coefficient after every update. floor-off is the recommended config (multiplierFloor null, the setting behind all phase-2 results); floor-3 matches the prototype's demo calibration; floor-16 matches the mechanism-design doc's default. Run once per load profile (low preset, severe-congestion, launch-day) with matching --out directories",
+  "seeds": 10,
+  "slots": 2000,
+  "out": "sweep-results/multiplier-floor",
+  "variants": [
+    { "name": "bdst-floor-off", "config": "config/variants/both-dynamic-strict-threshold-rb2-windowed.json" },
+    { "name": "bdst-floor-3", "config": "config/variants/multiplier-floor/bdst-floor3.json" },
+    { "name": "bdst-floor-16", "config": "config/variants/multiplier-floor/bdst-floor16.json" }
+  ]
+}

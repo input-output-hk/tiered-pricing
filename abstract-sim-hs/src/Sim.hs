@@ -55,6 +55,9 @@ data SimSt = SimSt
   , _simRetryQueue :: Map SlotNo (Seq PendingRetry)
   -- ^ pending resubmissions keyed by wake slot (jitter already drawn);
   -- within a slot, enqueue order is preserved
+  , _simRbsSinceEbAnnounce :: Int
+  -- ^ ranking blocks produced since the last EB announcement; read by the
+  -- EB-threshold age escape, reset to 0 on every announcement
   }
 
 newtype SimM a = SimM {unSimM :: ReaderT SimConfig (State SimSt) a}
@@ -91,6 +94,7 @@ initSimSt conf rng =
     , _simTxCounter = 0
     , _simTxActors = mempty
     , _simRetryQueue = mempty
+    , _simRbsSinceEbAnnounce = 0
     }
 
 step :: SimM (Seq SimEvent)
@@ -382,6 +386,8 @@ produceRankingBlock = do
         else producePraosBlock design slot rbCapacity
     Nothing ->
       producePraosBlock design slot rbCapacity
+  -- the RB just produced counts toward the EB-announcement age
+  modify' \st -> st{_simRbsSinceEbAnnounce = st._simRbsSinceEbAnnounce + 1}
   ebEvents <- announceEndorserBlock slot rbSignalCapacity
   pure (rbEvents >< ebEvents)
 
@@ -477,6 +483,7 @@ includedEvent design prices slot inclusionPoint tx =
 announceEndorserBlock :: SlotNo -> Resources -> SimM (Seq SimEvent)
 announceEndorserBlock slot rbSignalCapacity = do
   ebCapacity <- ebCapacityFromConfig
+  rbsSinceAnnounce <- gets _simRbsSinceEbAnnounce
   ebs <- gets _simEbs
   prices <- gets _simPrices
   design <- asks simConfigDesign
@@ -496,8 +503,9 @@ announceEndorserBlock slot rbSignalCapacity = do
       selectedTxList = toList selectedTxs
       ebNeeded =
         case design.designReservationPolicy of
-          PriorityReservationRbEbThreshold _ thresholdBytes ->
+          PriorityReservationRbEbThreshold _ thresholdBytes ageEscape ->
             txsBytes selectedTxs >= thresholdBytes
+              || maybe False (rbsSinceAnnounce >=) ageEscape
           _ -> True
   if null selectedTxList || not ebNeeded
     then do
@@ -517,6 +525,7 @@ announceEndorserBlock slot rbSignalCapacity = do
           { _simMempool = feeCheckedMempool
           , _simEbs = Map.insert ebId eb st._simEbs
           , _simPendingEb = Just (PendingEb ebId slot)
+          , _simRbsSinceEbAnnounce = 0
           }
       pure $ evictionEvents |> BlockProduced slot summary
 

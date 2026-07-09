@@ -180,7 +180,7 @@ prioritySignalCapacity reservation rbCapacity =
   case reservation of
     PriorityReservationRb reservationBytes ->
       rbCapacity{resBytes = min rbCapacity.resBytes (Bytes reservationBytes)}
-    PriorityReservationRbEbThreshold reservationBytes _ ->
+    PriorityReservationRbEbThreshold reservationBytes _ _ ->
       rbCapacity{resBytes = min rbCapacity.resBytes (Bytes reservationBytes)}
     NoReservation -> rbCapacity
 

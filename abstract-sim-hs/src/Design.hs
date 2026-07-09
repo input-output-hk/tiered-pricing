@@ -91,8 +91,11 @@ data ReservationPolicy
   = PriorityReservationRb Int
   | -- | Strict RB reservation (never mixed) with a gated EB: an EB may only
     -- be announced when its payload reaches the threshold in bytes. Standard
-    -- transactions are served exclusively through EBs, in batches.
-    PriorityReservationRbEbThreshold Int Int
+    -- transactions are served exclusively through EBs, in batches. The
+    -- optional age escape lifts the byte gate once at least that many ranking
+    -- blocks have been produced since the last EB announcement, so a trickle
+    -- below the threshold cannot pool forever ('Nothing' = no escape).
+    PriorityReservationRbEbThreshold Int Int (Maybe Int)
   | NoReservation
   deriving stock (Eq, Show)
 
@@ -104,7 +107,11 @@ instance FromJSON ReservationPolicy where
       , ("priority-reservation-rb", WithFields \obj -> PriorityReservationRb <$> obj .: "bytes")
       ,
         ( "priority-reservation-rb-eb-threshold"
-        , WithFields \obj -> PriorityReservationRbEbThreshold <$> obj .: "bytes" <*> obj .: "ebThresholdBytes"
+        , WithFields \obj ->
+            PriorityReservationRbEbThreshold
+              <$> obj .: "bytes"
+              <*> obj .: "ebThresholdBytes"
+              <*> obj .:? "ebAgeEscapeRbIntervals"
         )
       ]
 

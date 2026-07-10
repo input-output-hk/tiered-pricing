@@ -199,9 +199,9 @@ The same stress test bounds the controller parameters themselves. Inside the env
 
 The instability that excludes denominator 4 is visible directly in the price trace. The figures below show the per-lane price coefficient over a single severe-congestion run (2,000 slots, seed 0, target utilisation 0.5), identical in every respect except the max-change denominator. At denominator 4 the run records 88 price moves exceeding 10% (the largest a 25% jump), and the urgent coefficient completes six full oscillation cycles with a peak-to-trough amplitude of 6.7×. At denominator 16 the same run records no move exceeding 10% (the largest is 6.3%), one oscillation cycle, and an amplitude of 1.8×, while serving the same demand (98.8% vs 97.9%).
 
-![Per-lane price coefficient under severe congestion at max-change denominator 4: the urgent coefficient repeatedly overshoots and collapses](images/d4.png)
+![Per-lane price coefficient under severe congestion at max-change denominator 4: the urgent coefficient repeatedly overshoots and collapses](../figures/d4.png)
 
-![Per-lane price coefficient under severe congestion at max-change denominator 16: both coefficients track demand smoothly](images/d16.png)
+![Per-lane price coefficient under severe congestion at max-change denominator 16: both coefficients track demand smoothly](../figures/d16.png)
 
 TODO: fold the standard-lane batching cost into the Incentives fairness discussion: the wait is now bounded at K ranking-block intervals by the age escape, and at typical light load costs p95 roughly four slots over plain reservation. Urgent transactions included via EB are refunded down to the standard quote; reference the fee change return mechanism CIP when drafted.
 

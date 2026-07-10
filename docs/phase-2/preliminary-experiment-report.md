@@ -97,6 +97,63 @@ Even at the burst, this load offers only ~33% of EB byte capacity, so the endors
 - **Throughput** - The number of transactions per slot
 ---
 
+<details>
+<summary>Show variant index: every experiment variant, one line each</summary>
+
+<br>
+
+The configs are the source of truth; each entry links to the exact file the sweep harness runs. Window counts are the urgent-lane signal window in samples; "instant" means no window.
+
+**Mechanism families** ([`sweeps/mechanisms.json`](../../abstract-sim-hs/config/sweeps/mechanisms.json); [`sweeps/strict-threshold.json`](../../abstract-sim-hs/config/sweeps/strict-threshold.json) and [`sweeps/launch-day.json`](../../abstract-sim-hs/config/sweeps/launch-day.json) re-run subsets of these under other load profiles):
+
+| Variant | What it is | Config |
+|---|---|---|
+| `flat-fee` | Control: today's static minimum fee, single lane | [config](../../abstract-sim-hs/config/variants/flat-fee.json) |
+| `single-lane-eip1559` | Control: single lane priced by one EIP-1559 controller, no urgency signal | [config](../../abstract-sim-hs/config/variants/single-lane-eip1559.json) |
+| `priority-only-reserved` | RB reserved for urgent transactions; urgent lane dynamic, standard lane static | [instant](../../abstract-sim-hs/config/variants/priority-only-reserved.json) [w3](../../abstract-sim-hs/config/variants/priority-only-reserved-window3.json) [w5](../../abstract-sim-hs/config/variants/priority-only-reserved-windowed.json) [w10](../../abstract-sim-hs/config/variants/priority-only-reserved-window10.json) [w20](../../abstract-sim-hs/config/variants/priority-only-reserved-window20.json) |
+| `priority-only-open` | Urgent lane dynamic, standard static; no reservation, priority delivered by producer-side priority-first ordering | [instant](../../abstract-sim-hs/config/variants/priority-only-open.json) [w3](../../abstract-sim-hs/config/variants/priority-only-open-window3.json) [w5](../../abstract-sim-hs/config/variants/priority-only-open-windowed.json) [w10](../../abstract-sim-hs/config/variants/priority-only-open-window10.json) [w20](../../abstract-sim-hs/config/variants/priority-only-open-window20.json) |
+| `both-dynamic-reserved` | RB reserved; both lanes dynamic | [instant](../../abstract-sim-hs/config/default-sim-config.json) [w3](../../abstract-sim-hs/config/variants/both-dynamic-reserved-window3.json) [w5](../../abstract-sim-hs/config/variants/both-dynamic-reserved-windowed.json) [w10](../../abstract-sim-hs/config/variants/both-dynamic-reserved-window10.json) [w20](../../abstract-sim-hs/config/variants/both-dynamic-reserved-window20.json) |
+| `both-dynamic-open` | Both lanes dynamic; no reservation, priority-first ordering | [instant](../../abstract-sim-hs/config/variants/no-reservation.json) [w3](../../abstract-sim-hs/config/variants/both-dynamic-open-window3.json) [w5](../../abstract-sim-hs/config/variants/both-dynamic-open-windowed.json) [w10](../../abstract-sim-hs/config/variants/both-dynamic-open-window10.json) [w20](../../abstract-sim-hs/config/variants/both-dynamic-open-window20.json) |
+| `priority-only-strict-threshold-rb2` | `priority-only-reserved` plus the EB announcement threshold (payload at least half the RB byte cap); window 5 | [w5](../../abstract-sim-hs/config/variants/priority-only-strict-threshold-rb2-windowed.json) |
+| `both-dynamic-strict-threshold-rb2` | `both-dynamic-reserved` plus the EB announcement threshold; window 5; the recommended mechanism | [w5](../../abstract-sim-hs/config/variants/both-dynamic-strict-threshold-rb2-windowed.json) |
+
+**Parameter stress test** ([`sweeps/param-robustness.json`](../../abstract-sim-hs/config/sweeps/param-robustness.json)):
+
+| Variant | What it is | Config |
+|---|---|---|
+| `bdst-tuXX-dY` (9-point grid) | The recommended mechanism at target utilisation 0.XX and max-change denominator Y, EB threshold set by the headroom expression; `bdst-tu50-d8` reuses the main config above | [directory](../../abstract-sim-hs/config/variants/param-robustness/) |
+| `bdst-tu25-d8-fixed-thr`, `bdst-tu75-d8-fixed-thr` | As the matching grid cell, but the threshold pinned at half the RB byte cap (45,056 B) instead of the headroom value, isolating the threshold expression | [tu25](../../abstract-sim-hs/config/variants/param-robustness/bdst-tu25-d8-fixed-thr.json) [tu75](../../abstract-sim-hs/config/variants/param-robustness/bdst-tu75-d8-fixed-thr.json) |
+
+**Demand elasticity** ([`sweeps/elasticity.json`](../../abstract-sim-hs/config/sweeps/elasticity.json)); `mech-*` is the recommended mechanism at denominator 16, each paired with a matched `flat-*` control under the same mix:
+
+| Variant | What it is | Config |
+|---|---|---|
+| `mech-base` / `flat-base` | The unscaled actor calibration; reuses `bdst-tu50-d16` and `flat-fee` | - |
+| `mech-all10x` / `flat-all10x` | Every actor's transaction values scaled 10× | [mech](../../abstract-sim-hs/config/variants/elasticity/mech-all10x.json) [flat](../../abstract-sim-hs/config/variants/elasticity/flat-all10x.json) |
+| `mech-hv10` / `flat-hv10` | 10% of arrivals at 100× values | [mech](../../abstract-sim-hs/config/variants/elasticity/mech-hv10.json) [flat](../../abstract-sim-hs/config/variants/elasticity/flat-hv10.json) |
+| `mech-hv25` / `flat-hv25` | 25% of arrivals at 100× values | [mech](../../abstract-sim-hs/config/variants/elasticity/mech-hv25.json) [flat](../../abstract-sim-hs/config/variants/elasticity/flat-hv25.json) |
+| `mech-hv25-d8` | The hv25 mix at max-change denominator 8, testing the envelope's fast edge | [config](../../abstract-sim-hs/config/variants/elasticity/mech-hv25-d8.json) |
+
+**Cross-lane multiplier floor** ([`sweeps/multiplier-floor.json`](../../abstract-sim-hs/config/sweeps/multiplier-floor.json)):
+
+| Variant | What it is | Config |
+|---|---|---|
+| `bdst-floor-off` | The recommended mechanism with no floor; reuses the main config | - |
+| `bdst-floor-3` / `bdst-floor-16` | Urgent quote held at or above 3× / 16× the standard quote | [3×](../../abstract-sim-hs/config/variants/multiplier-floor/bdst-floor3.json) [16×](../../abstract-sim-hs/config/variants/multiplier-floor/bdst-floor16.json) |
+
+**Trickle aging** ([`sweeps/trickle-aging.json`](../../abstract-sim-hs/config/sweeps/trickle-aging.json)):
+
+| Variant | What it is | Config |
+|---|---|---|
+| `thr-noescape` | The recommended mechanism with no age escape; reuses `bdst-tu50-d16` | - |
+| `thr-k5` / `thr-k10` / `thr-k20` | The recommended mechanism with the announcement age escape at K = 5 / 10 / 20 ranking-block intervals | [k5](../../abstract-sim-hs/config/variants/trickle-aging/thr-k5.json) [k10](../../abstract-sim-hs/config/variants/trickle-aging/thr-k10.json) [k20](../../abstract-sim-hs/config/variants/trickle-aging/thr-k20.json) |
+| `plain-reserved-ref` | Plain reservation bracket: announcement threshold of 1 B, the K → 0 limit | [config](../../abstract-sim-hs/config/variants/trickle-aging/plain-reserved-ref.json) |
+| `flat-fee` | Flat-fee control, as above | - |
+
+Load profiles are in [`config/loads/`](../../abstract-sim-hs/config/loads/).
+
+</details>
+
 ### Mechanisms ###
 
 In this experiment, we compare six designs under active consideration:

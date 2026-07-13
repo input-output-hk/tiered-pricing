@@ -196,6 +196,8 @@ A dynamic quote can rise after a transaction is admitted, so a posted max fee th
 
 The two controllers are independent, so the standard quote may temporarily rise above the urgent quote. This is a permitted controller state, not a reason to impose a cross-lane multiplier floor. Because an urgent transaction may settle through either path, its fee-cap quote is `max(standard quote, urgent quote)` throughout wallet lane choice, admission, revalidation, and producer selection. Its actual fee remains inclusion-point-specific: the urgent quote in an RB and the standard quote in an EB.
 
+A possible alternative is a 1× cross-lane clamp, which enforces `urgent quote ≥ standard quote` by raising the urgent quote whenever the lanes invert. We do not adopt it because it couples the controllers and can raise the RB price when urgent-lane utilisation does not justify it. Max-of-two instead changes only the fee cap needed to cover both settlement paths; it does not change either controller or the inclusion-point-specific charge.
+
 At admission, the posted max fee must cover the quote one worst-case controller step ahead: quote × (1 + 1/D), around 6.25% of headroom at the recommended D = 16. A transaction that cannot survive even one adverse price update is rejected at the door - visibly, and cheaply resubmittable with a larger buffer - rather than admitted to sit against the mempool cap until it goes stale.
 
 At selection, a producer takes only transactions that remain valid through the one further price update that can fire before the certification check. This guarantees that a certified EB cannot fail fee validation; the producer re-checks against current prices because they may have risen while the transaction queued.

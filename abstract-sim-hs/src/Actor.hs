@@ -13,9 +13,9 @@ import Curve (Curves (..), ExUnitsCurve (..), ScriptSizeCurve (..), TxSizeCurve 
 import Data.Aeson (FromJSON (..), ToJSON (..), withObject, (.:))
 import Data.Set qualified as Set
 import Json (Alt (..), taggedSum)
-import Design (LaneStructure (..))
+import Design (LaneStructure (..), PriorityPremiumScope)
 import Load (BurstEffect (..))
-import Pricing (Prices, quotedFeeFor)
+import Pricing (Prices, quotedFeeFor, requiredMaxFeeFor)
 import Transaction (Demand (..), Lane (..), Provenance (..), Script (..), Tx (..), TxBody (..), TxSample (..), hash, retainedValueFor)
 import Types (Duration (..), Lovelace (Lovelace), SlotNo, Urgency (..), addDurations, diffSlots, expectedBlockDelay)
 
@@ -62,13 +62,14 @@ instance FromJSON LaneLatencyEstimate where
 
 data TxSubmission = TxSubmission {submissionActor :: ActorId, submissionTx :: Tx}
 
-{- | The pure environment a submission decision reads: lane structure, chain
-parameters, the clock, current prices, and latency expectations. The engine
-gathers it once per slot and shares it between fresh submissions and
-retries.
+{- | The pure environment a submission decision reads: lane structure,
+premium scope, chain parameters, the clock, current prices, and latency
+expectations. The engine gathers it once per slot and shares it between fresh
+submissions and retries.
 -}
 data SubmissionEnv = SubmissionEnv
   { envLaneStructure :: LaneStructure
+  , envPriorityPremiumScope :: PriorityPremiumScope
   , envF :: Double
   , envSlot :: SlotNo
   , envPrices :: Prices
@@ -121,18 +122,23 @@ resubmitTransaction env provenance counter escalationFactor actor demand =
         actor.actorFeeBuffer * escalationFactor ^ max 0 (attempt - 1)
 
 -- | The shared submission core: decide the lane (or decline), quote, post.
+-- An rb-only priority decision and cap use the larger possible inclusion
+-- quote; settlement later refunds to the quote at the actual inclusion point.
 submitDemand :: SubmissionEnv -> Provenance -> Int -> Double -> Actor -> Demand -> Maybe Tx
 submitDemand env provenance counter feeBuffer actor demand = do
   lane <- case env.envLaneStructure of
     One -> chooseSingleLane actor env.envF env.envLatency alreadyElapsed demand.demandUrgency demand.demandValue standardFee
-    Two -> chooseLane actor env.envF env.envLatency alreadyElapsed demand.demandUrgency demand.demandValue standardFee priorityFee
-  let quotedFee = quotedFeeFor env.envPrices lane demand.demandSize demand.demandScript
+    Two -> chooseLane actor env.envF env.envLatency alreadyElapsed demand.demandUrgency demand.demandValue standardFee priorityDecisionFee
+  let maxFeeQuote =
+        case lane of
+          Standard -> standardFee
+          Priority -> priorityDecisionFee
       txBody =
         TxBody
           { _txSize = demand.demandSize
           , _txScript = demand.demandScript
           , _txDependsOn = Set.empty
-          , _txFee = scaleLovelace feeBuffer quotedFee
+          , _txFee = scaleLovelace feeBuffer maxFeeQuote
           , _txNumber = counter
           }
   pure
@@ -152,7 +158,8 @@ submitDemand env provenance counter feeBuffer actor demand = do
       FreshDemand -> Duration 0
       ResubmissionOf _ _ originSubmitted -> diffSlots env.envSlot originSubmitted
   standardFee = quotedFeeFor env.envPrices Standard demand.demandSize demand.demandScript
-  priorityFee = quotedFeeFor env.envPrices Priority demand.demandSize demand.demandScript
+  priorityDecisionFee =
+    requiredMaxFeeFor env.envPriorityPremiumScope env.envPrices Priority demand.demandSize demand.demandScript
 
 {- | The single-lane analogue of 'chooseLane': an honest actor submits only
 when the standard-lane fee clears its value-based reservation price, so demand

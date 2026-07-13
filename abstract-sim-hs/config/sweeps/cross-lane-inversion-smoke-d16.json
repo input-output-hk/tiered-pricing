@@ -1,0 +1,13 @@
+{
+  "description": "Matched D16 launch-day smoke for the max-of-two cross-lane fee-cap correction. Seeds 0-9, 2,000 slots, load profile, and effective config match the archived pre-correction bdst-tu50-d16 baseline in docs/phase-2/experiment-results/cross-lane-inversion-d16-baseline.json. The single corrected candidate changes only the simulator's max-of-two fee-cap semantics; no controller floor is applied. This is a diagnostic comparison, not an equivalence test.",
+  "seeds": 10,
+  "slots": 2000,
+  "summaryOnly": true,
+  "out": "sweep-results/cross-lane-inversion-smoke-d16-launch-day",
+  "variants": [
+    {
+      "name": "corrected-max-no-floor-d16",
+      "config": "config/variants/param-robustness/bdst-tu50-d16.json"
+    }
+  ]
+}

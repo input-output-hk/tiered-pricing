@@ -71,8 +71,9 @@ instance FromJSON FeeSemantics where
 'PremiumEverywhere' charges the priority quote wherever the tx lands.
 'PremiumRbOnly' charges it only for RB inclusion: a priority tx landing in
 an EB received standard service, so it is refunded down to the standard
-quote (the Giorgos design). Only the realised fee is affected — mempool
-validity is checked against the posted lane's quote in both scopes.
+quote (the Giorgos design). The rb-only priority max fee and validity checks
+cover the larger of the two quotes because either inclusion point is possible;
+the realised fee remains specific to the actual inclusion point.
 -}
 data PriorityPremiumScope
   = PremiumEverywhere

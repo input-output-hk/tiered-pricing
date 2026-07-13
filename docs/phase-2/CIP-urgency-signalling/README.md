@@ -17,7 +17,7 @@ License: CC-BY-4.0
 
 We propose a solution with two pathways a transaction can submit to a node with: urgent and standard. Only urgent transactions can enter Praos blocks, while both urgent and standard transactions can enter endorser blocks. Since Praos blocks will be produced more frequently than Leios blocks, and are included on-chain immediately, this offers users who submit urgent transactions a route to quicker inclusion.
 
-The urgency rule is enforced by the ledger: ranking blocks may only contain transactions paying the urgent quote, so producers cannot sell fast-lane access below the posted price. In simulation over ten seeded runs, the mechanism raises urgent retained value under severe congestion from 44.32% to 51.55% - an increase of 7.23 ± 1.64 percentage points, or ~16% relative to the flat-fee baseline - and never falls below that baseline at any load tested.
+The urgency rule is enforced by the ledger: ranking blocks may only contain transactions paying the urgent quote, so producers cannot sell fast-lane access below the posted price. In simulation over ten seeded runs, the mechanism raises urgent retained value under severe congestion from 44.32% to 50.97% - an increase of 6.65 ± 2.40 percentage points, or ~15% relative to the flat-fee baseline - and never falls below that baseline at any load tested.
 
 ## Motivation: why is this CIP necessary?
 
@@ -30,6 +30,31 @@ See CPS-0031 for more information.
 A mechanism based on the paper [Tiered Mechanisms for Blockchain Transaction Fees by Kiayias et al](https://arxiv.org/pdf/2304.06014) was initially planned to be the subject of this CIP. After discussion with stakeholders and investigation into the technical requirements of such an implementation, it was decided that a reduced-complexity version would be adequate for community needs. A simpler version would also be easier to prove, would be less likely to cause regression, and would be implemented sooner, potentially offsetting any value-retention differential anyway.
 
 ## Specification
+
+The mechanism at a glance. Bold-bordered nodes are ledger-enforced rules; dashed elements are node policy. Fee settlement and the EB announcement gate are drawn in their own figures in the sections that specify them.
+
+```mermaid
+flowchart LR
+    TX["Transaction:<br/>lane choice + max fee<br/>+ refund account"] --> ADM{"Admission:<br/>max fee covers the quote<br/>one controller step ahead?"}
+    ADM -- "no: BidBelowQuote" --> REJ["Rejected"]
+    ADM -- "yes" --> Q
+    subgraph MP["Mempool"]
+        Q["Canonical FIFO queue"]
+        UV["Urgent view:<br/>indices into the queue"]
+        UV -.-> Q
+    end
+    Q -. "evicted if the quote rises<br/>above max fee;<br/>wallet resubmits" .-> EV["Evicted"]
+    UV --> RULE["Ledger rule:<br/>every RB transaction<br/>pays the urgent quote"]
+    RULE --> RB["Ranking block"]
+    Q -- "FIFO, gated by the<br/>announcement rule<br/>(threshold section)" --> EB["Endorser block"]
+    RB --> CTRL["Per-lane EIP-1559 controller:<br/>lane utilisation vs target;<br/>each lane's quote<br/>updated independently"]
+    EB --> CTRL
+    CTRL -.-> ADM
+    classDef enforced stroke-width:3px,font-weight:bold;
+    classDef policy stroke-dasharray:5 5;
+    class RULE enforced;
+    class MP,Q,UV,EV policy;
+```
 
 This CIP introduces a transaction-level urgency signal with two lanes: standard and urgent. Urgent transactions pay a different, dynamic fee quote and are eligible for inclusion in both Ranking Blocks and Endorser Blocks. Standard transactions are eligible only for Endorser Blocks. The ledger enforces that Ranking Blocks contain only urgent-paying transactions. The dynamic fee is controlled by the EIP-1559 algorithm.
 
@@ -100,6 +125,47 @@ Additionally, in order to solve a problem that arises under low-ish load circums
 
 <br>
 
+### The recommended construction
+
+The settled recommendation in one place. Each component is specified in detail in the sections that follow, except the controller update rule and signals, which are defined immediately below the table. Items whose ledger representation or dependency treatment remains marked TODO below are intentionally not pre-empted here.
+
+| Component | Specification |
+|---|---|
+| Lanes | Two: standard and urgent |
+| Ranking blocks | Urgent-only at all loads (ledger-enforced); FIFO selection over the urgent view |
+| Endorser blocks | Open to both lanes; FIFO selection over the canonical queue |
+| EB announcement threshold | Unless the age escape applies, a non-empty EB may be announced only when its selected payload reaches max((1 - targetUtilisation) × RB byte cap, RB byte cap / 2); 45,056 B at the default target |
+| EB announcement age escape | A producer may, but need not, announce a non-empty EB below the threshold after at least K = 10 ranking blocks since the previous EB announcement; the counter resets on announcement |
+| Fee semantics | Per-lane EIP-1559: each lane's quote is its pricing coefficient × the ordinary min fee |
+| Fee-cap basis | For an urgent transaction under rb-only settlement, wallet choice and every max-fee validity check use max(standard quote, urgent quote); temporary quote crossings are permitted and do not alter either controller |
+| Premium scope | rb-only: the applicable inclusion quote is the urgent quote in an RB and the standard quote in an EB |
+| Admission, revalidation, and selection (node policy) | Admission requires the posted max fee to cover the fee-cap quote one worst-case controller step ahead. While queued it must cover the current fee-cap quote or the transaction is evicted; a producer selects it only if it also covers one further step |
+| Settlement and refund | Inclusion charges the applicable inclusion quote; the ordinary min-fee component goes to the fee pot, the premium above it goes to the treasury, and the posted excess is refunded. A posted maximum below the applicable quote is invalid, never silently undercharged |
+| Standard controller | Target utilisation 0.5, max-change denominator 16, capacity-weighted utilisation over a 20-block window, initial coefficient 1.0 |
+| Urgent controller | Target utilisation 0.5, max-change denominator 16, reservation utilisation over a 5-sample window, initial coefficient 2.0 |
+| Floors | Absolute coefficient floor 1.0 (no quote below the ordinary min fee); no cross-lane multiplier floor |
+| Enforcement boundary | Ledger rules enforce RB lane eligibility, inclusion-point fee validity, EB announcement eligibility, and settlement. Wallet choice, the urgent queue view, FIFO construction, admission headroom, revalidation, eviction, and producer headroom are node policy |
+
+The canonical machine-readable simulator configuration for this construction is [`config/variants/trickle-aging/thr-k10.json`](../../../abstract-sim-hs/config/variants/trickle-aging/thr-k10.json). Its embedded load is only the simulator's default workload and is overridden by experiment manifests; it is not part of the mechanism recommendation. The max-of-two fee-cap rule is the simulator's rb-only fee semantics rather than a configurable alternative.
+
+The parameter values, their validated envelopes, and the loads at which each was stressed are tabulated in the announcement-threshold section.
+
+#### Controller updates and signals
+
+Both controllers update once per slot in which a block is produced. An update moves the lane's pricing coefficient by
+
+```
+coeff' = coeff × max(0, 1 + (utilisation - target) / (target × D))
+```
+
+with the measured utilisation clamped to [0, 1] before the update. At the recommended target of 0.5 and D = 16, every step is bounded to ±6.25%.
+
+Two of the four block production kinds carry a controller sample: transaction-carrying ranking blocks and certified endorser blocks. A certificate-carrying RB is payload-free by construction, and an EB announcement carries no sample; an EB's payload enters the signals exactly once, at certification.
+
+**Urgent signal (reservation utilisation, 5-sample window).** Each sample measures the urgent lane's usage in the sampled block against the reservation capacity: the reserved bytes (the full RB byte cap in this construction) and the RB ex-unit cap; the reservation caps bytes, never ex-units. A certified EB's sample is divided by the same reservation capacity, not by the EB's own capacity: the sample asks how many ranking blocks' worth of urgent traffic the EB carried, not how full the EB was. The window utilisation is the sum of urgent usage over the last five samples (each capped at the reservation capacity) divided by the sum of the reservation capacities, computed separately in bytes and ex-units, taking whichever ratio is larger.
+
+**Standard signal (capacity-weighted utilisation, 20-block window).** The window utilisation is the total standard-lane usage across the last twenty block summaries divided by the total capacity of those blocks, again computed separately in bytes and ex-units and taking the larger ratio. Certificate-carrying RBs and EB announcements contribute neither usage nor capacity; transaction-carrying RBs contribute their full capacity to the denominator even though standard transactions cannot occupy them. The capacity weighting is implicit in the sums: each block counts in proportion to its capacity, so at the capacities used throughout the experiments a certified EB (12,000,000 bytes) outweighs a ranking block (90,112 bytes) by two orders of magnitude, and the standard quote therefore tracks endorser-block fill.
+
 The specification touches a few different areas:
 
 ### Mempool
@@ -126,33 +192,82 @@ As such, governance actions may not enter RBs, and ordering of causally linked t
 
 #### Revalidation and stale fees
 
-TODO: describe what happens when the urgent coefficient changes after admission. A tx
-whose max fee no longer covers the required urgent fee may be retained, evicted, or
-downgraded by node policy, but must not be selected into an invalid RB.
+A dynamic quote can rise after a transaction is admitted, so a posted max fee that covered the quote at submission may no longer cover it when the transaction is selected. We handle this with three layers of node policy, ordered by when each acts.
+
+The two controllers are independent, so the standard quote may temporarily rise above the urgent quote. This is a permitted controller state, not a reason to impose a cross-lane multiplier floor. Because an urgent transaction may settle through either path, its fee-cap quote is `max(standard quote, urgent quote)` throughout wallet lane choice, admission, revalidation, and producer selection. Its actual fee remains inclusion-point-specific: the urgent quote in an RB and the standard quote in an EB.
+
+At admission, the posted max fee must cover the quote one worst-case controller step ahead: quote × (1 + 1/D), around 6.25% of headroom at the recommended D = 16. A transaction that cannot survive even one adverse price update is rejected at the door - visibly, and cheaply resubmittable with a larger buffer - rather than admitted to sit against the mempool cap until it goes stale.
+
+At selection, a producer takes only transactions that remain valid through the one further price update that can fire before the certification check. This guarantees that a certified EB cannot fail fee validation; the producer re-checks against current prices because they may have risen while the transaction queued.
+
+An admitted transaction whose max fee is overtaken anyway is evicted. Eviction must be the outcome here: the transaction must not be selected into an invalid block, and retaining it wastes mempool space on a transaction that cannot be included.
+
+None of this is enforced by the ledger, since mempool state is not observable on-chain. The simulator now applies this rule consistently. An implementation regression test forces an inversion (standard coefficient 4, urgent coefficient 2) and checks wallet choice and fee-cap construction, admission, revalidation, producer headroom, RB and EB settlement, and rejection of underfunded settlement.
+
+We also ran a bounded behavioural experiment rather than treating that regression test as quantitative evidence. It pairs ten 2,000-slot launch-day seeds from the saved, pre-correction denominator-8 anchor with two corrected runs on the same seeds: independent controllers with the max-of-two fee-cap rule, and the alternative rule clamping the urgent coefficient to at least 1× the standard coefficient. The launch-day anchor was selected because three saved traced seeds exercise the quote inversion and an exact ten-seed pre-correction summary was available. Cells below are paired mean changes from the pre-correction run with two-sided 95% paired-t confidence intervals.
+
+| Corrected rule | Overall retained value (pp) | Priority retained value (pp) | Unit service rate (pp) | Mean latency (blocks) |
+|---|---:|---:|---:|---:|
+| max(standard, urgent), no floor | -0.234 [-1.225, +0.756] | +2.181 [-0.664, +5.025] | -0.016 [-0.930, +0.898] | +0.045 [-0.139, +0.229] |
+| urgent coefficient ≥ 1× standard | +0.552 [-1.205, +2.309] | +0.697 [-1.449, +2.844] | +1.219 [-1.106, +3.545] | -0.040 [-0.246, +0.166] |
+
+No corrected-versus-pre-correction headline interval excludes zero, so this smoke found no statistically detectable difference in the displayed metrics. It does not establish equivalence: in particular, the max-of-two priority-retention interval still permits an increase as large as 5.025 percentage points, and only three of the ten legacy seeds retain event traces that directly demonstrate inversion exposure. The 1× floor also changes submission behaviour relative to max-of-two/no-floor, reducing mean within-seed priority submissions by 15.67% [6.11%, 25.24%]. We therefore use max-of-two on the semantic ground that it resolves fee-cap validity while leaving the two controller paths independent, not because the smoke proves the alternatives welfare-equivalent. The [preserved per-seed scalars](../experiment-results/cross-lane-inversion-smoke.json) allow the table to be audited without the ignored sweep outputs.
+
+Because denominator 16 is the recommended controller calibration, we also repeated the max-of-two/no-floor candidate there against its archived pre-correction launch-day baseline, again for seeds 0-9 and 2,000 slots. The effective configurations were byte-identical, and all 55 reported scalars in every seed were exactly unchanged: 0 differences among 550 paired scalar comparisons. This is exact observed agreement for this particular calibration and workload, but it is still not a general equivalence result. No D16 legacy event traces remain to show that those runs actually entered an inverted-quote state, and the exact legacy simulator revision was not recorded, so the denominator-8 traces above provide the direct exposure evidence. The check deliberately omits the K = 10 announcement age escape because it was absent from the archived baseline; adding it would confound the fee-cap comparison. The [D16 evidence record](../experiment-results/cross-lane-inversion-d16-baseline.json) preserves the nine decision-facing metrics per seed, the exact-equality result, and the input and output checksums.
+
+We then ran the complete canonical D16/K10 configuration as a post-correction integration check under the same launch-day profile, seeds, and horizon. Its effective configuration differs from the corrected D16 reference only by `ebAgeEscapeRbIntervals: 10`. Again, every reported scalar in every seed was exactly unchanged: 0 differences among 550 comparisons against the corrected D16/no-K10 run and likewise against the pre-correction D16 run. This confirms that the assembled recommendation executes and introduces no observed outcome change in this scenario. Because the run was summary-only, it does not directly establish whether the K = 10 condition was internally evaluated; the trickle sweep remains the evidence for the escape when it binds. The [canonical integration evidence](../experiment-results/canonical-final-smoke.json) preserves its per-seed metrics, exact comparison result, and provenance hashes.
+
+All three experiments are reproducible without retaining event traces:
+
+```console
+cd abstract-sim-hs
+./scripts/smoke_cross_lane_inversion.sh \
+  --out sweep-results/cross-lane-inversion-smoke-launch-day-rerun
+./scripts/smoke_cross_lane_inversion_d16.sh \
+  --out sweep-results/cross-lane-inversion-smoke-d16-launch-day-rerun
+./scripts/smoke_canonical_final.sh \
+  --out sweep-results/canonical-final-d16-k10-launch-day-rerun
+```
+
+The first command runs only the twenty corrected denominator-8 simulations; the second runs only the ten corrected denominator-16 simulations; the third runs only the ten canonical D16/K10 simulations. Each reuses preserved ten-seed references, writes per-seed summaries and a paired comparison, and refuses to overwrite an existing output directory. Every completed local output occupied under 100 KiB. These smokes are deliberately too narrow to refresh the historical welfare tables below.
 
 #### Dependencies and conflicts
 
-TODO: describe how dependent transactions are handled when one transaction is urgent
+POLINA TODO: describe how dependent transactions are handled when one transaction is urgent
 and another is standard, especially UTxO dependencies and causally dependent chains.
 
 #### Capacity, eviction, and DoS
 
-TODO: describe whether urgent transactions get reserved mempool capacity, whether stale
+POLINA TODO: describe whether urgent transactions get reserved mempool capacity, whether stale
 or underpriced urgent transactions are evicted preferentially, and the resource impact of
 extra phase-1 validation.
 
 #### Governance actions
 
-TODO: describe why governance actions are excluded from the general reordering result
+POLINA TODO: describe why governance actions are excluded from the general reordering result
 and what policy applies to them.
+
+#### Tipping
+
+In times of congestion, the ability to separate transactions by urgency becomes impossible. In this case, users can use [nested transactions](https://github.com/cardano-foundation/CIPs/pull/862) to offer the block producer a tip in order to buy into RB space.
+
+<Polina to explain how this is should be done>
 
 ### Ledger
 
 Since we want to enforce the rule that only transactions paying a sufficient fee to enter the urgent lane may be admitted to Praos blocks, we must make ledger changes <put link here>.
 
 #### Transaction representation
+
+POLINA TODO
+
 #### Fee validity
+
+POLINA TODO
+
 #### Block validity
+
+POLINA TODO
 
 ### Block production and node policy
 
@@ -162,7 +277,23 @@ Block producers need to be cognisant of fee change over time, with respect to dy
 * A Praos block is produced, but the submitted transaction misses it due to the congestion.
 * The price increases, and the submitted transaction thus becomes stale, wasting mempool space during the time it was queued.
 
-As such, in order for the system to operate, transactions must be submitted with a suitable buffer. In order for adding a buffer to be palatable, a mechanism must be present to refund the difference between the posted fee and the actual price a transaction is charged for admission to the block. This mechanism is described in <fee change CIP link>.
+The producer-side rule follows from this: a prudent producer selects only transactions whose max fee covers the quote one price update ahead, since one update can fire between selection and the certification check, and an EB filled this way cannot fail fee validation when certified. The admission-side counterpart of this rule is described under Revalidation and stale fees.
+
+As such, in order for the system to operate, transactions must be submitted with a suitable buffer. The controller's step bound makes "suitable" precise: the quote can rise by at most a factor of (1 + 1/D) per block, so a max fee of quote × (1 + 1/D)^k survives k blocks of worst-case price movement - roughly 27% of headroom over four blocks at the recommended D = 16. In order for adding a buffer to be palatable, a mechanism must be present to refund the difference between the posted fee and the actual price a transaction is charged for admission to the block. This mechanism is described in <fee change CIP link>.
+
+The urgent premium is scoped to the ranking block (rb-only): an urgent transaction that is instead included via an endorser block pays the standard quote at inclusion time, and the refund returns everything above it. The premium buys the reserved lane; a user whose transaction does not receive ranking-block inclusion does not pay for it.
+
+Settlement must never silently cap the charge below the applicable quote. If the posted maximum does not cover the inclusion-point quote, the transaction is invalid for inclusion. The max-of-lane fee-cap rule above makes that invariant hold even while the lane quotes are inverted.
+
+Settlement at inclusion splits the posted bid three ways:
+
+```mermaid
+flowchart LR
+    INC["Transaction included:<br/>posted bid b,<br/>quote q at inclusion time"] --> BASE["Base: the ordinary min fee,<br/>to the fee pot"]
+    INC --> PREM["Premium: q minus base,<br/>to the treasury"]
+    INC --> REF["Refund: b minus q,<br/>to the refund account"]
+    EBNOTE["Urgent transaction included<br/>via EB: q is the<br/>standard quote"] -.-> INC
+```
 
 ### Endorser-block announcement threshold
 
@@ -182,6 +313,25 @@ The bribery analysis is correspondingly short. Because RB access is never sold b
 
 The threshold alone can starve a trickle: at very light standard traffic, pooled transactions below the byte bar may wait indefinitely, and anything depending on their outputs waits with them. We therefore add a time-gated escape: an EB may also be announced below the threshold when at least K ranking blocks have been produced since the last EB announcement. The condition references only chain history, so it is checkable on-chain like the threshold itself, and it bounds both sides of the trade: a standard transaction waits at most K ranking-block intervals for a batch, while below-threshold certificates are structurally limited to at most one per K intervals, so the certificates-pay-for-themselves property degrades from per-certificate to amortised, bounded by 1/K. The escape is permissive, not compulsory - announcing remains a producer action, and the suppression analysis above is unchanged. Simulation validates both halves of the escape's contract. At a 0.1 tx/slot trickle - where the pure threshold starves the standard lane totally (0% of its value retained) - the escape at K = 10 repairs it (+83.39 ± 8.59 percentage points standard retained value, ten of ten seeds) at no measurable urgent-lane cost. And at ordinary low load, where traffic crosses the threshold naturally, K = 10 leaves the mechanism bit-identical to the pure threshold in every seed: the escape never fires outside the regime it exists for, so it imposes no steady certificate tax. The rule remains removable without touching any other rule.
 
+The complete announcement decision; both conditions reference only on-chain data:
+
+```mermaid
+flowchart LR
+    P["Selected EB payload"] --> T1{"Payload at or above<br/>the byte threshold?"}
+    T1 -- "yes" --> A["EB may be announced"]
+    T1 -- "no" --> T2{"At least K ranking blocks<br/>since the last<br/>EB announcement?"}
+    T2 -- "yes: age escape" --> A
+    T2 -- "no" --> W["Transactions pool<br/>for the next batch"]
+    classDef enforced stroke-width:3px,font-weight:bold;
+    class T1,T2 enforced;
+```
+
+The starvation and its repair are visible directly in the simulation's demand-fate panels (one representative seed; identical crop and scale):
+
+![Demand fate and retained value at a 0.1 tx/slot trickle with no age escape: every standard class is entirely unresolved and no standard value is retained](../figures/trickle-0p1-thr-noescape-seed-2.png)
+
+![Demand fate and retained value at the same trickle with the age escape at K = 10: all standard units are included and most standard value is retained](../figures/trickle-0p1-thr-k10-seed-2.png)
+
 The threshold expression tracks the fee controller's headroom, but never falls below half the RB byte cap. Both halves of the rule were validated in a parameter stress test (ten seeds, three load profiles, target utilisation and max-change denominator swept around their defaults; see the experiment report). The intuition: a low target utilisation deliberately runs ranking blocks emptier, so the urgent lane needs more of them to move the same traffic, and certificates must be correspondingly rarer - the threshold rises with headroom. But a certificate's cost does not shrink when the controller runs blocks hotter, so the threshold must not follow shrinking headroom downward - hence the floor, below which certificates stop paying for the block space they consume.
 
 The same stress test bounds the controller parameters themselves. Inside the envelope (target utilisation 0.5-0.75, max-change denominator 8-16) the mechanism never falls below the flat-fee baseline at any load. At target 0.5 the advantage holds at every load; at target 0.75 it holds at every load except EB-saturating traffic, where it narrows to parity - the same worst case the design itself accepts at low load. Outside the envelope the mechanism inverts: at target utilisation 0.25 it retains less value than a flat fee under launch-day load. The threshold expression and the controller parameters are therefore specified as updatable protocol parameters, with the swept envelope recorded alongside them; retuning outside it should be treated as a mechanism change requiring re-analysis, not a routine parameter update. The parameters, their recommended defaults, and their validated envelopes:
@@ -195,7 +345,9 @@ The same stress test bounds the controller parameters themselves. Inside the env
 | EB announcement threshold | max((1 - targetUtilisation) × RB byte cap, RB byte cap / 2); 45,056 B at defaults | formula validated at targets 0.25-0.75 |
 | EB announcement age escape (K) | 10 RB intervals | K ∈ {5, 10, 20} swept at trickle loads; 10 is bit-identical to no escape at ordinary low load and repairs trickle starvation at no urgent cost |
 | Absolute coefficient floor | 1.0 × ordinary min fee | not swept |
-| Cross-lane multiplier floor | none | tested at 3× and 16×, rejected | See the [parameter stress test section of the experiment report](https://github.com/input-output-hk/tiered-pricing/blob/main/docs/phase-2/preliminary-experiment-report.md#parameter-stress-test-controller-settings-and-the-threshold-rule).
+| Cross-lane multiplier floor | none; temporary quote crossings are permitted, with urgent max-fee checks using the larger current quote | tested at 3× and 16×, rejected |
+
+See the [parameter stress test section of the experiment report](https://github.com/input-output-hk/tiered-pricing/blob/main/docs/phase-2/preliminary-experiment-report.md#parameter-stress-test-controller-settings-and-the-threshold-rule).
 
 The instability that excludes denominator 4 is visible directly in the price trace. The figures below show the per-lane price coefficient over a single severe-congestion run (2,000 slots, seed 0, target utilisation 0.5), identical in every respect except the max-change denominator. At denominator 4 the run records 88 price moves exceeding 10% (the largest a 25% jump), and the urgent coefficient completes six full oscillation cycles with a peak-to-trough amplitude of 6.7×. At denominator 16 the same run records no move exceeding 10% (the largest is 6.3%), one oscillation cycle, and an amplitude of 1.8×, while serving the same demand (98.8% vs 97.9%).
 
@@ -207,13 +359,15 @@ TODO: fold the standard-lane batching cost into the Incentives fairness discussi
 
 ### Incentives
 
-
+NICOLAS TODO
 
 ## Rationale: how does this CIP achieve its goals?
 
 This CIP specifies a design, reinforces the design choice with experimental evidence, validates the design with formal specifications and proofs, and proves implementability with a prototype.
 
 ### Experimental evidence
+
+> **Evidence scope.** Except for the dedicated 3×/16× multiplier-floor experiment, the quantitative tables below and in the preliminary report were generated with no cross-lane floor (`multiplierFloor: null`) and before the max-of-two fee-cap correction above. They remain evidence for the independently controlled, no-floor mechanism, but they are not post-correction estimates of welfare during a quote inversion, and no claim is made that every historical row is bit-identical under the corrected wallet rule. The targeted ten-seed denominator-8 launch-day experiment found no statistically detectable max-of-two shift in its headline welfare metrics; the matched denominator-16 check and the integrated canonical D16/K10 check were each exactly unchanged across all 550 reported scalar values. These are bounded smoke scenarios rather than a rerun of every table or a powered equivalence test, and direct inversion exposure is retained only for three denominator-8 seeds.
 
 Our experimental setup was as follows:
 
@@ -230,9 +384,15 @@ Our experimental setup was as follows:
 
 We ran 10 seeds of a 2000 slot simulation under five load profiles: `severe-congestion` (mean 40 tx/slot in slots 0-249 and 1750-1999, mean 160 tx/slot in slots 250-1749), `low` (constant 3 tx/slot, below RB saturation), `mid-load` (constant 5 tx/slot, just above RB saturation), `eb-capacity-stress` (repeated peaks up to ~396 tx/slot driving demand against the EB byte cap), and `launch-day` (offered demand pinned at the EB byte capacity with the urgency mix skewed upward, calibrated to the January 2022 SundaeSwap launch).
 
-The recommended mechanism is both-dynamic-strict-threshold with a 5-sample signal window, calibrated at target utilisation 0.5 with max-change denominator 16. (The quantitative results below are from the denominator-8 anchor configuration; the stress test shows the two calibrations are welfare-equivalent at every swept load at baseline demand elasticity, with denominator 16 eliminating price shocks. Under an extreme high-value demand mix, denominator 8 retains ~2 percentage points more at a large stability cost; 16 remains the default on the asymmetry of those error modes, with 8 available inside the validated envelope should persistently steep demand emerge.) Under severe congestion it improves urgent retained value from 44.32% (flat fee) to 51.55% (+7.23 ± 1.64 percentage points, paired over ten seeds) and reduces urgent mean latency from 2.91 to 2.44 blocks. At mid load it beats flat fee by +3.04 ± 1.17 percentage points (ten of ten seeds), and under the EB-stressing load by +7.38 ± 3.73 (nine of ten). At low load - the regime where plain reservation regresses below flat fee - the EB threshold restores statistical parity with the flat-fee baseline (+1.01 ± 1.46, confidence interval spanning zero). Under the launch-day profile it beats flat fee by +5.83 ± 4.22 percentage points of offered value (eight of ten seeds), through admission rather than latency: the rising standard quote makes low-surplus demand decline to submit, and what remains is included with near-certainty rather than decaying in a jammed mempool.
+The recommended mechanism is both-dynamic-strict-threshold with a 5-sample signal window, calibrated at target utilisation 0.5 with max-change denominator 16. Under severe congestion it improves urgent retained value from 44.32% (flat fee) to 50.97% (+6.65 ± 2.40 percentage points, paired over ten seeds against a matched flat-fee control) and reduces urgent mean latency from 2.91 to 2.52 blocks. (The remaining per-load figures below are from the denominator-8 anchor configuration behind the experiment report's comparison tables; the stress test shows the two calibrations are welfare-equivalent at every swept load at baseline demand elasticity, with denominator 16 eliminating price shocks - the mid-load profile was not part of that sweep, so there the equivalence is inferred rather than measured. Under an extreme high-value demand mix, denominator 8 retains ~2 percentage points more at a large stability cost; 16 remains the default on the asymmetry of those error modes, with 8 available inside the validated envelope should persistently steep demand emerge.) At mid load it beats flat fee by +3.04 ± 1.17 percentage points (ten of ten seeds), and under the EB-stressing load by +7.38 ± 3.73 (nine of ten). At low load - the regime where plain reservation regresses below flat fee - the EB threshold restores statistical parity with the flat-fee baseline (+1.01 ± 1.46, confidence interval spanning zero). Under the launch-day profile it beats flat fee by +5.83 ± 4.22 percentage points of offered value (eight of ten seeds), through admission rather than latency: the rising standard quote makes low-surplus demand decline to submit, and what remains is included with near-certainty rather than decaying in a jammed mempool.
 
 The other families were eliminated as follows. Flat fee and single-lane EIP-1559 provide no way to signal urgency, and leave urgent value on the table at every contended load. The open variants cannot be enforced on the ledger, and therefore permit bribery, as discussed in the Specification; they retain a small measurable lead where capacity is slack (~1-1.6 percentage points at low and mid load), which we accept as the price of enforceability. Plain reservation falls below the flat-fee baseline at low load, because every scrap of standard overflow triggers a thin EB whose certificate consumes ranking-block space. Work-conserving variants that admitted standard transactions into underfull RBs at the standard rate retained the most value at light loads, but create an unavoidable bribery incentive and were rejected. Long signal windows (10-20 samples) reduce shock counts but trade retention for larger peak-to-trough price swings; the 5-sample window is the compromise point. We prefer both-dynamic over priority-only for two reasons. Under the EB-stressing load (37.50% vs 32.92% urgent retained value), it is the standard-lane price that sheds the demand saturating the endorser block. Under the launch-day load the preference hardens into a requirement: reservation over a statically-priced standard lane delivers nothing at all - unpriced standard traffic squats in the shared mempool and starves the reserved lane at admission, leaving priority-only-reserved statistically indistinguishable from flat fee - while both-dynamic under the same reservation rule clearly beats it. Ledger enforceability therefore requires the both-dynamic family. At the remaining loads (low, mid, severe congestion), where standard traffic never contends for the ranking block, the two families behave identically.
+
+The launch-day contrast is visible in the demand-fate and value panels for a representative seed. In the first figure, note the priority (Pri) rows: under reservation over a statically-priced standard lane, priority demand itself is heavily abandoned, because it bounces at admission behind the standard-lane jam. Under both-dynamic with the same reservation rule, most demand is included and most value retained.
+
+![Demand fate and retained value by urgency class under launch-day load with reservation over a statically-priced standard lane: heavy abandonment and lost value across both standard and priority classes](../figures/launch-day-priority-only-reserved-seed-2.png)
+
+![Demand fate and retained value by urgency class under launch-day load with the recommended both-dynamic mechanism: most demand included and most value retained](../figures/launch-day-both-dynamic-strict-threshold-seed-2.png)
 
 Finally, the recommended design was stress-tested along the parameter axis as well as the load axis: a sweep of target utilisation {0.25, 0.5, 0.75} × max-change denominator {4, 8, 16}, ten seeds, under low, severe-congestion, launch-day, and EB-capacity-stress loads. Inside the envelope of target utilisation 0.5-0.75 and denominator 8-16 the mechanism never falls below the flat-fee baseline at any load (at target 0.5 the advantage holds at every load; at 0.75 it narrows to parity under the EB-stressing load), and the failures outside that envelope are informative rather than gradual: at target utilisation 0.25 the mechanism retains less value than flat fee under launch-day load, and at denominator 4 price stability degrades at every load. A cross-lane multiplier floor (a rule holding the urgent quote at or above a fixed multiple of the standard quote) was also tested and rejected: it overprices the urgent lane precisely when capacity is slack, costing 9-15 percentage points of urgent retained value at low load. A demand-elasticity stress test (all values scaled 10×; 10-25% of arrivals at 100× values; each mix against its own flat-fee control) preserves the advantage at every mix and shows it growing with the share of high-value demand. The threshold expression and the announcement age escape in the Specification are direct products of these tests.
 
@@ -253,9 +413,5 @@ Transaction urgency signalling changes the rules by which transactions are admit
 The mechanism is enabled by a hard-fork event, either as part of the linear-Leios hard fork or in a later hard fork. Incompatible changes require a successor CIP and a subsequent protocol version.
 
 Additionally, this CIP is dependent on the fee refund CIP <link the fee refund CIP>.
-
-## NEW SECTION: TODO tipping via nested transactions
-
-## TODO ADD SOME IMAGES
 
 ## Copyright

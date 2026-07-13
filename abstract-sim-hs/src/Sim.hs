@@ -24,12 +24,12 @@ import Data.Maybe (catMaybes, mapMaybe)
 import Data.Sequence (Seq, singleton, (><), (|>))
 import Data.Sequence qualified as Seq
 import Data.Set qualified as Set
-import Design (Design (..), FeeSemantics, ReservationPolicy (..))
+import Design (Design (..), FeeSemantics, PriorityPremiumScope, ReservationPolicy (..))
 import Event (SimEvent (..))
 import Load (arrivalRateAt, tryBurstEffectAt)
 import Data.List (sortOn)
 import Mempool (Mempool (..), admitToMempool, emptyMempool, removeFromMempool, setMempoolTxs)
-import Pricing (ControllerInput (..), Prices (..), admissionRequiredFee, coversProducerHeadroom, feeStillValid, initialPrices, quotedFee, realisedFee, retentionWindow, updatePrices)
+import Pricing (ControllerInput (..), Prices (..), admissionRequiredFee, coversProducerHeadroom, feeStillValid, initialPrices, realisedFee, requiredMaxFee, retentionWindow, updatePrices)
 import Resource (Bytes (..), ExUnits (..), Resources (..))
 import Retry (PendingRetry (..), RetryPolicy (..), capture)
 import System.Random (StdGen, uniformR)
@@ -120,7 +120,13 @@ admitTxSubmission (TxSubmission actorId tx) = do
   design <- asks simConfigDesign
   headroomUpdates <- asks simConfigAdmissionHeadroomUpdates
   let requiredFee =
-        admissionRequiredFee design.designControllers headroomUpdates design.designFeeSemantics prices tx
+        admissionRequiredFee
+          design.designControllers
+          headroomUpdates
+          design.designPriorityPremiumScope
+          design.designFeeSemantics
+          prices
+          tx
   mempool <- gets _simMempool
   simTxs <- gets _simTxs
   mempoolBytesCap <- asks simConfigMempoolBytesCap
@@ -175,6 +181,7 @@ submissionEnv = do
   pure
     SubmissionEnv
       { envLaneStructure = design.designLaneStructure
+      , envPriorityPremiumScope = design.designPriorityPremiumScope
       , envF = f
       , envSlot = slot
       , envPrices = prices
@@ -420,7 +427,7 @@ pendingEbStillValid design slot pending = do
   prices <- gets _simPrices
   pure
     ( all
-        (feeStillValid design.designFeeSemantics slot prices)
+        (feeStillValid design.designPriorityPremiumScope design.designFeeSemantics slot prices)
         (maybe [] _ebTxs (Map.lookup pending.pendingEbId ebs))
     )
 
@@ -453,7 +460,7 @@ producePraosBlock design slot rbCapacity = do
   prices <- gets _simPrices
   mempool <- gets _simMempool
   let (feeCheckedMempool, evictionEvents) =
-        evictStaleFees design.designFeeSemantics slot prices mempool
+        evictStaleFees design.designPriorityPremiumScope design.designFeeSemantics slot prices mempool
       (selectedTxs, remainingTxs, _usage, _selectionMode) =
         selectRbTxs design.designSelection design.designReservationPolicy rbCapacity feeCheckedMempool.mempoolTxs
       selectedTxList = toList selectedTxs
@@ -489,7 +496,7 @@ announceEndorserBlock slot rbSignalCapacity = do
   design <- asks simConfigDesign
   mempool <- gets _simMempool
   let (feeCheckedMempool, evictionEvents) =
-        evictStaleFees design.designFeeSemantics slot prices mempool
+        evictStaleFees design.designPriorityPremiumScope design.designFeeSemantics slot prices mempool
       -- Producer headroom ('Pricing.coversProducerHeadroom'): fill the EB
       -- only with txs that stay valid through the single price update that
       -- can fire before the certification check, so a prudent producer's
@@ -497,7 +504,11 @@ announceEndorserBlock slot rbSignalCapacity = do
       -- stay in the mempool (RB-eligible only as the reservation policy
       -- allows) and regain EB eligibility if prices fall.
       ebEligible =
-        coversProducerHeadroom design.designControllers design.designFeeSemantics prices
+        coversProducerHeadroom
+          design.designControllers
+          design.designPriorityPremiumScope
+          design.designFeeSemantics
+          prices
       (selectedTxs, _remainingTxs, _usage) =
         selectTxsByPolicy design.designSelection ebCapacity (Seq.filter ebEligible feeCheckedMempool.mempoolTxs)
       selectedTxList = toList selectedTxs
@@ -529,19 +540,19 @@ announceEndorserBlock slot rbSignalCapacity = do
           }
       pure $ evictionEvents |> BlockProduced slot summary
 
-evictStaleFees :: FeeSemantics -> SlotNo -> Prices -> Mempool -> (Mempool, Seq SimEvent)
-evictStaleFees semantics slot prices mempool =
+evictStaleFees :: PriorityPremiumScope -> FeeSemantics -> SlotNo -> Prices -> Mempool -> (Mempool, Seq SimEvent)
+evictStaleFees scope semantics slot prices mempool =
   (setMempoolTxs keptTxs, evictions)
  where
   (keptTxs, evictions) =
     foldl' checkTx (mempty, mempty) mempool.mempoolTxs
 
   checkTx (kept, events) tx
-    | feeStillValid semantics slot prices tx =
+    | feeStillValid scope semantics slot prices tx =
         (kept |> tx, events)
     | otherwise =
-        (kept, events |> staleFeeEviction slot prices tx)
+        (kept, events |> staleFeeEviction scope slot prices tx)
 
-staleFeeEviction :: SlotNo -> Prices -> Tx -> SimEvent
-staleFeeEviction slot prices tx =
-  TxEvicted slot tx.txId (FeeTooLowAtSelection tx.txBody._txFee (quotedFee prices tx))
+staleFeeEviction :: PriorityPremiumScope -> SlotNo -> Prices -> Tx -> SimEvent
+staleFeeEviction scope slot prices tx =
+  TxEvicted slot tx.txId (FeeTooLowAtSelection tx.txBody._txFee (requiredMaxFee scope prices tx))

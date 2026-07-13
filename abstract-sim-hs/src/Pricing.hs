@@ -5,6 +5,8 @@ module Pricing (
   initialPrices,
   quotedFee,
   quotedFeeFor,
+  requiredMaxFee,
+  requiredMaxFeeFor,
   realisedFee,
   admissionRequiredFee,
   coversProducerHeadroom,
@@ -57,6 +59,26 @@ quotedFeeFor :: Prices -> Lane -> Int -> Script -> Lovelace
 quotedFeeFor prices lane txBytes script =
   Lovelace (ceiling (laneCoeff prices lane * minFee txBytes script))
 
+{- | The max fee a transaction must cover at a set of prices. Under
+'PremiumRbOnly', a priority transaction can settle against either quote:
+the priority quote in an RB, or the standard quote in an EB. Its cap must
+therefore cover the larger quote even when the independently controlled
+lanes temporarily invert. Other transactions have only one possible
+settlement quote.
+-}
+requiredMaxFee :: PriorityPremiumScope -> Prices -> Tx -> Lovelace
+requiredMaxFee scope prices tx =
+  requiredMaxFeeFor scope prices tx.txLane tx.txBody._txSize tx.txBody._txScript
+
+requiredMaxFeeFor :: PriorityPremiumScope -> Prices -> Lane -> Int -> Script -> Lovelace
+requiredMaxFeeFor scope prices lane txBytes script =
+  case (scope, lane) of
+    (PremiumRbOnly, Priority) -> max standardQuote postedLaneQuote
+    _ -> postedLaneQuote
+ where
+  standardQuote = quotedFeeFor prices Standard txBytes script
+  postedLaneQuote = quotedFeeFor prices lane txBytes script
+
 {- | Conway mainnet min fee. '_scriptSize' is reference-script bytes: priced
 per byte, but the script lives in the UTxO set, so it contributes to no tx or
 block byte capacity. '_scriptExUnits' is the memory-equivalent scalar (see the
@@ -73,7 +95,9 @@ minFee txBytes script =
 node keeps the quote at inclusion and refunds the rest of the posted max fee;
 'FixedFee' and 'HonourSubmissionQuoteFor' charge the posted fee in full. The
 quoted lane is the posted lane, except under 'PremiumRbOnly' where EB
-inclusion is quoted at the standard lane ('Design.PriorityPremiumScope').
+inclusion is quoted at the standard lane ('Design.PriorityPremiumScope'). An
+underfunded 'Eip1559' settlement is an invariant breach: validation must reject
+it rather than silently charging less than the inclusion quote.
 -}
 realisedFee :: PriorityPremiumScope -> FeeSemantics -> Prices -> InclusionPoint -> Tx -> Lovelace
 realisedFee scope semantics prices inclusionPoint tx =
@@ -89,16 +113,27 @@ realisedFeeAtLane chargedLane semantics prices tx =
   case semantics of
     FixedFee -> postedFee
     HonourSubmissionQuoteFor _ -> postedFee
-    Eip1559 ->
-      min postedFee (quotedFeeFor prices chargedLane tx.txBody._txSize tx.txBody._txScript)
+    Eip1559
+      | postedFee >= inclusionQuote -> inclusionQuote
+      | otherwise ->
+          error
+            ( "realisedFee: validated tx "
+                <> show tx.txId
+                <> " has max fee "
+                <> show postedFee
+                <> " below its inclusion quote "
+                <> show inclusionQuote
+            )
  where
   postedFee = tx.txBody._txFee
+  inclusionQuote = quotedFeeFor prices chargedLane tx.txBody._txSize tx.txBody._txScript
 
 laneCoeff :: Prices -> Lane -> Double
 laneCoeff prices lane = atLane lane prices.laneCoeffs
 
-{- | The fee a tx must post to enter the mempool: the quote after
-@headroomUpdates@ worst-case controller steps.
+{- | The fee a tx must post to enter the mempool: its required max fee after
+@headroomUpdates@ worst-case controller steps. For an rb-only priority tx this
+is the larger possible inclusion quote.
 
 This is the admission-side complement of the producer headroom
 ('coversProducerHeadroom'), and with a horizon of 1 it is deliberately
@@ -110,11 +145,11 @@ rising while an admitted tx waits its turn — admission keeps the mempool
 serviceable, the producer check keeps certified EBs valid. 'FixedFee' never
 re-prices, so it needs no headroom.
 -}
-admissionRequiredFee :: ControllerConfig -> Int -> FeeSemantics -> Prices -> Tx -> Lovelace
-admissionRequiredFee controllers headroomUpdates semantics prices tx =
+admissionRequiredFee :: ControllerConfig -> Int -> PriorityPremiumScope -> FeeSemantics -> Prices -> Tx -> Lovelace
+admissionRequiredFee controllers headroomUpdates scope semantics prices tx =
   case semantics of
     FixedFee -> quotedFee prices tx
-    _ -> quotedFee (priceStepsAhead controllers headroomUpdates prices) tx
+    _ -> requiredMaxFee scope (priceStepsAhead controllers headroomUpdates prices) tx
 
 {- | Producer headroom: does this tx stay valid through the single price
 update that can fire before the certification check? A prudent producer
@@ -126,19 +161,19 @@ because they may have risen while the tx waited. For
 certification check, so only the price bound guarantees safety; 'FixedFee'
 never re-prices, so everything is safe.
 -}
-coversProducerHeadroom :: ControllerConfig -> FeeSemantics -> Prices -> Tx -> Bool
-coversProducerHeadroom controllers semantics prices tx =
+coversProducerHeadroom :: ControllerConfig -> PriorityPremiumScope -> FeeSemantics -> Prices -> Tx -> Bool
+coversProducerHeadroom controllers scope semantics prices tx =
   case semantics of
     FixedFee -> True
-    _ -> tx.txBody._txFee >= quotedFee (priceStepsAhead controllers 1 prices) tx
+    _ -> tx.txBody._txFee >= requiredMaxFee scope (priceStepsAhead controllers 1 prices) tx
 
 {- | Staleness per the design's fee semantics: under 'Eip1559' the posted max
-fee must still cover the current quote; 'HonourSubmissionQuoteFor' defers
-that check until the honour window after submission has elapsed; 'FixedFee'
-never goes stale.
+fee must still cover every possible current inclusion quote;
+'HonourSubmissionQuoteFor' defers that check until the honour window after
+submission has elapsed; 'FixedFee' never goes stale.
 -}
-feeStillValid :: FeeSemantics -> SlotNo -> Prices -> Tx -> Bool
-feeStillValid semantics slot prices tx =
+feeStillValid :: PriorityPremiumScope -> FeeSemantics -> SlotNo -> Prices -> Tx -> Bool
+feeStillValid scope semantics slot prices tx =
   case semantics of
     FixedFee -> True
     Eip1559 -> coversCurrentQuote
@@ -146,7 +181,7 @@ feeStillValid semantics slot prices tx =
       diffSlots slot tx.txSubmitted <= honourFor || coversCurrentQuote
  where
   coversCurrentQuote =
-    tx.txBody._txFee >= quotedFee prices tx
+    tx.txBody._txFee >= requiredMaxFee scope prices tx
 
 minFeeA :: Integer
 minFeeA = 44

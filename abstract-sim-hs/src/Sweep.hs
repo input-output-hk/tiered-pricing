@@ -13,13 +13,15 @@ a reviewable, versionable artifact rather than a shell invocation:
     { "name": "two-lane-open", "config": "config\/variants\/no-reservation.json" } ] }
 @
 
-Every (variant, seed) pair is one full traced run. The output directory is
+By default, every (variant, seed) pair is one full traced run. With
+@--summary-only@, the same events are folded into the same metrics but are not
+serialised, avoiding large JSONL files. The output directory is
 self-contained for reproduction: the resolved spec is embedded in
-@summary.json@, each variant's config is copied alongside the traces, and an
-optional @--load-profile@ file is copied as @selected-load-profile.json@.
-Preset and file overrides are written into those effective variant configs.
-@f@ and @D@ are not sweep axes: they stay fixed at the justified values in
-each config.
+@summary.json@, each variant's effective config is copied alongside it, and
+an optional @--load-profile@ file is copied as
+@selected-load-profile.json@. Preset and file overrides are written into
+those effective variant configs. @f@ and @D@ are not sweep axes: they stay
+fixed at the justified values in each config.
 -}
 module Sweep (
   LoadOverride (..),
@@ -61,7 +63,7 @@ import Metrics (
   weightedMean,
  )
 import Parser (parseSimConfig)
-import Run (Run (..), Seed, runWithSeedToFile)
+import Run (Run (..), Seed, runWithSeed, runWithSeedToFile)
 import System.Directory (copyFile, createDirectoryIfMissing)
 import System.FilePath ((</>))
 import Text.Printf (printf)
@@ -81,6 +83,8 @@ data SweepSpec = SweepSpec
   -- ^ Forces every variant onto either a named preset or a file-backed load
   -- profile. Manifest @"load"@ values select presets; command-line flags can
   -- select either form.
+  , sweepSummaryOnly :: Bool
+  -- ^ Fold all events into metrics without writing per-run JSONL traces.
   , sweepVariants :: [SweepVariant]
   }
   deriving (Eq, Show)
@@ -100,11 +104,12 @@ data SweepOverrides = SweepOverrides
   , overrideSlots :: Maybe Int
   , overrideOut :: Maybe FilePath
   , overrideLoad :: Maybe LoadOverride
+  , overrideSummaryOnly :: Bool
   }
   deriving (Eq, Show)
 
 parseSweepArgs :: [String] -> Either String (FilePath, SweepOverrides)
-parseSweepArgs = go (Nothing, SweepOverrides Nothing Nothing Nothing Nothing)
+parseSweepArgs = go (Nothing, SweepOverrides Nothing Nothing Nothing Nothing False)
  where
   go (manifest, overrides) = \case
     [] ->
@@ -123,6 +128,8 @@ parseSweepArgs = go (Nothing, SweepOverrides Nothing Nothing Nothing Nothing)
       go (manifest, overrides{overrideLoad = Just (LoadPreset value)}) rest
     "--load-profile" : path : rest ->
       go (manifest, overrides{overrideLoad = Just (LoadProfileFile path)}) rest
+    "--summary-only" : rest ->
+      go (manifest, overrides{overrideSummaryOnly = True}) rest
     arg : rest
       | take 2 arg == "--" -> Left ("sweep: unknown flag " <> arg)
       | Nothing <- manifest -> go (Just arg, overrides) rest
@@ -141,6 +148,7 @@ applyOverrides overrides spec =
     , sweepSlots = fromMaybe spec.sweepSlots overrides.overrideSlots
     , sweepOutDir = fromMaybe spec.sweepOutDir overrides.overrideOut
     , sweepLoadOverride = overrides.overrideLoad <|> spec.sweepLoadOverride
+    , sweepSummaryOnly = overrides.overrideSummaryOnly || spec.sweepSummaryOnly
     }
 
 data ParseSweepSpec = ParseSweepSpec
@@ -149,6 +157,7 @@ data ParseSweepSpec = ParseSweepSpec
   , parseSweepSlots :: Maybe Int
   , parseSweepOut :: Maybe FilePath
   , parseSweepLoad :: Maybe String
+  , parseSweepSummaryOnly :: Maybe Bool
   , parseSweepVariants :: [ParseSweepVariant]
   }
 
@@ -161,6 +170,7 @@ instance FromJSON ParseSweepSpec where
         <*> obj .:? "slots"
         <*> obj .:? "out"
         <*> obj .:? "load"
+        <*> obj .:? "summaryOnly"
         <*> obj .: "variants"
 
 data ParseSweepVariant = ParseSweepVariant
@@ -197,6 +207,7 @@ fromParseSweepSpec parsed = do
       , sweepSlots = fromMaybe 2_000 parsed.parseSweepSlots
       , sweepOutDir = fromMaybe "sweep-results" parsed.parseSweepOut
       , sweepLoadOverride = LoadPreset <$> parsed.parseSweepLoad
+      , sweepSummaryOnly = fromMaybe False parsed.parseSweepSummaryOnly
       , sweepVariants = variants
       }
  where
@@ -277,7 +288,10 @@ writeEffectiveConfig (Just selectedLoad) src dest = do
 runPoint :: SweepSpec -> String -> SimConfig -> Seed -> IO (Seed, RunScalars)
 runPoint spec name config seed = do
   let tracePath = spec.sweepOutDir </> (name <> "-seed" <> show seed <> ".events.jsonl")
-  result <- runWithSeedToFile config tracePath seed spec.sweepSlots
+  result <-
+    if spec.sweepSummaryOnly
+      then runWithSeed config seed spec.sweepSlots
+      else runWithSeedToFile config tracePath seed spec.sweepSlots
   let metrics = result._runResult
       scalars = headlineScalars metrics
   forceScalars scalars
@@ -299,8 +313,9 @@ progressLine metrics =
 {- | The per-run scalars that get aggregated across seeds: one declaration
 binding each scalar's name to its accessor, so producers and consumers cannot
 drift apart by key typo. The full 'Metrics' detail (slices, percentiles,
-price trace) stays available in each run's events trace and per-run analysis;
-this list is what design comparisons are made on.
+price trace) stays available in each run's events trace and per-run analysis
+when tracing is enabled. Summary-only runs intentionally retain just these
+comparison scalars.
 -}
 headline :: [(String, Metrics -> Double)]
 headline =
@@ -532,6 +547,7 @@ summaryJson spec resolvedLoad variants =
     [ "description" .= spec.sweepDescription
     , "slots" .= spec.sweepSlots
     , "seeds" .= spec.sweepSeeds
+    , "summaryOnly" .= spec.sweepSummaryOnly
     , "loadOverride" .= fmap loadOverrideJson resolvedLoad
     , "loadProfile" .= (resolvedLoad >>= selectedProfileJson)
     , "variants" .= fmap variantJson variants

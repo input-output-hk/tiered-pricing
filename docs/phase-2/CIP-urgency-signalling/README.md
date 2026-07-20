@@ -421,17 +421,15 @@ The prototype exercises the transaction lifecycle specified above on a real netw
 - The ranking-block rule is a ledger rule. A transaction whose max fee does not cover the urgent quote fails with `BidBelowQuote`.
 - Both quotes are repriced inside block application. A certified endorser block enters the price signals exactly once, at certification.
 - Settlement is measured from ledger state, block by block. The min-fee component accumulates in the fee pot, the premium in the treasury, and the excess returns to a refund account named in the transaction body. The three pots sum exactly to what senders paid.
-- The mempool re-validates under moving prices. A rising quote evicts the transactions whose max fee it overtakes.
-- Endorser-block announcement is gated by the byte threshold (45,056 bytes at the default target); below it, the standard lane pools.
+- The mempool admits one worst-case controller step ahead and re-validates under moving prices. A rising quote evicts the transactions whose max fee it overtakes.
+- Endorser-block announcement is gated by the byte threshold (45,056 bytes at the default target) and the K = 10 age escape: below the threshold the standard lane pools, and a trickle is released after at most ten ranking blocks.
 - A withheld certificate stalls the standard lane until votes resume, isolating the certification dependency described in the Specification.
 
-The prototype predates parts of the recommended construction and diverges from it in calibration and scope. Its controller runs the recommended calibration (target utilisation 0.5, max-change denominator 16), but it enforces a 3× cross-lane floor where the construction adopts none.
-
-It does not implement the K = 10 announcement age escape. Its endorser blocks are gated by the byte threshold alone, so a very light standard trickle can pool below the bar indefinitely. The escape exists to bound exactly that wait: it allows a below-threshold announcement once K = 10 ranking blocks have passed since the last one.
+The prototype runs the recommended construction: the controller calibration (target utilisation 0.5, max-change denominator 16), no cross-lane floor, the urgent lane's 2× initial coefficient, admission one worst-case controller step ahead, the announcement byte threshold, and the K = 10 announcement age escape. One controller simplification remains: it reads one utilisation sample per block, rather than the 5-sample and 20-block windows specified above.
 
 Its demand feeder also keeps the lanes disjoint: an urgent transaction is only ever included through a ranking block. The rb-only rule specified above additionally allows an urgent transaction to be included through an endorser block, charged the standard quote at inclusion with the excess refunded. That settlement path is therefore specified but unexercised by the prototype.
 
-None of these divergences touch what the prototype exists to show: the lane rules, the repricing, and the settlement are implementable in the real ledger and node, and they behave correctly under live load.
+Neither simplification touches what the prototype exists to show: the lane rules, the repricing, and the settlement are implementable in the real ledger and node, and they behave correctly under live load.
 
 ## Path to Active
 

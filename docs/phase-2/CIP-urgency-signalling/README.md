@@ -414,7 +414,7 @@ https://github.com/user-attachments/assets/7f8f70f7-006c-452a-9086-6101a52c7d63
 
 The two lanes live on the devnet (8 min): rush hour, a price squeeze with real evictions, the measured pots, a certification miss and its heal, the quiet end. Captions included.
 
-The mechanism has also been implemented end to end. The prototype patches the linear-Leios prototype node directly: the ledger rules, the consensus mempool, the node's transaction submission path, and the trace pipeline. It runs a three-node Dijkstra devnet with a live dashboard and a simulated crowd of senders choosing lanes against the live quotes. The code and a one-command launcher are available in the [prototype repository](https://github.com/nhenin/dynamic-pricing).
+The mechanism has also been implemented end to end. The prototype patches the linear-Leios prototype node directly: the ledger rules, the consensus mempool, the node's transaction submission path, and the trace pipeline. It runs a three-node Dijkstra devnet with a live dashboard and a simulated crowd of senders choosing lanes against the live quotes. Full details live in the [prototype repository](https://github.com/nhenin/dynamic-pricing): the code and a one-command launcher, the per-repository change sets, the design documents, and a section mapping the prototype's vocabulary and calibration to this CIP.
 
 The prototype exercises the transaction lifecycle specified above on a real network rather than a simulator:
 

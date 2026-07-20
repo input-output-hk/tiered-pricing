@@ -425,7 +425,7 @@ The prototype exercises the transaction lifecycle specified above on a real netw
 - Endorser-block announcement is gated by the byte threshold (45,056 bytes at the default target); below it, the standard lane pools.
 - A withheld certificate stalls the standard lane until votes resume, isolating the certification dependency described in the Specification.
 
-The prototype predates parts of the recommended construction and diverges from it in calibration and scope. It runs the max-change denominator at 8, the other end of the validated 8-16 envelope. It enforces a 3× cross-lane floor where the construction adopts none.
+The prototype predates parts of the recommended construction and diverges from it in calibration and scope. Its controller runs the recommended calibration (target utilisation 0.5, max-change denominator 16), but it enforces a 3× cross-lane floor where the construction adopts none.
 
 It does not implement the K = 10 announcement age escape. Its endorser blocks are gated by the byte threshold alone, so a very light standard trickle can pool below the bar indefinitely. The escape exists to bound exactly that wait: it allows a below-threshold announcement once K = 10 ranking blocks have passed since the last one.
 

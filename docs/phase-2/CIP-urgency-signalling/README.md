@@ -421,7 +421,13 @@ The prototype exercises the transaction lifecycle specified above on a real netw
 - Endorser-block announcement is gated by the byte threshold (45,056 bytes at the default target); below it, the standard lane pools.
 - A withheld certificate stalls the standard lane until votes resume, isolating the certification dependency described in the Specification.
 
-The prototype predates parts of the recommended construction and diverges from it in calibration and scope. It runs the max-change denominator at 8, the other end of the validated 8-16 envelope. It enforces a 3× cross-lane floor where the construction adopts none. It admits at the current quote rather than one controller step ahead, and it does not implement the K = 10 announcement age escape. Certificate production is simplified at the prototype boundary, and its feeder keeps the lanes disjoint, so the rb-only endorser-block settlement path is specified but unexercised. None of these divergences touch what the prototype exists to show: the lane rules, the repricing, and the settlement are implementable in the real ledger and node, and they behave correctly under live load.
+The prototype predates parts of the recommended construction and diverges from it in calibration and scope. It runs the max-change denominator at 8, the other end of the validated 8-16 envelope. It enforces a 3× cross-lane floor where the construction adopts none.
+
+It does not implement the K = 10 announcement age escape. Its endorser blocks are gated by the byte threshold alone, so a very light standard trickle can pool below the bar indefinitely. The escape exists to bound exactly that wait: it allows a below-threshold announcement once K = 10 ranking blocks have passed since the last one.
+
+Its demand feeder also keeps the lanes disjoint: an urgent transaction is only ever included through a ranking block. The rb-only rule specified above additionally allows an urgent transaction to be included through an endorser block, charged the standard quote at inclusion with the excess refunded. That settlement path is therefore specified but unexercised by the prototype.
+
+None of these divergences touch what the prototype exists to show: the lane rules, the repricing, and the settlement are implementable in the real ledger and node, and they behave correctly under live load.
 
 ## Path to Active
 

@@ -58,7 +58,7 @@ flowchart LR
 
 This CIP introduces a transaction-level urgency signal with two lanes: standard and urgent. Urgent transactions pay a different, dynamic fee quote and are eligible for inclusion in both Ranking Blocks and Endorser Blocks. Standard transactions are eligible only for Endorser Blocks. The ledger enforces that Ranking Blocks contain only urgent-paying transactions. The dynamic fee is controlled by the EIP-1559 algorithm.
 
-We specify that Ranking Blocks can only contain urgent transactions to prevent bribery of block producers. If bribery is allowed, a block producer has the incentive to accept a bribe over a legitimate urgent transaction, because it means they'll get to keep the entire bribe. If, instead, they chose to include a legitimate urgent transaction, the excess fees would go to rewards or the treasury, depending on the policy we decide. As such, preventing that incentive is necessary.
+We specify that Ranking Blocks can only contain urgent transactions to prevent bribery of block producers. If bribery is allowed, a block producer has the incentive to accept a bribe over a legitimate urgent transaction, because it means they'll get to keep the entire bribe. If, instead, they chose to include a legitimate urgent transaction, the excess fees would be donated to the treasury (see Incentives). As such, preventing that incentive is necessary.
 
 Additionally, in order to solve a problem that arises under low-ish load circumstances (RB fill somewhere between the fill target, 0.5 in the default case, and the RB max fill), we specify a modification: we prevent EB announcement unless the announced EB is larger than a given percentage of the RB's capacity. This modification is to defend against the case where, under the load scenario described above, some standard transactions are mixed in with urgent transactions in a steady flow. Without the modification, an EB is announced at every possible occasion, meaning there are frequent EB certificates included in RBs. This results in a self-sabotaging outcome, where standard transactions have to wait longer because they're not allowed in an non-full RB, and urgent transactions have to wait longer for the same reason, because RBs frequently contain certificates, excluding urgent transactions. The modification restores urgent transactions to parity with the flat-fee baseline at this load; in exchange, standard transactions queue until an EB is worth its certificate, a small additional wait we accept.
 
@@ -357,11 +357,19 @@ The instability that excludes denominator 4 is visible directly in the price tra
 
 ![Per-lane price coefficient under severe congestion at max-change denominator 16: both coefficients track demand smoothly](../figures/d16.png)
 
-TODO: fold the standard-lane batching cost into the Incentives fairness discussion: the wait is now bounded at K ranking-block intervals by the age escape, and at typical light load costs p95 roughly four slots over plain reservation. Urgent transactions included via EB are refunded down to the standard quote; reference the fee change return mechanism CIP when drafted.
-
 ### Incentives
 
-NICOLAS TODO
+Settlement splits every posted bid three ways: the ordinary min-fee component, the premium above it, and the refunded excess (see Block production and node policy). Each destination is chosen for its incentive effect.
+
+The premium is donated to the treasury. It does not go to the block producer: a producer who keeps the premium is no longer indifferent between a legitimate urgent transaction and a side-payment, which recreates the bribery incentive the reservation rule exists to remove. Burning it would be equally neutral for producers; donation is preferred because it keeps congestion revenue inside the protocol's existing funding mechanism.
+
+Producer revenue is unchanged by this proposal. The min-fee component of every included transaction enters the fee pot exactly as fees do today, regardless of lane. Selection is FIFO in both lanes, so there is no fee-ordering auction inside a block. The one strategic behaviour left to a producer, EB suppression, is profitless and bounded, as analysed in the announcement-threshold section.
+
+An urgent user pays only for the service received. The premium is scoped to the ranking block: an urgent transaction included via an endorser block is charged the standard quote. The refund returns everything above the applicable quote, so the posted max fee is a genuine ceiling, and headroom against quote drift costs nothing at settlement. A transaction whose max fee is insufficient is rejected (`BidBelowQuote`) or evicted; both outcomes are visible to the submitter, and neither leaves the transaction queued while its value decays. Access to the urgent lane requires only paying the posted quote, never an arrangement with a producer. This is the permissionless access CPS-0031 calls for.
+
+A standard user is insulated from urgent demand. The standard quote responds only to standard-lane utilisation; it starts at the ordinary min fee, and the absolute coefficient floor prevents it from ever falling below that. An uncontended standard transaction therefore pays what it pays today. The cost this design does impose on the standard lane is batching: standard transactions pool until an endorser block is worth its certificate. The age escape bounds that wait at K ranking-block intervals, and at typical light load it costs p95 roughly four slots over plain reservation.
+
+Settlement is conservative: base plus premium plus refund equals the posted bid for every transaction, and each component is checkable from on-chain data alone. Fee handling neither mints nor destroys value.
 
 ## Rationale: how does this CIP achieve its goals?
 
@@ -399,6 +407,29 @@ The launch-day contrast is visible in the demand-fate and value panels for a rep
 Finally, the recommended design was stress-tested along the parameter axis as well as the load axis: a sweep of target utilisation {0.25, 0.5, 0.75} × max-change denominator {4, 8, 16}, ten seeds, under low, severe-congestion, launch-day, and EB-capacity-stress loads. Inside the envelope of target utilisation 0.5-0.75 and denominator 8-16 the mechanism never falls below the flat-fee baseline at any load (at target 0.5 the advantage holds at every load; at 0.75 it narrows to parity under the EB-stressing load), and the failures outside that envelope are informative rather than gradual: at target utilisation 0.25 the mechanism retains less value than flat fee under launch-day load, and at denominator 4 price stability degrades at every load. A cross-lane multiplier floor (a rule holding the urgent quote at or above a fixed multiple of the standard quote) was also tested and rejected: it overprices the urgent lane precisely when capacity is slack, costing 9-15 percentage points of urgent retained value at low load. A demand-elasticity stress test (all values scaled 10×; 10-25% of arrivals at 100× values; each mix against its own flat-fee control) preserves the advantage at every mix and shows it growing with the share of high-value demand. The threshold expression and the announcement age escape in the Specification are direct products of these tests.
 
 Full details, including method, configs, per-load tables, paired seed deltas, and figures: [preliminary experiment report](https://github.com/input-output-hk/tiered-pricing/blob/main/docs/phase-2/preliminary-experiment-report.md).
+
+### Prototype
+
+https://github.com/user-attachments/assets/7f8f70f7-006c-452a-9086-6101a52c7d63
+
+The two lanes live on the devnet (8 min): rush hour, a price squeeze with real evictions, the measured pots, a certification miss and its heal, the quiet end. Captions included.
+
+The mechanism has also been implemented end to end. The prototype patches the linear-Leios prototype node directly: the ledger rules, the consensus mempool, the node's transaction submission path, and the trace pipeline. It runs a three-node Dijkstra devnet with a live dashboard and a simulated crowd of senders choosing lanes against the live quotes. Full details live in the [prototype repository](https://github.com/nhenin/dynamic-pricing): the code and a one-command launcher, the per-repository change sets, the design documents, and a section mapping the prototype's vocabulary and calibration to this CIP.
+
+The prototype exercises the transaction lifecycle specified above on a real network rather than a simulator:
+
+- The ranking-block rule is a ledger rule. A transaction whose max fee does not cover the urgent quote fails with `BidBelowQuote`.
+- Both quotes are repriced inside block application. A certified endorser block enters the price signals exactly once, at certification.
+- Settlement is measured from ledger state, block by block. The min-fee component accumulates in the fee pot, the premium in the treasury, and the excess returns to a refund account named in the transaction body. The three pots sum exactly to what senders paid.
+- The mempool admits one worst-case controller step ahead and re-validates under moving prices. A rising quote evicts the transactions whose max fee it overtakes.
+- Endorser-block announcement is gated by the byte threshold (45,056 bytes at the default target) and the K = 10 age escape: below the threshold the standard lane pools, and a trickle is released after at most ten ranking blocks.
+- A withheld certificate stalls the standard lane until votes resume, isolating the certification dependency described in the Specification.
+
+The prototype runs the recommended construction: the controller calibration (target utilisation 0.5, max-change denominator 16), the 5-sample and 20-block signal windows (bytes and execution units, larger ratio), no cross-lane floor, the urgent lane's 2× initial coefficient, admission one worst-case controller step ahead, the announcement byte threshold, and the K = 10 announcement age escape.
+
+The ledger settles by DELIVERY (the rb-only premium scope): an urgent transaction included through a certified endorser block is charged the standard quote, with the excess refunded, and every fee-cap check — wallet, admission, re-validation — uses the max of the two quotes. The endorser block's FIFO merge across both lanes is implemented and tested but kept gated off: opening it safely requires every node to drop an announced endorser block's transactions from its mempool once the closure downloads (otherwise a rider re-selected into another node's ranking block before the certificate applies would make the certified batch unappliable). That strip is the one piece not yet built, so the lanes stay disjoint in practice and the endorser-block settlement path, while implemented end to end in the ledger, is not yet exercised live.
+
+None of this touches what the prototype exists to show: the lane rules, the repricing, and the settlement are implementable in the real ledger and node, and they behave correctly under live load.
 
 ## Path to Active
 

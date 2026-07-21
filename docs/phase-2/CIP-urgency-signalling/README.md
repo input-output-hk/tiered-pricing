@@ -427,9 +427,9 @@ The prototype exercises the transaction lifecycle specified above on a real netw
 
 The prototype runs the recommended construction: the controller calibration (target utilisation 0.5, max-change denominator 16), the 5-sample and 20-block signal windows (bytes and execution units, larger ratio), no cross-lane floor, the urgent lane's 2× initial coefficient, admission one worst-case controller step ahead, the announcement byte threshold, and the K = 10 announcement age escape.
 
-Its demand feeder keeps the lanes disjoint: an urgent transaction is only ever included through a ranking block. The rb-only rule specified above additionally allows an urgent transaction to be included through an endorser block, charged the standard quote at inclusion with the excess refunded. That settlement path is therefore specified but unexercised by the prototype.
+The ledger settles by DELIVERY (the rb-only premium scope): an urgent transaction included through a certified endorser block is charged the standard quote, with the excess refunded, and every fee-cap check — wallet, admission, re-validation — uses the max of the two quotes. The endorser block's FIFO merge across both lanes is implemented and tested but kept gated off: opening it safely requires every node to drop an announced endorser block's transactions from its mempool once the closure downloads (otherwise a rider re-selected into another node's ranking block before the certificate applies would make the certified batch unappliable). That strip is the one piece not yet built, so the lanes stay disjoint in practice and the endorser-block settlement path, while implemented end to end in the ledger, is not yet exercised live.
 
-The simplification does not touch what the prototype exists to show: the lane rules, the repricing, and the settlement are implementable in the real ledger and node, and they behave correctly under live load.
+None of this touches what the prototype exists to show: the lane rules, the repricing, and the settlement are implementable in the real ledger and node, and they behave correctly under live load.
 
 ## Path to Active
 

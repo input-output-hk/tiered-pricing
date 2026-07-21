@@ -425,11 +425,11 @@ The prototype exercises the transaction lifecycle specified above on a real netw
 - Endorser-block announcement is gated by the byte threshold (45,056 bytes at the default target) and the K = 10 age escape: below the threshold the standard lane pools, and a trickle is released after at most ten ranking blocks.
 - A withheld certificate stalls the standard lane until votes resume, isolating the certification dependency described in the Specification.
 
-The prototype runs the recommended construction: the controller calibration (target utilisation 0.5, max-change denominator 16), no cross-lane floor, the urgent lane's 2× initial coefficient, admission one worst-case controller step ahead, the announcement byte threshold, and the K = 10 announcement age escape. One controller simplification remains: it reads one utilisation sample per block, rather than the 5-sample and 20-block windows specified above.
+The prototype runs the recommended construction: the controller calibration (target utilisation 0.5, max-change denominator 16), the 5-sample and 20-block signal windows (bytes and execution units, larger ratio), no cross-lane floor, the urgent lane's 2× initial coefficient, admission one worst-case controller step ahead, the announcement byte threshold, and the K = 10 announcement age escape.
 
-Its demand feeder also keeps the lanes disjoint: an urgent transaction is only ever included through a ranking block. The rb-only rule specified above additionally allows an urgent transaction to be included through an endorser block, charged the standard quote at inclusion with the excess refunded. That settlement path is therefore specified but unexercised by the prototype.
+Its demand feeder keeps the lanes disjoint: an urgent transaction is only ever included through a ranking block. The rb-only rule specified above additionally allows an urgent transaction to be included through an endorser block, charged the standard quote at inclusion with the excess refunded. That settlement path is therefore specified but unexercised by the prototype.
 
-Neither simplification touches what the prototype exists to show: the lane rules, the repricing, and the settlement are implementable in the real ledger and node, and they behave correctly under live load.
+The simplification does not touch what the prototype exists to show: the lane rules, the repricing, and the settlement are implementable in the real ledger and node, and they behave correctly under live load.
 
 ## Path to Active
 

@@ -5,6 +5,7 @@ module Sim (
   SimM (..),
   SimSt (..),
   initSimSt,
+  initSimStWithIndependentRngStreams,
   step,
 ) where
 
@@ -32,7 +33,7 @@ import Mempool (Mempool (..), admitToMempool, emptyMempool, removeFromMempool, s
 import Pricing (ControllerInput (..), Prices (..), admissionRequiredFee, coversProducerHeadroom, feeStillValid, initialPrices, realisedFee, requiredMaxFee, retentionWindow, updatePrices)
 import Resource (Bytes (..), ExUnits (..), Resources (..))
 import Retry (PendingRetry (..), RetryPolicy (..), capture)
-import System.Random (StdGen, uniformR)
+import System.Random (StdGen, split, uniformR)
 import Transaction (EvictionReason (..), Provenance (..), RejectReason (..), Tx (..), TxBody (..), TxId (..), TxSample (..))
 import Types (Duration (Duration), Lovelace (..), SlotNo (SlotNo), addDuration, diffSlots)
 
@@ -43,7 +44,13 @@ data SimSt = SimSt
   , _simPendingEb :: Maybe PendingEb
   , _simTxs :: Map TxId Tx
   , _simSlot :: SlotNo
-  , _simRng :: StdGen
+  , _simIndependentRngStreams :: Bool
+  , _simFreshDemandRng :: StdGen
+  -- ^ exogenous arrival counts, actor selection, and transaction samples
+  , _simBlockProductionRng :: StdGen
+  -- ^ exogenous ranking-block opportunities
+  , _simRetryRng :: StdGen
+  -- ^ mechanism-dependent retry jitter
   , _simPrices :: Prices
   , _simRecentBlocks :: Seq BlockSummary
   , _simTxCounter :: Int
@@ -80,15 +87,30 @@ instance Applicative AdmissionCheck where
   AdmissionAccepted _ <*> AdmissionRejected reasons = AdmissionRejected reasons
 
 initSimSt :: SimConfig -> StdGen -> SimSt
-initSimSt conf rng =
-  SimSt
+initSimSt = initSimStWithRngStreams False
+
+initSimStWithIndependentRngStreams :: SimConfig -> StdGen -> SimSt
+initSimStWithIndependentRngStreams = initSimStWithRngStreams True
+
+initSimStWithRngStreams :: Bool -> SimConfig -> StdGen -> SimSt
+initSimStWithRngStreams independentRngStreams conf rng =
+  let (freshDemandRng, blockProductionRng, retryRng)
+        | independentRngStreams =
+            let (fresh, remaining) = split rng
+                (blocks, retries) = split remaining
+             in (fresh, blocks, retries)
+        | otherwise = (rng, rng, rng)
+   in SimSt
     { _simMempool = emptyMempool
     , _simActors = conf.simConfigActors
     , _simEbs = mempty
     , _simPendingEb = Nothing
     , _simTxs = mempty
     , _simSlot = SlotNo 0
-    , _simRng = rng
+    , _simIndependentRngStreams = independentRngStreams
+    , _simFreshDemandRng = freshDemandRng
+    , _simBlockProductionRng = blockProductionRng
+    , _simRetryRng = retryRng
     , _simPrices = initialPrices conf.simConfigDesign
     , _simRecentBlocks = mempty
     , _simTxCounter = 0
@@ -260,7 +282,7 @@ captureRetries events = do
  where
   enqueue pending = do
     let Duration jitterWindow = pending.retryJitter
-    jitter <- draw (uniformR (0, jitterWindow))
+    jitter <- drawRetry (uniformR (0, jitterWindow))
     let wakeAt =
           addDuration (Duration jitter) (addDuration pending.retryDelay pending.failedAt)
     modify' \st ->
@@ -268,7 +290,7 @@ captureRetries events = do
 
 pickActor :: NonEmpty Actor -> SimM Actor
 pickActor actors = do
-  i <- draw (uniformR (0, NE.length actors - 1))
+  i <- drawFreshDemand (uniformR (0, NE.length actors - 1))
   pure (actors NE.!! i)
 
 {- | Run the controllers for this slot's block production. Windowed signals
@@ -333,7 +355,7 @@ sampleArrivalCount rate
   | otherwise = go 0 0
  where
   go count elapsed = do
-    u <- draw (uniformR (0, 1))
+    u <- drawFreshDemand (uniformR (0, 1))
     let elapsed' = elapsed - log (max 1e-300 u)
     if elapsed' >= rate
       then pure count
@@ -342,21 +364,52 @@ sampleArrivalCount rate
 drawTxSample :: SimM TxSample
 drawTxSample =
   TxSample
-    <$> draw (uniformR (0, 1))
-    <*> draw (uniformR (0, 1))
-    <*> draw (uniformR (0, 1))
-    <*> draw (uniformR (0, 1))
-    <*> draw (uniformR (0, 1))
+    <$> drawFreshDemand (uniformR (0, 1))
+    <*> drawFreshDemand (uniformR (0, 1))
+    <*> drawFreshDemand (uniformR (0, 1))
+    <*> drawFreshDemand (uniformR (0, 1))
+    <*> drawFreshDemand (uniformR (0, 1))
 
-draw :: (StdGen -> (a, StdGen)) -> SimM a
-draw f = do
-  g <- gets _simRng
+drawFreshDemand :: (StdGen -> (a, StdGen)) -> SimM a
+drawFreshDemand f = do
+  g <- gets _simFreshDemandRng
   let (x, g') = f g
-  modify' \s -> s{_simRng = g'}
+  modify' \s ->
+    if s._simIndependentRngStreams
+      then s{_simFreshDemandRng = g'}
+      else setAllRngStreams g' s
   pure x
 
+drawBlockProduction :: (StdGen -> (a, StdGen)) -> SimM a
+drawBlockProduction f = do
+  g <- gets _simBlockProductionRng
+  let (x, g') = f g
+  modify' \s ->
+    if s._simIndependentRngStreams
+      then s{_simBlockProductionRng = g'}
+      else setAllRngStreams g' s
+  pure x
+
+drawRetry :: (StdGen -> (a, StdGen)) -> SimM a
+drawRetry f = do
+  g <- gets _simRetryRng
+  let (x, g') = f g
+  modify' \s ->
+    if s._simIndependentRngStreams
+      then s{_simRetryRng = g'}
+      else setAllRngStreams g' s
+  pure x
+
+setAllRngStreams :: StdGen -> SimSt -> SimSt
+setAllRngStreams rng st =
+  st
+    { _simFreshDemandRng = rng
+    , _simBlockProductionRng = rng
+    , _simRetryRng = rng
+    }
+
 roll :: Double -> SimM Bool
-roll p = (< p) <$> draw (uniformR (0, 1))
+roll p = (< p) <$> drawBlockProduction (uniformR (0, 1))
 
 rollRbProduction :: SimM Bool
 rollRbProduction = do

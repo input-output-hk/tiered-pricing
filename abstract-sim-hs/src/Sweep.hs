@@ -21,7 +21,10 @@ self-contained for reproduction: the resolved spec is embedded in
 an optional @--load-profile@ file is copied as
 @selected-load-profile.json@. Preset and file overrides are written into
 those effective variant configs. @f@ and @D@ are not sweep axes: they stay
-fixed at the justified values in each config.
+fixed at the justified values in each config. Randomness defaults to the
+historical shared stream. A manifest may opt into @"independent-streams"@ to
+keep fresh demand and block opportunities fixed when mechanisms create
+different retry-jitter draw counts.
 -}
 module Sweep (
   LoadOverride (..),
@@ -63,7 +66,7 @@ import Metrics (
   weightedMean,
  )
 import Parser (parseSimConfig)
-import Run (Run (..), Seed, runWithSeed, runWithSeedToFile)
+import Run (RandomnessMode (..), Run (..), Seed, runWithSeedToFileUsing, runWithSeedUsing)
 import System.Directory (copyFile, createDirectoryIfMissing)
 import System.FilePath ((</>))
 import Text.Printf (printf)
@@ -85,6 +88,10 @@ data SweepSpec = SweepSpec
   -- select either form.
   , sweepSummaryOnly :: Bool
   -- ^ Fold all events into metrics without writing per-run JSONL traces.
+  , sweepRandomnessMode :: RandomnessMode
+  -- ^ Shared preserves the historical seeded sequence; independent streams
+  -- keep fresh demand and block opportunities fixed across mechanism-specific
+  -- retry flows.
   , sweepVariants :: [SweepVariant]
   }
   deriving (Eq, Show)
@@ -158,6 +165,7 @@ data ParseSweepSpec = ParseSweepSpec
   , parseSweepOut :: Maybe FilePath
   , parseSweepLoad :: Maybe String
   , parseSweepSummaryOnly :: Maybe Bool
+  , parseSweepRandomness :: Maybe String
   , parseSweepVariants :: [ParseSweepVariant]
   }
 
@@ -171,6 +179,7 @@ instance FromJSON ParseSweepSpec where
         <*> obj .:? "out"
         <*> obj .:? "load"
         <*> obj .:? "summaryOnly"
+        <*> obj .:? "randomness"
         <*> obj .: "variants"
 
 data ParseSweepVariant = ParseSweepVariant
@@ -199,6 +208,7 @@ loadSweepSpec path = do
 fromParseSweepSpec :: ParseSweepSpec -> Either String SweepSpec
 fromParseSweepSpec parsed = do
   variants <- traverse toVariant parsed.parseSweepVariants
+  randomnessMode <- parseRandomnessMode parsed.parseSweepRandomness
   validate variants
   pure
     SweepSpec
@@ -208,6 +218,7 @@ fromParseSweepSpec parsed = do
       , sweepOutDir = fromMaybe "sweep-results" parsed.parseSweepOut
       , sweepLoadOverride = LoadPreset <$> parsed.parseSweepLoad
       , sweepSummaryOnly = fromMaybe False parsed.parseSweepSummaryOnly
+      , sweepRandomnessMode = randomnessMode
       , sweepVariants = variants
       }
  where
@@ -219,6 +230,15 @@ fromParseSweepSpec parsed = do
             { variantName = variant.parseVariantName
             , variantConfig = variant.parseVariantConfig
             }
+  parseRandomnessMode = \case
+    Nothing -> Right SharedRandomness
+    Just "shared" -> Right SharedRandomness
+    Just "independent-streams" -> Right IndependentRandomness
+    Just value ->
+      Left
+        ( "randomness must be \"shared\" or \"independent-streams\", got "
+            <> show value
+        )
   validate variants
     | null variants = Left "at least one variant is required"
     | names /= nub names = Left "variant names must be unique"
@@ -290,8 +310,8 @@ runPoint spec name config seed = do
   let tracePath = spec.sweepOutDir </> (name <> "-seed" <> show seed <> ".events.jsonl")
   result <-
     if spec.sweepSummaryOnly
-      then runWithSeed config seed spec.sweepSlots
-      else runWithSeedToFile config tracePath seed spec.sweepSlots
+      then runWithSeedUsing spec.sweepRandomnessMode config seed spec.sweepSlots
+      else runWithSeedToFileUsing spec.sweepRandomnessMode config tracePath seed spec.sweepSlots
   let metrics = result._runResult
       scalars = headlineScalars metrics
   forceScalars scalars
@@ -548,11 +568,15 @@ summaryJson spec resolvedLoad variants =
     , "slots" .= spec.sweepSlots
     , "seeds" .= spec.sweepSeeds
     , "summaryOnly" .= spec.sweepSummaryOnly
+    , "randomness" .= randomnessModeJson spec.sweepRandomnessMode
     , "loadOverride" .= fmap loadOverrideJson resolvedLoad
     , "loadProfile" .= (resolvedLoad >>= selectedProfileJson)
     , "variants" .= fmap variantJson variants
     ]
  where
+  randomnessModeJson = \case
+    SharedRandomness -> "shared" :: String
+    IndependentRandomness -> "independent-streams"
   loadOverrideJson = \case
     ResolvedPreset name ->
       object

@@ -5,12 +5,16 @@ import Block (BlockSummary (..), BlockUsage (..), EbId (..), InclusionPoint (..)
 import Config (SimConfig (..))
 import Control.Exception (ErrorCall, evaluate, finally, try)
 import Control.Monad (unless)
+import Control.Monad.Reader (runReaderT)
+import Control.Monad.State.Strict (runState)
 import Curve (curvesDefault)
 import Data.Aeson (eitherDecode)
 import Data.ByteString.Lazy qualified as BL
+import Data.Foldable (toList)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Sequence qualified as Seq
 import Design (ControllerConfig (..), ControllerSignal (..), Design (..), Eip1559Controller (..), FeeSemantics (..), LaneStructure (..), PriorityPremiumScope (..), ReservationPolicy (..), SelectionPolicy (..), defaultDesign)
+import Event (SimEvent (..))
 import Load (BurstEffect (..), arrivalRateAt, severeCongestionLoad, tryBurstEffectAt)
 import LoadProfile (LoadProfile (..), loadLoadProfile)
 import Metrics.Accumulator (MetricsAcc (..), emptyMetricsAcc)
@@ -19,11 +23,13 @@ import Parser (parseDesign, parseSimConfig)
 import Pricing (ControllerInput (..), PriceUpdate (..), Prices (..), admissionRequiredFee, coversProducerHeadroom, feeStillValid, initialPrices, quotedFee, realisedFee, requiredMaxFee, retentionWindow, updatePrices)
 import Resource (Bytes (..), ExUnits (..), Resources (..))
 import Retry (noRetries)
-import Run (Run (..), runWithSeed, runWithSeedToFile)
+import Run (RandomnessMode (..), Run (..), runWithSeed, runWithSeedToFile)
+import Sim (SimSt (..), initSimStWithIndependentRngStreams, step, unSimM)
 import Sweep (LoadOverride (..), SweepOverrides (..), SweepSpec (..), SweepVariant (..), applyOverrides, loadSweepSpec, parseSweepArgs)
 import System.Directory (getTemporaryDirectory, removeFile)
 import System.Exit (exitFailure)
 import System.IO (hClose, openTempFile)
+import System.Random (mkStdGen)
 import Transaction (Demand (..), Lane (..), Provenance (..), Script (..), Tx (..), TxBody (..), hash)
 import Types (Duration (..), Lovelace (..), PerLane (..), SlotNo (..), Urgency (..), atLane)
 
@@ -34,6 +40,7 @@ main = do
   assertSweepFixture
   assertSweepLoadProfileOverride
   assertTracedAndUntracedMetricsEqual
+  assertRetryRandomnessDoesNotPerturbExogenousInputs
   assertLiveConfigsParse
   assertLoadProfiles
   assertHeadroomInvariant
@@ -127,6 +134,7 @@ expectedFixtureSweep =
     , sweepOutDir = "/tmp/fixture-sweep"
     , sweepLoadOverride = Just (LoadPreset "low")
     , sweepSummaryOnly = False
+    , sweepRandomnessMode = SharedRandomness
     , sweepVariants =
         [ SweepVariant "a" "test/fixtures/sim-config.json"
         , SweepVariant "b" "test/fixtures/sim-config.json"
@@ -176,6 +184,73 @@ assertTracedAndUntracedMetricsEqual = do
     traced._runResult
     untraced._runResult
 
+-- | Retry failures are mechanism-dependent, while fresh demand and block
+-- opportunities are experiment inputs. Advancing retry jitter must therefore
+-- leave both exogenous streams unchanged for a matched seed. The one-byte
+-- mempool makes every fresh transaction fail admission, so the right-hand run
+-- genuinely consumes retry jitter while the no-retry run does not.
+assertRetryRandomnessDoesNotPerturbExogenousInputs :: IO ()
+assertRetryRandomnessDoesNotPerturbExogenousInputs = do
+  retryConfig <- parseSimConfig "config/variants/flat-fee.json"
+  let constrained = retryConfig{simConfigMempoolBytesCap = 1}
+      noRetryConfig = constrained{simConfigRetryPolicy = noRetries}
+      initial = initSimStWithIndependentRngStreams constrained (mkStdGen 431)
+  retryDiverged <- compareSteps (30 :: Int) noRetryConfig constrained initial initial False
+  assertTrue "retry fixture consumes mechanism-dependent jitter" retryDiverged
+ where
+  compareSteps 0 _ _ _ _ retryDiverged = pure retryDiverged
+  compareSteps remaining leftConfig rightConfig leftState rightState retryDiverged = do
+    let (leftEvents, leftState') = runOne leftConfig leftState
+        (rightEvents, rightState') = runOne rightConfig rightState
+    assertEqual
+      "retry policy does not change sampled fresh demand"
+      (freshDemandProjection leftEvents)
+      (freshDemandProjection rightEvents)
+    assertEqual
+      "retry policy does not change ranking-block opportunities"
+      (rankingBlockSlots leftEvents)
+      (rankingBlockSlots rightEvents)
+    assertEqual
+      "retry policy does not advance the fresh-demand RNG"
+      (show leftState'._simFreshDemandRng)
+      (show rightState'._simFreshDemandRng)
+    assertEqual
+      "retry policy does not advance the block-production RNG"
+      (show leftState'._simBlockProductionRng)
+      (show rightState'._simBlockProductionRng)
+    compareSteps
+      (remaining - 1)
+      leftConfig
+      rightConfig
+      leftState'
+      rightState'
+      (retryDiverged || show leftState'._simRetryRng /= show rightState'._simRetryRng)
+
+  runOne config state =
+    runState (runReaderT (unSimM step) config) state
+
+  freshDemandProjection events =
+    [ ( slot
+      , actorId
+      , tx.txDemand.demandValue
+      , tx.txDemand.demandUrgency
+      , tx.txDemand.demandSize
+      , tx.txDemand.demandScript._scriptSize
+      , tx.txDemand.demandScript._scriptExUnits
+      )
+    | TxSubmitted slot actorId tx <- toList events
+    , tx.txProvenance == FreshDemand
+    ]
+
+  rankingBlockSlots events =
+    [ slot
+    | BlockProduced slot summary <- toList events
+    , case summary of
+        RbPraos{} -> True
+        RbCertifying{} -> True
+        _ -> False
+    ]
+
 {- The live configs are not generally content-asserted — only that they still
 parse, that the mechanism set remains complete, and that selecting a workload
 at run time has not mutated their embedded historical load.
@@ -198,6 +273,10 @@ assertLiveConfigsParse = do
   mapM_ (parseSimConfig . (.variantConfig)) inversionD16Smoke.sweepVariants
   canonicalFinalSmoke <- loadSweepSpec "config/sweeps/canonical-final-smoke.json"
   assertTrue "canonical final smoke is summary-only" canonicalFinalSmoke.sweepSummaryOnly
+  assertEqual
+    "archived-reference smoke preserves the shared RNG sequence"
+    SharedRandomness
+    canonicalFinalSmoke.sweepRandomnessMode
   assertEqual "canonical final smoke uses ten paired seeds" 10 canonicalFinalSmoke.sweepSeeds
   assertEqual "canonical final smoke has one integrated candidate" 1 (length canonicalFinalSmoke.sweepVariants)
   assertEqual
@@ -205,6 +284,21 @@ assertLiveConfigsParse = do
     ["config/variants/trickle-aging/thr-k10.json"]
     (map (.variantConfig) canonicalFinalSmoke.sweepVariants)
   mapM_ (parseSimConfig . (.variantConfig)) canonicalFinalSmoke.sweepVariants
+  canonicalHeadlines <- loadSweepSpec "config/sweeps/canonical-headlines.json"
+  assertTrue "canonical headline refresh is summary-only" canonicalHeadlines.sweepSummaryOnly
+  assertEqual "canonical headline refresh uses ten paired seeds" 10 canonicalHeadlines.sweepSeeds
+  assertEqual "canonical headline refresh uses 2,000 slots" 2_000 canonicalHeadlines.sweepSlots
+  assertEqual
+    "canonical headline refresh isolates exogenous randomness"
+    IndependentRandomness
+    canonicalHeadlines.sweepRandomnessMode
+  assertEqual
+    "canonical headline refresh pairs a fresh control with the recommendation"
+    [ "config/variants/flat-fee.json"
+    , "config/variants/trickle-aging/thr-k10.json"
+    ]
+    (map (.variantConfig) canonicalHeadlines.sweepVariants)
+  mapM_ (parseSimConfig . (.variantConfig)) canonicalHeadlines.sweepVariants
   mechanisms <- loadSweepSpec "config/sweeps/mechanisms.json"
   assertEqual
     "mechanism sweep covers controls, phase-2 candidates, and windowed-priority companions"

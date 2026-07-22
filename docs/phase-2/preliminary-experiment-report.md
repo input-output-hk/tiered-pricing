@@ -1460,6 +1460,35 @@ Two honest notes. At 0.1 tx/slot the urgent-retention comparison against flat fe
 
 ---
 
+### D16/K10 headline rerun ###
+
+The purpose of this rerun was to ensure that same-seed flat-fee and D16/K10 runs faced the same fresh demand and ranking-block opportunities. At heavier loads, different retry counts had advanced the shared random stream differently, so within-seed outcome differences mixed the mechanism effect with different exogenous simulation draws.
+
+After separating the simulator's fresh-demand, ranking-block-production, and retry-jitter random streams, we reran flat fee against the exact recommended D16/K10 configuration over paired seeds 0–9 for 2,000 slots at each headline load. Intervals are two-sided 95% paired-t confidence intervals.
+
+| Load | Retained-value metric | Flat | D16/K10 | D16/K10 − flat (95% CI) | Seeds better |
+|---|---|---:|---:|---:|---:|
+| Low | Urgent | 59.40% | 59.87% | +0.469 [-1.155, +2.093] pp | 6/10 |
+| Mid load | Urgent | 52.32% | 56.01% | +3.687 [+2.630, +4.744] pp | 10/10 |
+| Severe congestion | Urgent | 43.56% | 50.85% | +7.288 [+6.000, +8.576] pp | 10/10 |
+| EB-capacity stress | Urgent | 29.40% | 37.97% | +8.573 [+6.335, +10.811] pp | 10/10 |
+| Launch day | Overall | 51.72% | 59.87% | +8.151 [+6.108, +10.194] pp | 10/10 |
+
+| Load | Urgent latency, flat | Urgent latency, D16/K10 | D16/K10 − flat (95% CI) | Seeds faster |
+|---|---:|---:|---:|---:|
+| Low | 1.791 | 1.757 | -0.033 [-0.103, +0.036] blocks | 6/10 |
+| Mid load | 2.233 | 1.992 | -0.241 [-0.309, -0.173] blocks | 10/10 |
+| Severe congestion | 2.983 | 2.502 | -0.481 [-0.596, -0.366] blocks | 10/10 |
+| EB-capacity stress | 3.810 | 3.001 | -0.809 [-1.010, -0.608] blocks | 10/10 |
+
+The rerun was successful: low load remained at parity, while retained value and urgent latency improved at every contended load in all ten paired seeds. Launch-day overall retained value also improved in all ten seeds. These results support the recommendation without changing it.
+
+For launch day, both retained-value numerators use each seed's flat-fee retained + lost + unresolved value as the denominator. Summary output does not record fresh samples that decline before first submission, so this is a flat-fee proxy for offered demand. The simulator announces eligible EBs eagerly; producer withholding is not modelled.
+
+From `abstract-sim-hs`, rerun with `./scripts/run_canonical_headlines.sh --out sweep-results/canonical-headlines-rerun`.
+
+---
+
 ### Summary ###
 
 We recommend both-dynamic-strict-threshold with a 5-sample window: ranking blocks reserved for urgent transactions at all times, and an endorser block announced only when its payload reaches half the RB byte cap or when K = 10 ranking blocks have passed since the last announcement (the age escape, which repairs standard-lane starvation at trickle loads and is bit-identical to the pure threshold whenever traffic crosses the threshold naturally). The full recommended construction:

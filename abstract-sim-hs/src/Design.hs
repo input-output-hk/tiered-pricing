@@ -71,8 +71,9 @@ instance FromJSON FeeSemantics where
 'PremiumEverywhere' charges the priority quote wherever the tx lands.
 'PremiumRbOnly' charges it only for RB inclusion: a priority tx landing in
 an EB received standard service, so it is refunded down to the standard
-quote (the Giorgos design). Only the realised fee is affected — mempool
-validity is checked against the posted lane's quote in both scopes.
+quote (the Giorgos design). The rb-only priority max fee and validity checks
+cover the larger of the two quotes because either inclusion point is possible;
+the realised fee remains specific to the actual inclusion point.
 -}
 data PriorityPremiumScope
   = PremiumEverywhere
@@ -89,6 +90,13 @@ instance FromJSON PriorityPremiumScope where
 
 data ReservationPolicy
   = PriorityReservationRb Int
+  | -- | Strict RB reservation (never mixed) with a gated EB: an EB may only
+    -- be announced when its payload reaches the threshold in bytes. Standard
+    -- transactions are served exclusively through EBs, in batches. The
+    -- optional age escape lifts the byte gate once at least that many ranking
+    -- blocks have been produced since the last EB announcement, so a trickle
+    -- below the threshold cannot pool forever ('Nothing' = no escape).
+    PriorityReservationRbEbThreshold Int Int (Maybe Int)
   | NoReservation
   deriving stock (Eq, Show)
 
@@ -98,6 +106,14 @@ instance FromJSON ReservationPolicy where
       "reservation policy"
       [ ("no-reservation", Nullary NoReservation)
       , ("priority-reservation-rb", WithFields \obj -> PriorityReservationRb <$> obj .: "bytes")
+      ,
+        ( "priority-reservation-rb-eb-threshold"
+        , WithFields \obj ->
+            PriorityReservationRbEbThreshold
+              <$> obj .: "bytes"
+              <*> obj .: "ebThresholdBytes"
+              <*> obj .:? "ebAgeEscapeRbIntervals"
+        )
       ]
 
 data LaneStructure = One | Two deriving stock (Eq, Show)

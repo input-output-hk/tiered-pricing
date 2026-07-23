@@ -1,25 +1,35 @@
 module Main (main) where
 
 import Actor (Actor (..), ActorId (..), ActorType (..), LaneLatencyEstimate (..), SubmissionEnv (..), resubmitTransaction)
-import Block (BlockSummary (..), BlockUsage (..), EbId (..), InclusionPoint (..))
+import Block (BlockSummary (..), BlockUsage (..), EbId (..), InclusionPoint (..), RbSelectionMode (..), selectRbTxs)
 import Config (SimConfig (..))
+import Control.Exception (ErrorCall, evaluate, finally, try)
 import Control.Monad (unless)
+import Control.Monad.Reader (runReaderT)
+import Control.Monad.State.Strict (runState)
 import Curve (curvesDefault)
 import Data.Aeson (eitherDecode)
 import Data.ByteString.Lazy qualified as BL
+import Data.Foldable (toList)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Sequence qualified as Seq
-import Design (ControllerConfig (..), ControllerSignal (..), Design (..), Eip1559Controller (..), FeeSemantics (..), LaneStructure (..), PriorityPremiumScope (..), defaultDesign)
+import Design (ControllerConfig (..), ControllerSignal (..), Design (..), Eip1559Controller (..), FeeSemantics (..), LaneStructure (..), PriorityPremiumScope (..), ReservationPolicy (..), SelectionPolicy (..), defaultDesign)
+import Event (SimEvent (..))
 import Load (BurstEffect (..), arrivalRateAt, severeCongestionLoad, tryBurstEffectAt)
 import LoadProfile (LoadProfile (..), loadLoadProfile)
 import Metrics.Accumulator (MetricsAcc (..), emptyMetricsAcc)
 import Metrics.Price (PriceOscillation (..), PriceStability (..), priceOscillationFrom, priceStabilityFrom)
 import Parser (parseDesign, parseSimConfig)
-import Pricing (ControllerInput (..), PriceUpdate (..), Prices (..), admissionRequiredFee, coversProducerHeadroom, initialPrices, quotedFee, realisedFee, retentionWindow, updatePrices)
+import Pricing (ControllerInput (..), PriceUpdate (..), Prices (..), admissionRequiredFee, coversProducerHeadroom, feeStillValid, initialPrices, quotedFee, realisedFee, requiredMaxFee, retentionWindow, updatePrices)
 import Resource (Bytes (..), ExUnits (..), Resources (..))
 import Retry (noRetries)
-import Sweep (SweepOverrides (..), SweepSpec (..), SweepVariant (..), applyOverrides, loadSweepSpec, parseSweepArgs)
+import Run (RandomnessMode (..), Run (..), runWithSeed, runWithSeedToFile)
+import Sim (SimSt (..), initSimStWithIndependentRngStreams, step, unSimM)
+import Sweep (LoadOverride (..), SweepOverrides (..), SweepSpec (..), SweepVariant (..), applyOverrides, loadSweepSpec, parseSweepArgs)
+import System.Directory (getTemporaryDirectory, removeFile)
 import System.Exit (exitFailure)
+import System.IO (hClose, openTempFile)
+import System.Random (mkStdGen)
 import Transaction (Demand (..), Lane (..), Provenance (..), Script (..), Tx (..), TxBody (..), hash)
 import Types (Duration (..), Lovelace (..), PerLane (..), SlotNo (..), Urgency (..), atLane)
 
@@ -29,6 +39,8 @@ main = do
   assertSimConfigFixture
   assertSweepFixture
   assertSweepLoadProfileOverride
+  assertTracedAndUntracedMetricsEqual
+  assertRetryRandomnessDoesNotPerturbExogenousInputs
   assertLiveConfigsParse
   assertLoadProfiles
   assertHeadroomInvariant
@@ -38,6 +50,8 @@ main = do
   assertCapacityWeightedWindowCountsCertifiedEbs
   assertCapacityWeightedWindowUsesExUnits
   assertPremiumScopeChargesByInclusionPoint
+  assertCrossLaneFeeInversion
+  assertStrictEbThresholdSelection
   assertPriceStabilityExcludesTransient
   assertNeverSettlingPriceNeverConverges
   assertEmptyPriceTraceHasNoStability
@@ -118,7 +132,9 @@ expectedFixtureSweep =
     , sweepSeeds = 3
     , sweepSlots = 500
     , sweepOutDir = "/tmp/fixture-sweep"
-    , sweepLoadProfilePath = Nothing
+    , sweepLoadOverride = Just (LoadPreset "low")
+    , sweepSummaryOnly = False
+    , sweepRandomnessMode = SharedRandomness
     , sweepVariants =
         [ SweepVariant "a" "test/fixtures/sim-config.json"
         , SweepVariant "b" "test/fixtures/sim-config.json"
@@ -128,15 +144,112 @@ expectedFixtureSweep =
 assertSweepLoadProfileOverride :: IO ()
 assertSweepLoadProfileOverride = do
   let profilePath = "config/loads/eb-capacity-stress.json"
-      overrides = SweepOverrides Nothing Nothing Nothing (Just profilePath)
+      overrides = SweepOverrides Nothing Nothing Nothing (Just (LoadProfileFile profilePath)) False
   assertEqual
     "load profile command-line argument"
     (Right ("config/sweeps/mechanisms.json", overrides))
     (parseSweepArgs ["config/sweeps/mechanisms.json", "--load-profile", profilePath])
   assertEqual
     "load profile applied to sweep spec"
-    (Just profilePath)
-    (applyOverrides overrides expectedFixtureSweep).sweepLoadProfilePath
+    (Just (LoadProfileFile profilePath))
+    (applyOverrides overrides expectedFixtureSweep).sweepLoadOverride
+  let presetOverrides = SweepOverrides Nothing Nothing Nothing (Just (LoadPreset "low")) False
+  assertEqual
+    "load preset command-line argument"
+    (Right ("config/sweeps/mechanisms.json", presetOverrides))
+    (parseSweepArgs ["config/sweeps/mechanisms.json", "--load", "low"])
+  let summaryOnlyOverrides = SweepOverrides Nothing Nothing Nothing Nothing True
+  assertEqual
+    "summary-only command-line argument"
+    (Right ("config/sweeps/mechanisms.json", summaryOnlyOverrides))
+    (parseSweepArgs ["config/sweeps/mechanisms.json", "--summary-only"])
+  assertTrue
+    "summary-only applied to sweep spec"
+    (applyOverrides summaryOnlyOverrides expectedFixtureSweep).sweepSummaryOnly
+
+-- | Serialisation is an output concern only: suppressing it must not change
+-- the event fold or any final metric for the same config, seed, and horizon.
+assertTracedAndUntracedMetricsEqual :: IO ()
+assertTracedAndUntracedMetricsEqual = do
+  config <- parseSimConfig "test/fixtures/sim-config.json"
+  untraced <- runWithSeed config 19 50
+  tempDir <- getTemporaryDirectory
+  (tracePath, traceHandle) <- openTempFile tempDir "abstract-sim-hs-test.events.jsonl"
+  hClose traceHandle
+  traced <-
+    runWithSeedToFile config tracePath 19 50
+      `finally` removeFile tracePath
+  assertEqual
+    "traced and summary-only runs produce identical metrics"
+    traced._runResult
+    untraced._runResult
+
+-- | Retry failures are mechanism-dependent, while fresh demand and block
+-- opportunities are experiment inputs. Advancing retry jitter must therefore
+-- leave both exogenous streams unchanged for a matched seed. The one-byte
+-- mempool makes every fresh transaction fail admission, so the right-hand run
+-- genuinely consumes retry jitter while the no-retry run does not.
+assertRetryRandomnessDoesNotPerturbExogenousInputs :: IO ()
+assertRetryRandomnessDoesNotPerturbExogenousInputs = do
+  retryConfig <- parseSimConfig "config/variants/flat-fee.json"
+  let constrained = retryConfig{simConfigMempoolBytesCap = 1}
+      noRetryConfig = constrained{simConfigRetryPolicy = noRetries}
+      initial = initSimStWithIndependentRngStreams constrained (mkStdGen 431)
+  retryDiverged <- compareSteps (30 :: Int) noRetryConfig constrained initial initial False
+  assertTrue "retry fixture consumes mechanism-dependent jitter" retryDiverged
+ where
+  compareSteps 0 _ _ _ _ retryDiverged = pure retryDiverged
+  compareSteps remaining leftConfig rightConfig leftState rightState retryDiverged = do
+    let (leftEvents, leftState') = runOne leftConfig leftState
+        (rightEvents, rightState') = runOne rightConfig rightState
+    assertEqual
+      "retry policy does not change sampled fresh demand"
+      (freshDemandProjection leftEvents)
+      (freshDemandProjection rightEvents)
+    assertEqual
+      "retry policy does not change ranking-block opportunities"
+      (rankingBlockSlots leftEvents)
+      (rankingBlockSlots rightEvents)
+    assertEqual
+      "retry policy does not advance the fresh-demand RNG"
+      (show leftState'._simFreshDemandRng)
+      (show rightState'._simFreshDemandRng)
+    assertEqual
+      "retry policy does not advance the block-production RNG"
+      (show leftState'._simBlockProductionRng)
+      (show rightState'._simBlockProductionRng)
+    compareSteps
+      (remaining - 1)
+      leftConfig
+      rightConfig
+      leftState'
+      rightState'
+      (retryDiverged || show leftState'._simRetryRng /= show rightState'._simRetryRng)
+
+  runOne config state =
+    runState (runReaderT (unSimM step) config) state
+
+  freshDemandProjection events =
+    [ ( slot
+      , actorId
+      , tx.txDemand.demandValue
+      , tx.txDemand.demandUrgency
+      , tx.txDemand.demandSize
+      , tx.txDemand.demandScript._scriptSize
+      , tx.txDemand.demandScript._scriptExUnits
+      )
+    | TxSubmitted slot actorId tx <- toList events
+    , tx.txProvenance == FreshDemand
+    ]
+
+  rankingBlockSlots events =
+    [ slot
+    | BlockProduced slot summary <- toList events
+    , case summary of
+        RbPraos{} -> True
+        RbCertifying{} -> True
+        _ -> False
+    ]
 
 {- The live configs are not generally content-asserted — only that they still
 parse, that the mechanism set remains complete, and that selecting a workload
@@ -149,6 +262,43 @@ assertLiveConfigsParse = do
   assertEqual "default config retains its original load" severeCongestionLoad defaultConfig.simConfigLoad
   sweepSpec <- loadSweepSpec "config/sweeps/example.json"
   mapM_ (parseSimConfig . (.variantConfig)) sweepSpec.sweepVariants
+  inversionSmoke <- loadSweepSpec "config/sweeps/cross-lane-inversion-smoke.json"
+  assertTrue "cross-lane smoke is summary-only" inversionSmoke.sweepSummaryOnly
+  assertEqual "cross-lane smoke uses ten paired seeds" 10 inversionSmoke.sweepSeeds
+  mapM_ (parseSimConfig . (.variantConfig)) inversionSmoke.sweepVariants
+  inversionD16Smoke <- loadSweepSpec "config/sweeps/cross-lane-inversion-smoke-d16.json"
+  assertTrue "D16 cross-lane smoke is summary-only" inversionD16Smoke.sweepSummaryOnly
+  assertEqual "D16 cross-lane smoke uses ten paired seeds" 10 inversionD16Smoke.sweepSeeds
+  assertEqual "D16 cross-lane smoke has one corrected candidate" 1 (length inversionD16Smoke.sweepVariants)
+  mapM_ (parseSimConfig . (.variantConfig)) inversionD16Smoke.sweepVariants
+  canonicalFinalSmoke <- loadSweepSpec "config/sweeps/canonical-final-smoke.json"
+  assertTrue "canonical final smoke is summary-only" canonicalFinalSmoke.sweepSummaryOnly
+  assertEqual
+    "archived-reference smoke preserves the shared RNG sequence"
+    SharedRandomness
+    canonicalFinalSmoke.sweepRandomnessMode
+  assertEqual "canonical final smoke uses ten paired seeds" 10 canonicalFinalSmoke.sweepSeeds
+  assertEqual "canonical final smoke has one integrated candidate" 1 (length canonicalFinalSmoke.sweepVariants)
+  assertEqual
+    "canonical final smoke points at the designated recommendation"
+    ["config/variants/trickle-aging/thr-k10.json"]
+    (map (.variantConfig) canonicalFinalSmoke.sweepVariants)
+  mapM_ (parseSimConfig . (.variantConfig)) canonicalFinalSmoke.sweepVariants
+  canonicalHeadlines <- loadSweepSpec "config/sweeps/canonical-headlines.json"
+  assertTrue "canonical headline refresh is summary-only" canonicalHeadlines.sweepSummaryOnly
+  assertEqual "canonical headline refresh uses ten paired seeds" 10 canonicalHeadlines.sweepSeeds
+  assertEqual "canonical headline refresh uses 2,000 slots" 2_000 canonicalHeadlines.sweepSlots
+  assertEqual
+    "canonical headline refresh isolates exogenous randomness"
+    IndependentRandomness
+    canonicalHeadlines.sweepRandomnessMode
+  assertEqual
+    "canonical headline refresh pairs a fresh control with the recommendation"
+    [ "config/variants/flat-fee.json"
+    , "config/variants/trickle-aging/thr-k10.json"
+    ]
+    (map (.variantConfig) canonicalHeadlines.sweepVariants)
+  mapM_ (parseSimConfig . (.variantConfig)) canonicalHeadlines.sweepVariants
   mechanisms <- loadSweepSpec "config/sweeps/mechanisms.json"
   assertEqual
     "mechanism sweep covers controls, phase-2 candidates, and windowed-priority companions"
@@ -163,6 +313,8 @@ assertLiveConfigsParse = do
     , "both-dynamic-reserved-window3"
     , "both-dynamic-open-window3"
     , "priority-only-reserved-windowed"
+    , "priority-only-strict-threshold-rb2-windowed"
+    , "both-dynamic-strict-threshold-rb2-windowed"
     , "priority-only-open-windowed"
     , "both-dynamic-reserved-windowed"
     , "both-dynamic-open-windowed"
@@ -235,6 +387,7 @@ assertHeadroomInvariant :: IO ()
 assertHeadroomInvariant = do
   let controllers = defaultDesign.designControllers
       prices = initialPrices defaultDesign
+      scopesUnderTest = [PremiumEverywhere, PremiumRbOnly]
       semanticsUnderTest =
         [ FixedFee
         , Eip1559
@@ -242,21 +395,23 @@ assertHeadroomInvariant = do
         ]
   sequence_
     [ assertTrue
-        ("admission fee monotone in headroom: " <> show semantics <> ", lane " <> show lane <> ", n=" <> show n)
-        ( admissionRequiredFee controllers n semantics prices (testTx lane)
-            <= admissionRequiredFee controllers (n + 1) semantics prices (testTx lane)
+        ("admission fee monotone in headroom: " <> show scope <> ", " <> show semantics <> ", lane " <> show lane <> ", n=" <> show n)
+        ( admissionRequiredFee controllers n scope semantics prices (testTx lane)
+            <= admissionRequiredFee controllers (n + 1) scope semantics prices (testTx lane)
         )
-    | semantics <- semanticsUnderTest
+    | scope <- scopesUnderTest
+    , semantics <- semanticsUnderTest
     , lane <- [Standard, Priority]
     , n <- [0 .. 5]
     ]
   sequence_
     [ assertTrue
-        ("admission at horizon 1 implies producer headroom: " <> show semantics <> ", lane " <> show lane)
-        ( let admitted = withFee (admissionRequiredFee controllers 1 semantics prices (testTx lane)) (testTx lane)
-           in coversProducerHeadroom controllers semantics prices admitted
+        ("admission at horizon 1 implies producer headroom: " <> show scope <> ", " <> show semantics <> ", lane " <> show lane)
+        ( let admitted = withFee (admissionRequiredFee controllers 1 scope semantics prices (testTx lane)) (testTx lane)
+           in coversProducerHeadroom controllers scope semantics prices admitted
         )
-    | semantics <- semanticsUnderTest
+    | scope <- scopesUnderTest
+    , semantics <- semanticsUnderTest
     , lane <- [Standard, Priority]
     ]
 
@@ -516,9 +671,9 @@ assertCapacityWeightedWindowUsesExUnits = do
 {- | The Giorgos design ('PremiumRbOnly'): the priority premium buys RB
 inclusion specifically, so a priority tx landing in an EB is refunded down
 to the standard quote. 'PremiumEverywhere' charges the posted lane's quote
-regardless of inclusion point. Only the refund target moves — mempool
-validity stays posted-lane in both scopes, and non-refunding semantics
-('FixedFee') are unaffected.
+regardless of inclusion point. The rb-only max-fee validity rule is tested
+separately below; actual settlement stays inclusion-point-specific, and
+non-refunding semantics ('FixedFee') are unaffected.
 -}
 assertPremiumScopeChargesByInclusionPoint :: IO ()
 assertPremiumScopeChargesByInclusionPoint = do
@@ -550,6 +705,119 @@ assertPremiumScopeChargesByInclusionPoint = do
     "rb-only: fixed-fee semantics still charge the posted fee in full"
     posted
     (realisedFee PremiumRbOnly FixedFee prices (IncludedInEb (EbId 0)) priorityTx)
+
+{- | Independently controlled quotes may temporarily invert. An rb-only
+priority transaction can land in either block type, so its max fee and the
+wallet's priority decision must cover the larger quote while settlement
+continues to charge the quote for the actual inclusion point.
+-}
+assertCrossLaneFeeInversion :: IO ()
+assertCrossLaneFeeInversion = do
+  let prices = Prices (PerLane 4.0 2.0)
+      priorityTx = testTx Priority
+      standardQuote = quotedFee prices (testTx Standard)
+      priorityQuote = quotedFee prices priorityTx
+      sufficientTx = withFee standardQuote priorityTx
+      underfundedTx = withFee priorityQuote priorityTx
+      controllers = defaultDesign.designControllers
+      producerFee = admissionRequiredFee controllers 1 PremiumRbOnly Eip1559 prices priorityTx
+      producerFundedTx = withFee producerFee priorityTx
+      decisionDemand =
+        priorityTx.txDemand
+          { demandValue = Lovelace 500_000
+          , demandUrgency = Linear 0
+          }
+      rbOnlyEnv = inversionEnv PremiumRbOnly prices
+      everywhereEnv = inversionEnv PremiumEverywhere prices
+      impatient = (fixtureActor 0){actorType = Impatient}
+  assertTrue "inversion fixture has standard quote above priority" (standardQuote > priorityQuote)
+  assertEqual
+    "rb-only priority max fee covers both possible inclusion quotes"
+    standardQuote
+    (requiredMaxFee PremiumRbOnly prices priorityTx)
+  assertEqual
+    "everywhere priority max fee remains the priority quote"
+    priorityQuote
+    (requiredMaxFee PremiumEverywhere prices priorityTx)
+  assertEqual
+    "inversion applies to admission"
+    standardQuote
+    (admissionRequiredFee controllers 0 PremiumRbOnly Eip1559 prices priorityTx)
+  assertTrue
+    "priority-only cap is stale during an rb-only inversion"
+    (not (feeStillValid PremiumRbOnly Eip1559 (SlotNo 0) prices underfundedTx))
+  assertTrue
+    "larger cap is current during an rb-only inversion"
+    (feeStillValid PremiumRbOnly Eip1559 (SlotNo 0) prices sufficientTx)
+  assertTrue
+    "one-step max cap satisfies producer headroom"
+    (coversProducerHeadroom controllers PremiumRbOnly Eip1559 prices producerFundedTx)
+  assertEqual
+    "rb-only EB settlement still charges the standard quote"
+    standardQuote
+    (realisedFee PremiumRbOnly Eip1559 prices (IncludedInEb (EbId 0)) sufficientTx)
+  assertEqual
+    "rb-only RB settlement still charges the priority quote"
+    priorityQuote
+    (realisedFee PremiumRbOnly Eip1559 prices IncludedInRb sufficientTx)
+  case resubmitTransaction rbOnlyEnv FreshDemand 10 1.0 (fixtureActor 0) decisionDemand of
+    Nothing -> pure ()
+    Just _ -> do
+      putStrLn "rb-only wallet did not apply the larger quote to its priority decision"
+      exitFailure
+  assertEqual
+    "everywhere wallet may still choose priority at its own lower quote"
+    (Just Priority)
+    (fmap (.txLane) (resubmitTransaction everywhereEnv FreshDemand 11 1.0 (fixtureActor 0) decisionDemand))
+  case resubmitTransaction rbOnlyEnv FreshDemand 12 1.0 impatient decisionDemand of
+    Nothing -> do
+      putStrLn "impatient inversion fixture unexpectedly declined to submit"
+      exitFailure
+    Just submitted -> do
+      assertEqual "impatient inversion fixture chooses priority" Priority submitted.txLane
+      assertEqual
+        "rb-only wallet bases its posted cap on the larger quote"
+        (twice standardQuote)
+        submitted.txBody._txFee
+  underfundedSettlement <-
+    try (evaluate (realisedFee PremiumRbOnly Eip1559 prices (IncludedInEb (EbId 0)) underfundedTx))
+      :: IO (Either ErrorCall Lovelace)
+  case underfundedSettlement of
+    Left _ -> pure ()
+    Right fee -> do
+      putStrLn ("underfunded EIP-1559 settlement silently returned " <> show fee)
+      exitFailure
+ where
+  inversionEnv scope prices =
+    SubmissionEnv
+      { envLaneStructure = Two
+      , envPriorityPremiumScope = scope
+      , envF = 0.05
+      , envSlot = SlotNo 0
+      , envPrices = prices
+      , envLatency =
+          LaneLatencyEstimate
+            { expectedStandardLatency = Duration 50
+            , expectedPriorityLatency = Duration 25
+            }
+      }
+  twice (Lovelace amount) = Lovelace (2 * amount)
+
+{- | The strict EB-threshold policy never produces a mixed RB: the RB is
+priority-only even when the whole queue would fit, and the threshold gates
+only the EB announcement (checked in the simulation, not in selection).
+-}
+assertStrictEbThresholdSelection :: IO ()
+assertStrictEbThresholdSelection = do
+  let capacity = Resources{resBytes = Bytes 1_000, resExUnits = ExUnits 10_000_000}
+      reservation = PriorityReservationRbEbThreshold 1_000 500 Nothing
+      priorityTx = withSize 400 (testTx Priority)
+      standardTx = withSize 400 (testTx Standard)
+      (selected, remaining, _, mode) =
+        selectRbTxs Fifo reservation capacity (Seq.fromList [standardTx, priorityTx])
+  assertEqual "strict EB-threshold always reserves the RB" ReservedRb mode
+  assertTrue "strict EB-threshold RB contains only priority" (all ((== Priority) . (.txLane)) selected)
+  assertEqual "strict EB-threshold leaves standard txs for the EB" 1 (length remaining)
 
 {- Price stability is judged against the final (steady-state) coefficient:
 the transient ramp must not count towards settled coefficient range, and a lane
@@ -720,6 +988,7 @@ assertSingleLaneActorHasReservationPrice = do
   singleLaneEnvAt prices =
     SubmissionEnv
       { envLaneStructure = One
+      , envPriorityPremiumScope = PremiumEverywhere
       , envF = 0.05
       , envSlot = SlotNo 0
       , envPrices = prices
@@ -740,6 +1009,10 @@ assertSingleLaneActorHasReservationPrice = do
 withFee :: Lovelace -> Tx -> Tx
 withFee fee tx =
   tx{txBody = tx.txBody{_txFee = fee}}
+
+withSize :: Int -> Tx -> Tx
+withSize size tx =
+  tx{txBody = tx.txBody{_txSize = size}}
 
 testTx :: Lane -> Tx
 testTx lane =

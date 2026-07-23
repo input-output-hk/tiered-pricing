@@ -1,0 +1,16 @@
+{
+  "description": "Launch-day scenario sweep: controls plus the window-5 variant of each mechanism family, under the launch-day load profile (pass --load-profile config/loads/launch-day.json).",
+  "seeds": 10,
+  "slots": 2000,
+  "out": "sweep-results/launch-day",
+  "variants": [
+    { "name": "flat-fee", "config": "config/variants/flat-fee.json" },
+    { "name": "single-lane-eip1559", "config": "config/variants/single-lane-eip1559.json" },
+    { "name": "priority-only-reserved-windowed", "config": "config/variants/priority-only-reserved-windowed.json" },
+    { "name": "priority-only-open-windowed", "config": "config/variants/priority-only-open-windowed.json" },
+    { "name": "both-dynamic-reserved-windowed", "config": "config/variants/both-dynamic-reserved-windowed.json" },
+    { "name": "both-dynamic-open-windowed", "config": "config/variants/both-dynamic-open-windowed.json" },
+    { "name": "priority-only-strict-threshold-rb2-windowed", "config": "config/variants/priority-only-strict-threshold-rb2-windowed.json" },
+    { "name": "both-dynamic-strict-threshold-rb2-windowed", "config": "config/variants/both-dynamic-strict-threshold-rb2-windowed.json" }
+  ]
+}

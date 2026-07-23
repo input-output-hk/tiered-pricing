@@ -3,7 +3,7 @@ module LoadProfile (
   loadLoadProfile,
 ) where
 
-import Data.Aeson (FromJSON (..), eitherDecode, withObject, (.:), (.:?))
+import Data.Aeson (FromJSON (..), Value, eitherDecode, withObject, (.:), (.:?))
 import Data.ByteString.Lazy qualified as BL
 import Load (ArrivalProcess)
 
@@ -12,6 +12,8 @@ data LoadProfile = LoadProfile
   { loadProfileName :: String
   , loadProfileDescription :: Maybe String
   , loadProfileProcess :: ArrivalProcess
+  , loadProfileValue :: Value
+  -- ^ Original JSON value inserted into each effective simulation config.
   }
   deriving stock (Eq, Show)
 
@@ -21,10 +23,11 @@ instance FromJSON LoadProfile where
       name <- obj .: "name"
       if null name
         then fail "load profile name must be non-empty"
-        else
-          LoadProfile name
-            <$> obj .:? "description"
-            <*> obj .: "load"
+        else do
+          description <- obj .:? "description"
+          loadValue <- obj .: "load"
+          process <- parseJSON loadValue
+          pure (LoadProfile name description process loadValue)
 
 loadLoadProfile :: FilePath -> IO LoadProfile
 loadLoadProfile path = do

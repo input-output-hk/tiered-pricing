@@ -1,0 +1,223 @@
+{
+  "description": "Preserved per-seed evidence for the post-correction canonical-final D16/K10 launch-day integration smoke.",
+  "generatedAt": "2026-07-13",
+  "experiment": {
+    "load": "launch-day",
+    "slots": 2000,
+    "seeds": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9
+    ],
+    "canonicalConfig": "config/variants/trickle-aging/thr-k10.json",
+    "calibration": {
+      "targetUtilisation": 0.5,
+      "maxChangeDenominator": 16,
+      "prioritySignalWindow": 5,
+      "standardSignalWindow": 20,
+      "ebThresholdBytes": 45056,
+      "ebAgeEscapeRbIntervals": 10,
+      "multiplierFloor": null
+    },
+    "method": "The canonical configuration ran summary-only under the same launch-day profile, seeds, and horizon as the preserved D16 references. Its effective config differs from corrected-max-no-floor-d16 only by ebAgeEscapeRbIntervals=10."
+  },
+  "references": {
+    "evidence": "docs/phase-2/experiment-results/cross-lane-inversion-d16-baseline.json",
+    "correctedVariant": "corrected-max-no-floor-d16",
+    "preCorrectionVariant": "bdst-tu50-d16"
+  },
+  "provenance": {
+    "source": "sweep-results/canonical-final-d16-k10-launch-day/summary.json",
+    "variant": "canonical-final-d16-k10",
+    "summarySha256": "1d915d6ae694613885ff51acb8b18f02db6afc9d05503721e880182601f7a68b",
+    "comparisonSha256": "c411e9442f0a1eb3bd1d81b89e9d9b1abcad89e070dac809b21ecbc26c5c34b5",
+    "manifestSha256": "c0710a58784104d51e392c30395ac6326dd3d4b9444fd0fc623530411a8f16e3",
+    "canonicalConfigSha256": "12dbea535ca6d99b8b63a7a95218b065ae6bc18259ad1bd32dfcf1b3a2908274",
+    "effectiveConfigSha256": "12318e738d0403b712c72f8f16ff981ac30fdb9000bb18a50952fa5dc67239df",
+    "selectedLoadProfileSha256": "2c25520d3e3014682db4b6727da5bb7af7b5d117355e112d3b19c4745435cb0c",
+    "summaryOnly": true,
+    "gitHeadAtRun": "31f4f7db5d343fd4a10f11ef544e1c139dfea03e",
+    "workingTreeDirtyAtRun": true,
+    "simulatorSourceTreeSha256": "071ac3a3989e3c4c74e6d32554438cca442406a0e7de8cefadbb14f6a465ca67",
+    "sourceTreeHashMethod": "SHA-256 of the sorted sha256sum records for every .hs file under abstract-sim-hs/app and abstract-sim-hs/src"
+  },
+  "result": {
+    "pairedSeeds": 10,
+    "preservedMetricsPerSeed": 9,
+    "preservedScalarComparisonsPerReference": 90,
+    "canonicalVsCorrectedDifferences": 0,
+    "canonicalVsPreCorrectionDifferences": 0,
+    "fullSummaryMetricsPerSeed": 55,
+    "fullSummaryScalarComparisonsPerReference": 550,
+    "canonicalVsCorrectedFullSummaryDifferences": 0,
+    "canonicalVsPreCorrectionFullSummaryDifferences": 0,
+    "observation": "Every canonical-final scalar compared exactly equal to both its corrected D16/no-K10 and pre-correction D16 counterpart. The nine decision-facing canonical metrics are preserved below; the reference metrics are preserved in the linked D16 evidence artifact.",
+    "caveat": "No event traces were retained. Exact scalar equality establishes no observed outcome change in this scenario, but does not directly establish whether the K=10 escape condition was internally evaluated."
+  },
+  "metrics": [
+    "value.retainedRatio",
+    "value.priority.retainedRatio",
+    "units.serviceRate",
+    "inclusion.priority.serviceRate",
+    "inclusion.priority.submitted",
+    "latency.meanBlocks",
+    "latency.priority.meanBlocks",
+    "throughput.txPerSlot",
+    "revenue.feesCollectedLovelace"
+  ],
+  "variants": [
+    {
+      "name": "canonical-final-d16-k10",
+      "role": "post-correction canonical D16/K10 configuration",
+      "runs": [
+        {
+          "seed": 0,
+          "scalars": {
+            "value.retainedRatio": 0.8703305262818578,
+            "value.priority.retainedRatio": 0.6218604116043506,
+            "units.serviceRate": 0.9534342110609939,
+            "inclusion.priority.serviceRate": 0.95475,
+            "inclusion.priority.submitted": 12000,
+            "latency.meanBlocks": 3.686837555839098,
+            "latency.priority.meanBlocks": 2.845422012743301,
+            "throughput.txPerSlot": 187.7045,
+            "revenue.feesCollectedLovelace": 729432601931
+          }
+        },
+        {
+          "seed": 1,
+          "scalars": {
+            "value.retainedRatio": 0.8992989566691695,
+            "value.priority.retainedRatio": 0.6623198090979192,
+            "units.serviceRate": 0.95772158712908,
+            "inclusion.priority.serviceRate": 0.9631730308355967,
+            "inclusion.priority.submitted": 12518,
+            "latency.meanBlocks": 2.9612453866711914,
+            "latency.priority.meanBlocks": 2.5861325371153687,
+            "throughput.txPerSlot": 188.584,
+            "revenue.feesCollectedLovelace": 693973452388
+          }
+        },
+        {
+          "seed": 2,
+          "scalars": {
+            "value.retainedRatio": 0.8693230223443564,
+            "value.priority.retainedRatio": 0.6415450520427503,
+            "units.serviceRate": 0.9433615850962583,
+            "inclusion.priority.serviceRate": 0.9367964936746688,
+            "inclusion.priority.submitted": 20078,
+            "latency.meanBlocks": 3.5566191365134845,
+            "latency.priority.meanBlocks": 3.0723058110479027,
+            "throughput.txPerSlot": 188.8275,
+            "revenue.feesCollectedLovelace": 731275246391
+          }
+        },
+        {
+          "seed": 3,
+          "scalars": {
+            "value.retainedRatio": 0.8345286533473212,
+            "value.priority.retainedRatio": 0.6865025517568173,
+            "units.serviceRate": 0.9006369664879921,
+            "inclusion.priority.serviceRate": 0.9133479212253829,
+            "inclusion.priority.submitted": 34275,
+            "latency.meanBlocks": 3.8341125253604953,
+            "latency.priority.meanBlocks": 3.4729595911196296,
+            "throughput.txPerSlot": 192.721,
+            "revenue.feesCollectedLovelace": 730595497787
+          }
+        },
+        {
+          "seed": 4,
+          "scalars": {
+            "value.retainedRatio": 0.8942803275936488,
+            "value.priority.retainedRatio": 0.6368914550491281,
+            "units.serviceRate": 0.9760693351797247,
+            "inclusion.priority.serviceRate": 0.9487511883156167,
+            "inclusion.priority.submitted": 11571,
+            "latency.meanBlocks": 3.2555551206911733,
+            "latency.priority.meanBlocks": 2.3875022772818366,
+            "throughput.txPerSlot": 204.406,
+            "revenue.feesCollectedLovelace": 713918995864
+          }
+        },
+        {
+          "seed": 5,
+          "scalars": {
+            "value.retainedRatio": 0.8770665681945126,
+            "value.priority.retainedRatio": 0.6401648757328523,
+            "units.serviceRate": 0.9409519094833947,
+            "inclusion.priority.serviceRate": 0.9066434352517986,
+            "inclusion.priority.submitted": 17792,
+            "latency.meanBlocks": 3.492363844231528,
+            "latency.priority.meanBlocks": 2.688983943958837,
+            "throughput.txPerSlot": 197.678,
+            "revenue.feesCollectedLovelace": 716754397337
+          }
+        },
+        {
+          "seed": 6,
+          "scalars": {
+            "value.retainedRatio": 0.8077589196089411,
+            "value.priority.retainedRatio": 0.6124006089096744,
+            "units.serviceRate": 0.8817393915990904,
+            "inclusion.priority.serviceRate": 0.7807834410042565,
+            "inclusion.priority.submitted": 46283,
+            "latency.meanBlocks": 4.162337535947681,
+            "latency.priority.meanBlocks": 3.9464814456097628,
+            "throughput.txPerSlot": 205.507,
+            "revenue.feesCollectedLovelace": 768062188413
+          }
+        },
+        {
+          "seed": 7,
+          "scalars": {
+            "value.retainedRatio": 0.8860289345702282,
+            "value.priority.retainedRatio": 0.6401976458064652,
+            "units.serviceRate": 0.9656483220183928,
+            "inclusion.priority.serviceRate": 0.9661016949152542,
+            "inclusion.priority.submitted": 10148,
+            "latency.meanBlocks": 3.4572524812333745,
+            "latency.priority.meanBlocks": 2.3778049775601797,
+            "throughput.txPerSlot": 200.5555,
+            "revenue.feesCollectedLovelace": 709740451402
+          }
+        },
+        {
+          "seed": 8,
+          "scalars": {
+            "value.retainedRatio": 0.8696918153207981,
+            "value.priority.retainedRatio": 0.5954645361663556,
+            "units.serviceRate": 0.970311741262137,
+            "inclusion.priority.serviceRate": 0.9658983563196675,
+            "inclusion.priority.submitted": 10586,
+            "latency.meanBlocks": 3.6339913747376675,
+            "latency.priority.meanBlocks": 2.854767726161369,
+            "throughput.txPerSlot": 216.805,
+            "revenue.feesCollectedLovelace": 738635109738
+          }
+        },
+        {
+          "seed": 9,
+          "scalars": {
+            "value.retainedRatio": 0.8976084825387249,
+            "value.priority.retainedRatio": 0.6444932069041552,
+            "units.serviceRate": 0.920143960690973,
+            "inclusion.priority.serviceRate": 0.9550228068314416,
+            "inclusion.priority.submitted": 9427,
+            "latency.meanBlocks": 3.113054792916347,
+            "latency.priority.meanBlocks": 2.275908030656448,
+            "throughput.txPerSlot": 192.1325,
+            "revenue.feesCollectedLovelace": 702365928525
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,368 @@
+{
+  "description": "Preserved D16 evidence for the max-of-two cross-lane fee-inversion smoke comparison: pre-correction per-seed scalars plus the completed corrected-run result and checksums.",
+  "generatedAt": "2026-07-13",
+  "experiment": {
+    "load": "launch-day",
+    "slots": 2000,
+    "seeds": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9
+    ],
+    "calibration": {
+      "targetUtilisation": 0.5,
+      "maxChangeDenominator": 16,
+      "prioritySignalWindow": 5,
+      "standardSignalWindow": 20
+    },
+    "method": "Archived pre-correction baseline paired with a max-of-two/no-floor replay. The corrected candidate ran summary-only with the same effective config, launch-day load, seeds, and horizon."
+  },
+  "provenance": {
+    "preCorrection": {
+      "source": "sweep-results/param-robustness-launch-day/summary.json",
+      "variant": "bdst-tu50-d16",
+      "summarySha256": "26d921e6fafd0feff74579f67df111200fdc382d8d3a7ccd7690b6dc7d3ff129",
+      "effectiveConfigSha256": "eb5c968ac006f1b236bbf40bae501df5085232b31406bc43bade11ac642e415f",
+      "sourceConfigSha256": "8d179d88cc23ea6f4d256f3b9cb8c58a46599a80f4a06cd6294a99d45f474a4c",
+      "codeRevision": null,
+      "note": "The exact pre-correction code revision and dirty-worktree state were not recorded. This artifact preserves the comparison scalars and input hashes, but the legacy half is archived rather than independently reproducible."
+    },
+    "corrected": {
+      "source": "sweep-results/cross-lane-inversion-smoke-d16-launch-day/summary.json",
+      "variant": "corrected-max-no-floor-d16",
+      "summarySha256": "5fccf6f32d1f4514e28ae8c434ea5117cf89fcd9ed441c61f30e2eaf5ff3a1a9",
+      "comparisonSha256": "b45ac1ac443f7f48a0cfa34f2a01399fd41010ebd77db04e0df718ffdbe9612e",
+      "manifestSha256": "6a815792e9f5b4ed02669f657df27e2190122d81c20ff16580830fca2a4cd455",
+      "effectiveConfigSha256": "eb5c968ac006f1b236bbf40bae501df5085232b31406bc43bade11ac642e415f",
+      "selectedLoadProfileSha256": "2c25520d3e3014682db4b6727da5bb7af7b5d117355e112d3b19c4745435cb0c",
+      "summaryOnly": true,
+      "gitHeadAtRun": "31f4f7db5d343fd4a10f11ef544e1c139dfea03e",
+      "workingTreeDirtyAtRun": true,
+      "simulatorSourceTreeSha256": "071ac3a3989e3c4c74e6d32554438cca442406a0e7de8cefadbb14f6a465ca67",
+      "sourceTreeHashMethod": "SHA-256 of the sorted sha256sum records for every .hs file under abstract-sim-hs/app and abstract-sim-hs/src",
+      "note": "The corrected run used an uncommitted working tree. The source-tree, manifest, config, load-profile, summary, and comparison hashes identify the state and output more precisely than the base Git revision alone."
+    }
+  },
+  "result": {
+    "pairedSeeds": 10,
+    "preservedMetricsPerSeed": 9,
+    "preservedScalarComparisons": 90,
+    "preservedScalarDifferences": 0,
+    "fullSummaryMetricsPerSeed": 55,
+    "fullSummaryScalarComparisons": 550,
+    "fullSummaryScalarDifferences": 0,
+    "observation": "Every corrected scalar compared exactly equal to its pre-correction counterpart. The nine decision-facing metrics for both variants are preserved below. The full ignored summaries contained the same 55 scalar keys per seed and were exactly equal across all 550 comparisons."
+  },
+  "metrics": [
+    "value.retainedRatio",
+    "value.priority.retainedRatio",
+    "units.serviceRate",
+    "inclusion.priority.serviceRate",
+    "inclusion.priority.submitted",
+    "latency.meanBlocks",
+    "latency.priority.meanBlocks",
+    "throughput.txPerSlot",
+    "revenue.feesCollectedLovelace"
+  ],
+  "variants": [
+    {
+      "name": "bdst-tu50-d16",
+      "role": "pre-correction D16 baseline",
+      "runs": [
+        {
+          "seed": 0,
+          "scalars": {
+            "value.retainedRatio": 0.8703305262818578,
+            "value.priority.retainedRatio": 0.6218604116043506,
+            "units.serviceRate": 0.9534342110609939,
+            "inclusion.priority.serviceRate": 0.95475,
+            "inclusion.priority.submitted": 12000,
+            "latency.meanBlocks": 3.686837555839098,
+            "latency.priority.meanBlocks": 2.845422012743301,
+            "throughput.txPerSlot": 187.7045,
+            "revenue.feesCollectedLovelace": 729432601931
+          }
+        },
+        {
+          "seed": 1,
+          "scalars": {
+            "value.retainedRatio": 0.8992989566691695,
+            "value.priority.retainedRatio": 0.6623198090979192,
+            "units.serviceRate": 0.95772158712908,
+            "inclusion.priority.serviceRate": 0.9631730308355967,
+            "inclusion.priority.submitted": 12518,
+            "latency.meanBlocks": 2.9612453866711914,
+            "latency.priority.meanBlocks": 2.5861325371153687,
+            "throughput.txPerSlot": 188.584,
+            "revenue.feesCollectedLovelace": 693973452388
+          }
+        },
+        {
+          "seed": 2,
+          "scalars": {
+            "value.retainedRatio": 0.8693230223443564,
+            "value.priority.retainedRatio": 0.6415450520427503,
+            "units.serviceRate": 0.9433615850962583,
+            "inclusion.priority.serviceRate": 0.9367964936746688,
+            "inclusion.priority.submitted": 20078,
+            "latency.meanBlocks": 3.5566191365134845,
+            "latency.priority.meanBlocks": 3.0723058110479027,
+            "throughput.txPerSlot": 188.8275,
+            "revenue.feesCollectedLovelace": 731275246391
+          }
+        },
+        {
+          "seed": 3,
+          "scalars": {
+            "value.retainedRatio": 0.8345286533473212,
+            "value.priority.retainedRatio": 0.6865025517568173,
+            "units.serviceRate": 0.9006369664879921,
+            "inclusion.priority.serviceRate": 0.9133479212253829,
+            "inclusion.priority.submitted": 34275,
+            "latency.meanBlocks": 3.8341125253604953,
+            "latency.priority.meanBlocks": 3.4729595911196296,
+            "throughput.txPerSlot": 192.721,
+            "revenue.feesCollectedLovelace": 730595497787
+          }
+        },
+        {
+          "seed": 4,
+          "scalars": {
+            "value.retainedRatio": 0.8942803275936488,
+            "value.priority.retainedRatio": 0.6368914550491281,
+            "units.serviceRate": 0.9760693351797247,
+            "inclusion.priority.serviceRate": 0.9487511883156167,
+            "inclusion.priority.submitted": 11571,
+            "latency.meanBlocks": 3.2555551206911733,
+            "latency.priority.meanBlocks": 2.3875022772818366,
+            "throughput.txPerSlot": 204.406,
+            "revenue.feesCollectedLovelace": 713918995864
+          }
+        },
+        {
+          "seed": 5,
+          "scalars": {
+            "value.retainedRatio": 0.8770665681945126,
+            "value.priority.retainedRatio": 0.6401648757328523,
+            "units.serviceRate": 0.9409519094833947,
+            "inclusion.priority.serviceRate": 0.9066434352517986,
+            "inclusion.priority.submitted": 17792,
+            "latency.meanBlocks": 3.492363844231528,
+            "latency.priority.meanBlocks": 2.688983943958837,
+            "throughput.txPerSlot": 197.678,
+            "revenue.feesCollectedLovelace": 716754397337
+          }
+        },
+        {
+          "seed": 6,
+          "scalars": {
+            "value.retainedRatio": 0.8077589196089411,
+            "value.priority.retainedRatio": 0.6124006089096744,
+            "units.serviceRate": 0.8817393915990904,
+            "inclusion.priority.serviceRate": 0.7807834410042565,
+            "inclusion.priority.submitted": 46283,
+            "latency.meanBlocks": 4.162337535947681,
+            "latency.priority.meanBlocks": 3.9464814456097628,
+            "throughput.txPerSlot": 205.507,
+            "revenue.feesCollectedLovelace": 768062188413
+          }
+        },
+        {
+          "seed": 7,
+          "scalars": {
+            "value.retainedRatio": 0.8860289345702282,
+            "value.priority.retainedRatio": 0.6401976458064652,
+            "units.serviceRate": 0.9656483220183928,
+            "inclusion.priority.serviceRate": 0.9661016949152542,
+            "inclusion.priority.submitted": 10148,
+            "latency.meanBlocks": 3.4572524812333745,
+            "latency.priority.meanBlocks": 2.3778049775601797,
+            "throughput.txPerSlot": 200.5555,
+            "revenue.feesCollectedLovelace": 709740451402
+          }
+        },
+        {
+          "seed": 8,
+          "scalars": {
+            "value.retainedRatio": 0.8696918153207981,
+            "value.priority.retainedRatio": 0.5954645361663556,
+            "units.serviceRate": 0.970311741262137,
+            "inclusion.priority.serviceRate": 0.9658983563196675,
+            "inclusion.priority.submitted": 10586,
+            "latency.meanBlocks": 3.6339913747376675,
+            "latency.priority.meanBlocks": 2.854767726161369,
+            "throughput.txPerSlot": 216.805,
+            "revenue.feesCollectedLovelace": 738635109738
+          }
+        },
+        {
+          "seed": 9,
+          "scalars": {
+            "value.retainedRatio": 0.8976084825387249,
+            "value.priority.retainedRatio": 0.6444932069041552,
+            "units.serviceRate": 0.920143960690973,
+            "inclusion.priority.serviceRate": 0.9550228068314416,
+            "inclusion.priority.submitted": 9427,
+            "latency.meanBlocks": 3.113054792916347,
+            "latency.priority.meanBlocks": 2.275908030656448,
+            "throughput.txPerSlot": 192.1325,
+            "revenue.feesCollectedLovelace": 702365928525
+          }
+        }
+      ]
+    },
+    {
+      "name": "corrected-max-no-floor-d16",
+      "role": "corrected max-of-two D16 candidate with no controller floor",
+      "runs": [
+        {
+          "seed": 0,
+          "scalars": {
+            "value.retainedRatio": 0.8703305262818578,
+            "value.priority.retainedRatio": 0.6218604116043506,
+            "units.serviceRate": 0.9534342110609939,
+            "inclusion.priority.serviceRate": 0.95475,
+            "inclusion.priority.submitted": 12000,
+            "latency.meanBlocks": 3.686837555839098,
+            "latency.priority.meanBlocks": 2.845422012743301,
+            "throughput.txPerSlot": 187.7045,
+            "revenue.feesCollectedLovelace": 729432601931
+          }
+        },
+        {
+          "seed": 1,
+          "scalars": {
+            "value.retainedRatio": 0.8992989566691695,
+            "value.priority.retainedRatio": 0.6623198090979192,
+            "units.serviceRate": 0.95772158712908,
+            "inclusion.priority.serviceRate": 0.9631730308355967,
+            "inclusion.priority.submitted": 12518,
+            "latency.meanBlocks": 2.9612453866711914,
+            "latency.priority.meanBlocks": 2.5861325371153687,
+            "throughput.txPerSlot": 188.584,
+            "revenue.feesCollectedLovelace": 693973452388
+          }
+        },
+        {
+          "seed": 2,
+          "scalars": {
+            "value.retainedRatio": 0.8693230223443564,
+            "value.priority.retainedRatio": 0.6415450520427503,
+            "units.serviceRate": 0.9433615850962583,
+            "inclusion.priority.serviceRate": 0.9367964936746688,
+            "inclusion.priority.submitted": 20078,
+            "latency.meanBlocks": 3.5566191365134845,
+            "latency.priority.meanBlocks": 3.0723058110479027,
+            "throughput.txPerSlot": 188.8275,
+            "revenue.feesCollectedLovelace": 731275246391
+          }
+        },
+        {
+          "seed": 3,
+          "scalars": {
+            "value.retainedRatio": 0.8345286533473212,
+            "value.priority.retainedRatio": 0.6865025517568173,
+            "units.serviceRate": 0.9006369664879921,
+            "inclusion.priority.serviceRate": 0.9133479212253829,
+            "inclusion.priority.submitted": 34275,
+            "latency.meanBlocks": 3.8341125253604953,
+            "latency.priority.meanBlocks": 3.4729595911196296,
+            "throughput.txPerSlot": 192.721,
+            "revenue.feesCollectedLovelace": 730595497787
+          }
+        },
+        {
+          "seed": 4,
+          "scalars": {
+            "value.retainedRatio": 0.8942803275936488,
+            "value.priority.retainedRatio": 0.6368914550491281,
+            "units.serviceRate": 0.9760693351797247,
+            "inclusion.priority.serviceRate": 0.9487511883156167,
+            "inclusion.priority.submitted": 11571,
+            "latency.meanBlocks": 3.2555551206911733,
+            "latency.priority.meanBlocks": 2.3875022772818366,
+            "throughput.txPerSlot": 204.406,
+            "revenue.feesCollectedLovelace": 713918995864
+          }
+        },
+        {
+          "seed": 5,
+          "scalars": {
+            "value.retainedRatio": 0.8770665681945126,
+            "value.priority.retainedRatio": 0.6401648757328523,
+            "units.serviceRate": 0.9409519094833947,
+            "inclusion.priority.serviceRate": 0.9066434352517986,
+            "inclusion.priority.submitted": 17792,
+            "latency.meanBlocks": 3.492363844231528,
+            "latency.priority.meanBlocks": 2.688983943958837,
+            "throughput.txPerSlot": 197.678,
+            "revenue.feesCollectedLovelace": 716754397337
+          }
+        },
+        {
+          "seed": 6,
+          "scalars": {
+            "value.retainedRatio": 0.8077589196089411,
+            "value.priority.retainedRatio": 0.6124006089096744,
+            "units.serviceRate": 0.8817393915990904,
+            "inclusion.priority.serviceRate": 0.7807834410042565,
+            "inclusion.priority.submitted": 46283,
+            "latency.meanBlocks": 4.162337535947681,
+            "latency.priority.meanBlocks": 3.9464814456097628,
+            "throughput.txPerSlot": 205.507,
+            "revenue.feesCollectedLovelace": 768062188413
+          }
+        },
+        {
+          "seed": 7,
+          "scalars": {
+            "value.retainedRatio": 0.8860289345702282,
+            "value.priority.retainedRatio": 0.6401976458064652,
+            "units.serviceRate": 0.9656483220183928,
+            "inclusion.priority.serviceRate": 0.9661016949152542,
+            "inclusion.priority.submitted": 10148,
+            "latency.meanBlocks": 3.4572524812333745,
+            "latency.priority.meanBlocks": 2.3778049775601797,
+            "throughput.txPerSlot": 200.5555,
+            "revenue.feesCollectedLovelace": 709740451402
+          }
+        },
+        {
+          "seed": 8,
+          "scalars": {
+            "value.retainedRatio": 0.8696918153207981,
+            "value.priority.retainedRatio": 0.5954645361663556,
+            "units.serviceRate": 0.970311741262137,
+            "inclusion.priority.serviceRate": 0.9658983563196675,
+            "inclusion.priority.submitted": 10586,
+            "latency.meanBlocks": 3.6339913747376675,
+            "latency.priority.meanBlocks": 2.854767726161369,
+            "throughput.txPerSlot": 216.805,
+            "revenue.feesCollectedLovelace": 738635109738
+          }
+        },
+        {
+          "seed": 9,
+          "scalars": {
+            "value.retainedRatio": 0.8976084825387249,
+            "value.priority.retainedRatio": 0.6444932069041552,
+            "units.serviceRate": 0.920143960690973,
+            "inclusion.priority.serviceRate": 0.9550228068314416,
+            "inclusion.priority.submitted": 9427,
+            "latency.meanBlocks": 3.113054792916347,
+            "latency.priority.meanBlocks": 2.275908030656448,
+            "throughput.txPerSlot": 192.1325,
+            "revenue.feesCollectedLovelace": 702365928525
+          }
+        }
+      ]
+    }
+  ]
+}

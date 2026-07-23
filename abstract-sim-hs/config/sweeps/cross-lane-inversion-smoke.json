@@ -1,0 +1,17 @@
+{
+  "description": "Matched launch-day experiment smoke for the cross-lane inversion correction. Run summary-only with --load-profile config/loads/launch-day.json. Seeds 0-9, 2,000 slots, and max-change denominator 8 intentionally match the saved pre-correction baseline variant both-dynamic-strict-threshold-rb2-windowed; its comparison scalars are preserved in docs/phase-2/experiment-results/cross-lane-inversion-smoke.json. corrected-max-no-floor isolates max(standard quote, urgent quote) max-fee validity while leaving the controllers independent; corrected-max-floor1 applies the alternative 1x controller clamp. Compare both new variants pairwise by seed with the saved baseline. This is a bounded diagnostic comparison, not a powered equivalence test.",
+  "seeds": 10,
+  "slots": 2000,
+  "summaryOnly": true,
+  "out": "sweep-results/cross-lane-inversion-smoke-launch-day",
+  "variants": [
+    {
+      "name": "corrected-max-no-floor",
+      "config": "config/variants/both-dynamic-strict-threshold-rb2-windowed.json"
+    },
+    {
+      "name": "corrected-max-floor1",
+      "config": "config/variants/multiplier-floor/bdst-floor1.json"
+    }
+  ]
+}

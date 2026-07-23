@@ -1,0 +1,10 @@
+{
+  "description": "Strict EB-threshold rule: RBs are always reserved for priority transactions, and an EB may only be announced when its payload reaches half the RB byte cap (45056 B). Standard transactions are served exclusively through batched EBs. Compare cross-sweep against the mechanisms runs (same seeds, slots, and load profiles)",
+  "seeds": 10,
+  "slots": 2000,
+  "out": "sweep-results/strict-threshold",
+  "variants": [
+    { "name": "priority-only-strict-threshold-rb2-windowed", "config": "config/variants/priority-only-strict-threshold-rb2-windowed.json" },
+    { "name": "both-dynamic-strict-threshold-rb2-windowed", "config": "config/variants/both-dynamic-strict-threshold-rb2-windowed.json" }
+  ]
+}

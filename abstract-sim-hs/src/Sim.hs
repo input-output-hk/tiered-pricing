@@ -5,11 +5,12 @@ module Sim (
   SimM (..),
   SimSt (..),
   initSimSt,
+  initSimStWithIndependentRngStreams,
   step,
 ) where
 
 import Actor (Actor (..), ActorId, SubmissionEnv (..), TxSubmission (TxSubmission), generateTransaction, resubmitTransaction)
-import Block (BlockSummary (..), EbId, EndorserBlock (..), InclusionPoint (..), PendingEb (..), mkBlockUsage, nextEbId, prioritySignalCapacity, selectRbTxs, selectTxsByPolicy)
+import Block (BlockSummary (..), EbId, EndorserBlock (..), InclusionPoint (..), PendingEb (..), mkBlockUsage, nextEbId, prioritySignalCapacity, selectRbTxs, selectTxsByPolicy, txsBytes)
 import Config (SimConfig (..))
 import Control.Monad (join, replicateM)
 import Control.Monad.Reader (MonadReader (..), ReaderT, asks)
@@ -24,15 +25,15 @@ import Data.Maybe (catMaybes, mapMaybe)
 import Data.Sequence (Seq, singleton, (><), (|>))
 import Data.Sequence qualified as Seq
 import Data.Set qualified as Set
-import Design (Design (..), FeeSemantics)
+import Design (Design (..), FeeSemantics, PriorityPremiumScope, ReservationPolicy (..))
 import Event (SimEvent (..))
 import Load (arrivalRateAt, tryBurstEffectAt)
 import Data.List (sortOn)
 import Mempool (Mempool (..), admitToMempool, emptyMempool, removeFromMempool, setMempoolTxs)
-import Pricing (ControllerInput (..), Prices (..), admissionRequiredFee, coversProducerHeadroom, feeStillValid, initialPrices, quotedFee, realisedFee, retentionWindow, updatePrices)
+import Pricing (ControllerInput (..), Prices (..), admissionRequiredFee, coversProducerHeadroom, feeStillValid, initialPrices, realisedFee, requiredMaxFee, retentionWindow, updatePrices)
 import Resource (Bytes (..), ExUnits (..), Resources (..))
 import Retry (PendingRetry (..), RetryPolicy (..), capture)
-import System.Random (StdGen, uniformR)
+import System.Random (StdGen, split, uniformR)
 import Transaction (EvictionReason (..), Provenance (..), RejectReason (..), Tx (..), TxBody (..), TxId (..), TxSample (..))
 import Types (Duration (Duration), Lovelace (..), SlotNo (SlotNo), addDuration, diffSlots)
 
@@ -43,7 +44,13 @@ data SimSt = SimSt
   , _simPendingEb :: Maybe PendingEb
   , _simTxs :: Map TxId Tx
   , _simSlot :: SlotNo
-  , _simRng :: StdGen
+  , _simIndependentRngStreams :: Bool
+  , _simFreshDemandRng :: StdGen
+  -- ^ exogenous arrival counts, actor selection, and transaction samples
+  , _simBlockProductionRng :: StdGen
+  -- ^ exogenous ranking-block opportunities
+  , _simRetryRng :: StdGen
+  -- ^ mechanism-dependent retry jitter
   , _simPrices :: Prices
   , _simRecentBlocks :: Seq BlockSummary
   , _simTxCounter :: Int
@@ -55,6 +62,9 @@ data SimSt = SimSt
   , _simRetryQueue :: Map SlotNo (Seq PendingRetry)
   -- ^ pending resubmissions keyed by wake slot (jitter already drawn);
   -- within a slot, enqueue order is preserved
+  , _simRbsSinceEbAnnounce :: Int
+  -- ^ ranking blocks produced since the last EB announcement; read by the
+  -- EB-threshold age escape, reset to 0 on every announcement
   }
 
 newtype SimM a = SimM {unSimM :: ReaderT SimConfig (State SimSt) a}
@@ -77,20 +87,36 @@ instance Applicative AdmissionCheck where
   AdmissionAccepted _ <*> AdmissionRejected reasons = AdmissionRejected reasons
 
 initSimSt :: SimConfig -> StdGen -> SimSt
-initSimSt conf rng =
-  SimSt
+initSimSt = initSimStWithRngStreams False
+
+initSimStWithIndependentRngStreams :: SimConfig -> StdGen -> SimSt
+initSimStWithIndependentRngStreams = initSimStWithRngStreams True
+
+initSimStWithRngStreams :: Bool -> SimConfig -> StdGen -> SimSt
+initSimStWithRngStreams independentRngStreams conf rng =
+  let (freshDemandRng, blockProductionRng, retryRng)
+        | independentRngStreams =
+            let (fresh, remaining) = split rng
+                (blocks, retries) = split remaining
+             in (fresh, blocks, retries)
+        | otherwise = (rng, rng, rng)
+   in SimSt
     { _simMempool = emptyMempool
     , _simActors = conf.simConfigActors
     , _simEbs = mempty
     , _simPendingEb = Nothing
     , _simTxs = mempty
     , _simSlot = SlotNo 0
-    , _simRng = rng
+    , _simIndependentRngStreams = independentRngStreams
+    , _simFreshDemandRng = freshDemandRng
+    , _simBlockProductionRng = blockProductionRng
+    , _simRetryRng = retryRng
     , _simPrices = initialPrices conf.simConfigDesign
     , _simRecentBlocks = mempty
     , _simTxCounter = 0
     , _simTxActors = mempty
     , _simRetryQueue = mempty
+    , _simRbsSinceEbAnnounce = 0
     }
 
 step :: SimM (Seq SimEvent)
@@ -116,7 +142,13 @@ admitTxSubmission (TxSubmission actorId tx) = do
   design <- asks simConfigDesign
   headroomUpdates <- asks simConfigAdmissionHeadroomUpdates
   let requiredFee =
-        admissionRequiredFee design.designControllers headroomUpdates design.designFeeSemantics prices tx
+        admissionRequiredFee
+          design.designControllers
+          headroomUpdates
+          design.designPriorityPremiumScope
+          design.designFeeSemantics
+          prices
+          tx
   mempool <- gets _simMempool
   simTxs <- gets _simTxs
   mempoolBytesCap <- asks simConfigMempoolBytesCap
@@ -171,6 +203,7 @@ submissionEnv = do
   pure
     SubmissionEnv
       { envLaneStructure = design.designLaneStructure
+      , envPriorityPremiumScope = design.designPriorityPremiumScope
       , envF = f
       , envSlot = slot
       , envPrices = prices
@@ -249,7 +282,7 @@ captureRetries events = do
  where
   enqueue pending = do
     let Duration jitterWindow = pending.retryJitter
-    jitter <- draw (uniformR (0, jitterWindow))
+    jitter <- drawRetry (uniformR (0, jitterWindow))
     let wakeAt =
           addDuration (Duration jitter) (addDuration pending.retryDelay pending.failedAt)
     modify' \st ->
@@ -257,7 +290,7 @@ captureRetries events = do
 
 pickActor :: NonEmpty Actor -> SimM Actor
 pickActor actors = do
-  i <- draw (uniformR (0, NE.length actors - 1))
+  i <- drawFreshDemand (uniformR (0, NE.length actors - 1))
   pure (actors NE.!! i)
 
 {- | Run the controllers for this slot's block production. Windowed signals
@@ -322,7 +355,7 @@ sampleArrivalCount rate
   | otherwise = go 0 0
  where
   go count elapsed = do
-    u <- draw (uniformR (0, 1))
+    u <- drawFreshDemand (uniformR (0, 1))
     let elapsed' = elapsed - log (max 1e-300 u)
     if elapsed' >= rate
       then pure count
@@ -331,21 +364,52 @@ sampleArrivalCount rate
 drawTxSample :: SimM TxSample
 drawTxSample =
   TxSample
-    <$> draw (uniformR (0, 1))
-    <*> draw (uniformR (0, 1))
-    <*> draw (uniformR (0, 1))
-    <*> draw (uniformR (0, 1))
-    <*> draw (uniformR (0, 1))
+    <$> drawFreshDemand (uniformR (0, 1))
+    <*> drawFreshDemand (uniformR (0, 1))
+    <*> drawFreshDemand (uniformR (0, 1))
+    <*> drawFreshDemand (uniformR (0, 1))
+    <*> drawFreshDemand (uniformR (0, 1))
 
-draw :: (StdGen -> (a, StdGen)) -> SimM a
-draw f = do
-  g <- gets _simRng
+drawFreshDemand :: (StdGen -> (a, StdGen)) -> SimM a
+drawFreshDemand f = do
+  g <- gets _simFreshDemandRng
   let (x, g') = f g
-  modify' \s -> s{_simRng = g'}
+  modify' \s ->
+    if s._simIndependentRngStreams
+      then s{_simFreshDemandRng = g'}
+      else setAllRngStreams g' s
   pure x
 
+drawBlockProduction :: (StdGen -> (a, StdGen)) -> SimM a
+drawBlockProduction f = do
+  g <- gets _simBlockProductionRng
+  let (x, g') = f g
+  modify' \s ->
+    if s._simIndependentRngStreams
+      then s{_simBlockProductionRng = g'}
+      else setAllRngStreams g' s
+  pure x
+
+drawRetry :: (StdGen -> (a, StdGen)) -> SimM a
+drawRetry f = do
+  g <- gets _simRetryRng
+  let (x, g') = f g
+  modify' \s ->
+    if s._simIndependentRngStreams
+      then s{_simRetryRng = g'}
+      else setAllRngStreams g' s
+  pure x
+
+setAllRngStreams :: StdGen -> SimSt -> SimSt
+setAllRngStreams rng st =
+  st
+    { _simFreshDemandRng = rng
+    , _simBlockProductionRng = rng
+    , _simRetryRng = rng
+    }
+
 roll :: Double -> SimM Bool
-roll p = (< p) <$> draw (uniformR (0, 1))
+roll p = (< p) <$> drawBlockProduction (uniformR (0, 1))
 
 rollRbProduction :: SimM Bool
 rollRbProduction = do
@@ -382,6 +446,8 @@ produceRankingBlock = do
         else producePraosBlock design slot rbCapacity
     Nothing ->
       producePraosBlock design slot rbCapacity
+  -- the RB just produced counts toward the EB-announcement age
+  modify' \st -> st{_simRbsSinceEbAnnounce = st._simRbsSinceEbAnnounce + 1}
   ebEvents <- announceEndorserBlock slot rbSignalCapacity
   pure (rbEvents >< ebEvents)
 
@@ -414,7 +480,7 @@ pendingEbStillValid design slot pending = do
   prices <- gets _simPrices
   pure
     ( all
-        (feeStillValid design.designFeeSemantics slot prices)
+        (feeStillValid design.designPriorityPremiumScope design.designFeeSemantics slot prices)
         (maybe [] _ebTxs (Map.lookup pending.pendingEbId ebs))
     )
 
@@ -447,8 +513,8 @@ producePraosBlock design slot rbCapacity = do
   prices <- gets _simPrices
   mempool <- gets _simMempool
   let (feeCheckedMempool, evictionEvents) =
-        evictStaleFees design.designFeeSemantics slot prices mempool
-      (selectedTxs, remainingTxs, _usage) =
+        evictStaleFees design.designPriorityPremiumScope design.designFeeSemantics slot prices mempool
+      (selectedTxs, remainingTxs, _usage, _selectionMode) =
         selectRbTxs design.designSelection design.designReservationPolicy rbCapacity feeCheckedMempool.mempoolTxs
       selectedTxList = toList selectedTxs
       mempool' = setMempoolTxs remainingTxs
@@ -477,12 +543,13 @@ includedEvent design prices slot inclusionPoint tx =
 announceEndorserBlock :: SlotNo -> Resources -> SimM (Seq SimEvent)
 announceEndorserBlock slot rbSignalCapacity = do
   ebCapacity <- ebCapacityFromConfig
+  rbsSinceAnnounce <- gets _simRbsSinceEbAnnounce
   ebs <- gets _simEbs
   prices <- gets _simPrices
   design <- asks simConfigDesign
   mempool <- gets _simMempool
   let (feeCheckedMempool, evictionEvents) =
-        evictStaleFees design.designFeeSemantics slot prices mempool
+        evictStaleFees design.designPriorityPremiumScope design.designFeeSemantics slot prices mempool
       -- Producer headroom ('Pricing.coversProducerHeadroom'): fill the EB
       -- only with txs that stay valid through the single price update that
       -- can fire before the certification check, so a prudent producer's
@@ -490,11 +557,21 @@ announceEndorserBlock slot rbSignalCapacity = do
       -- stay in the mempool (RB-eligible only as the reservation policy
       -- allows) and regain EB eligibility if prices fall.
       ebEligible =
-        coversProducerHeadroom design.designControllers design.designFeeSemantics prices
+        coversProducerHeadroom
+          design.designControllers
+          design.designPriorityPremiumScope
+          design.designFeeSemantics
+          prices
       (selectedTxs, _remainingTxs, _usage) =
         selectTxsByPolicy design.designSelection ebCapacity (Seq.filter ebEligible feeCheckedMempool.mempoolTxs)
       selectedTxList = toList selectedTxs
-  if null selectedTxList
+      ebNeeded =
+        case design.designReservationPolicy of
+          PriorityReservationRbEbThreshold _ thresholdBytes ageEscape ->
+            txsBytes selectedTxs >= thresholdBytes
+              || maybe False (rbsSinceAnnounce >=) ageEscape
+          _ -> True
+  if null selectedTxList || not ebNeeded
     then do
       modify' \st -> st{_simMempool = feeCheckedMempool}
       pure evictionEvents
@@ -512,22 +589,23 @@ announceEndorserBlock slot rbSignalCapacity = do
           { _simMempool = feeCheckedMempool
           , _simEbs = Map.insert ebId eb st._simEbs
           , _simPendingEb = Just (PendingEb ebId slot)
+          , _simRbsSinceEbAnnounce = 0
           }
       pure $ evictionEvents |> BlockProduced slot summary
 
-evictStaleFees :: FeeSemantics -> SlotNo -> Prices -> Mempool -> (Mempool, Seq SimEvent)
-evictStaleFees semantics slot prices mempool =
+evictStaleFees :: PriorityPremiumScope -> FeeSemantics -> SlotNo -> Prices -> Mempool -> (Mempool, Seq SimEvent)
+evictStaleFees scope semantics slot prices mempool =
   (setMempoolTxs keptTxs, evictions)
  where
   (keptTxs, evictions) =
     foldl' checkTx (mempty, mempty) mempool.mempoolTxs
 
   checkTx (kept, events) tx
-    | feeStillValid semantics slot prices tx =
+    | feeStillValid scope semantics slot prices tx =
         (kept |> tx, events)
     | otherwise =
-        (kept, events |> staleFeeEviction slot prices tx)
+        (kept, events |> staleFeeEviction scope slot prices tx)
 
-staleFeeEviction :: SlotNo -> Prices -> Tx -> SimEvent
-staleFeeEviction slot prices tx =
-  TxEvicted slot tx.txId (FeeTooLowAtSelection tx.txBody._txFee (quotedFee prices tx))
+staleFeeEviction :: PriorityPremiumScope -> SlotNo -> Prices -> Tx -> SimEvent
+staleFeeEviction scope slot prices tx =
+  TxEvicted slot tx.txId (FeeTooLowAtSelection tx.txBody._txFee (requiredMaxFee scope prices tx))

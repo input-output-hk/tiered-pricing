@@ -1,0 +1,8 @@
+{
+  "name": "mid-load",
+  "description": "Constant 5 tx/slot: just above RB saturation (~3.5 tx/slot), so a small standard overflow accumulates toward the EB threshold without congesting the EB path",
+  "load": {
+    "type": "constant",
+    "rate": 5.0
+  }
+}

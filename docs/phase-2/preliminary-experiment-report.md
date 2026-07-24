@@ -1489,6 +1489,55 @@ From `abstract-sim-hs`, rerun with `./scripts/run_canonical_headlines.sh --out s
 
 ---
 
+### Urgent-class entry and composition at severe congestion ###
+
+The question this experiment answers: is the severe-congestion retained-value headline inflated by demand composition? The mechanism's dynamic quotes change who submits, so its urgent-class population differs from flat fee's, and a retained-value *ratio* can improve merely because harder demand stayed away. The thousand-seed low-load replication had already measured entry moving the other way there (urgent-class submissions up ~7.6% under the mechanism, because a reserved lane exists); at severe congestion the entry direction and size were unmeasured, because no earlier record preserved the submitted counts at that load.
+
+We reran the headline pairing (flat fee versus canonical D16/K10, `config/sweeps/canonical-headlines.json`) at severe congestion only, paired seeds 0-9, 2,000 slots, summary-only, independent streams, and compared the entry-facing scalars. One value is derived per seed: urgent-class submitted value = retained + lost + unresolved urgent-class lovelace. Intervals are two-sided 95% paired-t confidence intervals; "D16/K10 higher" counts seeds where the mechanism's value is larger.
+
+| Metric | Flat | D16/K10 | D16/K10 − flat (95% CI) | D16/K10 higher |
+|---|---:|---:|---:|---:|
+| Urgent-class units submitted | 3,426.0 | 3,003.7 | -422.3 [-517.8, -326.8] | 0/10 |
+| Urgent-class value submitted (M lovelace) | 6,382 | 5,926 | -456 [-560, -352] | 0/10 |
+| Urgent retained value (ratio) | 43.56% | 50.85% | +7.288 [+6.000, +8.576] pp | 10/10 |
+| Urgent retained value (M lovelace) | 2,752 | 2,988 | +235 [+134, +337] | 9/10 |
+| Urgent lost value (M lovelace) | 3,565 | 2,887 | -678 [-762, -595] | 0/10 |
+| Urgent latency (blocks) | 2.983 | 2.502 | -0.481 [-0.596, -0.366] | 0/10 |
+| Overall retained value (ratio) | 93.20% | 93.61% | +0.411 [+0.333, +0.488] pp | 10/10 |
+
+Entry falls rather than rises at this load: 12% fewer urgent-class units enter under the mechanism, carrying 7% less value, in all ten seeds. The direction of the entry effect is therefore load-dependent - at the floor-priced low load the reserved lane's latency expectation attracts marginal demand; at severe congestion the dynamic quote dominates and sheds it.
+
+Despite the smaller entering pool, the mechanism retains more urgent-class value in absolute terms and loses less, so the ratio improvement is not an artifact of population selection. A generous bound on the composition component: the resolved urgent-class pool is 443M lovelace smaller under the mechanism; if that shed value had entered and retained at the flat-fee class average of 43.56%, the mechanism's ratio would be 50.35% instead of 50.85%. Composition therefore accounts for at most ~0.5 pp of the +7.29 headline, and that bound is conservative, since marginal decliners are by construction the lowest-surplus units.
+
+The preserved record with per-seed values and provenance hashes: [`severe-entry-smoke.json`](experiment-results/severe-entry-smoke.json). From `abstract-sim-hs`, rerun with `./scripts/smoke_severe_entry.sh --out sweep-results/severe-entry-smoke-rerun`.
+
+---
+
+### Lane-choice belief calibration at severe congestion ###
+
+The question this experiment answers: how much of the severe-congestion headline depends on the actors' default latency beliefs? Lane choice in the simulator weighs expected retained value against the quoted fee using fixed expected latencies, identical in every configuration: 50 slots for the standard lane and 25 for the priority lane. At severe congestion the realized means in the 1,000-seed run were 58.7 slots under flat fee and 58.6 / 42.7 slots for the mechanism's standard and priority lanes, so the defaults overstate the priority lane's advantage (believed 2×, realized ~1.4×) and understate every wait.
+
+We ran one calibration round: copies of the two configurations, identical except that each arm's `laneLatencyEstimate` is set to its own realized means from the uncalibrated 1,000-seed severe-congestion run, rounded to whole slots (flat fee: standard 59; mechanism: standard 59, priority 43). The manifest is `config/sweeps/severe-calibrated.json`; seeds, slots, and comparison are as in the entry experiment above.
+
+| Metric | Flat (calibrated) | D16/K10 (calibrated) | D16/K10 − flat (95% CI) | D16/K10 higher |
+|---|---:|---:|---:|---:|
+| Urgent retained value (ratio) | 43.58% | 50.27% | +6.691 [+5.485, +7.898] pp | 10/10 |
+| Urgent retained value (M lovelace) | 2,698 | 2,851 | +153 [+62, +245] | 9/10 |
+| Urgent latency (blocks) | 2.982 | 2.542 | -0.440 [-0.556, -0.324] | 0/10 |
+| Overall retained value (ratio) | 93.23% | 93.64% | +0.410 [+0.332, +0.488] pp | 10/10 |
+| Urgent-class units submitted | 3,302.7 | 2,817.6 | -485.1 [-581.7, -388.5] | 0/10 |
+| Priority-lane units submitted | 0 | 8,741.1 | +8,741.1 [+6,765.8, +10,716.4] | 10/10 |
+
+The advantage survives calibration in every directional claim, at a modestly smaller size. Because the calibrated and uncalibrated runs share seeds and demand streams, the shrink can be tested directly as a per-seed difference of differences on the retained-value delta, computable from the two preserved records: -0.597 pp, 95% CI [-0.837, -0.357], smaller in all ten seeds. About 0.6 pp of the +7.29 headline is thus attributable to the optimistic default beliefs; the remaining ~92% is robust to replacing them with realized values.
+
+The channel is worth recording. Priority-lane entry *rose* 16% under calibration (7,542.5 to 8,741.1 units) even though the priority belief worsened, because the standard belief worsened too: lane choice falls back to the priority lane when the standard lane's expected utility goes negative, so system-wide pessimism routes marginal mid-urgency demand into the reserved lane. The urgent class is at most ~40% of the lane's entrants in the uncalibrated run and at most ~32% calibrated; the lane is FIFO with no intra-lane urgency ordering, so the extra traffic slows it (realized priority-lane latency 42.7 to 48.1 slots), and the fastest-decaying class bears the difference. This is a mild, emergent form of the intra-lane priority gap the mechanism design already acknowledges.
+
+This is one calibration round, not a fixed point: beliefs change entry, entry changes congestion, congestion changes realized latency. In the calibrated run the realized means were 58.7 slots (flat standard), 58.1 (mechanism standard), and 48.1 (priority) against installed beliefs of 59 / 59 / 43, so both standard-lane beliefs are essentially converged and the priority-lane gap contracted from 18 slots to 5 in one round.
+
+The preserved record: [`severe-calibrated-smoke.json`](experiment-results/severe-calibrated-smoke.json); its manifest hash distinguishes it from the entry experiment's record. From `abstract-sim-hs`, rerun with `./scripts/smoke_severe_entry.sh --manifest config/sweeps/severe-calibrated.json --out sweep-results/severe-calibrated-smoke-rerun`.
+
+---
+
 ### Summary ###
 
 We recommend both-dynamic-strict-threshold with a 5-sample window: ranking blocks reserved for urgent transactions at all times, and an endorser block announced only when its payload reaches half the RB byte cap or when K = 10 ranking blocks have passed since the last announcement (the age escape, which repairs standard-lane starvation at trickle loads and is bit-identical to the pure threshold whenever traffic crosses the threshold naturally). The full recommended construction:

@@ -1,0 +1,12 @@
+{
+  "description": "Target-utilisation 0.25 correction subset of the parameter robustness sweep: rerun the three denominator grid cells and the denominator-8 fixed-threshold isolation cell after correcting the controller headroom bound.",
+  "seeds": 10,
+  "slots": 2000,
+  "out": "sweep-results/param-robustness-tu25-correction",
+  "variants": [
+    { "name": "bdst-tu25-d4", "config": "config/variants/param-robustness/bdst-tu25-d4.json" },
+    { "name": "bdst-tu25-d8", "config": "config/variants/param-robustness/bdst-tu25-d8.json" },
+    { "name": "bdst-tu25-d16", "config": "config/variants/param-robustness/bdst-tu25-d16.json" },
+    { "name": "bdst-tu25-d8-fixed-thr", "config": "config/variants/param-robustness/bdst-tu25-d8-fixed-thr.json" }
+  ]
+}

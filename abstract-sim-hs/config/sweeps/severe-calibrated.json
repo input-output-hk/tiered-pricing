@@ -1,0 +1,18 @@
+{
+  "description": "Lane-choice belief calibration at severe congestion: flat fee versus the canonical D16/K10 mechanism, with each variant's laneLatencyEstimate set to the realized per-lane mean latencies from the uncalibrated 1,000-seed severe-congestion run (flat standard 58.68 slots; canonical standard 58.58, priority 42.74; rounded to whole slots). One calibration round from the uncalibrated equilibrium, not a fixed point.",
+  "seeds": 10,
+  "slots": 2000,
+  "summaryOnly": true,
+  "randomness": "independent-streams",
+  "out": "sweep-results/severe-calibrated",
+  "variants": [
+    {
+      "name": "flat-fee",
+      "config": "config/variants/calibrated/flat-fee-severe-calibrated.json"
+    },
+    {
+      "name": "canonical-final-d16-k10",
+      "config": "config/variants/calibrated/thr-k10-severe-calibrated.json"
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "description": "Fresh paired refresh of the CIP headline comparisons: flat fee versus the canonical D16/K10 urgency-signalling mechanism. The runner applies each of the five headline load profiles to this manifest, using ten seeds and 2,000 slots without retaining event traces.",
+  "seeds": 10,
+  "slots": 2000,
+  "summaryOnly": true,
+  "randomness": "independent-streams",
+  "out": "sweep-results/canonical-headlines",
+  "variants": [
+    {
+      "name": "flat-fee",
+      "config": "config/variants/flat-fee.json"
+    },
+    {
+      "name": "canonical-final-d16-k10",
+      "config": "config/variants/trickle-aging/thr-k10.json"
+    }
+  ]
+}

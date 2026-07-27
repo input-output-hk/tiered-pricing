@@ -1,0 +1,1759 @@
+{
+ "description": "Durable evidence for the independent-stream five-load flat-fee versus canonical D16/K10 headline rerun.",
+ "generatedAt": "2026-07-29",
+ "experiment": {
+  "variants": {
+   "control": "flat-fee",
+   "candidate": "canonical-final-d16-k10"
+  },
+  "seeds": [
+   0,
+   1,
+   2,
+   3,
+   4,
+   5,
+   6,
+   7,
+   8,
+   9
+  ],
+  "slots": 2000,
+  "randomness": "independent-streams",
+  "method": "Mean same-numbered-seed difference with a two-sided 95% Student-t interval (df=9, t*=2.262), matching the archived runner."
+ },
+ "provenance": {
+  "baseGitRevision": "8f07ef70a9c02f2c7f4377a57d30ee28be90e236",
+  "abstractSimWorktreeCleanAtComparison": false,
+  "simulatorExecutableSha256": "0d2c3cdefe54f0cbe1b4958e03b182c959746a12f9f92635f7a216c620a5ba56",
+  "comparisonTimeSourcePatch": {
+   "source": {
+    "path": "abstract-sim-hs/sweep-results/canonical-headlines/source.patch",
+    "bytes": 45729,
+    "sha256": "711f9721ab60dc7e23f3671db78f8e83573531b1b15c009d9ba7b93dbc3096f7"
+   },
+   "preserved": {
+    "path": "docs/phase-2/experiment-results/canonical-headlines-source.patch",
+    "bytes": 45729,
+    "sha256": "711f9721ab60dc7e23f3671db78f8e83573531b1b15c009d9ba7b93dbc3096f7"
+   }
+  },
+  "scopeLimitation": "The runner recorded the simulator hash before the sweeps and captured source.patch when it generated the comparison. The original shell invocation was not separately logged, and an intervening worktree edit would not be observable; the patch therefore identifies the comparison-time tree while the executable hash identifies the binary that ran."
+ },
+ "sourceOutputs": {
+  "aggregateComparison": {
+   "path": "abstract-sim-hs/sweep-results/canonical-headlines/comparison.json",
+   "bytes": 6133,
+   "sha256": "397721958c17e822a0bf68695229636e88136cb3743d293a57bb8718c3a450e7"
+  },
+  "loads": {
+   "low": {
+    "summary": {
+     "path": "abstract-sim-hs/sweep-results/canonical-headlines/low/summary.json",
+     "bytes": 52361,
+     "sha256": "95145c0528564daf0af960f51f6f001af871fb6080d6a5904efea1a0306ef764"
+    },
+    "effectiveInputs": [
+     {
+      "path": "abstract-sim-hs/sweep-results/canonical-headlines/low/flat-fee.config.json",
+      "bytes": 962,
+      "sha256": "6aa6b323dc9995c3b858d244be7d1502d86d15c7ab1774aae27382278ee8abd5"
+     },
+     {
+      "path": "abstract-sim-hs/sweep-results/canonical-headlines/low/canonical-final-d16-k10.config.json",
+      "bytes": 1346,
+      "sha256": "72b0d4efaf3f2cf9949364f6a0115ec731ed6826db8ab752cd42eedd73253ed5"
+     }
+    ]
+   },
+   "mid-load": {
+    "summary": {
+     "path": "abstract-sim-hs/sweep-results/canonical-headlines/mid-load/summary.json",
+     "bytes": 53109,
+     "sha256": "e593e80ae9361d54c49c84dd6b26ee74fa05812dbce2f9862114391746379d9d"
+    },
+    "effectiveInputs": [
+     {
+      "path": "abstract-sim-hs/sweep-results/canonical-headlines/mid-load/flat-fee.config.json",
+      "bytes": 987,
+      "sha256": "55cce420c9235ef27ad6ceb3045602413f6a5206c56b9d610fe9edff5e5b9dfa"
+     },
+     {
+      "path": "abstract-sim-hs/sweep-results/canonical-headlines/mid-load/canonical-final-d16-k10.config.json",
+      "bytes": 1371,
+      "sha256": "43d64975570d714a7c3a99a81567712d3b7795312ba1042503efb5d262c8db94"
+     },
+     {
+      "path": "abstract-sim-hs/sweep-results/canonical-headlines/mid-load/selected-load-profile.json",
+      "bytes": 259,
+      "sha256": "fa5322b98c9e58b916a65373d90d8a3b43d0449e11d1133b4c91d82be0d46081"
+     }
+    ]
+   },
+   "severe-congestion": {
+    "summary": {
+     "path": "abstract-sim-hs/sweep-results/canonical-headlines/severe-congestion/summary.json",
+     "bytes": 54900,
+     "sha256": "862988be940a1c1f68a579a9fe29ce091fbe4452a2cdab6e2e03382c51632fb4"
+    },
+    "effectiveInputs": [
+     {
+      "path": "abstract-sim-hs/sweep-results/canonical-headlines/severe-congestion/flat-fee.config.json",
+      "bytes": 1107,
+      "sha256": "ae87f20b4b670bfb13e9e574efd59fb73859f5b87a1e2bfd0b591f48908af06d"
+     },
+     {
+      "path": "abstract-sim-hs/sweep-results/canonical-headlines/severe-congestion/canonical-final-d16-k10.config.json",
+      "bytes": 1491,
+      "sha256": "a13f5d8da70a2b10e33fac2dab7e6c043747519d0d24b1f2181a91e04230eb98"
+     },
+     {
+      "path": "abstract-sim-hs/sweep-results/canonical-headlines/severe-congestion/selected-load-profile.json",
+      "bytes": 418,
+      "sha256": "f6f8475f69dd277f72b8718163dd026da9c6d7d71808f201a574d4dca29d442b"
+     }
+    ]
+   },
+   "eb-capacity-stress": {
+    "summary": {
+     "path": "abstract-sim-hs/sweep-results/canonical-headlines/eb-capacity-stress/summary.json",
+     "bytes": 55179,
+     "sha256": "e80a1f8180eba1cbf0dd6287a9c113a6fec27f07ce6c10e33624382b1263865e"
+    },
+    "effectiveInputs": [
+     {
+      "path": "abstract-sim-hs/sweep-results/canonical-headlines/eb-capacity-stress/flat-fee.config.json",
+      "bytes": 2075,
+      "sha256": "6a3a9842ade8a0a16b3c5f98b5c3281c8ade9c3eec85d52491157d2d4718b7cc"
+     },
+     {
+      "path": "abstract-sim-hs/sweep-results/canonical-headlines/eb-capacity-stress/canonical-final-d16-k10.config.json",
+      "bytes": 2459,
+      "sha256": "d1c53bdfc17263d9c7dd67fe9025097ac130aa6719e13192f6072d05dac20342"
+     },
+     {
+      "path": "abstract-sim-hs/sweep-results/canonical-headlines/eb-capacity-stress/selected-load-profile.json",
+      "bytes": 2155,
+      "sha256": "4ce6e072d77590dc5e2d9296db704a5b9e64f8e737e54cd769b472f0a93f7205"
+     }
+    ]
+   },
+   "launch-day": {
+    "summary": {
+     "path": "abstract-sim-hs/sweep-results/canonical-headlines/launch-day/summary.json",
+     "bytes": 55405,
+     "sha256": "f755d813454e4c094b06cd77962ae0fab3262cccd2fa0d612ce5179195591f1b"
+    },
+    "effectiveInputs": [
+     {
+      "path": "abstract-sim-hs/sweep-results/canonical-headlines/launch-day/flat-fee.config.json",
+      "bytes": 1590,
+      "sha256": "aa7c2f6088bbe7a5b22e10dd997c63224ec8ca9fd4702547308ecb71f3301a57"
+     },
+     {
+      "path": "abstract-sim-hs/sweep-results/canonical-headlines/launch-day/canonical-final-d16-k10.config.json",
+      "bytes": 1974,
+      "sha256": "12318e738d0403b712c72f8f16ff981ac30fdb9000bb18a50952fa5dc67239df"
+     },
+     {
+      "path": "abstract-sim-hs/sweep-results/canonical-headlines/launch-day/selected-load-profile.json",
+      "bytes": 2288,
+      "sha256": "2c25520d3e3014682db4b6727da5bb7af7b5d117355e112d3b19c4745435cb0c"
+     }
+    ]
+   }
+  }
+ },
+ "results": {
+  "low": {
+   "label": "Low",
+   "retainedValueDefinition": "Urgent-class retained / (retained + lost), excluding unresolved.",
+   "retainedValue": {
+    "unit": "percentage points",
+    "flatMean": 59.39785816289301,
+    "canonicalMean": 59.86699029030052,
+    "canonicalMinusFlat": {
+     "perSeed": [
+      -0.26124002997484297,
+      3.052015623780065,
+      4.145778704473244,
+      0.9332548159941254,
+      1.432168265869599,
+      0.10834421800680616,
+      1.877448616169339,
+      -2.9251829126963784,
+      -1.4568923903959146,
+      -2.214373637150949
+     ],
+     "mean": 0.46913212740750937,
+     "ci95": [
+      -1.155225747897367,
+      2.093490002712386
+     ],
+     "ci95HalfWidth": 1.6243578753048764
+    },
+    "canonicalBetterCount": 6,
+    "ties": 0
+   },
+   "urgentLatency": {
+    "unit": "blocks",
+    "flatMean": 1.7907703598020654,
+    "canonicalMean": 1.7572710526042137,
+    "canonicalMinusFlat": {
+     "perSeed": [
+      0.029616724738676048,
+      -0.14959723820483317,
+      -0.16325868224602402,
+      -0.04885057471264376,
+      -0.14369501466275647,
+      -0.025868725868726017,
+      -0.04166666666666674,
+      0.08918918918918917,
+      0.004475308641975317,
+      0.11466260781329285
+     ],
+     "mean": -0.03349930719785168,
+     "ci95": [
+      -0.10311684094554815,
+      0.03611822654984479
+     ],
+     "ci95HalfWidth": 0.06961753374769647
+    },
+    "canonicalBetterCount": 6,
+    "ties": 0
+   },
+   "perSeedInputs": [
+    {
+     "seed": 0,
+     "flat": {
+      "value.urgent.retainedRatio": 0.6141286984186858,
+      "latency.urgent.meanBlocks": 1.7142857142857142,
+      "value.retainedLovelace": 9715899883.0,
+      "value.lostLovelace": 391889722.0,
+      "value.unresolvedLovelace": 420955237.0
+     },
+     "canonical": {
+      "value.urgent.retainedRatio": 0.6115162981189374,
+      "latency.urgent.meanBlocks": 1.7439024390243902,
+      "value.retainedLovelace": 9681089220.0,
+      "value.lostLovelace": 434190094.0,
+      "value.unresolvedLovelace": 420955237.0
+     },
+     "derived": {
+      "retainedValueFlatPercent": 61.41286984186858,
+      "retainedValueCanonicalPercent": 61.151629811893734,
+      "launchDayFlatSubmittedValueDenominator": null
+     }
+    },
+    {
+     "seed": 1,
+     "flat": {
+      "value.urgent.retainedRatio": 0.5673815318912757,
+      "latency.urgent.meanBlocks": 1.9090909090909092,
+      "value.retainedLovelace": 9519329425.0,
+      "value.lostLovelace": 471091342.0,
+      "value.unresolvedLovelace": 542811892.0
+     },
+     "canonical": {
+      "value.urgent.retainedRatio": 0.5979016881290764,
+      "latency.urgent.meanBlocks": 1.759493670886076,
+      "value.retainedLovelace": 9516951574.0,
+      "value.lostLovelace": 478534851.0,
+      "value.unresolvedLovelace": 543651761.0
+     },
+     "derived": {
+      "retainedValueFlatPercent": 56.73815318912757,
+      "retainedValueCanonicalPercent": 59.79016881290764,
+      "launchDayFlatSubmittedValueDenominator": null
+     }
+    },
+    {
+     "seed": 2,
+     "flat": {
+      "value.urgent.retainedRatio": 0.5621529263519911,
+      "latency.urgent.meanBlocks": 1.8974358974358974,
+      "value.retainedLovelace": 9650094882.0,
+      "value.lostLovelace": 468606374.0,
+      "value.unresolvedLovelace": 367967494.0
+     },
+     "canonical": {
+      "value.urgent.retainedRatio": 0.6036107133967236,
+      "latency.urgent.meanBlocks": 1.7341772151898733,
+      "value.retainedLovelace": 9658953795.0,
+      "value.lostLovelace": 464371822.0,
+      "value.unresolvedLovelace": 367967494.0
+     },
+     "derived": {
+      "retainedValueFlatPercent": 56.21529263519911,
+      "retainedValueCanonicalPercent": 60.36107133967236,
+      "launchDayFlatSubmittedValueDenominator": null
+     }
+    },
+    {
+     "seed": 3,
+     "flat": {
+      "value.urgent.retainedRatio": 0.598085933820074,
+      "latency.urgent.meanBlocks": 1.75,
+      "value.retainedLovelace": 9133052179.0,
+      "value.lostLovelace": 429127587.0,
+      "value.unresolvedLovelace": 698445960.0
+     },
+     "canonical": {
+      "value.urgent.retainedRatio": 0.6074184819800152,
+      "latency.urgent.meanBlocks": 1.7011494252873562,
+      "value.retainedLovelace": 9084919403.0,
+      "value.lostLovelace": 464497932.0,
+      "value.unresolvedLovelace": 720054397.0
+     },
+     "derived": {
+      "retainedValueFlatPercent": 59.8085933820074,
+      "retainedValueCanonicalPercent": 60.74184819800153,
+      "launchDayFlatSubmittedValueDenominator": null
+     }
+    },
+    {
+     "seed": 4,
+     "flat": {
+      "value.urgent.retainedRatio": 0.5823717492375079,
+      "latency.urgent.meanBlocks": 1.8709677419354838,
+      "value.retainedLovelace": 9839560837.0,
+      "value.lostLovelace": 469431352.0,
+      "value.unresolvedLovelace": 333303179.0
+     },
+     "canonical": {
+      "value.urgent.retainedRatio": 0.5966934318962039,
+      "latency.urgent.meanBlocks": 1.7272727272727273,
+      "value.retainedLovelace": 9726694739.0,
+      "value.lostLovelace": 463119129.0,
+      "value.unresolvedLovelace": 460305770.0
+     },
+     "derived": {
+      "retainedValueFlatPercent": 58.23717492375079,
+      "retainedValueCanonicalPercent": 59.66934318962039,
+      "launchDayFlatSubmittedValueDenominator": null
+     }
+    },
+    {
+     "seed": 5,
+     "flat": {
+      "value.urgent.retainedRatio": 0.6086044975860389,
+      "latency.urgent.meanBlocks": 1.7285714285714286,
+      "value.retainedLovelace": 10005343478.0,
+      "value.lostLovelace": 431680939.0,
+      "value.unresolvedLovelace": 76837507.0
+     },
+     "canonical": {
+      "value.urgent.retainedRatio": 0.6096879397661069,
+      "latency.urgent.meanBlocks": 1.7027027027027026,
+      "value.retainedLovelace": 9941961636.0,
+      "value.lostLovelace": 471616717.0,
+      "value.unresolvedLovelace": 106701270.0
+     },
+     "derived": {
+      "retainedValueFlatPercent": 60.860449758603885,
+      "retainedValueCanonicalPercent": 60.96879397661069,
+      "launchDayFlatSubmittedValueDenominator": null
+     }
+    },
+    {
+     "seed": 6,
+     "flat": {
+      "value.urgent.retainedRatio": 0.5565599458328615,
+      "latency.urgent.meanBlocks": 2.0,
+      "value.retainedLovelace": 9676071888.0,
+      "value.lostLovelace": 468117011.0,
+      "value.unresolvedLovelace": 214936750.0
+     },
+     "canonical": {
+      "value.urgent.retainedRatio": 0.5753344319945549,
+      "latency.urgent.meanBlocks": 1.9583333333333333,
+      "value.retainedLovelace": 9579818716.0,
+      "value.lostLovelace": 470284760.0,
+      "value.unresolvedLovelace": 315408078.0
+     },
+     "derived": {
+      "retainedValueFlatPercent": 55.65599458328615,
+      "retainedValueCanonicalPercent": 57.53344319945549,
+      "launchDayFlatSubmittedValueDenominator": null
+     }
+    },
+    {
+     "seed": 7,
+     "flat": {
+      "value.urgent.retainedRatio": 0.5934494205863164,
+      "latency.urgent.meanBlocks": 1.8108108108108107,
+      "value.retainedLovelace": 9709003977.0,
+      "value.lostLovelace": 444188162.0,
+      "value.unresolvedLovelace": 130592961.0
+     },
+     "canonical": {
+      "value.urgent.retainedRatio": 0.5641975914593527,
+      "latency.urgent.meanBlocks": 1.9,
+      "value.retainedLovelace": 9668048074.0,
+      "value.lostLovelace": 496273431.0,
+      "value.unresolvedLovelace": 130592961.0
+     },
+     "derived": {
+      "retainedValueFlatPercent": 59.344942058631645,
+      "retainedValueCanonicalPercent": 56.41975914593527,
+      "launchDayFlatSubmittedValueDenominator": null
+     }
+    },
+    {
+     "seed": 8,
+     "flat": {
+      "value.urgent.retainedRatio": 0.6302009398277582,
+      "latency.urgent.meanBlocks": 1.6375,
+      "value.retainedLovelace": 10118706321.0,
+      "value.lostLovelace": 428383625.0,
+      "value.unresolvedLovelace": 22646279.0
+     },
+     "canonical": {
+      "value.urgent.retainedRatio": 0.615632015923799,
+      "latency.urgent.meanBlocks": 1.6419753086419753,
+      "value.retainedLovelace": 10025930862.0,
+      "value.lostLovelace": 469342286.0,
+      "value.unresolvedLovelace": 81827930.0
+     },
+     "derived": {
+      "retainedValueFlatPercent": 63.02009398277582,
+      "retainedValueCanonicalPercent": 61.563201592379905,
+      "launchDayFlatSubmittedValueDenominator": null
+     }
+    },
+    {
+     "seed": 9,
+     "flat": {
+      "value.urgent.retainedRatio": 0.6268501727367916,
+      "latency.urgent.meanBlocks": 1.5890410958904109,
+      "value.retainedLovelace": 9906950334.0,
+      "value.lostLovelace": 405440896.0,
+      "value.unresolvedLovelace": 147836478.0
+     },
+     "canonical": {
+      "value.urgent.retainedRatio": 0.6047064363652821,
+      "latency.urgent.meanBlocks": 1.7037037037037037,
+      "value.retainedLovelace": 9854727197.0,
+      "value.lostLovelace": 469285229.0,
+      "value.unresolvedLovelace": 147836478.0
+     },
+     "derived": {
+      "retainedValueFlatPercent": 62.68501727367916,
+      "retainedValueCanonicalPercent": 60.47064363652821,
+      "launchDayFlatSubmittedValueDenominator": null
+     }
+    }
+   ]
+  },
+  "mid-load": {
+   "label": "Mid load",
+   "retainedValueDefinition": "Urgent-class retained / (retained + lost), excluding unresolved.",
+   "retainedValue": {
+    "unit": "percentage points",
+    "flatMean": 52.31827131752138,
+    "canonicalMean": 56.00504025238527,
+    "canonicalMinusFlat": {
+     "perSeed": [
+      3.7928553171342756,
+      4.3501025969165354,
+      3.512456921818284,
+      4.542039233893867,
+      6.217701334254798,
+      3.9942817986275543,
+      3.4390962284481432,
+      4.267042344301075,
+      2.0297673938480045,
+      0.7223461793963253
+     ],
+     "mean": 3.686768934863886,
+     "ci95": [
+      2.6299622502595055,
+      4.743575619468267
+     ],
+     "ci95HalfWidth": 1.0568066846043804
+    },
+    "canonicalBetterCount": 10,
+    "ties": 0
+   },
+   "urgentLatency": {
+    "unit": "blocks",
+    "flatMean": 2.2328279402799476,
+    "canonicalMean": 1.992220154095177,
+    "canonicalMinusFlat": {
+     "perSeed": [
+      -0.3139637649138314,
+      -0.24715299017374903,
+      -0.21459270364817584,
+      -0.23852511125238385,
+      -0.4201653944020358,
+      -0.2230158730158731,
+      -0.22808267997148945,
+      -0.31202651515151514,
+      -0.1103448275862069,
+      -0.09820800173244537
+     ],
+     "mean": -0.24060778618477058,
+     "ci95": [
+      -0.30853440773968,
+      -0.17268116462986116
+     ],
+     "ci95HalfWidth": 0.06792662155490942
+    },
+    "canonicalBetterCount": 10,
+    "ties": 0
+   },
+   "perSeedInputs": [
+    {
+     "seed": 0,
+     "flat": {
+      "value.urgent.retainedRatio": 0.5340671027070973,
+      "latency.urgent.meanBlocks": 2.184931506849315,
+      "value.retainedLovelace": 15677058295.0,
+      "value.lostLovelace": 842010532.0,
+      "value.unresolvedLovelace": 678891967.0
+     },
+     "canonical": {
+      "value.urgent.retainedRatio": 0.5719956558784401,
+      "latency.urgent.meanBlocks": 1.8709677419354838,
+      "value.retainedLovelace": 15640350825.0,
+      "value.lostLovelace": 889899256.0,
+      "value.unresolvedLovelace": 678891967.0
+     },
+     "derived": {
+      "retainedValueFlatPercent": 53.40671027070974,
+      "retainedValueCanonicalPercent": 57.19956558784401,
+      "launchDayFlatSubmittedValueDenominator": null
+     }
+    },
+    {
+     "seed": 1,
+     "flat": {
+      "value.urgent.retainedRatio": 0.5186336351871745,
+      "latency.urgent.meanBlocks": 2.231404958677686,
+      "value.retainedLovelace": 15541738442.0,
+      "value.lostLovelace": 874433542.0,
+      "value.unresolvedLovelace": 968592168.0
+     },
+     "canonical": {
+      "value.urgent.retainedRatio": 0.5621346611563399,
+      "latency.urgent.meanBlocks": 1.984251968503937,
+      "value.retainedLovelace": 15563847848.0,
+      "value.lostLovelace": 859807684.0,
+      "value.unresolvedLovelace": 969458968.0
+     },
+     "derived": {
+      "retainedValueFlatPercent": 51.863363518717456,
+      "retainedValueCanonicalPercent": 56.21346611563399,
+      "launchDayFlatSubmittedValueDenominator": null
+     }
+    },
+    {
+     "seed": 2,
+     "flat": {
+      "value.urgent.retainedRatio": 0.53146258723251,
+      "latency.urgent.meanBlocks": 2.1594202898550723,
+      "value.retainedLovelace": 16434648382.0,
+      "value.lostLovelace": 873182925.0,
+      "value.unresolvedLovelace": 578965995.0
+     },
+     "canonical": {
+      "value.urgent.retainedRatio": 0.5665871564506929,
+      "latency.urgent.meanBlocks": 1.9448275862068964,
+      "value.retainedLovelace": 16448353977.0,
+      "value.lostLovelace": 869142577.0,
+      "value.unresolvedLovelace": 578965995.0
+     },
+     "derived": {
+      "retainedValueFlatPercent": 53.14625872325101,
+      "retainedValueCanonicalPercent": 56.65871564506929,
+      "launchDayFlatSubmittedValueDenominator": null
+     }
+    },
+    {
+     "seed": 3,
+     "flat": {
+      "value.urgent.retainedRatio": 0.5130225478300721,
+      "latency.urgent.meanBlocks": 2.2231404958677685,
+      "value.retainedLovelace": 15687858600.0,
+      "value.lostLovelace": 835100544.0,
+      "value.unresolvedLovelace": 1317010379.0
+     },
+     "canonical": {
+      "value.urgent.retainedRatio": 0.5584429401690107,
+      "latency.urgent.meanBlocks": 1.9846153846153847,
+      "value.retainedLovelace": 15666606642.0,
+      "value.lostLovelace": 867707876.0,
+      "value.unresolvedLovelace": 1317010379.0
+     },
+     "derived": {
+      "retainedValueFlatPercent": 51.30225478300721,
+      "retainedValueCanonicalPercent": 55.844294016901074,
+      "launchDayFlatSubmittedValueDenominator": null
+     }
+    },
+    {
+     "seed": 4,
+     "flat": {
+      "value.urgent.retainedRatio": 0.49794054614178956,
+      "latency.urgent.meanBlocks": 2.4583333333333335,
+      "value.retainedLovelace": 15938455777.0,
+      "value.lostLovelace": 967369177.0,
+      "value.unresolvedLovelace": 630653176.0
+     },
+     "canonical": {
+      "value.urgent.retainedRatio": 0.5601175594843375,
+      "latency.urgent.meanBlocks": 2.0381679389312977,
+      "value.retainedLovelace": 15892551713.0,
+      "value.lostLovelace": 923892341.0,
+      "value.unresolvedLovelace": 734627298.0
+     },
+     "derived": {
+      "retainedValueFlatPercent": 49.794054614178954,
+      "retainedValueCanonicalPercent": 56.01175594843375,
+      "launchDayFlatSubmittedValueDenominator": null
+     }
+    },
+    {
+     "seed": 5,
+     "flat": {
+      "value.urgent.retainedRatio": 0.5091589284968546,
+      "latency.urgent.meanBlocks": 2.2785714285714285,
+      "value.retainedLovelace": 16387473210.0,
+      "value.lostLovelace": 928541984.0,
+      "value.unresolvedLovelace": 323230824.0
+     },
+     "canonical": {
+      "value.urgent.retainedRatio": 0.5491017464831301,
+      "latency.urgent.meanBlocks": 2.0555555555555554,
+      "value.retainedLovelace": 16387941525.0,
+      "value.lostLovelace": 933673716.0,
+      "value.unresolvedLovelace": 323230824.0
+     },
+     "derived": {
+      "retainedValueFlatPercent": 50.91589284968546,
+      "retainedValueCanonicalPercent": 54.91017464831302,
+      "launchDayFlatSubmittedValueDenominator": null
+     }
+    },
+    {
+     "seed": 6,
+     "flat": {
+      "value.urgent.retainedRatio": 0.5229666166199719,
+      "latency.urgent.meanBlocks": 2.260869565217391,
+      "value.retainedLovelace": 15723629603.0,
+      "value.lostLovelace": 893156835.0,
+      "value.unresolvedLovelace": 538764591.0
+     },
+     "canonical": {
+      "value.urgent.retainedRatio": 0.5573575789044534,
+      "latency.urgent.meanBlocks": 2.0327868852459017,
+      "value.retainedLovelace": 15749302095.0,
+      "value.lostLovelace": 875413820.0,
+      "value.unresolvedLovelace": 537396158.0
+     },
+     "derived": {
+      "retainedValueFlatPercent": 52.29666166199719,
+      "retainedValueCanonicalPercent": 55.735757890445335,
+      "launchDayFlatSubmittedValueDenominator": null
+     }
+    },
+    {
+     "seed": 7,
+     "flat": {
+      "value.urgent.retainedRatio": 0.48756220821617147,
+      "latency.urgent.meanBlocks": 2.546875,
+      "value.retainedLovelace": 16330331187.0,
+      "value.lostLovelace": 969227490.0,
+      "value.unresolvedLovelace": 249509205.0
+     },
+     "canonical": {
+      "value.urgent.retainedRatio": 0.5302326316591822,
+      "latency.urgent.meanBlocks": 2.234848484848485,
+      "value.retainedLovelace": 16362991675.0,
+      "value.lostLovelace": 943888220.0,
+      "value.unresolvedLovelace": 250496094.0
+     },
+     "derived": {
+      "retainedValueFlatPercent": 48.75622082161715,
+      "retainedValueCanonicalPercent": 53.02326316591822,
+      "launchDayFlatSubmittedValueDenominator": null
+     }
+    },
+    {
+     "seed": 8,
+     "flat": {
+      "value.urgent.retainedRatio": 0.5519654013040801,
+      "latency.urgent.meanBlocks": 2.0,
+      "value.retainedLovelace": 16486551901.0,
+      "value.lostLovelace": 887209609.0,
+      "value.unresolvedLovelace": 165023469.0
+     },
+     "canonical": {
+      "value.urgent.retainedRatio": 0.5722630752425601,
+      "latency.urgent.meanBlocks": 1.889655172413793,
+      "value.retainedLovelace": 16480022964.0,
+      "value.lostLovelace": 907050126.0,
+      "value.unresolvedLovelace": 165023469.0
+     },
+     "derived": {
+      "retainedValueFlatPercent": 55.19654013040801,
+      "retainedValueCanonicalPercent": 57.226307524256015,
+      "launchDayFlatSubmittedValueDenominator": null
+     }
+    },
+    {
+     "seed": 9,
+     "flat": {
+      "value.urgent.retainedRatio": 0.5650475580164165,
+      "latency.urgent.meanBlocks": 1.984732824427481,
+      "value.retainedLovelace": 16275768349.0,
+      "value.lostLovelace": 872280848.0,
+      "value.unresolvedLovelace": 253693546.0
+     },
+     "canonical": {
+      "value.urgent.retainedRatio": 0.5722710198103798,
+      "latency.urgent.meanBlocks": 1.8865248226950355,
+      "value.retainedLovelace": 16240525077.0,
+      "value.lostLovelace": 920070130.0,
+      "value.unresolvedLovelace": 254667505.0
+     },
+     "derived": {
+      "retainedValueFlatPercent": 56.50475580164165,
+      "retainedValueCanonicalPercent": 57.227101981037976,
+      "launchDayFlatSubmittedValueDenominator": null
+     }
+    }
+   ]
+  },
+  "severe-congestion": {
+   "label": "Severe congestion",
+   "retainedValueDefinition": "Urgent-class retained / (retained + lost), excluding unresolved.",
+   "retainedValue": {
+    "unit": "percentage points",
+    "flatMean": 43.559917292600666,
+    "canonicalMean": 50.84801072147074,
+    "canonicalMinusFlat": {
+     "perSeed": [
+      9.615443339441256,
+      5.845962842699883,
+      4.318304362183461,
+      7.5414027475319045,
+      8.559625828682982,
+      6.868772978770018,
+      8.004386052319795,
+      4.750636357677166,
+      8.933139674980367,
+      8.443260104413895
+     ],
+     "mean": 7.288093428870073,
+     "ci95": [
+      6.000428177413978,
+      8.575758680326167
+     ],
+     "ci95HalfWidth": 1.287665251456095
+    },
+    "canonicalBetterCount": 10,
+    "ties": 0
+   },
+   "urgentLatency": {
+    "unit": "blocks",
+    "flatMean": 2.982857125645855,
+    "canonicalMean": 2.5019582116063246,
+    "canonicalMinusFlat": {
+     "perSeed": [
+      -0.5965023758974413,
+      -0.33440321491128033,
+      -0.23226142445721232,
+      -0.47603372953120937,
+      -0.6304438190393813,
+      -0.41180129681078537,
+      -0.6639103222465081,
+      -0.26425152015621167,
+      -0.5993899245432988,
+      -0.5999915128019797
+     ],
+     "mean": -0.48089891403953083,
+     "ci95": [
+      -0.5958585759284751,
+      -0.36593925215058654
+     ],
+     "ci95HalfWidth": 0.11495966188894431
+    },
+    "canonicalBetterCount": 10,
+    "ties": 0
+   },
+   "perSeedInputs": [
+    {
+     "seed": 0,
+     "flat": {
+      "value.urgent.retainedRatio": 0.42730961851810945,
+      "latency.urgent.meanBlocks": 3.023816701839011,
+      "value.retainedLovelace": 417723528199.0,
+      "value.lostLovelace": 30800854829.0,
+      "value.unresolvedLovelace": 5139677642.0
+     },
+     "canonical": {
+      "value.urgent.retainedRatio": 0.523464051912522,
+      "latency.urgent.meanBlocks": 2.4273143259415697,
+      "value.retainedLovelace": 408772941102.0,
+      "value.lostLovelace": 27677933687.0,
+      "value.unresolvedLovelace": 5139677642.0
+     },
+     "derived": {
+      "retainedValueFlatPercent": 42.730961851810946,
+      "retainedValueCanonicalPercent": 52.3464051912522,
+      "launchDayFlatSubmittedValueDenominator": null
+     }
+    },
+    {
+     "seed": 1,
+     "flat": {
+      "value.urgent.retainedRatio": 0.45496319263624674,
+      "latency.urgent.meanBlocks": 2.717462199822117,
+      "value.retainedLovelace": 418353405422.0,
+      "value.lostLovelace": 28120266148.0,
+      "value.unresolvedLovelace": 7677133672.0
+     },
+     "canonical": {
+      "value.urgent.retainedRatio": 0.5134228210632455,
+      "latency.urgent.meanBlocks": 2.3830589849108366,
+      "value.retainedLovelace": 409565620411.0,
+      "value.lostLovelace": 25908688884.0,
+      "value.unresolvedLovelace": 7441201914.0
+     },
+     "derived": {
+      "retainedValueFlatPercent": 45.49631926362467,
+      "retainedValueCanonicalPercent": 51.342282106324554,
+      "launchDayFlatSubmittedValueDenominator": null
+     }
+    },
+    {
+     "seed": 2,
+     "flat": {
+      "value.urgent.retainedRatio": 0.4772621410455902,
+      "latency.urgent.meanBlocks": 2.5749118683901293,
+      "value.retainedLovelace": 422044968659.0,
+      "value.lostLovelace": 26826754157.0,
+      "value.unresolvedLovelace": 4536591423.0
+     },
+     "canonical": {
+      "value.urgent.retainedRatio": 0.5204451846674248,
+      "latency.urgent.meanBlocks": 2.342650443932917,
+      "value.retainedLovelace": 415548365903.0,
+      "value.lostLovelace": 25376468716.0,
+      "value.unresolvedLovelace": 4506903976.0
+     },
+     "derived": {
+      "retainedValueFlatPercent": 47.72621410455902,
+      "retainedValueCanonicalPercent": 52.04451846674248,
+      "launchDayFlatSubmittedValueDenominator": null
+     }
+    },
+    {
+     "seed": 3,
+     "flat": {
+      "value.urgent.retainedRatio": 0.43890031146345254,
+      "latency.urgent.meanBlocks": 2.952270081490105,
+      "value.retainedLovelace": 413153330308.0,
+      "value.lostLovelace": 29848727961.0,
+      "value.unresolvedLovelace": 10980085478.0
+     },
+     "canonical": {
+      "value.urgent.retainedRatio": 0.5143143389387715,
+      "latency.urgent.meanBlocks": 2.4762363519588955,
+      "value.retainedLovelace": 408049007747.0,
+      "value.lostLovelace": 27835203758.0,
+      "value.unresolvedLovelace": 10400518374.0
+     },
+     "derived": {
+      "retainedValueFlatPercent": 43.89003114634525,
+      "retainedValueCanonicalPercent": 51.431433893877156,
+      "launchDayFlatSubmittedValueDenominator": null
+     }
+    },
+    {
+     "seed": 4,
+     "flat": {
+      "value.urgent.retainedRatio": 0.4077241998911706,
+      "latency.urgent.meanBlocks": 3.240864799025579,
+      "value.retainedLovelace": 415525358524.0,
+      "value.lostLovelace": 32510140876.0,
+      "value.unresolvedLovelace": 6318472947.0
+     },
+     "canonical": {
+      "value.urgent.retainedRatio": 0.4933204581780004,
+      "latency.urgent.meanBlocks": 2.6104209799861975,
+      "value.retainedLovelace": 408812044779.0,
+      "value.lostLovelace": 29583864116.0,
+      "value.unresolvedLovelace": 6164970171.0
+     },
+     "derived": {
+      "retainedValueFlatPercent": 40.77241998911706,
+      "retainedValueCanonicalPercent": 49.332045817800044,
+      "launchDayFlatSubmittedValueDenominator": null
+     }
+    },
+    {
+     "seed": 5,
+     "flat": {
+      "value.urgent.retainedRatio": 0.42724556343990316,
+      "latency.urgent.meanBlocks": 2.9654453380994936,
+      "value.retainedLovelace": 420005478722.0,
+      "value.lostLovelace": 30935962276.0,
+      "value.unresolvedLovelace": 2601002379.0
+     },
+     "canonical": {
+      "value.urgent.retainedRatio": 0.4959332932276033,
+      "latency.urgent.meanBlocks": 2.5536440412887083,
+      "value.retainedLovelace": 418671470672.0,
+      "value.lostLovelace": 29010955330.0,
+      "value.unresolvedLovelace": 2572969213.0
+     },
+     "derived": {
+      "retainedValueFlatPercent": 42.724556343990315,
+      "retainedValueCanonicalPercent": 49.59332932276033,
+      "launchDayFlatSubmittedValueDenominator": null
+     }
+    },
+    {
+     "seed": 6,
+     "flat": {
+      "value.urgent.retainedRatio": 0.43268256968941604,
+      "latency.urgent.meanBlocks": 3.1794871794871793,
+      "value.retainedLovelace": 417121755688.0,
+      "value.lostLovelace": 31755248244.0,
+      "value.unresolvedLovelace": 5562487674.0
+     },
+     "canonical": {
+      "value.urgent.retainedRatio": 0.512726430212614,
+      "latency.urgent.meanBlocks": 2.515576857240671,
+      "value.retainedLovelace": 408979996188.0,
+      "value.lostLovelace": 28447839924.0,
+      "value.unresolvedLovelace": 5299517411.0
+     },
+     "derived": {
+      "retainedValueFlatPercent": 43.26825696894161,
+      "retainedValueCanonicalPercent": 51.2726430212614,
+      "launchDayFlatSubmittedValueDenominator": null
+     }
+    },
+    {
+     "seed": 7,
+     "flat": {
+      "value.urgent.retainedRatio": 0.4277696756299487,
+      "latency.urgent.meanBlocks": 3.0071513706793804,
+      "value.retainedLovelace": 421166441566.0,
+      "value.lostLovelace": 31401689568.0,
+      "value.unresolvedLovelace": 1848850178.0
+     },
+     "canonical": {
+      "value.urgent.retainedRatio": 0.47527603920672035,
+      "latency.urgent.meanBlocks": 2.7428998505231688,
+      "value.retainedLovelace": 405081545396.0,
+      "value.lostLovelace": 28734976964.0,
+      "value.unresolvedLovelace": 1784216289.0
+     },
+     "derived": {
+      "retainedValueFlatPercent": 42.77696756299487,
+      "retainedValueCanonicalPercent": 47.527603920672036,
+      "launchDayFlatSubmittedValueDenominator": null
+     }
+    },
+    {
+     "seed": 8,
+     "flat": {
+      "value.urgent.retainedRatio": 0.42892660197257343,
+      "latency.urgent.meanBlocks": 3.064855390008764,
+      "value.retainedLovelace": 420925091220.0,
+      "value.lostLovelace": 31497781354.0,
+      "value.unresolvedLovelace": 1343298476.0
+     },
+     "canonical": {
+      "value.urgent.retainedRatio": 0.5182579987223771,
+      "latency.urgent.meanBlocks": 2.4654654654654653,
+      "value.retainedLovelace": 414075455525.0,
+      "value.lostLovelace": 28707791193.0,
+      "value.unresolvedLovelace": 1338934592.0
+     },
+     "derived": {
+      "retainedValueFlatPercent": 42.89266019725734,
+      "retainedValueCanonicalPercent": 51.82579987223771,
+      "launchDayFlatSubmittedValueDenominator": null
+     }
+    },
+    {
+     "seed": 9,
+     "flat": {
+      "value.urgent.retainedRatio": 0.4332078549736559,
+      "latency.urgent.meanBlocks": 3.1023063276167946,
+      "value.retainedLovelace": 421064145430.0,
+      "value.lostLovelace": 31675349821.0,
+      "value.unresolvedLovelace": 2233017773.0
+     },
+     "canonical": {
+      "value.urgent.retainedRatio": 0.5176404560177948,
+      "latency.urgent.meanBlocks": 2.502314814814815,
+      "value.retainedLovelace": 413741560862.0,
+      "value.lostLovelace": 29190750946.0,
+      "value.unresolvedLovelace": 2225891266.0
+     },
+     "derived": {
+      "retainedValueFlatPercent": 43.32078549736559,
+      "retainedValueCanonicalPercent": 51.764045601779486,
+      "launchDayFlatSubmittedValueDenominator": null
+     }
+    }
+   ]
+  },
+  "eb-capacity-stress": {
+   "label": "EB-capacity stress",
+   "retainedValueDefinition": "Urgent-class retained / (retained + lost), excluding unresolved.",
+   "retainedValue": {
+    "unit": "percentage points",
+    "flatMean": 29.39845508782676,
+    "canonicalMean": 37.97138925620945,
+    "canonicalMinusFlat": {
+     "perSeed": [
+      8.98657774765698,
+      9.237557704514174,
+      4.91056664964281,
+      14.433433096023698,
+      8.230557576410458,
+      6.006264806420642,
+      10.720129257826777,
+      4.97208322023948,
+      11.842268838323449,
+      6.389902786768388
+     ],
+     "mean": 8.572934168382686,
+     "ci95": [
+      6.334849648241077,
+      10.811018688524294
+     ],
+     "ci95HalfWidth": 2.238084520141608
+    },
+    "canonicalBetterCount": 10,
+    "ties": 0
+   },
+   "urgentLatency": {
+    "unit": "blocks",
+    "flatMean": 3.8103075265215436,
+    "canonicalMean": 3.001437294856382,
+    "canonicalMinusFlat": {
+     "perSeed": [
+      -0.7280421766311527,
+      -0.873908004490457,
+      -0.3860904141029158,
+      -1.2202073745801623,
+      -0.8677005394995025,
+      -0.6660594525039136,
+      -1.0841298440089542,
+      -0.45853115493682983,
+      -1.1399563648621505,
+      -0.6640769910355773
+     ],
+     "mean": -0.8088702316651616,
+     "ci95": [
+      -1.010012852026728,
+      -0.6077276113035951
+     ],
+     "ci95HalfWidth": 0.20114262036156647
+    },
+    "canonicalBetterCount": 10,
+    "ties": 0
+   },
+   "perSeedInputs": [
+    {
+     "seed": 0,
+     "flat": {
+      "value.urgent.retainedRatio": 0.3360653478580558,
+      "latency.urgent.meanBlocks": 3.5573104693140793,
+      "value.retainedLovelace": 587235089814.0,
+      "value.lostLovelace": 85902817621.0,
+      "value.unresolvedLovelace": 5345235216.0
+     },
+     "canonical": {
+      "value.urgent.retainedRatio": 0.42593112533462557,
+      "latency.urgent.meanBlocks": 2.8292682926829267,
+      "value.retainedLovelace": 576212031583.0,
+      "value.lostLovelace": 59052310885.0,
+      "value.unresolvedLovelace": 4959055569.0
+     },
+     "derived": {
+      "retainedValueFlatPercent": 33.60653478580558,
+      "retainedValueCanonicalPercent": 42.59311253346256,
+      "launchDayFlatSubmittedValueDenominator": null
+     }
+    },
+    {
+     "seed": 1,
+     "flat": {
+      "value.urgent.retainedRatio": 0.2933958261750142,
+      "latency.urgent.meanBlocks": 3.5845790715971675,
+      "value.retainedLovelace": 568672816155.0,
+      "value.lostLovelace": 99108093140.0,
+      "value.unresolvedLovelace": 8948033598.0
+     },
+     "canonical": {
+      "value.urgent.retainedRatio": 0.38577140322015596,
+      "latency.urgent.meanBlocks": 2.7106710671067105,
+      "value.retainedLovelace": 552645182167.0,
+      "value.lostLovelace": 68994495410.0,
+      "value.unresolvedLovelace": 6055959568.0
+     },
+     "derived": {
+      "retainedValueFlatPercent": 29.33958261750142,
+      "retainedValueCanonicalPercent": 38.577140322015595,
+      "launchDayFlatSubmittedValueDenominator": null
+     }
+    },
+    {
+     "seed": 2,
+     "flat": {
+      "value.urgent.retainedRatio": 0.3504362452931638,
+      "latency.urgent.meanBlocks": 3.1452420701168613,
+      "value.retainedLovelace": 583884487528.0,
+      "value.lostLovelace": 82690829813.0,
+      "value.unresolvedLovelace": 12136912404.0
+     },
+     "canonical": {
+      "value.urgent.retainedRatio": 0.3995419117895919,
+      "latency.urgent.meanBlocks": 2.7591516560139455,
+      "value.retainedLovelace": 584561693866.0,
+      "value.lostLovelace": 62291924518.0,
+      "value.unresolvedLovelace": 4183269158.0
+     },
+     "derived": {
+      "retainedValueFlatPercent": 35.04362452931638,
+      "retainedValueCanonicalPercent": 39.95419117895919,
+      "launchDayFlatSubmittedValueDenominator": null
+     }
+    },
+    {
+     "seed": 3,
+     "flat": {
+      "value.urgent.retainedRatio": 0.31811053637592984,
+      "latency.urgent.meanBlocks": 3.858093126385809,
+      "value.retainedLovelace": 569869606348.0,
+      "value.lostLovelace": 68616105309.0,
+      "value.unresolvedLovelace": 39337964407.0
+     },
+     "canonical": {
+      "value.urgent.retainedRatio": 0.46244486733616685,
+      "latency.urgent.meanBlocks": 2.637885751805647,
+      "value.retainedLovelace": 562749487617.0,
+      "value.lostLovelace": 44839992799.0,
+      "value.unresolvedLovelace": 7750592879.0
+     },
+     "derived": {
+      "retainedValueFlatPercent": 31.811053637592984,
+      "retainedValueCanonicalPercent": 46.24448673361668,
+      "launchDayFlatSubmittedValueDenominator": null
+     }
+    },
+    {
+     "seed": 4,
+     "flat": {
+      "value.urgent.retainedRatio": 0.21711095542679126,
+      "latency.urgent.meanBlocks": 4.541414141414141,
+      "value.retainedLovelace": 548194887223.0,
+      "value.lostLovelace": 115026055543.0,
+      "value.unresolvedLovelace": 14298316799.0
+     },
+     "canonical": {
+      "value.urgent.retainedRatio": 0.29941653119089584,
+      "latency.urgent.meanBlocks": 3.673713601914639,
+      "value.retainedLovelace": 548892250089.0,
+      "value.lostLovelace": 74800453276.0,
+      "value.unresolvedLovelace": 4980218714.0
+     },
+     "derived": {
+      "retainedValueFlatPercent": 21.711095542679125,
+      "retainedValueCanonicalPercent": 29.941653119089583,
+      "launchDayFlatSubmittedValueDenominator": null
+     }
+    },
+    {
+     "seed": 5,
+     "flat": {
+      "value.urgent.retainedRatio": 0.29327852083390393,
+      "latency.urgent.meanBlocks": 3.7287058225273326,
+      "value.retainedLovelace": 580737905890.0,
+      "value.lostLovelace": 93307717255.0,
+      "value.unresolvedLovelace": 2784927686.0
+     },
+     "canonical": {
+      "value.urgent.retainedRatio": 0.35334116889811035,
+      "latency.urgent.meanBlocks": 3.062646370023419,
+      "value.retainedLovelace": 581127237137.0,
+      "value.lostLovelace": 69010034441.0,
+      "value.unresolvedLovelace": 2331141342.0
+     },
+     "derived": {
+      "retainedValueFlatPercent": 29.327852083390393,
+      "retainedValueCanonicalPercent": 35.334116889811035,
+      "launchDayFlatSubmittedValueDenominator": null
+     }
+    },
+    {
+     "seed": 6,
+     "flat": {
+      "value.urgent.retainedRatio": 0.26241510441462657,
+      "latency.urgent.meanBlocks": 3.9960795295435454,
+      "value.retainedLovelace": 563185284268.0,
+      "value.lostLovelace": 107017302518.0,
+      "value.unresolvedLovelace": 5285551462.0
+     },
+     "canonical": {
+      "value.urgent.retainedRatio": 0.36961639699289434,
+      "latency.urgent.meanBlocks": 2.911949685534591,
+      "value.retainedLovelace": 560498351296.0,
+      "value.lostLovelace": 69995142320.0,
+      "value.unresolvedLovelace": 3866771739.0
+     },
+     "derived": {
+      "retainedValueFlatPercent": 26.24151044146266,
+      "retainedValueCanonicalPercent": 36.961639699289435,
+      "launchDayFlatSubmittedValueDenominator": null
+     }
+    },
+    {
+     "seed": 7,
+     "flat": {
+      "value.urgent.retainedRatio": 0.2651977673007713,
+      "latency.urgent.meanBlocks": 3.578387458006719,
+      "value.retainedLovelace": 528895197057.0,
+      "value.lostLovelace": 138055007031.0,
+      "value.unresolvedLovelace": 8127507688.0
+     },
+     "canonical": {
+      "value.urgent.retainedRatio": 0.31491859950316614,
+      "latency.urgent.meanBlocks": 3.119856303069889,
+      "value.retainedLovelace": 553550949117.0,
+      "value.lostLovelace": 89363991682.0,
+      "value.unresolvedLovelace": 1861469672.0
+     },
+     "derived": {
+      "retainedValueFlatPercent": 26.519776730077133,
+      "retainedValueCanonicalPercent": 31.491859950316613,
+      "launchDayFlatSubmittedValueDenominator": null
+     }
+    },
+    {
+     "seed": 8,
+     "flat": {
+      "value.urgent.retainedRatio": 0.27510825283113327,
+      "latency.urgent.meanBlocks": 4.3742346313984815,
+      "value.retainedLovelace": 584927160646.0,
+      "value.lostLovelace": 91543044081.0,
+      "value.unresolvedLovelace": 1263072832.0
+     },
+     "canonical": {
+      "value.urgent.retainedRatio": 0.39353094121436777,
+      "latency.urgent.meanBlocks": 3.234278266536331,
+      "value.retainedLovelace": 569553046700.0,
+      "value.lostLovelace": 59234277957.0,
+      "value.unresolvedLovelace": 1098582966.0
+     },
+     "derived": {
+      "retainedValueFlatPercent": 27.510825283113327,
+      "retainedValueCanonicalPercent": 39.353094121436776,
+      "launchDayFlatSubmittedValueDenominator": null
+     }
+    },
+    {
+     "seed": 9,
+     "flat": {
+      "value.urgent.retainedRatio": 0.3287269522732859,
+      "latency.urgent.meanBlocks": 3.739028944911298,
+      "value.retainedLovelace": 597098490258.0,
+      "value.lostLovelace": 78465099739.0,
+      "value.unresolvedLovelace": 2052162839.0
+     },
+     "canonical": {
+      "value.urgent.retainedRatio": 0.3926259801409698,
+      "latency.urgent.meanBlocks": 3.0749519538757206,
+      "value.retainedLovelace": 569334636379.0,
+      "value.lostLovelace": 63691661777.0,
+      "value.unresolvedLovelace": 1820896814.0
+     },
+     "derived": {
+      "retainedValueFlatPercent": 32.87269522732859,
+      "retainedValueCanonicalPercent": 39.26259801409698,
+      "launchDayFlatSubmittedValueDenominator": null
+     }
+    }
+   ]
+  },
+  "launch-day": {
+   "label": "Launch day",
+   "retainedValueDefinition": "For each seed, both variants' overall retained-value numerators are divided by the flat-fee retained + lost + unresolved value.",
+   "retainedValue": {
+    "unit": "percentage points",
+    "flatMean": 51.72143718394474,
+    "canonicalMean": 59.87231956760953,
+    "canonicalMinusFlat": {
+     "perSeed": [
+      4.494438639591884,
+      7.282633424627036,
+      9.106390699897823,
+      9.093909276708104,
+      8.85848770539453,
+      8.694598268666716,
+      11.665295268337402,
+      12.033749660128052,
+      7.498408120059338,
+      2.78091277323702
+     ],
+     "mean": 8.15088238366479,
+     "ci95": [
+      6.107944217270529,
+      10.193820550059051
+     ],
+     "ci95HalfWidth": 2.0429381663942605
+    },
+    "canonicalBetterCount": 10,
+    "ties": 0
+   },
+   "urgentLatency": {
+    "unit": "blocks",
+    "flatMean": 3.495027195027195,
+    "canonicalMean": 2.620262605042017,
+    "canonicalMinusFlat": {
+     "perSeed": [
+      -1.0499999999999998,
+      0.6666666666666665,
+      -0.05392156862745123,
+      -1.0,
+      0.5,
+      -0.7545454545454544,
+      -0.098901098901099,
+      0.08333333333333348,
+      -0.17361111111111116,
+      -6.866666666666666
+     ],
+     "mean": -0.8747645899851781,
+     "ci95": [
+      -2.4367468433597343,
+      0.6872176633893778
+     ],
+     "ci95HalfWidth": 1.561982253374556
+    },
+    "canonicalBetterCount": 7,
+    "ties": 0
+   },
+   "perSeedInputs": [
+    {
+     "seed": 0,
+     "flat": {
+      "value.urgent.retainedRatio": 0.007431586173992591,
+      "latency.urgent.meanBlocks": 3.25,
+      "value.retainedLovelace": 757018407874.0,
+      "value.lostLovelace": 480040565895.0,
+      "value.unresolvedLovelace": 100445368541.0
+     },
+     "canonical": {
+      "value.urgent.retainedRatio": 0.07705445543148769,
+      "latency.urgent.meanBlocks": 2.2,
+      "value.retainedLovelace": 817131719841.0,
+      "value.lostLovelace": 122871019222.0,
+      "value.unresolvedLovelace": 44714218055.0
+     },
+     "derived": {
+      "retainedValueFlatPercent": 56.59932337614364,
+      "retainedValueCanonicalPercent": 61.09376201573552,
+      "launchDayFlatSubmittedValueDenominator": 1337504342310.0
+     }
+    },
+    {
+     "seed": 1,
+     "flat": {
+      "value.urgent.retainedRatio": 0.012518701744919645,
+      "latency.urgent.meanBlocks": 2.0,
+      "value.retainedLovelace": 651282177722.0,
+      "value.lostLovelace": 566073493152.0,
+      "value.unresolvedLovelace": 122770584348.0
+     },
+     "canonical": {
+      "value.urgent.retainedRatio": 0.01638549484252114,
+      "latency.urgent.meanBlocks": 2.6666666666666665,
+      "value.retainedLovelace": 748878660317.0,
+      "value.lostLovelace": 177557360076.0,
+      "value.unresolvedLovelace": 52492725042.0
+     },
+     "derived": {
+      "retainedValueFlatPercent": 48.59856861875385,
+      "retainedValueCanonicalPercent": 55.88120204338089,
+      "launchDayFlatSubmittedValueDenominator": 1340126255222.0
+     }
+    },
+    {
+     "seed": 2,
+     "flat": {
+      "value.urgent.retainedRatio": 0.011159060674330687,
+      "latency.urgent.meanBlocks": 2.5833333333333335,
+      "value.retainedLovelace": 722232603815.0,
+      "value.lostLovelace": 498430519733.0,
+      "value.unresolvedLovelace": 118950735040.0
+     },
+     "canonical": {
+      "value.urgent.retainedRatio": 0.04605578770408953,
+      "latency.urgent.meanBlocks": 2.5294117647058822,
+      "value.retainedLovelace": 844223075648.0,
+      "value.lostLovelace": 121905605580.0,
+      "value.unresolvedLovelace": 41158242318.0
+     },
+     "derived": {
+      "retainedValueFlatPercent": 53.913491502413876,
+      "retainedValueCanonicalPercent": 63.0198822023117,
+      "launchDayFlatSubmittedValueDenominator": 1339613858588.0
+     }
+    },
+    {
+     "seed": 3,
+     "flat": {
+      "value.urgent.retainedRatio": 0.004443650148889876,
+      "latency.urgent.meanBlocks": 3.0,
+      "value.retainedLovelace": 638983055672.0,
+      "value.lostLovelace": 556789630432.0,
+      "value.unresolvedLovelace": 144992312655.0
+     },
+     "canonical": {
+      "value.urgent.retainedRatio": 0.09071790112003461,
+      "latency.urgent.meanBlocks": 2.0,
+      "value.retainedLovelace": 760911008273.0,
+      "value.lostLovelace": 91828076140.0,
+      "value.unresolvedLovelace": 73212793153.0
+     },
+     "derived": {
+      "retainedValueFlatPercent": 47.658094913235125,
+      "retainedValueCanonicalPercent": 56.75200418994323,
+      "launchDayFlatSubmittedValueDenominator": 1340764998759.0
+     }
+    },
+    {
+     "seed": 4,
+     "flat": {
+      "value.urgent.retainedRatio": 0.002384893405407797,
+      "latency.urgent.meanBlocks": 3.3333333333333335,
+      "value.retainedLovelace": 656708279461.0,
+      "value.lostLovelace": 565434205273.0,
+      "value.unresolvedLovelace": 121169170398.0
+     },
+     "canonical": {
+      "value.urgent.retainedRatio": 0.03646816704566158,
+      "latency.urgent.meanBlocks": 3.8333333333333335,
+      "value.retainedLovelace": 775705377276.0,
+      "value.lostLovelace": 105930235635.0,
+      "value.unresolvedLovelace": 44855313115.0
+     },
+     "derived": {
+      "retainedValueFlatPercent": 48.887261340442166,
+      "retainedValueCanonicalPercent": 57.745749045836696,
+      "launchDayFlatSubmittedValueDenominator": 1343311655132.0
+     }
+    },
+    {
+     "seed": 5,
+     "flat": {
+      "value.urgent.retainedRatio": 0.004663125660730251,
+      "latency.urgent.meanBlocks": 3.4545454545454546,
+      "value.retainedLovelace": 714874222790.0,
+      "value.lostLovelace": 529865300361.0,
+      "value.unresolvedLovelace": 93565002595.0
+     },
+     "canonical": {
+      "value.urgent.retainedRatio": 0.046664689316651464,
+      "latency.urgent.meanBlocks": 2.7,
+      "value.retainedLovelace": 831234424915.0,
+      "value.lostLovelace": 104405953298.0,
+      "value.unresolvedLovelace": 16903022907.0
+     },
+     "derived": {
+      "retainedValueFlatPercent": 53.41640927288306,
+      "retainedValueCanonicalPercent": 62.111007541549775,
+      "launchDayFlatSubmittedValueDenominator": 1338304525746.0
+     }
+    },
+    {
+     "seed": 6,
+     "flat": {
+      "value.urgent.retainedRatio": 0.013614829349481496,
+      "latency.urgent.meanBlocks": 2.3846153846153846,
+      "value.retainedLovelace": 646658357620.0,
+      "value.lostLovelace": 579875478336.0,
+      "value.unresolvedLovelace": 113587906297.0
+     },
+     "canonical": {
+      "value.urgent.retainedRatio": 0.07786635296758179,
+      "latency.urgent.meanBlocks": 2.2857142857142856,
+      "value.retainedLovelace": 802987515809.0,
+      "value.lostLovelace": 119704988652.0,
+      "value.unresolvedLovelace": 34665283291.0
+     },
+     "derived": {
+      "retainedValueFlatPercent": 48.253702423545796,
+      "retainedValueCanonicalPercent": 59.9189976918832,
+      "launchDayFlatSubmittedValueDenominator": 1340121742253.0
+     }
+    },
+    {
+     "seed": 7,
+     "flat": {
+      "value.urgent.retainedRatio": 0.007193784782424522,
+      "latency.urgent.meanBlocks": 2.1666666666666665,
+      "value.retainedLovelace": 663347254538.0,
+      "value.lostLovelace": 559887189745.0,
+      "value.unresolvedLovelace": 112234674428.0
+     },
+     "canonical": {
+      "value.urgent.retainedRatio": 0.015642361749841592,
+      "latency.urgent.meanBlocks": 2.25,
+      "value.retainedLovelace": 824054265072.0,
+      "value.lostLovelace": 204038575752.0,
+      "value.unresolvedLovelace": 28817132170.0
+     },
+     "derived": {
+      "retainedValueFlatPercent": 49.67147837744577,
+      "retainedValueCanonicalPercent": 61.705228037573825,
+      "launchDayFlatSubmittedValueDenominator": 1335469118711.0
+     }
+    },
+    {
+     "seed": 8,
+     "flat": {
+      "value.urgent.retainedRatio": 0.009365040280569082,
+      "latency.urgent.meanBlocks": 3.111111111111111,
+      "value.retainedLovelace": 709936658812.0,
+      "value.lostLovelace": 543258691087.0,
+      "value.unresolvedLovelace": 88914672304.0
+     },
+     "canonical": {
+      "value.urgent.retainedRatio": 0.0387253475944353,
+      "latency.urgent.meanBlocks": 2.9375,
+      "value.retainedLovelace": 810573545697.0,
+      "value.lostLovelace": 138923484816.0,
+      "value.unresolvedLovelace": 10238156330.0
+     },
+     "derived": {
+      "retainedValueFlatPercent": 52.89705367423439,
+      "retainedValueCanonicalPercent": 60.39546179429373,
+      "launchDayFlatSubmittedValueDenominator": 1342110022203.0
+     }
+    },
+    {
+     "seed": 9,
+     "flat": {
+      "value.urgent.retainedRatio": 0.0013198525330934835,
+      "latency.urgent.meanBlocks": 9.666666666666666,
+      "value.retainedLovelace": 768410793078.0,
+      "value.lostLovelace": 490291742826.0,
+      "value.unresolvedLovelace": 81884266702.0
+     },
+     "canonical": {
+      "value.urgent.retainedRatio": 0.07634347579518384,
+      "latency.urgent.meanBlocks": 2.8,
+      "value.retainedLovelace": 805691342708.0,
+      "value.lostLovelace": 103376027100.0,
+      "value.unresolvedLovelace": 17037881721.0
+     },
+     "derived": {
+      "retainedValueFlatPercent": 57.3189883403497,
+      "retainedValueCanonicalPercent": 60.09990111358672,
+      "launchDayFlatSubmittedValueDenominator": 1340586802606.0
+     }
+    }
+   ]
+  }
+ },
+ "archivedAggregateComparison": {
+  "method": "paired mean difference with two-sided 95% Student-t confidence interval",
+  "variants": {
+   "control": "flat-fee",
+   "candidate": "canonical-final-d16-k10"
+  },
+  "seeds": [
+   0,
+   1,
+   2,
+   3,
+   4,
+   5,
+   6,
+   7,
+   8,
+   9
+  ],
+  "slots": 2000,
+  "sources": {
+   "low": "sweep-results/canonical-headlines/low/summary.json",
+   "mid-load": "sweep-results/canonical-headlines/mid-load/summary.json",
+   "severe-congestion": "sweep-results/canonical-headlines/severe-congestion/summary.json",
+   "eb-capacity-stress": "sweep-results/canonical-headlines/eb-capacity-stress/summary.json",
+   "launch-day": "sweep-results/canonical-headlines/launch-day/summary.json"
+  },
+  "provenance": {
+   "git_revision": "8f07ef70a9c02f2c7f4377a57d30ee28be90e236",
+   "abstract_sim_worktree_clean": false,
+   "dirty_patch": {
+    "path": "source.patch",
+    "sha256": "711f9721ab60dc7e23f3671db78f8e83573531b1b15c009d9ba7b93dbc3096f7",
+    "bytes": 45729
+   },
+   "simulator_sha256": "0d2c3cdefe54f0cbe1b4958e03b182c959746a12f9f92635f7a216c620a5ba56"
+  },
+  "retained_value": [
+   {
+    "load": "low",
+    "label": "Low",
+    "metric": "Urgent retained value",
+    "unit": "percentage points",
+    "flat_mean_percent": 59.39785816289301,
+    "canonical_mean_percent": 59.86699029030051,
+    "canonical_minus_flat": {
+     "mean": 0.46913212740750937,
+     "ci95_low": -1.1552257478973669,
+     "ci95_high": 2.0934900027123855
+    },
+    "canonical_wins": 6,
+    "paired_seeds": 10
+   },
+   {
+    "load": "mid-load",
+    "label": "Mid load",
+    "metric": "Urgent retained value",
+    "unit": "percentage points",
+    "flat_mean_percent": 52.318271317521386,
+    "canonical_mean_percent": 56.005040252385264,
+    "canonical_minus_flat": {
+     "mean": 3.686768934863886,
+     "ci95_low": 2.6299622502595055,
+     "ci95_high": 4.743575619468267
+    },
+    "canonical_wins": 10,
+    "paired_seeds": 10
+   },
+   {
+    "load": "severe-congestion",
+    "label": "Severe congestion",
+    "metric": "Urgent retained value",
+    "unit": "percentage points",
+    "flat_mean_percent": 43.559917292600666,
+    "canonical_mean_percent": 50.84801072147074,
+    "canonical_minus_flat": {
+     "mean": 7.288093428870073,
+     "ci95_low": 6.000428177413978,
+     "ci95_high": 8.575758680326167
+    },
+    "canonical_wins": 10,
+    "paired_seeds": 10
+   },
+   {
+    "load": "eb-capacity-stress",
+    "label": "EB-capacity stress",
+    "metric": "Urgent retained value",
+    "unit": "percentage points",
+    "flat_mean_percent": 29.398455087826754,
+    "canonical_mean_percent": 37.97138925620944,
+    "canonical_minus_flat": {
+     "mean": 8.572934168382686,
+     "ci95_low": 6.334849648241077,
+     "ci95_high": 10.811018688524294
+    },
+    "canonical_wins": 10,
+    "paired_seeds": 10
+   },
+   {
+    "load": "launch-day",
+    "label": "Launch day",
+    "metric": "Overall retained value (historical flat-fee denominator)",
+    "unit": "percentage points",
+    "flat_mean_percent": 51.72143718394474,
+    "canonical_mean_percent": 59.87231956760952,
+    "canonical_minus_flat": {
+     "mean": 8.15088238366479,
+     "ci95_low": 6.107944217270529,
+     "ci95_high": 10.193820550059051
+    },
+    "canonical_wins": 10,
+    "paired_seeds": 10
+   }
+  ],
+  "urgent_latency": [
+   {
+    "load": "low",
+    "label": "Low",
+    "metric": "Urgent mean latency",
+    "unit": "blocks",
+    "flat_mean": 1.7907703598020657,
+    "canonical_mean": 1.7572710526042137,
+    "canonical_minus_flat": {
+     "mean": -0.03349930719785168,
+     "ci95_low": -0.10311684094554815,
+     "ci95_high": 0.036118226549844805
+    },
+    "canonical_wins": 6,
+    "paired_seeds": 10
+   },
+   {
+    "load": "mid-load",
+    "label": "Mid load",
+    "metric": "Urgent mean latency",
+    "unit": "blocks",
+    "flat_mean": 2.2328279402799476,
+    "canonical_mean": 1.9922201540951772,
+    "canonical_minus_flat": {
+     "mean": -0.24060778618477063,
+     "ci95_low": -0.30853440773968005,
+     "ci95_high": -0.17268116462986122
+    },
+    "canonical_wins": 10,
+    "paired_seeds": 10
+   },
+   {
+    "load": "severe-congestion",
+    "label": "Severe congestion",
+    "metric": "Urgent mean latency",
+    "unit": "blocks",
+    "flat_mean": 2.982857125645855,
+    "canonical_mean": 2.5019582116063246,
+    "canonical_minus_flat": {
+     "mean": -0.48089891403953083,
+     "ci95_low": -0.5958585759284751,
+     "ci95_high": -0.36593925215058654
+    },
+    "canonical_wins": 10,
+    "paired_seeds": 10
+   },
+   {
+    "load": "eb-capacity-stress",
+    "label": "EB-capacity stress",
+    "metric": "Urgent mean latency",
+    "unit": "blocks",
+    "flat_mean": 3.8103075265215436,
+    "canonical_mean": 3.001437294856382,
+    "canonical_minus_flat": {
+     "mean": -0.8088702316651617,
+     "ci95_low": -1.0100128520267282,
+     "ci95_high": -0.6077276113035952
+    },
+    "canonical_wins": 10,
+    "paired_seeds": 10
+   }
+  ],
+  "launch_day_denominator": "For each paired seed, both retained-value numerators are divided by the flat-fee run's retained + lost + unresolved value, matching the historical headline calculation. This accounts for demand that reached a first submission; the summary format does not record fresh samples that declined before submission, so this is a flat-fee proxy rather than a literal ledger of all offered demand.",
+  "refresh_scope": "This is a replacement estimate for the current canonical D16/K10 model, not an exact reproduction of the published numbers. The published low, mid, EB-stress, and launch-day rows used the D8 anchor; this refresh also uses newly separated RNG streams and the committed 320/400 tx-per-slot EB-stress profile.",
+  "producer_policy": "The simulator eagerly announces an EB when eligible payload is non-empty and either its threshold or K=10 eligibility condition is met; producer withholding is not modelled."
+ },
+ "reproduction": {
+  "originalCommandsRecorded": false,
+  "equivalentCurrentRunnerCommand": "cd abstract-sim-hs && ./scripts/run_canonical_headlines.sh --out sweep-results/canonical-headlines-rerun",
+  "preservationCommand": "python3 abstract-sim-hs/scripts/preserve_canonical_headlines.py --root abstract-sim-hs/sweep-results/canonical-headlines-rerun --generated-at 2026-07-29",
+  "note": "These are reconstructed equivalent commands, not a contemporaneous invocation log. A fresh rerun estimates the current model; it is not expected to reproduce a different source state byte-for-byte."
+ },
+ "caveats": [
+  "Raw summaries remain gitignored. Their hashes identify the extraction inputs; this record preserves every per-seed scalar needed to recompute the report's retained-value and latency rows.",
+  "The launch-day denominator is a flat-fee proxy for submitted offered value. Fresh samples that decline before first submission are not present in summary output.",
+  "Producer withholding is not modelled."
+ ]
+}

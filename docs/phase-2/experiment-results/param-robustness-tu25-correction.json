@@ -1,0 +1,3649 @@
+{
+ "description": "Compact preserved evidence for the corrected target-utilisation-0.25 subset of the historical parameter-robustness sweep. It retains the per-seed inputs needed to recompute every corrected report row and paired interval, plus event-derived threshold accounting and source hashes, without committing the roughly 17 GiB raw traces.",
+ "generatedAt": "2026-07-29",
+ "experiment": {
+  "seeds": [
+   0,
+   1,
+   2,
+   3,
+   4,
+   5,
+   6,
+   7,
+   8,
+   9
+  ],
+  "slots": 2000,
+  "loads": [
+   "low",
+   "severe-congestion",
+   "launch-day",
+   "eb-capacity-stress"
+  ],
+  "variants": [
+   "bdst-tu25-d4",
+   "bdst-tu25-d8",
+   "bdst-tu25-d16",
+   "bdst-tu25-d8-fixed-thr"
+  ],
+  "manifest": {
+   "path": "abstract-sim-hs/config/sweeps/param-robustness-tu25-correction.json",
+   "bytes": 757,
+   "sha256": "69da0d6c5c77c8ac1ccf1614653a7953ef8b9e831718144e4045d36a528f5800"
+  },
+  "historicalSource": {
+   "baseGitRevision": "4d5b5abc40a8ea2942d8de8bb06ceee73c401b63",
+   "patch": {
+    "path": "docs/phase-2/experiment-results/param-robustness-tu25-headroom.patch",
+    "bytes": 829,
+    "sha256": "bd5c099c1a25e13c997dde57872a5710205c2c02fd6e3252337aa97dd7298cf6",
+    "scope": "Only the seven-line worstCaseNextPrices scale-formula hunk preserved in this file; it predates the later before/after price-floor refinement and its tests."
+   },
+   "simulatorSourceTreeSha256": "046999f00c2defa598b9be069934d5339ec42834084acf7b84fe87a5a9b5d2f2",
+   "sourceTreeHashMethod": "SHA-256 of the sorted GNU sha256sum records for every .hs file under abstract-sim-hs/app and abstract-sim-hs/src.",
+   "simulatorExecutableSha256": "879d2db6f0356d241577ba70af4c1dddb7f012b07802d78d50a314c862c3ea16"
+  },
+  "randomness": {
+   "mode": "shared",
+   "explicitInManifest": false,
+   "explicitInSummary": false,
+   "basis": "At the historical base revision, the sweep runner calls runWithSeedToFile and has no randomness-mode field. Shared is therefore the runner's only, implicit mode.",
+   "consequence": "If mechanism paths consume different conditional retry-jitter draws, same-numbered arms can receive different later fresh demand or Ranking Block opportunities; comparisons without a path-alignment audit are therefore descriptive. The low-load target-0.25 formula/fixed comparison is an explicit aligned exception: all 20 traces have zero rejection, eviction, and attempt-greater-than-one events, and every same-seed pair has the same Ranking Block opportunity slots."
+  },
+  "invocationProvenance": {
+   "originalCommandsRecorded": false,
+   "cleanOutputDirectoryAssumption": "The three gitignored legacy output directories and the target-0.25 correction output directory named in the commands must not exist before the sequence starts. The test commands enforce that assumption so stale files cannot be mistaken for regenerated inputs.",
+   "note": "The commands below are equivalent reproduction commands reconstructed from the preserved manifest, effective inputs, historical source state, and output metadata. They are not claimed to be a contemporaneous log of the original shell invocations.",
+   "equivalentReproductionCommands": [
+    "set -eu",
+    "repo_root=\"$(git rev-parse --show-toplevel)\"",
+    "legacy_root=\"$repo_root/abstract-sim-hs/sweep-results\"",
+    "corrected_root=\"$legacy_root/param-robustness-tu25-correction\"",
+    "replay_parent=\"$(mktemp -d /tmp/arc-tu25-replay.XXXXXX)\"",
+    "replay_root=\"$replay_parent/worktree\"",
+    "test ! -e \"$legacy_root/param-robustness-severe-congestion\"",
+    "test ! -e \"$legacy_root/param-robustness-eb-capacity-stress\"",
+    "test ! -e \"$legacy_root/launch-day\"",
+    "test ! -e \"$corrected_root\"",
+    "git -C \"$repo_root\" worktree add --detach \"$replay_root\" 4d5b5abc40a8ea2942d8de8bb06ceee73c401b63",
+    "cd \"$replay_root/abstract-sim-hs\"",
+    "stack build",
+    "legacy_simulator=\"$(stack path --local-install-root)/bin/abstract-sim-hs-exe\"",
+    "\"$legacy_simulator\" sweep config/sweeps/param-robustness.json --load-profile config/loads/severe-congestion.json --out \"$legacy_root/param-robustness-severe-congestion\"",
+    "\"$legacy_simulator\" sweep config/sweeps/param-robustness.json --load-profile config/loads/eb-capacity-stress.json --out \"$legacy_root/param-robustness-eb-capacity-stress\"",
+    "\"$legacy_simulator\" sweep config/sweeps/launch-day.json --load-profile config/loads/launch-day.json --out \"$legacy_root/launch-day\"",
+    "git -C \"$replay_root\" apply \"$repo_root/docs/phase-2/experiment-results/param-robustness-tu25-headroom.patch\"",
+    "cp \"$repo_root/abstract-sim-hs/config/sweeps/param-robustness-tu25-correction.json\" \"$replay_root/abstract-sim-hs/config/sweeps/param-robustness-tu25-correction.json\"",
+    "stack build",
+    "simulator=\"$(stack path --local-install-root)/bin/abstract-sim-hs-exe\"",
+    "\"$simulator\" sweep config/sweeps/param-robustness-tu25-correction.json --load low --out \"$corrected_root/low\"",
+    "\"$simulator\" sweep config/sweeps/param-robustness-tu25-correction.json --load-profile config/loads/severe-congestion.json --out \"$corrected_root/severe-congestion\"",
+    "\"$simulator\" sweep config/sweeps/param-robustness-tu25-correction.json --load-profile config/loads/launch-day.json --out \"$corrected_root/launch-day\"",
+    "\"$simulator\" sweep config/sweeps/param-robustness-tu25-correction.json --load-profile config/loads/eb-capacity-stress.json --out \"$corrected_root/eb-capacity-stress\"",
+    "python3 \"$repo_root/abstract-sim-hs/scripts/preserve_param_robustness_tu25.py\" --generated-at 2026-07-29 --corrected-root \"$corrected_root\" --legacy-root \"$legacy_root\" --historical-worktree \"$replay_root\" --simulator \"$simulator\" --json-output /tmp/param-robustness-tu25-correction.reproduced.json",
+    "cmp \"$repo_root/docs/phase-2/experiment-results/param-robustness-tu25-correction.json\" /tmp/param-robustness-tu25-correction.reproduced.json"
+   ]
+  }
+ },
+ "sourceOutputs": {
+  "low": {
+   "summary": {
+    "path": "abstract-sim-hs/sweep-results/param-robustness-tu25-correction/low/summary.json",
+    "sha256": "4a93a0c8c0abd3dd4f2b65ab4b0117250915301b868071145705dd19f29ba6b7"
+   },
+   "effectiveConfigs": {
+    "bdst-tu25-d4": {
+     "path": "abstract-sim-hs/sweep-results/param-robustness-tu25-correction/low/bdst-tu25-d4.config.json",
+     "sha256": "638a54cbae4231a62068adea6adc9a93de6d893db1f0672d6a92d4767589f0f2"
+    },
+    "bdst-tu25-d8": {
+     "path": "abstract-sim-hs/sweep-results/param-robustness-tu25-correction/low/bdst-tu25-d8.config.json",
+     "sha256": "14b95dcb197e3c44808176c92da80ddfb510109fae9dfa08e6facbae9f78bd2a"
+    },
+    "bdst-tu25-d16": {
+     "path": "abstract-sim-hs/sweep-results/param-robustness-tu25-correction/low/bdst-tu25-d16.config.json",
+     "sha256": "beb39f14fb17cf9ad046e8729d83d4392dfea905e592983828896843d37b32d7"
+    },
+    "bdst-tu25-d8-fixed-thr": {
+     "path": "abstract-sim-hs/sweep-results/param-robustness-tu25-correction/low/bdst-tu25-d8-fixed-thr.config.json",
+     "sha256": "fe0773a21676cdd4e652a9792f42c4643affbc6026fed711775efcbc5a74abfa"
+    }
+   }
+  },
+  "severe-congestion": {
+   "summary": {
+    "path": "abstract-sim-hs/sweep-results/param-robustness-tu25-correction/severe-congestion/summary.json",
+    "sha256": "569e19ab08d929ab43d270d20961133e4a8a0877319c062a18d7800e2785ed63"
+   },
+   "effectiveConfigs": {
+    "bdst-tu25-d4": {
+     "path": "abstract-sim-hs/sweep-results/param-robustness-tu25-correction/severe-congestion/bdst-tu25-d4.config.json",
+     "sha256": "4be95914599b60dd46a4ae8522028d690971878a63c5cace40b11784e6b57df0"
+    },
+    "bdst-tu25-d8": {
+     "path": "abstract-sim-hs/sweep-results/param-robustness-tu25-correction/severe-congestion/bdst-tu25-d8.config.json",
+     "sha256": "cd074d911bbf2ff0104982f7df7c1237f5eda3e2c934b162d0fe6d46ba32d4d9"
+    },
+    "bdst-tu25-d16": {
+     "path": "abstract-sim-hs/sweep-results/param-robustness-tu25-correction/severe-congestion/bdst-tu25-d16.config.json",
+     "sha256": "d21d11e10d5d1390b632238ac3d7071a7e84f5fad0355a5432035bf97cce9a4b"
+    },
+    "bdst-tu25-d8-fixed-thr": {
+     "path": "abstract-sim-hs/sweep-results/param-robustness-tu25-correction/severe-congestion/bdst-tu25-d8-fixed-thr.config.json",
+     "sha256": "7a11bd6d3b98eda601003abea133df922675be89f363e58193058434bc8107c1"
+    }
+   },
+   "selectedLoadProfile": {
+    "path": "abstract-sim-hs/sweep-results/param-robustness-tu25-correction/severe-congestion/selected-load-profile.json",
+    "sha256": "f6f8475f69dd277f72b8718163dd026da9c6d7d71808f201a574d4dca29d442b"
+   }
+  },
+  "launch-day": {
+   "summary": {
+    "path": "abstract-sim-hs/sweep-results/param-robustness-tu25-correction/launch-day/summary.json",
+    "sha256": "8215af35425540d8426bafd1915be07dfae48c26c516f95ef07ab804d44ff1a0"
+   },
+   "effectiveConfigs": {
+    "bdst-tu25-d4": {
+     "path": "abstract-sim-hs/sweep-results/param-robustness-tu25-correction/launch-day/bdst-tu25-d4.config.json",
+     "sha256": "1150adb4bb2f10336ed1dd3a12a218cdb9ff65881ddbc09723476552beffdc1c"
+    },
+    "bdst-tu25-d8": {
+     "path": "abstract-sim-hs/sweep-results/param-robustness-tu25-correction/launch-day/bdst-tu25-d8.config.json",
+     "sha256": "706c875b6ded10dd6df2335b3103d437aa800d399ed2c65b89805828fd51abb6"
+    },
+    "bdst-tu25-d16": {
+     "path": "abstract-sim-hs/sweep-results/param-robustness-tu25-correction/launch-day/bdst-tu25-d16.config.json",
+     "sha256": "c92ca37140049cfdb44872a8c961250b8dda949184b44b0b4d20936a9bc5eb4f"
+    },
+    "bdst-tu25-d8-fixed-thr": {
+     "path": "abstract-sim-hs/sweep-results/param-robustness-tu25-correction/launch-day/bdst-tu25-d8-fixed-thr.config.json",
+     "sha256": "e9615eb7ae5fc7d8937df7261416d2d63b4069fb18f91cac806b66a1cab7916d"
+    }
+   },
+   "selectedLoadProfile": {
+    "path": "abstract-sim-hs/sweep-results/param-robustness-tu25-correction/launch-day/selected-load-profile.json",
+    "sha256": "2c25520d3e3014682db4b6727da5bb7af7b5d117355e112d3b19c4745435cb0c"
+   }
+  },
+  "eb-capacity-stress": {
+   "summary": {
+    "path": "abstract-sim-hs/sweep-results/param-robustness-tu25-correction/eb-capacity-stress/summary.json",
+    "sha256": "4d43f4fdf8c82b9f07009f482c28e49b8e6f6b6eb887ec6753c111f95e49fa53"
+   },
+   "effectiveConfigs": {
+    "bdst-tu25-d4": {
+     "path": "abstract-sim-hs/sweep-results/param-robustness-tu25-correction/eb-capacity-stress/bdst-tu25-d4.config.json",
+     "sha256": "01343b432865ea9b0d4e7b56955d4d8f94a1d9d8b3e0ebf076b528fb0871ca18"
+    },
+    "bdst-tu25-d8": {
+     "path": "abstract-sim-hs/sweep-results/param-robustness-tu25-correction/eb-capacity-stress/bdst-tu25-d8.config.json",
+     "sha256": "e5b7f2ac80ae1cfd914358ad31003292634fc073ee96f62f947f58b94449e0fc"
+    },
+    "bdst-tu25-d16": {
+     "path": "abstract-sim-hs/sweep-results/param-robustness-tu25-correction/eb-capacity-stress/bdst-tu25-d16.config.json",
+     "sha256": "f80530639316bebd907d9f64086a0bce02b4b35625a545208f4bfada84d18339"
+    },
+    "bdst-tu25-d8-fixed-thr": {
+     "path": "abstract-sim-hs/sweep-results/param-robustness-tu25-correction/eb-capacity-stress/bdst-tu25-d8-fixed-thr.config.json",
+     "sha256": "4b9133fdfaa6794730882256e2a7431521ada20f8622cd5f594150e10c3cc487"
+    }
+   },
+   "selectedLoadProfile": {
+    "path": "abstract-sim-hs/sweep-results/param-robustness-tu25-correction/eb-capacity-stress/selected-load-profile.json",
+    "sha256": "4ce6e072d77590dc5e2d9296db704a5b9e64f8e737e54cd769b472f0a93f7205"
+   }
+  }
+ },
+ "references": {
+  "severeAnchor": {
+   "source": {
+    "variant": "bdst-tu50-d8",
+    "summary": {
+     "path": "abstract-sim-hs/sweep-results/param-robustness-severe-congestion/summary.json",
+     "sha256": "559040bcbf5a97c13f2f41975c565b7cd580407516306b38778b6045121f855d"
+    },
+    "effectiveConfig": {
+     "path": "abstract-sim-hs/sweep-results/param-robustness-severe-congestion/bdst-tu50-d8.config.json",
+     "sha256": "9862ce8f4bead40ac6fb7cb767a655c64b0162d368927e685153100022443939"
+    },
+    "selectedLoadProfile": {
+     "path": "abstract-sim-hs/sweep-results/param-robustness-severe-congestion/selected-load-profile.json",
+     "sha256": "f6f8475f69dd277f72b8718163dd026da9c6d7d71808f201a574d4dca29d442b"
+    }
+   },
+   "perSeed": {
+    "value.urgent.retainedRatio": [
+     0.49133601199302385,
+     0.5155452891057947,
+     0.5101011729349693,
+     0.5306673366193886,
+     0.521138616536157,
+     0.5198474549166114,
+     0.5198240223692131,
+     0.527576202253743,
+     0.5266958873989708,
+     0.49215743093624814
+    ]
+   }
+  },
+  "ebCapacityStressAnchor": {
+   "source": {
+    "variant": "bdst-tu50-d8",
+    "summary": {
+     "path": "abstract-sim-hs/sweep-results/param-robustness-eb-capacity-stress/summary.json",
+     "sha256": "c82872362b238508cdb083a19a618794c57dd353c5faa82cff5cd10016f61306"
+    },
+    "effectiveConfig": {
+     "path": "abstract-sim-hs/sweep-results/param-robustness-eb-capacity-stress/bdst-tu50-d8.config.json",
+     "sha256": "9601a0788cf2fa5793e1a8bb5d3ee676d6ee96d7efc0df0cc15d8853a86a3eba"
+    },
+    "selectedLoadProfile": {
+     "path": "abstract-sim-hs/sweep-results/param-robustness-eb-capacity-stress/selected-load-profile.json",
+     "sha256": "4ce6e072d77590dc5e2d9296db704a5b9e64f8e737e54cd769b472f0a93f7205"
+    }
+   },
+   "perSeed": {
+    "value.urgent.retainedRatio": [
+     0.39816064315489713,
+     0.41941443364045594,
+     0.4021104096064998,
+     0.41759694158591365,
+     0.38397358075705773,
+     0.31982114125905836,
+     0.35788606522838146,
+     0.3903915180030185,
+     0.317204704278035,
+     0.3438344811092685
+    ]
+   }
+  },
+  "launchDayFlatFee": {
+   "source": {
+    "variant": "flat-fee",
+    "summary": {
+     "path": "abstract-sim-hs/sweep-results/launch-day/summary.json",
+     "sha256": "91a18cd83ddf2872e14e4bd147729ab16e9547b99e91f74a321f47d75dd41d20"
+    },
+    "effectiveConfig": {
+     "path": "abstract-sim-hs/sweep-results/launch-day/flat-fee.config.json",
+     "sha256": "aa7c2f6088bbe7a5b22e10dd997c63224ec8ca9fd4702547308ecb71f3301a57"
+    },
+    "selectedLoadProfile": {
+     "path": "abstract-sim-hs/sweep-results/launch-day/selected-load-profile.json",
+     "sha256": "d7cf4ee40b1f468d3a8861e2cc01b7b9e7d081047e3fe49990dd79b4c88949f0"
+    }
+   },
+   "perSeed": {
+    "value.retainedLovelace": [
+     738255760015,
+     686919963540,
+     808474548874,
+     722487520125,
+     732281353597,
+     760358960568,
+     719582084240,
+     687243184272,
+     636267776952,
+     672819629617
+    ],
+    "value.lostLovelace": [
+     508487145560,
+     526299967184,
+     447567240312,
+     513515523612,
+     495212959589,
+     512677672447,
+     507994555689,
+     533546331858,
+     606737263367,
+     558762005101
+    ],
+    "value.unresolvedLovelace": [
+     96065130946,
+     126174864145,
+     82339102617,
+     105615396521,
+     116727589750,
+     67398499366,
+     113055055642,
+     119866259610,
+     97395618682,
+     110336106955
+    ],
+    "units.serviceRate": [
+     0.6518374630016683,
+     0.6171259088664162,
+     0.7228161092858012,
+     0.6426642735434696,
+     0.6481178051435121,
+     0.6916420918343764,
+     0.6421023017700132,
+     0.6304955037088126,
+     0.5624100876093137,
+     0.5968865861711283
+    ]
+   }
+  }
+ },
+ "results": {
+  "low": {
+   "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9
+   ],
+   "metrics": {
+    "units.serviceRate": {
+     "unit": "percent",
+     "reportScale": 100.0,
+     "means": {
+      "bdst-tu25-d4": 0.972271996198389,
+      "bdst-tu25-d8": 0.9738364985923565,
+      "bdst-tu25-d16": 0.9711366127121537,
+      "bdst-tu25-d8-fixed-thr": 0.9735394847542679
+     },
+     "perSeed": {
+      "bdst-tu25-d4": [
+       0.9888888888888889,
+       0.9783411685695097,
+       0.9596747427812811,
+       0.9710340181879421,
+       0.9668544912164402,
+       0.9821899736147758,
+       0.959500506243672,
+       0.980857191258682,
+       0.9490047705214674,
+       0.9863742107012297
+      ],
+      "bdst-tu25-d8": [
+       0.9771120834735779,
+       0.9743331655762456,
+       0.9741078838174274,
+       0.9725496800269451,
+       0.9602122015915119,
+       0.9818661391361688,
+       0.9692775151924375,
+       0.9895234876647516,
+       0.9534883720930233,
+       0.985894457351477
+      ],
+      "bdst-tu25-d16": [
+       0.9727318633226729,
+       0.9704797047970479,
+       0.9744398340248963,
+       0.9769321434584947,
+       0.9592377796188898,
+       0.9777374670184696,
+       0.9593386198751477,
+       0.9810650887573964,
+       0.9530090684253916,
+       0.9863945578231292
+      ],
+      "bdst-tu25-d8-fixed-thr": [
+       0.9727364523729384,
+       0.9736532975331431,
+       0.9741078838174274,
+       0.9752483583094798,
+       0.9633620689655172,
+       0.9821929101401484,
+       0.969282700421941,
+       0.9810650887573964,
+       0.9518707763309708,
+       0.9918753108937158
+      ]
+     }
+    },
+    "value.urgent.retainedRatio": {
+     "unit": "percent",
+     "reportScale": 100.0,
+     "means": {
+      "bdst-tu25-d4": 0.5770413720333399,
+      "bdst-tu25-d8": 0.5975894681214944,
+      "bdst-tu25-d16": 0.6023719932454447,
+      "bdst-tu25-d8-fixed-thr": 0.5775647569526416
+     },
+     "perSeed": {
+      "bdst-tu25-d4": [
+       0.5833563042669496,
+       0.5900064053435882,
+       0.6121371571664245,
+       0.5760213096290923,
+       0.5782293753149224,
+       0.5779513573948379,
+       0.5813418795037754,
+       0.5935567263973546,
+       0.548151652720269,
+       0.5296615525961857
+      ],
+      "bdst-tu25-d8": [
+       0.5993334173819681,
+       0.5900761683670318,
+       0.6113641829941058,
+       0.6049127689806661,
+       0.6202561952221154,
+       0.6057844341061783,
+       0.5959699063125875,
+       0.6121829090842243,
+       0.5760916240594811,
+       0.5599230747065848
+      ],
+      "bdst-tu25-d16": [
+       0.6055039326836119,
+       0.6004684263402696,
+       0.6118890200598115,
+       0.5947204773146473,
+       0.5963578281869352,
+       0.603939848904575,
+       0.5982624949486323,
+       0.6213570534881507,
+       0.5948584827079061,
+       0.5963623678199078
+      ],
+      "bdst-tu25-d8-fixed-thr": [
+       0.5871750180765951,
+       0.5737790170339935,
+       0.6122491081712879,
+       0.576422635644635,
+       0.5954743513196299,
+       0.5753443908975023,
+       0.5862874086876081,
+       0.5635028321177173,
+       0.5562854005477404,
+       0.5491274070297072
+      ]
+     }
+    },
+    "latency.urgent.meanBlocks": {
+     "unit": "blocks",
+     "reportScale": 1.0,
+     "means": {
+      "bdst-tu25-d4": 2.008052688875602,
+      "bdst-tu25-d8": 1.8369202561255071,
+      "bdst-tu25-d16": 1.76956938846994,
+      "bdst-tu25-d8-fixed-thr": 1.9359928067769232
+     },
+     "perSeed": {
+      "bdst-tu25-d4": [
+       1.85,
+       1.92,
+       1.858974358974359,
+       2.1777777777777776,
+       2.014925373134328,
+       2.019047619047619,
+       1.9411764705882353,
+       2,
+       2.1265822784810124,
+       2.172043010752688
+      ],
+      "bdst-tu25-d8": [
+       1.7777777777777777,
+       1.9090909090909092,
+       1.8354430379746836,
+       1.711111111111111,
+       1.7536231884057971,
+       1.8679245283018868,
+       1.8095238095238095,
+       1.6904761904761905,
+       1.881578947368421,
+       2.13265306122449
+      ],
+      "bdst-tu25-d16": [
+       1.7901234567901234,
+       1.825,
+       1.7974683544303798,
+       1.7802197802197801,
+       1.8088235294117647,
+       1.7547169811320755,
+       1.7228915662650603,
+       1.6666666666666667,
+       1.7922077922077921,
+       1.7575757575757576
+      ],
+      "bdst-tu25-d8-fixed-thr": [
+       1.8395061728395061,
+       1.9610389610389611,
+       1.8354430379746836,
+       1.9111111111111112,
+       1.8823529411764706,
+       1.9029126213592233,
+       1.869047619047619,
+       1.9390243902439024,
+       2.0253164556962027,
+       2.1941747572815533
+      ]
+     }
+    },
+    "throughput.txPerSlot": {
+     "unit": "transactions/slot",
+     "reportScale": 1.0,
+     "means": {
+      "bdst-tu25-d4": 2.91105,
+      "bdst-tu25-d8": 2.9163000000000006,
+      "bdst-tu25-d16": 2.9085,
+      "bdst-tu25-d8-fixed-thr": 2.9157
+     },
+     "perSeed": {
+      "bdst-tu25-d4": [
+       2.937,
+       2.9135,
+       2.8915,
+       2.883,
+       2.917,
+       2.978,
+       2.843,
+       2.895,
+       2.8845,
+       2.968
+      ],
+      "bdst-tu25-d8": [
+       2.903,
+       2.904,
+       2.9345,
+       2.8875,
+       2.896,
+       2.978,
+       2.871,
+       2.928,
+       2.8905,
+       2.9705
+      ],
+      "bdst-tu25-d16": [
+       2.8895,
+       2.893,
+       2.9355,
+       2.901,
+       2.8945,
+       2.9645,
+       2.843,
+       2.9015,
+       2.89,
+       2.9725
+      ],
+      "bdst-tu25-d8-fixed-thr": [
+       2.89,
+       2.901,
+       2.9345,
+       2.896,
+       2.9055,
+       2.9785,
+       2.8715,
+       2.9015,
+       2.8875,
+       2.991
+      ]
+     }
+    },
+    "price.shockCount": {
+     "unit": "count",
+     "reportScale": 1.0,
+     "means": {
+      "bdst-tu25-d4": 63.4,
+      "bdst-tu25-d8": 42.1,
+      "bdst-tu25-d16": 3.3,
+      "bdst-tu25-d8-fixed-thr": 43.9
+     },
+     "perSeed": {
+      "bdst-tu25-d4": [
+       50,
+       62,
+       60,
+       79,
+       68,
+       55,
+       64,
+       71,
+       67,
+       58
+      ],
+      "bdst-tu25-d8": [
+       39,
+       54,
+       42,
+       61,
+       42,
+       29,
+       44,
+       38,
+       28,
+       44
+      ],
+      "bdst-tu25-d16": [
+       1,
+       4,
+       2,
+       5,
+       6,
+       2,
+       2,
+       8,
+       1,
+       2
+      ],
+      "bdst-tu25-d8-fixed-thr": [
+       40,
+       38,
+       42,
+       61,
+       43,
+       39,
+       49,
+       47,
+       34,
+       46
+      ]
+     }
+    },
+    "price.oscillationCycleCount": {
+     "unit": "count",
+     "reportScale": 1.0,
+     "means": {
+      "bdst-tu25-d4": 7.8,
+      "bdst-tu25-d8": 6.4,
+      "bdst-tu25-d16": 2.2,
+      "bdst-tu25-d8-fixed-thr": 5.9
+     },
+     "perSeed": {
+      "bdst-tu25-d4": [
+       6,
+       8,
+       8,
+       10,
+       7,
+       9,
+       9,
+       8,
+       7,
+       6
+      ],
+      "bdst-tu25-d8": [
+       5,
+       7,
+       5,
+       8,
+       7,
+       6,
+       8,
+       7,
+       6,
+       5
+      ],
+      "bdst-tu25-d16": [
+       0,
+       3,
+       3,
+       5,
+       2,
+       3,
+       1,
+       4,
+       1,
+       0
+      ],
+      "bdst-tu25-d8-fixed-thr": [
+       5,
+       6,
+       5,
+       7,
+       6,
+       7,
+       8,
+       6,
+       5,
+       4
+      ]
+     }
+    },
+    "price.oscillationMaxAmplitude": {
+     "unit": "coefficient ratio",
+     "reportScale": 1.0,
+     "means": {
+      "bdst-tu25-d4": 3.400098800064734,
+      "bdst-tu25-d8": 1.5069887711560939,
+      "bdst-tu25-d16": 0.9373975525686463,
+      "bdst-tu25-d8-fixed-thr": 1.4610702228970742
+     },
+     "perSeed": {
+      "bdst-tu25-d4": [
+       2.1989311388363344,
+       2.8052609653675757,
+       2.6230668545661637,
+       3.082811287632084,
+       3.338240560821763,
+       3.3571487285425,
+       2.9752283004945075,
+       3.4618574524299515,
+       5.058095047998529,
+       5.10034766395793
+      ],
+      "bdst-tu25-d8": [
+       1.3251610779293639,
+       1.5015134209058014,
+       1.659125257200372,
+       1.3936268230377218,
+       1.4360529114765268,
+       1.775322088739149,
+       1.1438486373187466,
+       1.4066756535178864,
+       1.1172780513775447,
+       2.3112837900578262
+      ],
+      "bdst-tu25-d16": [
+       0.8996975176581312,
+       0.9276985317529625,
+       0.9336616165549994,
+       0.9816089976917615,
+       0.9771856134588068,
+       0.9471242939686344,
+       0.9417496062202333,
+       0.9621384157114117,
+       0.8289633855039944,
+       0.974147547165527
+      ],
+      "bdst-tu25-d8-fixed-thr": [
+       1.25548459988986,
+       1.4954239099028923,
+       1.659125257200372,
+       1.445107099113356,
+       1.5325639761466165,
+       0.9987116728608572,
+       1.1438486373187466,
+       1.5487085873616944,
+       1.3605134730586594,
+       2.171215016117687
+      ]
+     }
+    }
+   },
+   "comparisons": [
+    {
+     "candidate": "bdst-tu25-d8",
+     "reference": "bdst-tu25-d8-fixed-thr",
+     "metric": "value.urgent.retainedRatio",
+     "unit": "percentage points",
+     "direction": "bdst-tu25-d8 minus bdst-tu25-d8-fixed-thr",
+     "method": "Mean same-numbered-seed difference with a two-sided 95% Student-t interval (df=9, t*=2.2621571627409915).",
+     "randomnessAssessment": {
+      "status": "aligned-exception",
+      "basis": "All 20 low-load target-0.25 formula/fixed traces contain zero TxRejected events, zero TxEvicted events, and zero TxSubmitted events with attempt > 1. The historical draw schedule therefore consumes no conditional retry-jitter draws, while the observed Ranking Block opportunity-slot sequence matches within every same-seed pair.",
+      "interpretation": "The paired statistic retains aligned exogenous raw-demand and Ranking Block draws within this audited comparison."
+     },
+     "perSeedDifferences": [
+      1.215839930537299,
+      1.6297151333038329,
+      -0.08849251771820832,
+      2.849013333603112,
+      2.47818439024855,
+      3.0440043208675993,
+      0.9682497624979414,
+      4.8680076966507,
+      1.9806223511740662,
+      1.0795667676877563
+     ],
+     "meanDifference": 2.002471116885265,
+     "ci95": [
+      1.0109356268298337,
+      2.994006606940696
+     ],
+     "ci95HalfWidth": 0.9915354900554312,
+     "candidateBetterCount": 9,
+     "ties": 0
+    },
+    {
+     "candidate": "bdst-tu25-d8",
+     "reference": "bdst-tu25-d8-fixed-thr",
+     "metric": "latency.urgent.meanBlocks",
+     "unit": "blocks",
+     "direction": "bdst-tu25-d8 minus bdst-tu25-d8-fixed-thr",
+     "method": "Mean same-numbered-seed difference with a two-sided 95% Student-t interval (df=9, t*=2.2621571627409915).",
+     "randomnessAssessment": {
+      "status": "aligned-exception",
+      "basis": "All 20 low-load target-0.25 formula/fixed traces contain zero TxRejected events, zero TxEvicted events, and zero TxSubmitted events with attempt > 1. The historical draw schedule therefore consumes no conditional retry-jitter draws, while the observed Ranking Block opportunity-slot sequence matches within every same-seed pair.",
+      "interpretation": "The paired statistic retains aligned exogenous raw-demand and Ranking Block draws within this audited comparison."
+     },
+     "perSeedDifferences": [
+      -0.06172839506172845,
+      -0.051948051948051965,
+      0.0,
+      -0.20000000000000018,
+      -0.12872975277067344,
+      -0.03498809305733652,
+      -0.059523809523809534,
+      -0.24854819976771192,
+      -0.14373750832778165,
+      -0.06152169605706348
+     ],
+     "meanDifference": -0.09907255065141571,
+     "ci95": [
+      -0.15545807012506088,
+      -0.042687031177770535
+     ],
+     "ci95HalfWidth": 0.056385519473645174,
+     "candidateBetterCount": 9,
+     "ties": 1
+    }
+   ]
+  },
+  "severe-congestion": {
+   "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9
+   ],
+   "metrics": {
+    "units.serviceRate": {
+     "unit": "percent",
+     "reportScale": 100.0,
+     "means": {
+      "bdst-tu25-d4": 0.9273905182797882,
+      "bdst-tu25-d8": 0.9823532431025808,
+      "bdst-tu25-d16": 0.9907436515191058,
+      "bdst-tu25-d8-fixed-thr": 0.9823532431025808
+     },
+     "perSeed": {
+      "bdst-tu25-d4": [
+       0.9410650985295765,
+       0.9530046224961479,
+       0.9380012804842559,
+       0.8694092953523238,
+       0.9438300900394245,
+       0.8829409609307012,
+       0.933535259776741,
+       0.9286786634476882,
+       0.9405799415323801,
+       0.9428599702086436
+      ],
+      "bdst-tu25-d8": [
+       0.989646880705348,
+       0.9795753845783626,
+       0.9684624546799125,
+       0.9836329534998939,
+       0.9926968507311721,
+       0.9930243978660238,
+       0.9680197627253042,
+       0.9954239286506427,
+       0.9790668166046268,
+       0.9739830009845215
+      ],
+      "bdst-tu25-d16": [
+       0.9907779985418441,
+       0.9735661452649448,
+       0.9969367221645454,
+       0.9933505564821173,
+       0.9967931808542553,
+       0.994706205030703,
+       0.9945614806298538,
+       0.9961884685202634,
+       0.9819785176447356,
+       0.9885772400577959
+      ],
+      "bdst-tu25-d8-fixed-thr": [
+       0.989646880705348,
+       0.9795753845783626,
+       0.9684624546799125,
+       0.9836329534998939,
+       0.9926968507311721,
+       0.9930243978660238,
+       0.9680197627253042,
+       0.9954239286506427,
+       0.9790668166046268,
+       0.9739830009845215
+      ]
+     }
+    },
+    "value.urgent.retainedRatio": {
+     "unit": "percent",
+     "reportScale": 100.0,
+     "means": {
+      "bdst-tu25-d4": 0.427557627580606,
+      "bdst-tu25-d8": 0.49697096329318546,
+      "bdst-tu25-d16": 0.5277021769694843,
+      "bdst-tu25-d8-fixed-thr": 0.49697096329318546
+     },
+     "perSeed": {
+      "bdst-tu25-d4": [
+       0.4651221206033516,
+       0.41693770764702354,
+       0.40774991247162057,
+       0.43062367270777663,
+       0.4003410460198503,
+       0.4297131707958479,
+       0.4446994970046788,
+       0.4315736642410808,
+       0.453074296277248,
+       0.39574118803758207
+      ],
+      "bdst-tu25-d8": [
+       0.5093212887848286,
+       0.4874341817678055,
+       0.443712470322975,
+       0.5043940965186944,
+       0.4963098389288849,
+       0.5095249683975367,
+       0.47806928844849267,
+       0.5332762816302666,
+       0.4882644370069524,
+       0.5194027811254183
+      ],
+      "bdst-tu25-d16": [
+       0.5341953766960409,
+       0.5217350676764428,
+       0.4861102348510887,
+       0.5527410933088321,
+       0.5230258462615748,
+       0.5442165251976229,
+       0.5202782221267698,
+       0.5348873858012739,
+       0.5400978567808901,
+       0.5197341609943077
+      ],
+      "bdst-tu25-d8-fixed-thr": [
+       0.5093212887848286,
+       0.4874341817678055,
+       0.443712470322975,
+       0.5043940965186944,
+       0.4963098389288849,
+       0.5095249683975367,
+       0.47806928844849267,
+       0.5332762816302666,
+       0.4882644370069524,
+       0.5194027811254183
+      ]
+     }
+    },
+    "latency.urgent.meanBlocks": {
+     "unit": "blocks",
+     "reportScale": 1.0,
+     "means": {
+      "bdst-tu25-d4": 2.724398519984324,
+      "bdst-tu25-d8": 2.431922379258987,
+      "bdst-tu25-d16": 2.340401429177955,
+      "bdst-tu25-d8-fixed-thr": 2.431922379258987
+     },
+     "perSeed": {
+      "bdst-tu25-d4": [
+       2.5316358024691357,
+       3.0668348045397225,
+       2.978787878787879,
+       2.483844911147011,
+       3.0945945945945947,
+       2.556610664718773,
+       2.8164508758568165,
+       2.522554188635032,
+       2.4784791965566715,
+       2.7141922825376064
+      ],
+      "bdst-tu25-d8": [
+       2.397862979258328,
+       2.410600706713781,
+       2.608187134502924,
+       2.3174377224199287,
+       2.4704244954766876,
+       2.369201030927835,
+       2.503687315634218,
+       2.309037900874636,
+       2.5193164933135215,
+       2.4134680134680133
+      ],
+      "bdst-tu25-d16": [
+       2.2419554455445545,
+       2.458741258741259,
+       2.6407624633431084,
+       2.181871005229518,
+       2.338754907459338,
+       2.1647131400370143,
+       2.3741721854304636,
+       2.267552182163188,
+       2.2207067575945443,
+       2.514784946236559
+      ],
+      "bdst-tu25-d8-fixed-thr": [
+       2.397862979258328,
+       2.410600706713781,
+       2.608187134502924,
+       2.3174377224199287,
+       2.4704244954766876,
+       2.369201030927835,
+       2.503687315634218,
+       2.309037900874636,
+       2.5193164933135215,
+       2.4134680134680133
+      ]
+     }
+    },
+    "throughput.txPerSlot": {
+     "unit": "transactions/slot",
+     "reportScale": 1.0,
+     "means": {
+      "bdst-tu25-d4": 82.39375,
+      "bdst-tu25-d8": 83.3142,
+      "bdst-tu25-d16": 88.39514999999999,
+      "bdst-tu25-d8-fixed-thr": 83.3142
+     },
+     "perSeed": {
+      "bdst-tu25-d4": [
+       79.7755,
+       87.827,
+       80.579,
+       72.487,
+       82.2345,
+       77.109,
+       76.436,
+       91.551,
+       85.423,
+       90.5155
+      ],
+      "bdst-tu25-d8": [
+       88.898,
+       81.413,
+       73.9915,
+       83.3865,
+       86.8575,
+       88.973,
+       79.351,
+       85.271,
+       81.405,
+       83.5955
+      ],
+      "bdst-tu25-d16": [
+       89.011,
+       80.29,
+       77.782,
+       91.127,
+       96.359,
+       93.3865,
+       88.2365,
+       93.5675,
+       94.4845,
+       79.7075
+      ],
+      "bdst-tu25-d8-fixed-thr": [
+       88.898,
+       81.413,
+       73.9915,
+       83.3865,
+       86.8575,
+       88.973,
+       79.351,
+       85.271,
+       81.405,
+       83.5955
+      ]
+     }
+    },
+    "price.shockCount": {
+     "unit": "count",
+     "reportScale": 1.0,
+     "means": {
+      "bdst-tu25-d4": 127.0,
+      "bdst-tu25-d8": 71.8,
+      "bdst-tu25-d16": 11.9,
+      "bdst-tu25-d8-fixed-thr": 71.8
+     },
+     "perSeed": {
+      "bdst-tu25-d4": [
+       115,
+       131,
+       127,
+       142,
+       130,
+       117,
+       122,
+       132,
+       136,
+       118
+      ],
+      "bdst-tu25-d8": [
+       55,
+       59,
+       77,
+       69,
+       73,
+       78,
+       80,
+       60,
+       84,
+       83
+      ],
+      "bdst-tu25-d16": [
+       6,
+       13,
+       23,
+       0,
+       13,
+       9,
+       21,
+       9,
+       10,
+       15
+      ],
+      "bdst-tu25-d8-fixed-thr": [
+       55,
+       59,
+       77,
+       69,
+       73,
+       78,
+       80,
+       60,
+       84,
+       83
+      ]
+     }
+    },
+    "price.oscillationCycleCount": {
+     "unit": "count",
+     "reportScale": 1.0,
+     "means": {
+      "bdst-tu25-d4": 9.7,
+      "bdst-tu25-d8": 6.6,
+      "bdst-tu25-d16": 2.2,
+      "bdst-tu25-d8-fixed-thr": 6.6
+     },
+     "perSeed": {
+      "bdst-tu25-d4": [
+       11,
+       10,
+       12,
+       8,
+       10,
+       8,
+       10,
+       9,
+       10,
+       9
+      ],
+      "bdst-tu25-d8": [
+       5,
+       5,
+       8,
+       6,
+       7,
+       7,
+       5,
+       7,
+       7,
+       9
+      ],
+      "bdst-tu25-d16": [
+       2,
+       1,
+       4,
+       1,
+       2,
+       2,
+       2,
+       4,
+       2,
+       2
+      ],
+      "bdst-tu25-d8-fixed-thr": [
+       5,
+       5,
+       8,
+       6,
+       7,
+       7,
+       5,
+       7,
+       7,
+       9
+      ]
+     }
+    },
+    "price.oscillationMaxAmplitude": {
+     "unit": "coefficient ratio",
+     "reportScale": 1.0,
+     "means": {
+      "bdst-tu25-d4": 55.92711057510131,
+      "bdst-tu25-d8": 17.501705950323856,
+      "bdst-tu25-d16": 8.022703154995977,
+      "bdst-tu25-d8-fixed-thr": 17.501705950323856
+     },
+     "perSeed": {
+      "bdst-tu25-d4": [
+       38.16065392445609,
+       43.01160661248634,
+       36.74725496366002,
+       66.74314311341462,
+       81.78397314363525,
+       50.85423900290436,
+       109.84534434235823,
+       32.96938164575189,
+       54.36973888726274,
+       44.785770115083636
+      ],
+      "bdst-tu25-d8": [
+       22.593663151076928,
+       11.918959174045566,
+       17.277074152255636,
+       16.031804165347133,
+       20.105207144442282,
+       15.348155732899274,
+       16.412146145087647,
+       9.601618370585697,
+       16.08083690422511,
+       29.64759456327329
+      ],
+      "bdst-tu25-d16": [
+       7.951167789946357,
+       7.608027886884777,
+       5.888354657245197,
+       5.7365604029799755,
+       6.757971960799832,
+       5.617215053412618,
+       6.7665109716468566,
+       4.505931933608609,
+       6.7990748325177375,
+       22.596216060917804
+      ],
+      "bdst-tu25-d8-fixed-thr": [
+       22.593663151076928,
+       11.918959174045566,
+       17.277074152255636,
+       16.031804165347133,
+       20.105207144442282,
+       15.348155732899274,
+       16.412146145087647,
+       9.601618370585697,
+       16.08083690422511,
+       29.64759456327329
+      ]
+     }
+    }
+   },
+   "comparisons": [
+    {
+     "candidate": "bdst-tu25-d4",
+     "reference": "bdst-tu50-d8",
+     "metric": "value.urgent.retainedRatio",
+     "unit": "percentage points",
+     "direction": "bdst-tu25-d4 minus bdst-tu50-d8",
+     "method": "Mean same-numbered-seed difference with a two-sided 95% Student-t interval (df=9, t*=2.2621571627409915).",
+     "randomnessAssessment": {
+      "status": "potentially-confounded",
+      "basis": "The historical runner uses one shared PRNG stream. If compared paths consume different conditional retry-jitter draws, later fresh-demand and Ranking Block draws can diverge.",
+      "interpretation": "Descriptive full-run comparison unless retry-path alignment is established separately."
+     },
+     "perSeedDifferences": [
+      -2.621389138967223,
+      -9.860758145877114,
+      -10.23512604633487,
+      -10.004366391161195,
+      -12.079757051630668,
+      -9.013428412076351,
+      -7.512452536453429,
+      -9.600253801266224,
+      -7.362159112172279,
+      -9.641624289866607
+     ],
+     "meanDifference": -8.793131492580596,
+     "ci95": [
+      -10.619842877751402,
+      -6.966420107409789
+     ],
+     "ci95HalfWidth": 1.826711385170807,
+     "candidateBetterCount": 0,
+     "ties": 0
+    },
+    {
+     "candidate": "bdst-tu25-d8",
+     "reference": "bdst-tu50-d8",
+     "metric": "value.urgent.retainedRatio",
+     "unit": "percentage points",
+     "direction": "bdst-tu25-d8 minus bdst-tu50-d8",
+     "method": "Mean same-numbered-seed difference with a two-sided 95% Student-t interval (df=9, t*=2.2621571627409915).",
+     "randomnessAssessment": {
+      "status": "potentially-confounded",
+      "basis": "The historical runner uses one shared PRNG stream. If compared paths consume different conditional retry-jitter draws, later fresh-demand and Ranking Block draws can diverge.",
+      "interpretation": "Descriptive full-run comparison unless retry-path alignment is established separately."
+     },
+     "perSeedDifferences": [
+      1.7985276791804783,
+      -2.811110733798916,
+      -6.6388702611994255,
+      -2.6273240100694206,
+      -2.482877760727209,
+      -1.0322486519074747,
+      -4.1754733920720435,
+      0.5700079376523615,
+      -3.84314503920184,
+      2.7245350189170123
+     ],
+     "meanDifference": -1.8517979213226476,
+     "ci95": [
+      -3.9169308877948064,
+      0.21333504514951085
+     ],
+     "ci95HalfWidth": 2.0651329664721585,
+     "candidateBetterCount": 3,
+     "ties": 0
+    },
+    {
+     "candidate": "bdst-tu25-d16",
+     "reference": "bdst-tu50-d8",
+     "metric": "value.urgent.retainedRatio",
+     "unit": "percentage points",
+     "direction": "bdst-tu25-d16 minus bdst-tu50-d8",
+     "method": "Mean same-numbered-seed difference with a two-sided 95% Student-t interval (df=9, t*=2.2621571627409915).",
+     "randomnessAssessment": {
+      "status": "potentially-confounded",
+      "basis": "The historical runner uses one shared PRNG stream. If compared paths consume different conditional retry-jitter draws, later fresh-demand and Ranking Block draws can diverge.",
+      "interpretation": "Descriptive full-run comparison unless retry-path alignment is established separately."
+     },
+     "perSeedDifferences": [
+      4.285936470301705,
+      0.6189778570648174,
+      -2.3990938083880584,
+      2.2073756689443558,
+      0.18872297254177717,
+      2.436907028101143,
+      0.04541997575566725,
+      0.7311183547530908,
+      1.3401969381919288,
+      2.7576730058059553
+     ],
+     "meanDifference": 1.2213234463072382,
+     "ci95": [
+      -0.09288952317684829,
+      2.5355364157913245
+     ],
+     "ci95HalfWidth": 1.3142129694840865,
+     "candidateBetterCount": 9,
+     "ties": 0
+    }
+   ]
+  },
+  "launch-day": {
+   "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9
+   ],
+   "metrics": {
+    "value.retainedLovelace": {
+     "unit": "G lovelace",
+     "reportScale": 1e-09,
+     "means": {
+      "bdst-tu25-d4": 504770147311.3,
+      "bdst-tu25-d8": 538822172488.0,
+      "bdst-tu25-d16": 582173847703.8,
+      "bdst-tu25-d8-fixed-thr": 539067735330.7
+     },
+     "perSeed": {
+      "bdst-tu25-d4": [
+       562351433253,
+       597111819041,
+       465838882341,
+       545575927254,
+       418418596505,
+       363135663755,
+       531873220934,
+       586279844769,
+       420790627517,
+       556325457744
+      ],
+      "bdst-tu25-d8": [
+       548827559131,
+       579825624525,
+       585058300019,
+       482759523149,
+       527287040346,
+       525496435121,
+       546816298552,
+       502760813789,
+       587532024055,
+       501858106193
+      ],
+      "bdst-tu25-d16": [
+       565167812060,
+       536779820599,
+       625319379575,
+       607755253936,
+       568033867575,
+       614182274686,
+       583042718603,
+       615410049741,
+       559079000995,
+       546968299268
+      ],
+      "bdst-tu25-d8-fixed-thr": [
+       548827559131,
+       579825624525,
+       585058300019,
+       482759523149,
+       527287040346,
+       525496435121,
+       546816298552,
+       502734798345,
+       587532024055,
+       504339750064
+      ]
+     }
+    },
+    "units.serviceRate": {
+     "unit": "percent",
+     "reportScale": 100.0,
+     "means": {
+      "bdst-tu25-d4": 0.8152913100336292,
+      "bdst-tu25-d8": 0.9556005297419805,
+      "bdst-tu25-d16": 0.9697296210626221,
+      "bdst-tu25-d8-fixed-thr": 0.9554435415206806
+     },
+     "perSeed": {
+      "bdst-tu25-d4": [
+       0.859110122685833,
+       0.8932759736400734,
+       0.7597473743235217,
+       0.7987829880759074,
+       0.7989458889669712,
+       0.7973507744128617,
+       0.8828257420217307,
+       0.8791106760618121,
+       0.6569039598024381,
+       0.826859600345144
+      ],
+      "bdst-tu25-d8": [
+       0.9680783492412278,
+       0.9570162305624553,
+       0.9482702370087097,
+       0.9398299236783804,
+       0.9759742662757266,
+       0.8691671625253914,
+       0.9854067892596216,
+       0.9434598583101333,
+       0.9916133928456581,
+       0.977189087712502
+      ],
+      "bdst-tu25-d16": [
+       0.9700087012057385,
+       0.9508194577630547,
+       0.9422709923664122,
+       0.9782369089984748,
+       0.9870864118213941,
+       0.9841220521372497,
+       0.9899175300263955,
+       0.9809204685621803,
+       0.990104772991851,
+       0.9238089147534694
+      ],
+      "bdst-tu25-d8-fixed-thr": [
+       0.9680783492412278,
+       0.9570162305624553,
+       0.9482702370087097,
+       0.9398299236783804,
+       0.9759742662757266,
+       0.8691671625253914,
+       0.9854067892596216,
+       0.9434866854395481,
+       0.9916133928456581,
+       0.9755923783700874
+      ]
+     }
+    },
+    "throughput.txPerSlot": {
+     "unit": "transactions/slot",
+     "reportScale": 1.0,
+     "means": {
+      "bdst-tu25-d4": 108.57034999999999,
+      "bdst-tu25-d8": 106.29175000000001,
+      "bdst-tu25-d16": 118.61090000000002,
+      "bdst-tu25-d8-fixed-thr": 106.31205
+     },
+     "perSeed": {
+      "bdst-tu25-d4": [
+       116.662,
+       135.2795,
+       102.9735,
+       121.7525,
+       90.952,
+       77.17,
+       105.9925,
+       122.141,
+       92.0375,
+       120.743
+      ],
+      "bdst-tu25-d8": [
+       112.785,
+       112.503,
+       114.8085,
+       90.57,
+       102.855,
+       105.9015,
+       105.2715,
+       104.2075,
+       115.6365,
+       98.379
+      ],
+      "bdst-tu25-d16": [
+       113.152,
+       109.0685,
+       134.3,
+       120.262,
+       115.23,
+       125.1075,
+       117.573,
+       124.8545,
+       118.2195,
+       108.342
+      ],
+      "bdst-tu25-d8-fixed-thr": [
+       112.785,
+       112.503,
+       114.8085,
+       90.57,
+       102.855,
+       105.9015,
+       105.2715,
+       104.2015,
+       115.6365,
+       98.588
+      ]
+     }
+    },
+    "latency.priority.meanBlocks": {
+     "unit": "blocks",
+     "reportScale": 1.0,
+     "means": {
+      "bdst-tu25-d4": 3.1535298601972386,
+      "bdst-tu25-d8": 2.6791561237818846,
+      "bdst-tu25-d16": 2.622926719935742,
+      "bdst-tu25-d8-fixed-thr": 2.676879981372939
+     },
+     "perSeed": {
+      "bdst-tu25-d4": [
+       3.1614996148249594,
+       3.0258058049139063,
+       3.0690289921767144,
+       2.9029555646147576,
+       2.6722641759406467,
+       4.082945458885309,
+       2.4094461433910976,
+       2.978551751279024,
+       3.7541160012912944,
+       3.4786850946546766
+      ],
+      "bdst-tu25-d8": [
+       3.0114108856723045,
+       2.278747742323901,
+       3.066182672611158,
+       2.7531774674407656,
+       2.690202202860431,
+       2.9332486796917836,
+       2.292475808044237,
+       2.5777948816624976,
+       2.343503195149926,
+       2.8448177023618437
+      ],
+      "bdst-tu25-d16": [
+       2.1992263056092844,
+       3.0892635314995562,
+       2.7537037462388314,
+       2.7335649385355425,
+       2.5581824636137735,
+       3.339725339139173,
+       2.4355603118789175,
+       2.118048231737327,
+       2.811248467511238,
+       2.1907438635937795
+      ],
+      "bdst-tu25-d8-fixed-thr": [
+       3.0114108856723045,
+       2.278747742323901,
+       3.066182672611158,
+       2.7531774674407656,
+       2.690202202860431,
+       2.9332486796917836,
+       2.292475808044237,
+       2.5778008697994843,
+       2.343503195149926,
+       2.8220502901353965
+      ]
+     }
+    },
+    "latency.standard.meanBlocks": {
+     "unit": "blocks",
+     "reportScale": 1.0,
+     "means": {
+      "bdst-tu25-d4": 3.5249013158807116,
+      "bdst-tu25-d8": 2.983897119524789,
+      "bdst-tu25-d16": 2.960455711098208,
+      "bdst-tu25-d8-fixed-thr": 2.983992961036527
+     },
+     "perSeed": {
+      "bdst-tu25-d4": [
+       2.7447415513209728,
+       2.693228524171198,
+       3.0616663926645207,
+       3.3579624058216977,
+       3.0371427441468044,
+       4.276025787710416,
+       3.907695246788119,
+       3.3296306251356858,
+       4.511389536223719,
+       4.32953034482399
+      ],
+      "bdst-tu25-d8": [
+       3.2218738215649103,
+       2.557886904761905,
+       2.8216178514517285,
+       3.4249028706792473,
+       3.000465010540239,
+       3.133924539378613,
+       2.9225603014046437,
+       3.1558680041659817,
+       2.761125334980424,
+       2.838746556320198
+      ],
+      "bdst-tu25-d16": [
+       2.6486852781064014,
+       2.8415026682101816,
+       3.314503050257039,
+       2.8319435843313068,
+       2.8405823223570192,
+       3.2899237429335257,
+       2.984037969423241,
+       2.6451084140883108,
+       3.420366775337425,
+       2.7879033059376286
+      ],
+      "bdst-tu25-d8-fixed-thr": [
+       3.2218738215649103,
+       2.557886904761905,
+       2.8216178514517285,
+       3.4249028706792473,
+       3.000465010540239,
+       3.133924539378613,
+       2.9225603014046437,
+       3.1559478127398313,
+       2.761125334980424,
+       2.839625162863729
+      ]
+     }
+    },
+    "price.shockCount": {
+     "unit": "count",
+     "reportScale": 1.0,
+     "means": {
+      "bdst-tu25-d4": 151.0,
+      "bdst-tu25-d8": 92.6,
+      "bdst-tu25-d16": 26.1,
+      "bdst-tu25-d8-fixed-thr": 93.1
+     },
+     "perSeed": {
+      "bdst-tu25-d4": [
+       125,
+       157,
+       154,
+       164,
+       162,
+       132,
+       129,
+       150,
+       166,
+       171
+      ],
+      "bdst-tu25-d8": [
+       104,
+       83,
+       82,
+       81,
+       90,
+       103,
+       97,
+       104,
+       86,
+       96
+      ],
+      "bdst-tu25-d16": [
+       26,
+       38,
+       26,
+       23,
+       22,
+       17,
+       17,
+       25,
+       39,
+       28
+      ],
+      "bdst-tu25-d8-fixed-thr": [
+       104,
+       83,
+       82,
+       81,
+       90,
+       103,
+       97,
+       104,
+       86,
+       101
+      ]
+     }
+    },
+    "price.oscillationMaxAmplitude": {
+     "unit": "coefficient ratio",
+     "reportScale": 1.0,
+     "means": {
+      "bdst-tu25-d4": 136.5161080776938,
+      "bdst-tu25-d8": 45.88070487951169,
+      "bdst-tu25-d16": 17.350075020517686,
+      "bdst-tu25-d8-fixed-thr": 43.50887207305651
+     },
+     "perSeed": {
+      "bdst-tu25-d4": [
+       154.20998801951268,
+       155.02959050780032,
+       167.04664924803967,
+       147.5143384225783,
+       195.38394540912043,
+       141.84725621266722,
+       72.39747429046339,
+       76.75787770477449,
+       158.38933462097998,
+       96.58462634100117
+      ],
+      "bdst-tu25-d8": [
+       61.252853594826085,
+       30.692924321064105,
+       38.381102163352836,
+       29.157877953379703,
+       38.84620516030667,
+       40.8602080508752,
+       32.74786143610933,
+       79.62786985626816,
+       32.99132261401226,
+       74.24882364492261
+      ],
+      "bdst-tu25-d16": [
+       18.427031082846526,
+       23.59277833935624,
+       15.838995303439999,
+       19.40667684676787,
+       14.516884121265372,
+       18.06927797031626,
+       15.698977881539935,
+       12.109396912510432,
+       21.137091374097604,
+       14.703640373036643
+      ],
+      "bdst-tu25-d8-fixed-thr": [
+       61.252853594826085,
+       30.692924321064105,
+       38.381102163352836,
+       29.157877953379703,
+       38.84620516030667,
+       40.8602080508752,
+       32.74786143610933,
+       79.63050945570367,
+       32.99132261401226,
+       50.52785598093536
+      ]
+     }
+    }
+   },
+   "derivedMetrics": {
+    "retainedPercentOfFlatFeeSubmittedValue": {
+     "unit": "percent",
+     "definition": "100 * candidate value.retainedLovelace / (flat-fee value.retainedLovelace + value.lostLovelace + value.unresolvedLovelace), within the same numbered seed.",
+     "means": {
+      "bdst-tu25-d4": 37.64037650051518,
+      "bdst-tu25-d8": 40.180883207339676,
+      "bdst-tu25-d16": 43.41279478355211,
+      "bdst-tu25-d8-fixed-thr": 40.19918242093731
+     },
+     "perSeed": {
+      "bdst-tu25-d4": [
+       41.878765836847556,
+       44.580718196639005,
+       34.80615161155245,
+       40.66550599506392,
+       31.12719675160072,
+       27.090879296036217,
+       39.67332882633849,
+       43.73082601649867,
+       31.392899182145662,
+       41.4574932924291
+      ],
+      "bdst-tu25-d8": [
+       40.87163199834014,
+       43.29012078785255,
+       43.71388620401167,
+       35.98336968714912,
+       39.226190199275806,
+       39.20342151787431,
+       40.787958419788126,
+       37.501111238751186,
+       43.832567531926415,
+       37.39857448842742
+      ],
+      "bdst-tu25-d16": [
+       42.08850384335344,
+       40.07629585058228,
+       46.722079148380615,
+       45.3001565645688,
+       42.25744769775893,
+       45.81961930489205,
+       43.49014875071048,
+       45.903658558537366,
+       41.709842295338866,
+       40.760195821398256
+      ],
+      "bdst-tu25-d8-fixed-thr": [
+       40.87163199834014,
+       43.29012078785255,
+       43.71388620401167,
+       35.98336968714912,
+       39.226190199275806,
+       39.20342151787431,
+       40.787958419788126,
+       37.49917073735845,
+       43.832567531926415,
+       37.583507125796544
+      ]
+     }
+    }
+   },
+   "comparisons": [
+    {
+     "candidate": "bdst-tu25-d4",
+     "reference": "flat-fee",
+     "metric": "value.retainedLovelace / flat-fee submitted value",
+     "unit": "percentage points",
+     "direction": "bdst-tu25-d4 minus flat-fee",
+     "method": "Mean same-numbered-seed difference with a two-sided 95% Student-t interval (df=9, t*=2.2621571627409915).",
+     "randomnessAssessment": {
+      "status": "potentially-confounded",
+      "basis": "The historical runner uses one shared PRNG stream. If compared paths consume different conditional retry-jitter draws, later fresh-demand and Ranking Block draws can diverge.",
+      "interpretation": "Descriptive full-run comparison unless retry-path alignment is established separately."
+     },
+     "perSeedDifferences": [
+      -13.099737414272546,
+      -6.70512867774611,
+      -25.600758994057237,
+      -13.186431220860307,
+      -23.349028639279908,
+      -29.633906723066612,
+      -14.001523604590842,
+      -7.530892070134215,
+      -16.0755777004463,
+      -8.681170853867988
+     ],
+     "meanDifference": -15.786415589832206,
+     "ci95": [
+      -21.44745111644553,
+      -10.12538006321888
+     ],
+     "ci95HalfWidth": 5.661035526613325,
+     "candidateBetterCount": 0,
+     "ties": 0
+    },
+    {
+     "candidate": "bdst-tu25-d8",
+     "reference": "flat-fee",
+     "metric": "value.retainedLovelace / flat-fee submitted value",
+     "unit": "percentage points",
+     "direction": "bdst-tu25-d8 minus flat-fee",
+     "method": "Mean same-numbered-seed difference with a two-sided 95% Student-t interval (df=9, t*=2.2621571627409915).",
+     "randomnessAssessment": {
+      "status": "potentially-confounded",
+      "basis": "The historical runner uses one shared PRNG stream. If compared paths consume different conditional retry-jitter draws, later fresh-demand and Ranking Block draws can diverge.",
+      "interpretation": "Descriptive full-run comparison unless retry-path alignment is established separately."
+     },
+     "perSeedDifferences": [
+      -14.106871252779962,
+      -7.995726086532567,
+      -16.69302440159802,
+      -17.868567528775102,
+      -15.250035191604821,
+      -17.521364501228515,
+      -12.886894011141205,
+      -13.760606847881702,
+      -3.635909350665549,
+      -12.740089657869662
+     ],
+     "meanDifference": -13.245908883007711,
+     "ci95": [
+      -16.417011149793048,
+      -10.074806616222375
+     ],
+     "ci95HalfWidth": 3.171102266785337,
+     "candidateBetterCount": 0,
+     "ties": 0
+    },
+    {
+     "candidate": "bdst-tu25-d16",
+     "reference": "flat-fee",
+     "metric": "value.retainedLovelace / flat-fee submitted value",
+     "unit": "percentage points",
+     "direction": "bdst-tu25-d16 minus flat-fee",
+     "method": "Mean same-numbered-seed difference with a two-sided 95% Student-t interval (df=9, t*=2.2621571627409915).",
+     "randomnessAssessment": {
+      "status": "potentially-confounded",
+      "basis": "The historical runner uses one shared PRNG stream. If compared paths consume different conditional retry-jitter draws, later fresh-demand and Ranking Block draws can diverge.",
+      "interpretation": "Descriptive full-run comparison unless retry-path alignment is established separately."
+     },
+     "perSeedDifferences": [
+      -12.889999407766659,
+      -11.209551023802845,
+      -13.684831457229077,
+      -8.551780651355418,
+      -12.2187776931217,
+      -10.905166714210779,
+      -10.184703680218849,
+      -5.358059528095522,
+      -5.758634587253095,
+      -9.37846832489883
+     ],
+     "meanDifference": -10.013997306795277,
+     "ci95": [
+      -12.025890237231168,
+      -8.002104376359386
+     ],
+     "ci95HalfWidth": 2.011892930435891,
+     "candidateBetterCount": 0,
+     "ties": 0
+    }
+   ]
+  },
+  "eb-capacity-stress": {
+   "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9
+   ],
+   "metrics": {
+    "units.serviceRate": {
+     "unit": "percent",
+     "reportScale": 100.0,
+     "means": {
+      "bdst-tu25-d4": 0.8166826437240531,
+      "bdst-tu25-d8": 0.941779218051931,
+      "bdst-tu25-d16": 0.9742997066630205,
+      "bdst-tu25-d8-fixed-thr": 0.9395469214385285
+     },
+     "perSeed": {
+      "bdst-tu25-d4": [
+       0.7846735275799392,
+       0.8009474683156799,
+       0.785752083608943,
+       0.8676366267859438,
+       0.79668198644096,
+       0.8626903433171693,
+       0.842609211111294,
+       0.7991069151161249,
+       0.8064501743290359,
+       0.8202781006354405
+      ],
+      "bdst-tu25-d8": [
+       0.9193344898281028,
+       0.9659867924327659,
+       0.9662446699792085,
+       0.9193053654853476,
+       0.9900363976494032,
+       0.8722263588979896,
+       0.98997638668016,
+       0.9365485805427636,
+       0.9258885785811679,
+       0.9322445604424001
+      ],
+      "bdst-tu25-d16": [
+       0.970627310788487,
+       0.9894172041269755,
+       0.9950997696195006,
+       0.9888389008198392,
+       0.9752997640240557,
+       0.9934482474546539,
+       0.9890115268838257,
+       0.9548525726322521,
+       0.9024929477705129,
+       0.9839088225101008
+      ],
+      "bdst-tu25-d8-fixed-thr": [
+       0.921214891616583,
+       0.9659867924327659,
+       0.9637900781623864,
+       0.9156630389239249,
+       0.9913461207511174,
+       0.8727626352768415,
+       0.98997638668016,
+       0.9383836562134322,
+       0.9027225293175596,
+       0.9336230850105137
+      ]
+     }
+    },
+    "value.urgent.retainedRatio": {
+     "unit": "percent",
+     "reportScale": 100.0,
+     "means": {
+      "bdst-tu25-d4": 0.3663033490527967,
+      "bdst-tu25-d8": 0.4387276657643726,
+      "bdst-tu25-d16": 0.4597238849410664,
+      "bdst-tu25-d8-fixed-thr": 0.42979672255899726
+     },
+     "perSeed": {
+      "bdst-tu25-d4": [
+       0.3481608771009421,
+       0.3345279775488873,
+       0.3684052825324901,
+       0.3635128079023226,
+       0.3935110784279338,
+       0.4262061539482669,
+       0.35613632194997663,
+       0.3764538225569026,
+       0.38389368738810986,
+       0.3122254811721346
+      ],
+      "bdst-tu25-d8": [
+       0.42956944964523536,
+       0.4578686946929746,
+       0.4934210585739809,
+       0.381558581275426,
+       0.4840392032076149,
+       0.40009352034224627,
+       0.48873529466043397,
+       0.4616915958199693,
+       0.37776050035874803,
+       0.4125387590670966
+      ],
+      "bdst-tu25-d16": [
+       0.4155114275131372,
+       0.4925918185930469,
+       0.5115420240443358,
+       0.42599783102049615,
+       0.4642321112416777,
+       0.47667427527899564,
+       0.5096888413468456,
+       0.4316400111596045,
+       0.41964402605796997,
+       0.44971648315455537
+      ],
+      "bdst-tu25-d8-fixed-thr": [
+       0.426522621078527,
+       0.4578686946929746,
+       0.474790451276743,
+       0.38810537593352473,
+       0.47200610740627325,
+       0.4003613486471694,
+       0.48873529466043397,
+       0.4345048254335271,
+       0.3508365365663808,
+       0.4042359698944187
+      ]
+     }
+    },
+    "latency.urgent.meanBlocks": {
+     "unit": "blocks",
+     "reportScale": 1.0,
+     "means": {
+      "bdst-tu25-d4": 2.5067743227225323,
+      "bdst-tu25-d8": 2.5998905901684446,
+      "bdst-tu25-d16": 2.6716322775442487,
+      "bdst-tu25-d8-fixed-thr": 2.63941242725961
+     },
+     "perSeed": {
+      "bdst-tu25-d4": [
+       2.576379974326059,
+       2.371816638370119,
+       2.536019536019536,
+       2.5193992490613266,
+       2.4824961948249618,
+       2.2897758337889558,
+       2.77765726681128,
+       2.3331995182657566,
+       2.4430452203777904,
+       2.737953795379538
+      ],
+      "bdst-tu25-d8": [
+       2.524132730015083,
+       2.3459074733096084,
+       2.4115560060821086,
+       2.752302472127969,
+       2.545685279187817,
+       2.6370262390670556,
+       2.6392694063926943,
+       2.494170403587444,
+       2.9597469810235766,
+       2.6891089108910893
+      ],
+      "bdst-tu25-d16": [
+       2.774621212121212,
+       2.2772877618522602,
+       2.436334576451785,
+       2.923888888888889,
+       2.9554521276595747,
+       2.650219298245614,
+       2.5150653780557133,
+       2.7338563669281837,
+       2.7919345412039744,
+       2.657662624035281
+      ],
+      "bdst-tu25-d8-fixed-thr": [
+       2.5531598513011153,
+       2.3459074733096084,
+       2.4318299637117677,
+       2.8179237631792375,
+       2.6380255941499087,
+       2.635835351089588,
+       2.6392694063926943,
+       2.6373991457047934,
+       2.927209705372617,
+       2.7675640183847667
+      ]
+     }
+    },
+    "throughput.txPerSlot": {
+     "unit": "transactions/slot",
+     "reportScale": 1.0,
+     "means": {
+      "bdst-tu25-d4": 97.62500000000001,
+      "bdst-tu25-d8": 104.08064999999999,
+      "bdst-tu25-d16": 104.1762,
+      "bdst-tu25-d8-fixed-thr": 105.92954999999999
+     },
+     "perSeed": {
+      "bdst-tu25-d4": [
+       92.6005,
+       104.655,
+       95.032,
+       91.1205,
+       76.6185,
+       100.2485,
+       102.345,
+       117.4835,
+       99.4595,
+       96.687
+      ],
+      "bdst-tu25-d8": [
+       87.4425,
+       90.8385,
+       109.6765,
+       116.886,
+       97.378,
+       111.283,
+       102.715,
+       119.7855,
+       105.5925,
+       99.209
+      ],
+      "bdst-tu25-d16": [
+       111.0485,
+       109.9945,
+       107.1205,
+       94.6215,
+       91.547,
+       102.5025,
+       101.03,
+       101.5395,
+       110.2165,
+       112.1415
+      ],
+      "bdst-tu25-d8-fixed-thr": [
+       88.672,
+       90.8385,
+       111.777,
+       127.8435,
+       100.8085,
+       111.735,
+       102.715,
+       111.868,
+       113.581,
+       99.457
+      ]
+     }
+    },
+    "price.shockCount": {
+     "unit": "count",
+     "reportScale": 1.0,
+     "means": {
+      "bdst-tu25-d4": 154.5,
+      "bdst-tu25-d8": 107.9,
+      "bdst-tu25-d16": 33.4,
+      "bdst-tu25-d8-fixed-thr": 113.5
+     },
+     "perSeed": {
+      "bdst-tu25-d4": [
+       149,
+       153,
+       174,
+       142,
+       141,
+       154,
+       134,
+       159,
+       176,
+       163
+      ],
+      "bdst-tu25-d8": [
+       65,
+       81,
+       125,
+       133,
+       114,
+       124,
+       95,
+       126,
+       108,
+       108
+      ],
+      "bdst-tu25-d16": [
+       33,
+       21,
+       39,
+       33,
+       32,
+       39,
+       30,
+       29,
+       48,
+       30
+      ],
+      "bdst-tu25-d8-fixed-thr": [
+       66,
+       81,
+       120,
+       152,
+       122,
+       126,
+       95,
+       130,
+       131,
+       112
+      ]
+     }
+    },
+    "price.oscillationCycleCount": {
+     "unit": "count",
+     "reportScale": 1.0,
+     "means": {
+      "bdst-tu25-d4": 8.8,
+      "bdst-tu25-d8": 7.9,
+      "bdst-tu25-d16": 5.0,
+      "bdst-tu25-d8-fixed-thr": 7.8
+     },
+     "perSeed": {
+      "bdst-tu25-d4": [
+       9,
+       9,
+       13,
+       8,
+       8,
+       8,
+       8,
+       8,
+       9,
+       8
+      ],
+      "bdst-tu25-d8": [
+       8,
+       6,
+       8,
+       8,
+       9,
+       7,
+       8,
+       9,
+       7,
+       9
+      ],
+      "bdst-tu25-d16": [
+       5,
+       6,
+       6,
+       4,
+       7,
+       5,
+       4,
+       7,
+       3,
+       3
+      ],
+      "bdst-tu25-d8-fixed-thr": [
+       8,
+       6,
+       8,
+       8,
+       9,
+       7,
+       8,
+       8,
+       8,
+       8
+      ]
+     }
+    },
+    "price.oscillationMaxAmplitude": {
+     "unit": "coefficient ratio",
+     "reportScale": 1.0,
+     "means": {
+      "bdst-tu25-d4": 157.3495916757306,
+      "bdst-tu25-d8": 35.86794692459038,
+      "bdst-tu25-d16": 11.956330079077297,
+      "bdst-tu25-d8-fixed-thr": 36.40056113865362
+     },
+     "perSeed": {
+      "bdst-tu25-d4": [
+       100.06100018574683,
+       131.85969204909134,
+       57.76793451174025,
+       102.87656377385436,
+       192.71115065099698,
+       169.4684020477602,
+       77.16067084694481,
+       105.55955602509563,
+       106.81755399358963,
+       529.2133926724861
+      ],
+      "bdst-tu25-d8": [
+       20.110540205080156,
+       42.6459671109135,
+       39.042281705568946,
+       45.06199233094039,
+       24.271695686308703,
+       46.54861673726646,
+       31.295564000699507,
+       31.814692093111155,
+       40.470353609690704,
+       37.417765766324266
+      ],
+      "bdst-tu25-d16": [
+       14.133227501737085,
+       5.241537418796203,
+       10.504049827209618,
+       15.738915989301688,
+       16.904702473478157,
+       13.068449572406616,
+       9.803666022657424,
+       7.390167570409471,
+       19.037624279555036,
+       7.740960135221675
+      ],
+      "bdst-tu25-d8-fixed-thr": [
+       20.110540205080156,
+       42.6459671109135,
+       39.042281705568946,
+       34.19832656478124,
+       48.28302156470023,
+       46.54861673726646,
+       31.295564000699507,
+       31.814692093111155,
+       32.648835638090745,
+       37.417765766324266
+      ]
+     }
+    }
+   },
+   "comparisons": [
+    {
+     "candidate": "bdst-tu25-d16",
+     "reference": "bdst-tu50-d8",
+     "metric": "value.urgent.retainedRatio",
+     "unit": "percentage points",
+     "direction": "bdst-tu25-d16 minus bdst-tu50-d8",
+     "method": "Mean same-numbered-seed difference with a two-sided 95% Student-t interval (df=9, t*=2.2621571627409915).",
+     "randomnessAssessment": {
+      "status": "potentially-confounded",
+      "basis": "The historical runner uses one shared PRNG stream. If compared paths consume different conditional retry-jitter draws, later fresh-demand and Ranking Block draws can diverge.",
+      "interpretation": "Descriptive full-run comparison unless retry-path alignment is established separately."
+     },
+     "perSeedDifferences": [
+      1.7350784358240057,
+      7.317738495259096,
+      10.9431614437836,
+      0.8400889434582504,
+      8.025853048461995,
+      15.685313401993728,
+      15.18027761184641,
+      4.124849315658596,
+      10.243932177993498,
+      10.588200204528686
+     ],
+     "meanDifference": 8.468449307880787,
+     "ci95": [
+      4.814455039993355,
+      12.12244357576822
+     ],
+     "ci95HalfWidth": 3.653994267887432,
+     "candidateBetterCount": 10,
+     "ties": 0
+    }
+   ]
+  }
+ },
+ "eventEvidence": {
+  "lowThresholdPair": {
+   "method": "Stream each low-load JSONL trace. A certificate Ranking Block is a RankingBlockProduced event whose nested block tag is CertifyingBlock; every other RankingBlockProduced event is non-certificate. Urgent fill is total priorityBytes divided by total priorityCapacityBytes across non-certificate RBs. Mean announced EB payload is total usedBytes divided by the number of EndorserBlockAnnounced events, using decimal kilobytes.",
+   "perSeed": {
+    "bdst-tu25-d8": [
+     {
+      "source": {
+       "path": "abstract-sim-hs/sweep-results/param-robustness-tu25-correction/low/bdst-tu25-d8-seed0.events.jsonl",
+       "bytes": 3648833,
+       "sha256": "99e91ff8468e3749f67c3a94dc9ed14dcee8c374648f37ec98b06ada61fc431b"
+      },
+      "observedFirstAttemptSubmissions": {
+       "count": 5942,
+       "sequenceSha256": "b51d53304d2622357aef539d0ae20db0b466dffaab8a214f635f11a01097d464"
+      },
+      "failureAndRetryEvents": {
+       "txRejected": 0,
+       "txEvicted": 0,
+       "txSubmittedAttemptGreaterThanOne": 0
+      },
+      "rankingBlockOpportunitySlots": {
+       "count": 78,
+       "sequenceSha256": "03bcafce69a7363816b88f550a0c450207b76e41010374ae028479bb5bcc6ddf"
+      },
+      "certificateRankingBlocks": 38,
+      "nonCertificateRankingBlocks": 40,
+      "urgentBytesInNonCertificateRankingBlocks": 915816,
+      "urgentCapacityBytesInNonCertificateRankingBlocks": 3604480,
+      "endorserBlocksAnnounced": 64,
+      "announcedEndorserBlockPayloadBytes": 10922968,
+      "seed": 0
+     },
+     {
+      "source": {
+       "path": "abstract-sim-hs/sweep-results/param-robustness-tu25-correction/low/bdst-tu25-d8-seed1.events.jsonl",
+       "bytes": 3684331,
+       "sha256": "df5d99b21067d4c907a67c3b5943c38bf4e72dadcff39f31ca7c7a216f66ce6f"
+      },
+      "observedFirstAttemptSubmissions": {
+       "count": 5961,
+       "sequenceSha256": "d7ce1cab4cd980dedcb76b2c1cdf5a953f0842d5a08b870e7feb3c35cbd3e53b"
+      },
+      "failureAndRetryEvents": {
+       "txRejected": 0,
+       "txEvicted": 0,
+       "txSubmittedAttemptGreaterThanOne": 0
+      },
+      "rankingBlockOpportunitySlots": {
+       "count": 100,
+       "sequenceSha256": "c2f21582a1f280256a68183fe9167f10635c4596895a05433946f4822d86c3f4"
+      },
+      "certificateRankingBlocks": 36,
+      "nonCertificateRankingBlocks": 64,
+      "urgentBytesInNonCertificateRankingBlocks": 1617257,
+      "urgentCapacityBytesInNonCertificateRankingBlocks": 5767168,
+      "endorserBlocksAnnounced": 79,
+      "announcedEndorserBlockPayloadBytes": 11426593,
+      "seed": 1
+     },
+     {
+      "source": {
+       "path": "abstract-sim-hs/sweep-results/param-robustness-tu25-correction/low/bdst-tu25-d8-seed2.events.jsonl",
+       "bytes": 3704466,
+       "sha256": "cd613ea079feed3475679031691cee66bcb1966a3d4d61d0931bb9043f21eeeb"
+      },
+      "observedFirstAttemptSubmissions": {
+       "count": 6025,
+       "sequenceSha256": "a3ac72b85fb6958fffbda79c08468799c84edb6539680d5db6c99af948b016ed"
+      },
+      "failureAndRetryEvents": {
+       "txRejected": 0,
+       "txEvicted": 0,
+       "txSubmittedAttemptGreaterThanOne": 0
+      },
+      "rankingBlockOpportunitySlots": {
+       "count": 88,
+       "sequenceSha256": "d93b0b65c87874077a3c7846c23edec3ac6b5a5c2f6b2d3d52016531f5f65f9f"
+      },
+      "certificateRankingBlocks": 40,
+      "nonCertificateRankingBlocks": 48,
+      "urgentBytesInNonCertificateRankingBlocks": 947101,
+      "urgentCapacityBytesInNonCertificateRankingBlocks": 4325376,
+      "endorserBlocksAnnounced": 69,
+      "announcedEndorserBlockPayloadBytes": 11026209,
+      "seed": 2
+     },
+     {
+      "source": {
+       "path": "abstract-sim-hs/sweep-results/param-robustness-tu25-correction/low/bdst-tu25-d8-seed3.events.jsonl",
+       "bytes": 3690307,
+       "sha256": "d6ddb6939609e45027de711a21770d7c04b546157e5cbd5c6f260da644bc90fb"
+      },
+      "observedFirstAttemptSubmissions": {
+       "count": 5938,
+       "sequenceSha256": "c9e31bceb47fa0b0e9eb6f3130579ed784540d880b27eddd9c4ba13ced22f9de"
+      },
+      "failureAndRetryEvents": {
+       "txRejected": 0,
+       "txEvicted": 0,
+       "txSubmittedAttemptGreaterThanOne": 0
+      },
+      "rankingBlockOpportunitySlots": {
+       "count": 120,
+       "sequenceSha256": "eca11a4308c03d6543ca40995a3d95d5459752aee18a57bd3cf7bc3526a0da04"
+      },
+      "certificateRankingBlocks": 39,
+      "nonCertificateRankingBlocks": 81,
+      "urgentBytesInNonCertificateRankingBlocks": 1824644,
+      "urgentCapacityBytesInNonCertificateRankingBlocks": 7299072,
+      "endorserBlocksAnnounced": 93,
+      "announcedEndorserBlockPayloadBytes": 13460101,
+      "seed": 3
+     },
+     {
+      "source": {
+       "path": "abstract-sim-hs/sweep-results/param-robustness-tu25-correction/low/bdst-tu25-d8-seed4.events.jsonl",
+       "bytes": 3705240,
+       "sha256": "c1e93fbc3ed032a7016229971dc09b3fb73663522da6140f1d3288d51b86a91e"
+      },
+      "observedFirstAttemptSubmissions": {
+       "count": 6032,
+       "sequenceSha256": "4d4b4911320d9701aed08b43d0ab2f5c31d7474094f585f8fdf1b447b8d1f19e"
+      },
+      "failureAndRetryEvents": {
+       "txRejected": 0,
+       "txEvicted": 0,
+       "txSubmittedAttemptGreaterThanOne": 0
+      },
+      "rankingBlockOpportunitySlots": {
+       "count": 96,
+       "sequenceSha256": "e2f703cc2b2084ea43d71912186dd2dbc986ec085ffdaf6a694e00c1d2abd9ab"
+      },
+      "certificateRankingBlocks": 37,
+      "nonCertificateRankingBlocks": 59,
+      "urgentBytesInNonCertificateRankingBlocks": 1450844,
+      "urgentCapacityBytesInNonCertificateRankingBlocks": 5316608,
+      "endorserBlocksAnnounced": 69,
+      "announcedEndorserBlockPayloadBytes": 10773144,
+      "seed": 4
+     },
+     {
+      "source": {
+       "path": "abstract-sim-hs/sweep-results/param-robustness-tu25-correction/low/bdst-tu25-d8-seed5.events.jsonl",
+       "bytes": 3750083,
+       "sha256": "f661d1b4714fdc317f5fd7c9326b0e6c027ba3d9239ceb213ff5c79c4926ddc7"
+      },
+      "observedFirstAttemptSubmissions": {
+       "count": 6066,
+       "sequenceSha256": "c9c13c69c48bce723c751d7d35dff9b83e9e51193c13e7cb6883276877c4d566"
+      },
+      "failureAndRetryEvents": {
+       "txRejected": 0,
+       "txEvicted": 0,
+       "txSubmittedAttemptGreaterThanOne": 0
+      },
+      "rankingBlockOpportunitySlots": {
+       "count": 99,
+       "sequenceSha256": "641c55befe5da3056a3b420383fe74490b423640c73a82270dcf013b30989ad3"
+      },
+      "certificateRankingBlocks": 39,
+      "nonCertificateRankingBlocks": 60,
+      "urgentBytesInNonCertificateRankingBlocks": 1516274,
+      "urgentCapacityBytesInNonCertificateRankingBlocks": 5406720,
+      "endorserBlocksAnnounced": 70,
+      "announcedEndorserBlockPayloadBytes": 10176994,
+      "seed": 5
+     },
+     {
+      "source": {
+       "path": "abstract-sim-hs/sweep-results/param-robustness-tu25-correction/low/bdst-tu25-d8-seed6.events.jsonl",
+       "bytes": 3665456,
+       "sha256": "9db66ba63419799c76c717cc8c23bd9bdd9659bae4df6086368b1c84c4233212"
+      },
+      "observedFirstAttemptSubmissions": {
+       "count": 5924,
+       "sequenceSha256": "d5d95ab1782bd44567c0cd48500a506552d46d65b9641fe93e88cf9f71f3db10"
+      },
+      "failureAndRetryEvents": {
+       "txRejected": 0,
+       "txEvicted": 0,
+       "txSubmittedAttemptGreaterThanOne": 0
+      },
+      "rankingBlockOpportunitySlots": {
+       "count": 109,
+       "sequenceSha256": "eb693684523adc0fecd9838e1a09b2f314b23a0accb2c1a7bd175d6729c26e35"
+      },
+      "certificateRankingBlocks": 40,
+      "nonCertificateRankingBlocks": 69,
+      "urgentBytesInNonCertificateRankingBlocks": 1698035,
+      "urgentCapacityBytesInNonCertificateRankingBlocks": 6217728,
+      "endorserBlocksAnnounced": 80,
+      "announcedEndorserBlockPayloadBytes": 10522393,
+      "seed": 6
+     },
+     {
+      "source": {
+       "path": "abstract-sim-hs/sweep-results/param-robustness-tu25-correction/low/bdst-tu25-d8-seed7.events.jsonl",
+       "bytes": 3672768,
+       "sha256": "06cc655178458db2ff572794886eb8438ee82d738db388c6efa2ba1e4029e56d"
+      },
+      "observedFirstAttemptSubmissions": {
+       "count": 5918,
+       "sequenceSha256": "8b7fb09bf10d4ee48dde0c9e1e20e1376ec4db50c7977bdbb66031fbcc522f82"
+      },
+      "failureAndRetryEvents": {
+       "txRejected": 0,
+       "txEvicted": 0,
+       "txSubmittedAttemptGreaterThanOne": 0
+      },
+      "rankingBlockOpportunitySlots": {
+       "count": 102,
+       "sequenceSha256": "3013a44bf81dafd51dff77cfec72c2546f36ba4ace7da3a14e5164edf2772526"
+      },
+      "certificateRankingBlocks": 35,
+      "nonCertificateRankingBlocks": 67,
+      "urgentBytesInNonCertificateRankingBlocks": 1863846,
+      "urgentCapacityBytesInNonCertificateRankingBlocks": 6037504,
+      "endorserBlocksAnnounced": 74,
+      "announcedEndorserBlockPayloadBytes": 10911569,
+      "seed": 7
+     },
+     {
+      "source": {
+       "path": "abstract-sim-hs/sweep-results/param-robustness-tu25-correction/low/bdst-tu25-d8-seed8.events.jsonl",
+       "bytes": 3713393,
+       "sha256": "8ee7d017a7d84e18ff7056ab0169b2e0e75da778c5f40fbf1451aa2849a08c8e"
+      },
+      "observedFirstAttemptSubmissions": {
+       "count": 6063,
+       "sequenceSha256": "038400c040e1459ba9af1e049959f7ec3b6cf6930340890a5d029089f1da0000"
+      },
+      "failureAndRetryEvents": {
+       "txRejected": 0,
+       "txEvicted": 0,
+       "txSubmittedAttemptGreaterThanOne": 0
+      },
+      "rankingBlockOpportunitySlots": {
+       "count": 91,
+       "sequenceSha256": "4c6927d41dbf48b7ac50e3f5fdf6720525c350f84e7fa2439a5a47f4aa54f9a9"
+      },
+      "certificateRankingBlocks": 36,
+      "nonCertificateRankingBlocks": 55,
+      "urgentBytesInNonCertificateRankingBlocks": 1446692,
+      "urgentCapacityBytesInNonCertificateRankingBlocks": 4956160,
+      "endorserBlocksAnnounced": 66,
+      "announcedEndorserBlockPayloadBytes": 10761015,
+      "seed": 8
+     },
+     {
+      "source": {
+       "path": "abstract-sim-hs/sweep-results/param-robustness-tu25-correction/low/bdst-tu25-d8-seed9.events.jsonl",
+       "bytes": 3710727,
+       "sha256": "d42e5dfb8745cefc31283b2f47db8824c7ae3c57070485f166264fa72c8f0a4a"
+      },
+      "observedFirstAttemptSubmissions": {
+       "count": 6026,
+       "sequenceSha256": "7dc13e956a75db1cce9715495b557b6ae4cfcb2869e1224855c21bfdec7400d3"
+      },
+      "failureAndRetryEvents": {
+       "txRejected": 0,
+       "txEvicted": 0,
+       "txSubmittedAttemptGreaterThanOne": 0
+      },
+      "rankingBlockOpportunitySlots": {
+       "count": 80,
+       "sequenceSha256": "6490e6f5f0952d1248634185142572a518bf9339163460a2cf5b42a8bcfec5ef"
+      },
+      "certificateRankingBlocks": 35,
+      "nonCertificateRankingBlocks": 45,
+      "urgentBytesInNonCertificateRankingBlocks": 1390203,
+      "urgentCapacityBytesInNonCertificateRankingBlocks": 4055040,
+      "endorserBlocksAnnounced": 63,
+      "announcedEndorserBlockPayloadBytes": 11090620,
+      "seed": 9
+     }
+    ],
+    "bdst-tu25-d8-fixed-thr": [
+     {
+      "source": {
+       "path": "abstract-sim-hs/sweep-results/param-robustness-tu25-correction/low/bdst-tu25-d8-fixed-thr-seed0.events.jsonl",
+       "bytes": 3646768,
+       "sha256": "d6bbb2cf49654d671da47b3253f01a7b835742bf36b7e1569d9d4078cb177cc5"
+      },
+      "observedFirstAttemptSubmissions": {
+       "count": 5942,
+       "sequenceSha256": "b51d53304d2622357aef539d0ae20db0b466dffaab8a214f635f11a01097d464"
+      },
+      "failureAndRetryEvents": {
+       "txRejected": 0,
+       "txEvicted": 0,
+       "txSubmittedAttemptGreaterThanOne": 0
+      },
+      "rankingBlockOpportunitySlots": {
+       "count": 78,
+       "sequenceSha256": "03bcafce69a7363816b88f550a0c450207b76e41010374ae028479bb5bcc6ddf"
+      },
+      "certificateRankingBlocks": 41,
+      "nonCertificateRankingBlocks": 37,
+      "urgentBytesInNonCertificateRankingBlocks": 822615,
+      "urgentCapacityBytesInNonCertificateRankingBlocks": 3334144,
+      "endorserBlocksAnnounced": 69,
+      "announcedEndorserBlockPayloadBytes": 11046196,
+      "seed": 0
+     },
+     {
+      "source": {
+       "path": "abstract-sim-hs/sweep-results/param-robustness-tu25-correction/low/bdst-tu25-d8-fixed-thr-seed1.events.jsonl",
+       "bytes": 3685898,
+       "sha256": "20c73d0d099af4caeb5073c9e34fb5a8ac6f112cf59fcfa0460561ef5a422cfc"
+      },
+      "observedFirstAttemptSubmissions": {
+       "count": 5959,
+       "sequenceSha256": "78d64ac0a862deca548fd78fe8f05bae617fb2b1c394a995ac03a243f7eb6704"
+      },
+      "failureAndRetryEvents": {
+       "txRejected": 0,
+       "txEvicted": 0,
+       "txSubmittedAttemptGreaterThanOne": 0
+      },
+      "rankingBlockOpportunitySlots": {
+       "count": 100,
+       "sequenceSha256": "c2f21582a1f280256a68183fe9167f10635c4596895a05433946f4822d86c3f4"
+      },
+      "certificateRankingBlocks": 44,
+      "nonCertificateRankingBlocks": 56,
+      "urgentBytesInNonCertificateRankingBlocks": 1428299,
+      "urgentCapacityBytesInNonCertificateRankingBlocks": 5046272,
+      "endorserBlocksAnnounced": 84,
+      "announcedEndorserBlockPayloadBytes": 10848001,
+      "seed": 1
+     },
+     {
+      "source": {
+       "path": "abstract-sim-hs/sweep-results/param-robustness-tu25-correction/low/bdst-tu25-d8-fixed-thr-seed2.events.jsonl",
+       "bytes": 3709024,
+       "sha256": "f9a66490895604f4121eb0aed2b67af2faf6454ed4fcdeddbc4b08f0ffd4a2e9"
+      },
+      "observedFirstAttemptSubmissions": {
+       "count": 6025,
+       "sequenceSha256": "a3ac72b85fb6958fffbda79c08468799c84edb6539680d5db6c99af948b016ed"
+      },
+      "failureAndRetryEvents": {
+       "txRejected": 0,
+       "txEvicted": 0,
+       "txSubmittedAttemptGreaterThanOne": 0
+      },
+      "rankingBlockOpportunitySlots": {
+       "count": 88,
+       "sequenceSha256": "d93b0b65c87874077a3c7846c23edec3ac6b5a5c2f6b2d3d52016531f5f65f9f"
+      },
+      "certificateRankingBlocks": 44,
+      "nonCertificateRankingBlocks": 44,
+      "urgentBytesInNonCertificateRankingBlocks": 944290,
+      "urgentCapacityBytesInNonCertificateRankingBlocks": 3964928,
+      "endorserBlocksAnnounced": 77,
+      "announcedEndorserBlockPayloadBytes": 11210398,
+      "seed": 2
+     },
+     {
+      "source": {
+       "path": "abstract-sim-hs/sweep-results/param-robustness-tu25-correction/low/bdst-tu25-d8-fixed-thr-seed3.events.jsonl",
+       "bytes": 3701048,
+       "sha256": "4ba9af2e917c6132513e00d678eb25d13db259eb6cdc4566ae190b93df2e19a1"
+      },
+      "observedFirstAttemptSubmissions": {
+       "count": 5939,
+       "sequenceSha256": "dfcc9ec4c64ba364dd392d193b83b9418dd63733695599fab543d8d32020e534"
+      },
+      "failureAndRetryEvents": {
+       "txRejected": 0,
+       "txEvicted": 0,
+       "txSubmittedAttemptGreaterThanOne": 0
+      },
+      "rankingBlockOpportunitySlots": {
+       "count": 120,
+       "sequenceSha256": "eca11a4308c03d6543ca40995a3d95d5459752aee18a57bd3cf7bc3526a0da04"
+      },
+      "certificateRankingBlocks": 48,
+      "nonCertificateRankingBlocks": 72,
+      "urgentBytesInNonCertificateRankingBlocks": 1293585,
+      "urgentCapacityBytesInNonCertificateRankingBlocks": 6488064,
+      "endorserBlocksAnnounced": 115,
+      "announcedEndorserBlockPayloadBytes": 15865043,
+      "seed": 3
+     },
+     {
+      "source": {
+       "path": "abstract-sim-hs/sweep-results/param-robustness-tu25-correction/low/bdst-tu25-d8-fixed-thr-seed4.events.jsonl",
+       "bytes": 3716711,
+       "sha256": "4de2161101d2c98f870894c838d9700a8b461f75ba66642f59c4606d019c604e"
+      },
+      "observedFirstAttemptSubmissions": {
+       "count": 6032,
+       "sequenceSha256": "4359e272d9630b3ef1c820e43d049b9acd085180eff78260f056594b637801b1"
+      },
+      "failureAndRetryEvents": {
+       "txRejected": 0,
+       "txEvicted": 0,
+       "txSubmittedAttemptGreaterThanOne": 0
+      },
+      "rankingBlockOpportunitySlots": {
+       "count": 96,
+       "sequenceSha256": "e2f703cc2b2084ea43d71912186dd2dbc986ec085ffdaf6a694e00c1d2abd9ab"
+      },
+      "certificateRankingBlocks": 47,
+      "nonCertificateRankingBlocks": 49,
+      "urgentBytesInNonCertificateRankingBlocks": 1251736,
+      "urgentCapacityBytesInNonCertificateRankingBlocks": 4415488,
+      "endorserBlocksAnnounced": 88,
+      "announcedEndorserBlockPayloadBytes": 11417516,
+      "seed": 4
+     },
+     {
+      "source": {
+       "path": "abstract-sim-hs/sweep-results/param-robustness-tu25-correction/low/bdst-tu25-d8-fixed-thr-seed5.events.jsonl",
+       "bytes": 3759879,
+       "sha256": "34be1f44031cdcd9062a2dc9f82935741935bb51b6fec22fc8c86b8fad4497c2"
+      },
+      "observedFirstAttemptSubmissions": {
+       "count": 6065,
+       "sequenceSha256": "4220d3b5014ea7cbc4206df18991d7e2f0bf827cfa5c63d5ea2d8f2e8d55b5e8"
+      },
+      "failureAndRetryEvents": {
+       "txRejected": 0,
+       "txEvicted": 0,
+       "txSubmittedAttemptGreaterThanOne": 0
+      },
+      "rankingBlockOpportunitySlots": {
+       "count": 99,
+       "sequenceSha256": "641c55befe5da3056a3b420383fe74490b423640c73a82270dcf013b30989ad3"
+      },
+      "certificateRankingBlocks": 50,
+      "nonCertificateRankingBlocks": 49,
+      "urgentBytesInNonCertificateRankingBlocks": 1278147,
+      "urgentCapacityBytesInNonCertificateRankingBlocks": 4415488,
+      "endorserBlocksAnnounced": 91,
+      "announcedEndorserBlockPayloadBytes": 10534306,
+      "seed": 5
+     },
+     {
+      "source": {
+       "path": "abstract-sim-hs/sweep-results/param-robustness-tu25-correction/low/bdst-tu25-d8-fixed-thr-seed6.events.jsonl",
+       "bytes": 3673445,
+       "sha256": "44f284e16ab74a808bce72ff30cced4030ea96fcd7f3b8353ea66cba1d595a63"
+      },
+      "observedFirstAttemptSubmissions": {
+       "count": 5925,
+       "sequenceSha256": "90553f7d30e2b61ad72ff7cae0b0682229ee88df5df2441f988697eb429819b4"
+      },
+      "failureAndRetryEvents": {
+       "txRejected": 0,
+       "txEvicted": 0,
+       "txSubmittedAttemptGreaterThanOne": 0
+      },
+      "rankingBlockOpportunitySlots": {
+       "count": 109,
+       "sequenceSha256": "eb693684523adc0fecd9838e1a09b2f314b23a0accb2c1a7bd175d6729c26e35"
+      },
+      "certificateRankingBlocks": 47,
+      "nonCertificateRankingBlocks": 62,
+      "urgentBytesInNonCertificateRankingBlocks": 1649573,
+      "urgentCapacityBytesInNonCertificateRankingBlocks": 5586944,
+      "endorserBlocksAnnounced": 93,
+      "announcedEndorserBlockPayloadBytes": 10772342,
+      "seed": 6
+     },
+     {
+      "source": {
+       "path": "abstract-sim-hs/sweep-results/param-robustness-tu25-correction/low/bdst-tu25-d8-fixed-thr-seed7.events.jsonl",
+       "bytes": 3669626,
+       "sha256": "fd623e19f36a9d0c25c852c3e75bd4023dbe542b12c7084de0892f7aae9cf6fb"
+      },
+      "observedFirstAttemptSubmissions": {
+       "count": 5915,
+       "sequenceSha256": "9291bdce837ca548b9e59fb06f556849fdaf7569dcbf68e22ee55862448233d8"
+      },
+      "failureAndRetryEvents": {
+       "txRejected": 0,
+       "txEvicted": 0,
+       "txSubmittedAttemptGreaterThanOne": 0
+      },
+      "rankingBlockOpportunitySlots": {
+       "count": 102,
+       "sequenceSha256": "3013a44bf81dafd51dff77cfec72c2546f36ba4ace7da3a14e5164edf2772526"
+      },
+      "certificateRankingBlocks": 42,
+      "nonCertificateRankingBlocks": 60,
+      "urgentBytesInNonCertificateRankingBlocks": 1611946,
+      "urgentCapacityBytesInNonCertificateRankingBlocks": 5406720,
+      "endorserBlocksAnnounced": 91,
+      "announcedEndorserBlockPayloadBytes": 11335000,
+      "seed": 7
+     },
+     {
+      "source": {
+       "path": "abstract-sim-hs/sweep-results/param-robustness-tu25-correction/low/bdst-tu25-d8-fixed-thr-seed8.events.jsonl",
+       "bytes": 3722011,
+       "sha256": "83b5f10da224e08531e0ea5c678db6a2525dd9fadaf713f1bebcf9c8aa422a7f"
+      },
+      "observedFirstAttemptSubmissions": {
+       "count": 6067,
+       "sequenceSha256": "16b53082f2d8d8b036e2bda9a51ce01f9a81586293718b1f610093887b7eadab"
+      },
+      "failureAndRetryEvents": {
+       "txRejected": 0,
+       "txEvicted": 0,
+       "txSubmittedAttemptGreaterThanOne": 0
+      },
+      "rankingBlockOpportunitySlots": {
+       "count": 91,
+       "sequenceSha256": "4c6927d41dbf48b7ac50e3f5fdf6720525c350f84e7fa2439a5a47f4aa54f9a9"
+      },
+      "certificateRankingBlocks": 43,
+      "nonCertificateRankingBlocks": 48,
+      "urgentBytesInNonCertificateRankingBlocks": 1262221,
+      "urgentCapacityBytesInNonCertificateRankingBlocks": 4325376,
+      "endorserBlocksAnnounced": 85,
+      "announcedEndorserBlockPayloadBytes": 11912806,
+      "seed": 8
+     },
+     {
+      "source": {
+       "path": "abstract-sim-hs/sweep-results/param-robustness-tu25-correction/low/bdst-tu25-d8-fixed-thr-seed9.events.jsonl",
+       "bytes": 3721797,
+       "sha256": "2a553b81e5eac4222839b9569df73fe7df7ec78001d990b4c0715c46a2f8bdd9"
+      },
+      "observedFirstAttemptSubmissions": {
+       "count": 6031,
+       "sequenceSha256": "69735c1ce5e49f104314b1ac3b06443369311c21b3115a484039425124169885"
+      },
+      "failureAndRetryEvents": {
+       "txRejected": 0,
+       "txEvicted": 0,
+       "txSubmittedAttemptGreaterThanOne": 0
+      },
+      "rankingBlockOpportunitySlots": {
+       "count": 80,
+       "sequenceSha256": "6490e6f5f0952d1248634185142572a518bf9339163460a2cf5b42a8bcfec5ef"
+      },
+      "certificateRankingBlocks": 42,
+      "nonCertificateRankingBlocks": 38,
+      "urgentBytesInNonCertificateRankingBlocks": 999911,
+      "urgentCapacityBytesInNonCertificateRankingBlocks": 3424256,
+      "endorserBlocksAnnounced": 73,
+      "announcedEndorserBlockPayloadBytes": 11997272,
+      "seed": 9
+     }
+    ]
+   },
+   "aggregates": {
+    "bdst-tu25-d8": {
+     "certificateRankingBlocksMean": 37.5,
+     "nonCertificateRankingBlocksMean": 58.8,
+     "certificateShareOfRankingBlocks": 0.3894080996884735,
+     "urgentByteFillOfNonCertificateRankingBlocks": 0.27687977712391776,
+     "endorserBlocksAnnouncedMean": 72.7,
+     "meanAnnouncedEndorserBlockPayloadKilobytes": 152.78075103163687
+    },
+    "bdst-tu25-d8-fixed-thr": {
+     "certificateRankingBlocksMean": 44.8,
+     "nonCertificateRankingBlocksMean": 51.5,
+     "certificateShareOfRankingBlocks": 0.4652128764278297,
+     "urgentByteFillOfNonCertificateRankingBlocks": 0.2702639520010481,
+     "endorserBlocksAnnouncedMean": 86.6,
+     "meanAnnouncedEndorserBlockPayloadKilobytes": 135.03334872979215
+    }
+   },
+   "certificateRankingBlockFormulaMinusFixed": {
+    "candidate": "bdst-tu25-d8",
+    "reference": "bdst-tu25-d8-fixed-thr",
+    "metric": "certificate Ranking Blocks",
+    "unit": "blocks",
+    "direction": "bdst-tu25-d8 minus bdst-tu25-d8-fixed-thr",
+    "method": "Mean same-numbered-seed difference with a two-sided 95% Student-t interval (df=9, t*=2.2621571627409915).",
+    "randomnessAssessment": {
+     "status": "aligned-exception",
+     "basis": "All 20 low-load target-0.25 formula/fixed traces contain zero TxRejected events, zero TxEvicted events, and zero TxSubmitted events with attempt > 1. The historical draw schedule therefore consumes no conditional retry-jitter draws, while the observed Ranking Block opportunity-slot sequence matches within every same-seed pair.",
+     "interpretation": "The paired statistic retains aligned exogenous raw-demand and Ranking Block draws within this audited comparison."
+    },
+    "perSeedDifferences": [
+     -3.0,
+     -8.0,
+     -4.0,
+     -9.0,
+     -10.0,
+     -11.0,
+     -7.0,
+     -7.0,
+     -7.0,
+     -7.0
+    ],
+    "meanDifference": -7.3,
+    "ci95": [
+     -9.05388111552533,
+     -5.5461188844746685
+    ],
+    "ci95HalfWidth": 1.753881115525331,
+    "candidateBetterCount": 10,
+    "ties": 0
+   },
+   "streamAlignmentAndObservedSubmissionResponse": {
+    "scope": "low-load target-0.25 formula-versus-fixed pair",
+    "status": "aligned-exception",
+    "drawScheduleAudit": {
+     "sourceState": "historical base 4d5b5abc40a8ea2942d8de8bb06ceee73c401b63 plus the recorded bd5c099c1a25e13c997dde57872a5710205c2c02fd6e3252337aa97dd7298cf6 patch; patched app/src digest 046999f00c2defa598b9be069934d5339ec42834084acf7b84fe87a5a9b5d2f2",
+     "freshDemand": "In Sim.actorStep, sampleArrivalCount first consumes draws based only on the configured workload rate and PRNG values. Each resulting raw arrival then consumes one pickActor draw and the five drawTxSample draws before generateTransaction may make the price-dependent decision to submit or decline. That decision consumes no PRNG draw.",
+     "rankingBlocks": "In Sim.blockStep, rollRbProduction consumes exactly one Ranking Block draw per slot, independent of the mechanism outcome.",
+     "conditionalDraws": "The remaining mechanism-dependent draw site is retry jitter in captureRetries, once per queued retry."
+    },
+    "observedConditionalPathCounts": {
+     "traces": 20,
+     "txRejected": 0,
+     "txEvicted": 0,
+     "txSubmittedAttemptGreaterThanOne": 0
+    },
+    "rankingBlockOpportunityMatchingPairs": 10,
+    "alignmentInference": "The same seed, fixed per-arrival and per-slot draw schedule, zero observed failure/retry paths, and matching Ranking Block opportunity slots establish that raw-demand and Ranking Block streams remained aligned in all ten pairs.",
+    "observedSubmissionFingerprintMethod": "For each first-attempt TxSubmitted event, hash the ordered canonical-JSON sequence of [raw-demand body.number, slot, actorId, dependsOn, tx size, script ex-units, script bytes, urgency, value]. Mechanism-dependent tx id, lane, fee, and retry metadata are excluded. Common body.number values have zero exogenous-attribute mismatches in every pair.",
+    "observedSubmissionInterpretation": "The eight differing observed-submission subsequences reflect price-dependent submit/decline decisions: declined demand has no TxSubmitted event. They do not show RNG divergence.",
+    "observedSubmissionMatchingPairs": 2,
+    "observedSubmissionDifferingPairs": 8,
+    "commonObservedExogenousAttributeMismatches": 0,
+    "pairs": [
+     {
+      "seed": 0,
+      "observedSubmissionSequencesMatch": true,
+      "firstObservedSubmissionMismatchIndex": null,
+      "rankingBlockOpportunitySlotsMatch": true,
+      "commonObservedRawDemandNumbers": 5942,
+      "formulaOnlyObservedRawDemandNumbers": 0,
+      "fixedOnlyObservedRawDemandNumbers": 0,
+      "commonObservedExogenousAttributeMismatches": 0,
+      "commonObservedSubmissionFingerprintSha256": "b51d53304d2622357aef539d0ae20db0b466dffaab8a214f635f11a01097d464",
+      "formula": {
+       "eventTraceSha256": "99e91ff8468e3749f67c3a94dc9ed14dcee8c374648f37ec98b06ada61fc431b",
+       "count": 5942,
+       "sequenceSha256": "b51d53304d2622357aef539d0ae20db0b466dffaab8a214f635f11a01097d464",
+       "failureAndRetryEvents": {
+        "txRejected": 0,
+        "txEvicted": 0,
+        "txSubmittedAttemptGreaterThanOne": 0
+       },
+       "rankingBlockOpportunitySlots": {
+        "count": 78,
+        "sequenceSha256": "03bcafce69a7363816b88f550a0c450207b76e41010374ae028479bb5bcc6ddf"
+       }
+      },
+      "fixed": {
+       "eventTraceSha256": "d6bbb2cf49654d671da47b3253f01a7b835742bf36b7e1569d9d4078cb177cc5",
+       "count": 5942,
+       "sequenceSha256": "b51d53304d2622357aef539d0ae20db0b466dffaab8a214f635f11a01097d464",
+       "failureAndRetryEvents": {
+        "txRejected": 0,
+        "txEvicted": 0,
+        "txSubmittedAttemptGreaterThanOne": 0
+       },
+       "rankingBlockOpportunitySlots": {
+        "count": 78,
+        "sequenceSha256": "03bcafce69a7363816b88f550a0c450207b76e41010374ae028479bb5bcc6ddf"
+       }
+      }
+     },
+     {
+      "seed": 1,
+      "observedSubmissionSequencesMatch": false,
+      "firstObservedSubmissionMismatchIndex": 664,
+      "rankingBlockOpportunitySlotsMatch": true,
+      "commonObservedRawDemandNumbers": 5959,
+      "formulaOnlyObservedRawDemandNumbers": 2,
+      "fixedOnlyObservedRawDemandNumbers": 0,
+      "commonObservedExogenousAttributeMismatches": 0,
+      "commonObservedSubmissionFingerprintSha256": "78d64ac0a862deca548fd78fe8f05bae617fb2b1c394a995ac03a243f7eb6704",
+      "formula": {
+       "eventTraceSha256": "df5d99b21067d4c907a67c3b5943c38bf4e72dadcff39f31ca7c7a216f66ce6f",
+       "count": 5961,
+       "sequenceSha256": "d7ce1cab4cd980dedcb76b2c1cdf5a953f0842d5a08b870e7feb3c35cbd3e53b",
+       "failureAndRetryEvents": {
+        "txRejected": 0,
+        "txEvicted": 0,
+        "txSubmittedAttemptGreaterThanOne": 0
+       },
+       "rankingBlockOpportunitySlots": {
+        "count": 100,
+        "sequenceSha256": "c2f21582a1f280256a68183fe9167f10635c4596895a05433946f4822d86c3f4"
+       }
+      },
+      "fixed": {
+       "eventTraceSha256": "20c73d0d099af4caeb5073c9e34fb5a8ac6f112cf59fcfa0460561ef5a422cfc",
+       "count": 5959,
+       "sequenceSha256": "78d64ac0a862deca548fd78fe8f05bae617fb2b1c394a995ac03a243f7eb6704",
+       "failureAndRetryEvents": {
+        "txRejected": 0,
+        "txEvicted": 0,
+        "txSubmittedAttemptGreaterThanOne": 0
+       },
+       "rankingBlockOpportunitySlots": {
+        "count": 100,
+        "sequenceSha256": "c2f21582a1f280256a68183fe9167f10635c4596895a05433946f4822d86c3f4"
+       }
+      }
+     },
+     {
+      "seed": 2,
+      "observedSubmissionSequencesMatch": true,
+      "firstObservedSubmissionMismatchIndex": null,
+      "rankingBlockOpportunitySlotsMatch": true,
+      "commonObservedRawDemandNumbers": 6025,
+      "formulaOnlyObservedRawDemandNumbers": 0,
+      "fixedOnlyObservedRawDemandNumbers": 0,
+      "commonObservedExogenousAttributeMismatches": 0,
+      "commonObservedSubmissionFingerprintSha256": "a3ac72b85fb6958fffbda79c08468799c84edb6539680d5db6c99af948b016ed",
+      "formula": {
+       "eventTraceSha256": "cd613ea079feed3475679031691cee66bcb1966a3d4d61d0931bb9043f21eeeb",
+       "count": 6025,
+       "sequenceSha256": "a3ac72b85fb6958fffbda79c08468799c84edb6539680d5db6c99af948b016ed",
+       "failureAndRetryEvents": {
+        "txRejected": 0,
+        "txEvicted": 0,
+        "txSubmittedAttemptGreaterThanOne": 0
+       },
+       "rankingBlockOpportunitySlots": {
+        "count": 88,
+        "sequenceSha256": "d93b0b65c87874077a3c7846c23edec3ac6b5a5c2f6b2d3d52016531f5f65f9f"
+       }
+      },
+      "fixed": {
+       "eventTraceSha256": "f9a66490895604f4121eb0aed2b67af2faf6454ed4fcdeddbc4b08f0ffd4a2e9",
+       "count": 6025,
+       "sequenceSha256": "a3ac72b85fb6958fffbda79c08468799c84edb6539680d5db6c99af948b016ed",
+       "failureAndRetryEvents": {
+        "txRejected": 0,
+        "txEvicted": 0,
+        "txSubmittedAttemptGreaterThanOne": 0
+       },
+       "rankingBlockOpportunitySlots": {
+        "count": 88,
+        "sequenceSha256": "d93b0b65c87874077a3c7846c23edec3ac6b5a5c2f6b2d3d52016531f5f65f9f"
+       }
+      }
+     },
+     {
+      "seed": 3,
+      "observedSubmissionSequencesMatch": false,
+      "firstObservedSubmissionMismatchIndex": 4493,
+      "rankingBlockOpportunitySlotsMatch": true,
+      "commonObservedRawDemandNumbers": 5936,
+      "formulaOnlyObservedRawDemandNumbers": 2,
+      "fixedOnlyObservedRawDemandNumbers": 3,
+      "commonObservedExogenousAttributeMismatches": 0,
+      "commonObservedSubmissionFingerprintSha256": "436a620041c7bbfd49ee659f221788689bb47698128d8d163bd4b3f2e3e06ebf",
+      "formula": {
+       "eventTraceSha256": "d6ddb6939609e45027de711a21770d7c04b546157e5cbd5c6f260da644bc90fb",
+       "count": 5938,
+       "sequenceSha256": "c9e31bceb47fa0b0e9eb6f3130579ed784540d880b27eddd9c4ba13ced22f9de",
+       "failureAndRetryEvents": {
+        "txRejected": 0,
+        "txEvicted": 0,
+        "txSubmittedAttemptGreaterThanOne": 0
+       },
+       "rankingBlockOpportunitySlots": {
+        "count": 120,
+        "sequenceSha256": "eca11a4308c03d6543ca40995a3d95d5459752aee18a57bd3cf7bc3526a0da04"
+       }
+      },
+      "fixed": {
+       "eventTraceSha256": "4ba9af2e917c6132513e00d678eb25d13db259eb6cdc4566ae190b93df2e19a1",
+       "count": 5939,
+       "sequenceSha256": "dfcc9ec4c64ba364dd392d193b83b9418dd63733695599fab543d8d32020e534",
+       "failureAndRetryEvents": {
+        "txRejected": 0,
+        "txEvicted": 0,
+        "txSubmittedAttemptGreaterThanOne": 0
+       },
+       "rankingBlockOpportunitySlots": {
+        "count": 120,
+        "sequenceSha256": "eca11a4308c03d6543ca40995a3d95d5459752aee18a57bd3cf7bc3526a0da04"
+       }
+      }
+     },
+     {
+      "seed": 4,
+      "observedSubmissionSequencesMatch": false,
+      "firstObservedSubmissionMismatchIndex": 3900,
+      "rankingBlockOpportunitySlotsMatch": true,
+      "commonObservedRawDemandNumbers": 6031,
+      "formulaOnlyObservedRawDemandNumbers": 1,
+      "fixedOnlyObservedRawDemandNumbers": 1,
+      "commonObservedExogenousAttributeMismatches": 0,
+      "commonObservedSubmissionFingerprintSha256": "8e94af9632edf24efcc8976937b4c344027c63a1e34822c45b4a61ded0ab1cc9",
+      "formula": {
+       "eventTraceSha256": "c1e93fbc3ed032a7016229971dc09b3fb73663522da6140f1d3288d51b86a91e",
+       "count": 6032,
+       "sequenceSha256": "4d4b4911320d9701aed08b43d0ab2f5c31d7474094f585f8fdf1b447b8d1f19e",
+       "failureAndRetryEvents": {
+        "txRejected": 0,
+        "txEvicted": 0,
+        "txSubmittedAttemptGreaterThanOne": 0
+       },
+       "rankingBlockOpportunitySlots": {
+        "count": 96,
+        "sequenceSha256": "e2f703cc2b2084ea43d71912186dd2dbc986ec085ffdaf6a694e00c1d2abd9ab"
+       }
+      },
+      "fixed": {
+       "eventTraceSha256": "4de2161101d2c98f870894c838d9700a8b461f75ba66642f59c4606d019c604e",
+       "count": 6032,
+       "sequenceSha256": "4359e272d9630b3ef1c820e43d049b9acd085180eff78260f056594b637801b1",
+       "failureAndRetryEvents": {
+        "txRejected": 0,
+        "txEvicted": 0,
+        "txSubmittedAttemptGreaterThanOne": 0
+       },
+       "rankingBlockOpportunitySlots": {
+        "count": 96,
+        "sequenceSha256": "e2f703cc2b2084ea43d71912186dd2dbc986ec085ffdaf6a694e00c1d2abd9ab"
+       }
+      }
+     },
+     {
+      "seed": 5,
+      "observedSubmissionSequencesMatch": false,
+      "firstObservedSubmissionMismatchIndex": 1551,
+      "rankingBlockOpportunitySlotsMatch": true,
+      "commonObservedRawDemandNumbers": 6063,
+      "formulaOnlyObservedRawDemandNumbers": 3,
+      "fixedOnlyObservedRawDemandNumbers": 2,
+      "commonObservedExogenousAttributeMismatches": 0,
+      "commonObservedSubmissionFingerprintSha256": "e80c60e3031f1f31fb04a321eda36a95a3e619dcde49aa7eb85321489e622305",
+      "formula": {
+       "eventTraceSha256": "f661d1b4714fdc317f5fd7c9326b0e6c027ba3d9239ceb213ff5c79c4926ddc7",
+       "count": 6066,
+       "sequenceSha256": "c9c13c69c48bce723c751d7d35dff9b83e9e51193c13e7cb6883276877c4d566",
+       "failureAndRetryEvents": {
+        "txRejected": 0,
+        "txEvicted": 0,
+        "txSubmittedAttemptGreaterThanOne": 0
+       },
+       "rankingBlockOpportunitySlots": {
+        "count": 99,
+        "sequenceSha256": "641c55befe5da3056a3b420383fe74490b423640c73a82270dcf013b30989ad3"
+       }
+      },
+      "fixed": {
+       "eventTraceSha256": "34be1f44031cdcd9062a2dc9f82935741935bb51b6fec22fc8c86b8fad4497c2",
+       "count": 6065,
+       "sequenceSha256": "4220d3b5014ea7cbc4206df18991d7e2f0bf827cfa5c63d5ea2d8f2e8d55b5e8",
+       "failureAndRetryEvents": {
+        "txRejected": 0,
+        "txEvicted": 0,
+        "txSubmittedAttemptGreaterThanOne": 0
+       },
+       "rankingBlockOpportunitySlots": {
+        "count": 99,
+        "sequenceSha256": "641c55befe5da3056a3b420383fe74490b423640c73a82270dcf013b30989ad3"
+       }
+      }
+     },
+     {
+      "seed": 6,
+      "observedSubmissionSequencesMatch": false,
+      "firstObservedSubmissionMismatchIndex": 4329,
+      "rankingBlockOpportunitySlotsMatch": true,
+      "commonObservedRawDemandNumbers": 5923,
+      "formulaOnlyObservedRawDemandNumbers": 1,
+      "fixedOnlyObservedRawDemandNumbers": 2,
+      "commonObservedExogenousAttributeMismatches": 0,
+      "commonObservedSubmissionFingerprintSha256": "f6edc1214d0f9752f959de8ac9215545a950c36487ef1ce49d15a2f3b88a6e65",
+      "formula": {
+       "eventTraceSha256": "9db66ba63419799c76c717cc8c23bd9bdd9659bae4df6086368b1c84c4233212",
+       "count": 5924,
+       "sequenceSha256": "d5d95ab1782bd44567c0cd48500a506552d46d65b9641fe93e88cf9f71f3db10",
+       "failureAndRetryEvents": {
+        "txRejected": 0,
+        "txEvicted": 0,
+        "txSubmittedAttemptGreaterThanOne": 0
+       },
+       "rankingBlockOpportunitySlots": {
+        "count": 109,
+        "sequenceSha256": "eb693684523adc0fecd9838e1a09b2f314b23a0accb2c1a7bd175d6729c26e35"
+       }
+      },
+      "fixed": {
+       "eventTraceSha256": "44f284e16ab74a808bce72ff30cced4030ea96fcd7f3b8353ea66cba1d595a63",
+       "count": 5925,
+       "sequenceSha256": "90553f7d30e2b61ad72ff7cae0b0682229ee88df5df2441f988697eb429819b4",
+       "failureAndRetryEvents": {
+        "txRejected": 0,
+        "txEvicted": 0,
+        "txSubmittedAttemptGreaterThanOne": 0
+       },
+       "rankingBlockOpportunitySlots": {
+        "count": 109,
+        "sequenceSha256": "eb693684523adc0fecd9838e1a09b2f314b23a0accb2c1a7bd175d6729c26e35"
+       }
+      }
+     },
+     {
+      "seed": 7,
+      "observedSubmissionSequencesMatch": false,
+      "firstObservedSubmissionMismatchIndex": 3194,
+      "rankingBlockOpportunitySlotsMatch": true,
+      "commonObservedRawDemandNumbers": 5914,
+      "formulaOnlyObservedRawDemandNumbers": 4,
+      "fixedOnlyObservedRawDemandNumbers": 1,
+      "commonObservedExogenousAttributeMismatches": 0,
+      "commonObservedSubmissionFingerprintSha256": "b7287983e52d4945517682dd02c9d84ab61ce3f0f93dd5637fc8e0002ddcf71e",
+      "formula": {
+       "eventTraceSha256": "06cc655178458db2ff572794886eb8438ee82d738db388c6efa2ba1e4029e56d",
+       "count": 5918,
+       "sequenceSha256": "8b7fb09bf10d4ee48dde0c9e1e20e1376ec4db50c7977bdbb66031fbcc522f82",
+       "failureAndRetryEvents": {
+        "txRejected": 0,
+        "txEvicted": 0,
+        "txSubmittedAttemptGreaterThanOne": 0
+       },
+       "rankingBlockOpportunitySlots": {
+        "count": 102,
+        "sequenceSha256": "3013a44bf81dafd51dff77cfec72c2546f36ba4ace7da3a14e5164edf2772526"
+       }
+      },
+      "fixed": {
+       "eventTraceSha256": "fd623e19f36a9d0c25c852c3e75bd4023dbe542b12c7084de0892f7aae9cf6fb",
+       "count": 5915,
+       "sequenceSha256": "9291bdce837ca548b9e59fb06f556849fdaf7569dcbf68e22ee55862448233d8",
+       "failureAndRetryEvents": {
+        "txRejected": 0,
+        "txEvicted": 0,
+        "txSubmittedAttemptGreaterThanOne": 0
+       },
+       "rankingBlockOpportunitySlots": {
+        "count": 102,
+        "sequenceSha256": "3013a44bf81dafd51dff77cfec72c2546f36ba4ace7da3a14e5164edf2772526"
+       }
+      }
+     },
+     {
+      "seed": 8,
+      "observedSubmissionSequencesMatch": false,
+      "firstObservedSubmissionMismatchIndex": 2632,
+      "rankingBlockOpportunitySlotsMatch": true,
+      "commonObservedRawDemandNumbers": 6062,
+      "formulaOnlyObservedRawDemandNumbers": 1,
+      "fixedOnlyObservedRawDemandNumbers": 5,
+      "commonObservedExogenousAttributeMismatches": 0,
+      "commonObservedSubmissionFingerprintSha256": "4bf79aa0a7529012dd0e015942376f2c719712de412b5a935649202e89522454",
+      "formula": {
+       "eventTraceSha256": "8ee7d017a7d84e18ff7056ab0169b2e0e75da778c5f40fbf1451aa2849a08c8e",
+       "count": 6063,
+       "sequenceSha256": "038400c040e1459ba9af1e049959f7ec3b6cf6930340890a5d029089f1da0000",
+       "failureAndRetryEvents": {
+        "txRejected": 0,
+        "txEvicted": 0,
+        "txSubmittedAttemptGreaterThanOne": 0
+       },
+       "rankingBlockOpportunitySlots": {
+        "count": 91,
+        "sequenceSha256": "4c6927d41dbf48b7ac50e3f5fdf6720525c350f84e7fa2439a5a47f4aa54f9a9"
+       }
+      },
+      "fixed": {
+       "eventTraceSha256": "83b5f10da224e08531e0ea5c678db6a2525dd9fadaf713f1bebcf9c8aa422a7f",
+       "count": 6067,
+       "sequenceSha256": "16b53082f2d8d8b036e2bda9a51ce01f9a81586293718b1f610093887b7eadab",
+       "failureAndRetryEvents": {
+        "txRejected": 0,
+        "txEvicted": 0,
+        "txSubmittedAttemptGreaterThanOne": 0
+       },
+       "rankingBlockOpportunitySlots": {
+        "count": 91,
+        "sequenceSha256": "4c6927d41dbf48b7ac50e3f5fdf6720525c350f84e7fa2439a5a47f4aa54f9a9"
+       }
+      }
+     },
+     {
+      "seed": 9,
+      "observedSubmissionSequencesMatch": false,
+      "firstObservedSubmissionMismatchIndex": 2496,
+      "rankingBlockOpportunitySlotsMatch": true,
+      "commonObservedRawDemandNumbers": 6024,
+      "formulaOnlyObservedRawDemandNumbers": 2,
+      "fixedOnlyObservedRawDemandNumbers": 7,
+      "commonObservedExogenousAttributeMismatches": 0,
+      "commonObservedSubmissionFingerprintSha256": "df513f347bd76def813c732a97f5ad46ac7ec55b562ccc7e732d8622cc9595c2",
+      "formula": {
+       "eventTraceSha256": "d42e5dfb8745cefc31283b2f47db8824c7ae3c57070485f166264fa72c8f0a4a",
+       "count": 6026,
+       "sequenceSha256": "7dc13e956a75db1cce9715495b557b6ae4cfcb2869e1224855c21bfdec7400d3",
+       "failureAndRetryEvents": {
+        "txRejected": 0,
+        "txEvicted": 0,
+        "txSubmittedAttemptGreaterThanOne": 0
+       },
+       "rankingBlockOpportunitySlots": {
+        "count": 80,
+        "sequenceSha256": "6490e6f5f0952d1248634185142572a518bf9339163460a2cf5b42a8bcfec5ef"
+       }
+      },
+      "fixed": {
+       "eventTraceSha256": "2a553b81e5eac4222839b9569df73fe7df7ec78001d990b4c0715c46a2f8bdd9",
+       "count": 6031,
+       "sequenceSha256": "69735c1ce5e49f104314b1ac3b06443369311c21b3115a484039425124169885",
+       "failureAndRetryEvents": {
+        "txRejected": 0,
+        "txEvicted": 0,
+        "txSubmittedAttemptGreaterThanOne": 0
+       },
+       "rankingBlockOpportunitySlots": {
+        "count": 80,
+        "sequenceSha256": "6490e6f5f0952d1248634185142572a518bf9339163460a2cf5b42a8bcfec5ef"
+       }
+      }
+     }
+    ]
+   }
+  },
+  "severeThresholdPairTraceIdentity": {
+   "method": "Compare byte length and SHA-256 of each same-seed formula/fixed JSONL pair; compare all 55 summary scalars directly. For a non-identical pair, also preserve the announcement count, first announcement witness, and mean announced payload.",
+   "bitIdenticalPairs": 9,
+   "differingPairs": 1,
+   "pairs": [
+    {
+     "seed": 0,
+     "bitIdentical": true,
+     "formula": {
+      "path": "abstract-sim-hs/sweep-results/param-robustness-tu25-correction/severe-congestion/bdst-tu25-d8-seed0.events.jsonl",
+      "bytes": 109181016,
+      "sha256": "532a6bac26436bffb0d754a43c75214f1d9580a3f6affad0691198f9157766ad"
+     },
+     "fixed": {
+      "path": "abstract-sim-hs/sweep-results/param-robustness-tu25-correction/severe-congestion/bdst-tu25-d8-fixed-thr-seed0.events.jsonl",
+      "bytes": 109181016,
+      "sha256": "532a6bac26436bffb0d754a43c75214f1d9580a3f6affad0691198f9157766ad"
+     },
+     "summaryScalarDifferences": {}
+    },
+    {
+     "seed": 1,
+     "bitIdentical": true,
+     "formula": {
+      "path": "abstract-sim-hs/sweep-results/param-robustness-tu25-correction/severe-congestion/bdst-tu25-d8-seed1.events.jsonl",
+      "bytes": 104169118,
+      "sha256": "0762b84eb765de645185ca20418af877b027407a4146f4a06d6a86b843e2f2b2"
+     },
+     "fixed": {
+      "path": "abstract-sim-hs/sweep-results/param-robustness-tu25-correction/severe-congestion/bdst-tu25-d8-fixed-thr-seed1.events.jsonl",
+      "bytes": 104169118,
+      "sha256": "0762b84eb765de645185ca20418af877b027407a4146f4a06d6a86b843e2f2b2"
+     },
+     "summaryScalarDifferences": {}
+    },
+    {
+     "seed": 2,
+     "bitIdentical": false,
+     "formula": {
+      "path": "abstract-sim-hs/sweep-results/param-robustness-tu25-correction/severe-congestion/bdst-tu25-d8-seed2.events.jsonl",
+      "bytes": 97068290,
+      "sha256": "b2340cf25586429764faeb522becea427631823f690445d943185b65bacc3912"
+     },
+     "fixed": {
+      "path": "abstract-sim-hs/sweep-results/param-robustness-tu25-correction/severe-congestion/bdst-tu25-d8-fixed-thr-seed2.events.jsonl",
+      "bytes": 97069128,
+      "sha256": "464ee1947a4f77700d46674c5b39e5734a889bafe79053079db80ed88591e26e"
+     },
+     "summaryScalarDifferences": {
+      "throughput.ebUtilization": {
+       "formula": 0.27009994579288016,
+       "fixed": 0.26755023317307686
+      }
+     },
+     "announcedEndorserBlocks": {
+      "formula": {
+       "count": 103,
+       "first": {
+        "slot": 7,
+        "eventNo": 696,
+        "endorserBlockId": 0,
+        "usedBytes": 389325
+       },
+       "meanPayloadBytes": 3241199.349514563
+      },
+      "fixed": {
+       "count": 104,
+       "first": {
+        "slot": 0,
+        "eventNo": 75,
+        "endorserBlockId": 0,
+        "usedBytes": 59158
+       },
+       "meanPayloadBytes": 3210602.798076923
+      }
+     }
+    },
+    {
+     "seed": 3,
+     "bitIdentical": true,
+     "formula": {
+      "path": "abstract-sim-hs/sweep-results/param-robustness-tu25-correction/severe-congestion/bdst-tu25-d8-seed3.events.jsonl",
+      "bytes": 105292466,
+      "sha256": "44d46fabc02918261de77fb0bc59e3f69b480d397059c1c021e8e6aec16c4fdb"
+     },
+     "fixed": {
+      "path": "abstract-sim-hs/sweep-results/param-robustness-tu25-correction/severe-congestion/bdst-tu25-d8-fixed-thr-seed3.events.jsonl",
+      "bytes": 105292466,
+      "sha256": "44d46fabc02918261de77fb0bc59e3f69b480d397059c1c021e8e6aec16c4fdb"
+     },
+     "summaryScalarDifferences": {}
+    },
+    {
+     "seed": 4,
+     "bitIdentical": true,
+     "formula": {
+      "path": "abstract-sim-hs/sweep-results/param-robustness-tu25-correction/severe-congestion/bdst-tu25-d8-seed4.events.jsonl",
+      "bytes": 106828222,
+      "sha256": "f13c78db760a67da75cf99713de173f6431f1954dc33910c9dfebe527b22e13a"
+     },
+     "fixed": {
+      "path": "abstract-sim-hs/sweep-results/param-robustness-tu25-correction/severe-congestion/bdst-tu25-d8-fixed-thr-seed4.events.jsonl",
+      "bytes": 106828222,
+      "sha256": "f13c78db760a67da75cf99713de173f6431f1954dc33910c9dfebe527b22e13a"
+     },
+     "summaryScalarDifferences": {}
+    },
+    {
+     "seed": 5,
+     "bitIdentical": true,
+     "formula": {
+      "path": "abstract-sim-hs/sweep-results/param-robustness-tu25-correction/severe-congestion/bdst-tu25-d8-seed5.events.jsonl",
+      "bytes": 108914119,
+      "sha256": "53039889250ace1f8a190a71e081786194a9c3f7c04371780eb6eee2734b32f2"
+     },
+     "fixed": {
+      "path": "abstract-sim-hs/sweep-results/param-robustness-tu25-correction/severe-congestion/bdst-tu25-d8-fixed-thr-seed5.events.jsonl",
+      "bytes": 108914119,
+      "sha256": "53039889250ace1f8a190a71e081786194a9c3f7c04371780eb6eee2734b32f2"
+     },
+     "summaryScalarDifferences": {}
+    },
+    {
+     "seed": 6,
+     "bitIdentical": true,
+     "formula": {
+      "path": "abstract-sim-hs/sweep-results/param-robustness-tu25-correction/severe-congestion/bdst-tu25-d8-seed6.events.jsonl",
+      "bytes": 102233289,
+      "sha256": "cda47cb09a9205bfaabebcba3c8d313c2334b4364f392be6547699364b9d21ab"
+     },
+     "fixed": {
+      "path": "abstract-sim-hs/sweep-results/param-robustness-tu25-correction/severe-congestion/bdst-tu25-d8-fixed-thr-seed6.events.jsonl",
+      "bytes": 102233289,
+      "sha256": "cda47cb09a9205bfaabebcba3c8d313c2334b4364f392be6547699364b9d21ab"
+     },
+     "summaryScalarDifferences": {}
+    },
+    {
+     "seed": 7,
+     "bitIdentical": true,
+     "formula": {
+      "path": "abstract-sim-hs/sweep-results/param-robustness-tu25-correction/severe-congestion/bdst-tu25-d8-seed7.events.jsonl",
+      "bytes": 104292120,
+      "sha256": "41b185bb5ce4d5e7924e2a7172d2562c63992eadc9955b7ced4659a31c733502"
+     },
+     "fixed": {
+      "path": "abstract-sim-hs/sweep-results/param-robustness-tu25-correction/severe-congestion/bdst-tu25-d8-fixed-thr-seed7.events.jsonl",
+      "bytes": 104292120,
+      "sha256": "41b185bb5ce4d5e7924e2a7172d2562c63992eadc9955b7ced4659a31c733502"
+     },
+     "summaryScalarDifferences": {}
+    },
+    {
+     "seed": 8,
+     "bitIdentical": true,
+     "formula": {
+      "path": "abstract-sim-hs/sweep-results/param-robustness-tu25-correction/severe-congestion/bdst-tu25-d8-seed8.events.jsonl",
+      "bytes": 103613141,
+      "sha256": "203f7bce11f7b93fa0470b1d355d0b206d8e45f39c9b1db5bf8388773c4a4bb9"
+     },
+     "fixed": {
+      "path": "abstract-sim-hs/sweep-results/param-robustness-tu25-correction/severe-congestion/bdst-tu25-d8-fixed-thr-seed8.events.jsonl",
+      "bytes": 103613141,
+      "sha256": "203f7bce11f7b93fa0470b1d355d0b206d8e45f39c9b1db5bf8388773c4a4bb9"
+     },
+     "summaryScalarDifferences": {}
+    },
+    {
+     "seed": 9,
+     "bitIdentical": true,
+     "formula": {
+      "path": "abstract-sim-hs/sweep-results/param-robustness-tu25-correction/severe-congestion/bdst-tu25-d8-seed9.events.jsonl",
+      "bytes": 106140623,
+      "sha256": "db07067818cb020ef831ed3150a81820cab003d8ff33f4e7008bd4739fd50fd2"
+     },
+     "fixed": {
+      "path": "abstract-sim-hs/sweep-results/param-robustness-tu25-correction/severe-congestion/bdst-tu25-d8-fixed-thr-seed9.events.jsonl",
+      "bytes": 106140623,
+      "sha256": "db07067818cb020ef831ed3150a81820cab003d8ff33f4e7008bd4739fd50fd2"
+     },
+     "summaryScalarDifferences": {}
+    }
+   ]
+  }
+ },
+ "caveats": [
+  "The raw summaries and traces are gitignored. Their hashes identify the extraction inputs, while this record preserves the selected per-seed scalars and event totals needed by the report.",
+  "The low-load target-0.25 formula/fixed event audit establishes aligned exogenous streams from the historical draw schedule, zero failure/retry events in all 20 traces, and matching Ranking Block opportunity slots. First-attempt TxSubmitted subsequences still differ in eight pairs because submission is a price-dependent filter over aligned raw demand; declined demand is not traced. Those differences do not demonstrate RNG divergence.",
+  "The historical replay patch is narrower than the final source correction: it changes only the target-aware upward multiplier. The exact patch, source-tree hash, and executable hash are recorded to avoid representing later code as the run state."
+ ]
+}

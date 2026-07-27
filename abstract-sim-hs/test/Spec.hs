@@ -5,25 +5,31 @@ import Block (BlockSummary (..), BlockUsage (..), EbId (..), InclusionPoint (..)
 import Config (SimConfig (..))
 import Control.Exception (ErrorCall, evaluate, finally, try)
 import Control.Monad (unless)
+import Control.Monad.Reader (runReaderT)
+import Control.Monad.State.Strict (runState)
 import Curve (curvesDefault)
 import Data.Aeson (eitherDecode)
 import Data.ByteString.Lazy qualified as BL
+import Data.Foldable (toList)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Sequence qualified as Seq
 import Design (ControllerConfig (..), ControllerSignal (..), Design (..), Eip1559Controller (..), FeeSemantics (..), LaneStructure (..), PriorityPremiumScope (..), ReservationPolicy (..), SelectionPolicy (..), defaultDesign)
+import Event (SimEvent (..))
 import Load (BurstEffect (..), arrivalRateAt, severeCongestionLoad, tryBurstEffectAt)
 import LoadProfile (LoadProfile (..), loadLoadProfile)
 import Metrics.Accumulator (MetricsAcc (..), emptyMetricsAcc)
 import Metrics.Price (PriceOscillation (..), PriceStability (..), priceOscillationFrom, priceStabilityFrom)
 import Parser (parseDesign, parseSimConfig)
-import Pricing (ControllerInput (..), PriceUpdate (..), Prices (..), admissionRequiredFee, coversProducerHeadroom, feeStillValid, initialPrices, quotedFee, realisedFee, requiredMaxFee, retentionWindow, updatePrices)
+import Pricing (ControllerInput (..), PriceUpdate (..), Prices (..), admissionRequiredFee, coversProducerHeadroom, feeStillValid, initialPrices, quotedFee, realisedFee, requiredMaxFee, retentionWindow, updatePrices, worstCaseNextPrices)
 import Resource (Bytes (..), ExUnits (..), Resources (..))
 import Retry (noRetries)
-import Run (Run (..), runWithSeed, runWithSeedToFile)
+import Run (RandomnessMode (..), Run (..), runWithSeed, runWithSeedToFile)
+import Sim (SimSt (..), initSimStWithIndependentRngStreams, step, unSimM)
 import Sweep (LoadOverride (..), SweepOverrides (..), SweepSpec (..), SweepVariant (..), applyOverrides, loadSweepSpec, parseSweepArgs)
 import System.Directory (getTemporaryDirectory, removeFile)
 import System.Exit (exitFailure)
 import System.IO (hClose, openTempFile)
+import System.Random (mkStdGen)
 import Transaction (Demand (..), Lane (..), Provenance (..), Script (..), Tx (..), TxBody (..), hash)
 import Types (Duration (..), Lovelace (..), PerLane (..), SlotNo (..), Urgency (..), atLane)
 
@@ -34,9 +40,11 @@ main = do
   assertSweepFixture
   assertSweepLoadProfileOverride
   assertTracedAndUntracedMetricsEqual
+  assertRetryRandomnessDoesNotPerturbExogenousInputs
   assertLiveConfigsParse
   assertLoadProfiles
   assertHeadroomInvariant
+  assertWorstCaseNextPrices
   assertPriorityControllerReadsCurrentProduction
   assertPriorityReservationWindowUsesRbEquivalentCapacity
   assertPriorityReservationWindowRetention
@@ -127,6 +135,7 @@ expectedFixtureSweep =
     , sweepOutDir = "/tmp/fixture-sweep"
     , sweepLoadOverride = Just (LoadPreset "low")
     , sweepSummaryOnly = False
+    , sweepRandomnessMode = SharedRandomness
     , sweepVariants =
         [ SweepVariant "a" "test/fixtures/sim-config.json"
         , SweepVariant "b" "test/fixtures/sim-config.json"
@@ -176,6 +185,73 @@ assertTracedAndUntracedMetricsEqual = do
     traced._runResult
     untraced._runResult
 
+-- | Retry failures are mechanism-dependent, while fresh demand and block
+-- opportunities are experiment inputs. Advancing retry jitter must therefore
+-- leave both exogenous streams unchanged for a matched seed. The one-byte
+-- mempool makes every fresh transaction fail admission, so the right-hand run
+-- genuinely consumes retry jitter while the no-retry run does not.
+assertRetryRandomnessDoesNotPerturbExogenousInputs :: IO ()
+assertRetryRandomnessDoesNotPerturbExogenousInputs = do
+  retryConfig <- parseSimConfig "config/variants/flat-fee.json"
+  let constrained = retryConfig{simConfigMempoolBytesCap = 1}
+      noRetryConfig = constrained{simConfigRetryPolicy = noRetries}
+      initial = initSimStWithIndependentRngStreams constrained (mkStdGen 431)
+  retryDiverged <- compareSteps (30 :: Int) noRetryConfig constrained initial initial False
+  assertTrue "retry fixture consumes mechanism-dependent jitter" retryDiverged
+ where
+  compareSteps 0 _ _ _ _ retryDiverged = pure retryDiverged
+  compareSteps remaining leftConfig rightConfig leftState rightState retryDiverged = do
+    let (leftEvents, leftState') = runOne leftConfig leftState
+        (rightEvents, rightState') = runOne rightConfig rightState
+    assertEqual
+      "retry policy does not change sampled fresh demand"
+      (freshDemandProjection leftEvents)
+      (freshDemandProjection rightEvents)
+    assertEqual
+      "retry policy does not change ranking-block opportunities"
+      (rankingBlockSlots leftEvents)
+      (rankingBlockSlots rightEvents)
+    assertEqual
+      "retry policy does not advance the fresh-demand RNG"
+      (show leftState'._simFreshDemandRng)
+      (show rightState'._simFreshDemandRng)
+    assertEqual
+      "retry policy does not advance the block-production RNG"
+      (show leftState'._simBlockProductionRng)
+      (show rightState'._simBlockProductionRng)
+    compareSteps
+      (remaining - 1)
+      leftConfig
+      rightConfig
+      leftState'
+      rightState'
+      (retryDiverged || show leftState'._simRetryRng /= show rightState'._simRetryRng)
+
+  runOne config state =
+    runState (runReaderT (unSimM step) config) state
+
+  freshDemandProjection events =
+    [ ( slot
+      , actorId
+      , tx.txDemand.demandValue
+      , tx.txDemand.demandUrgency
+      , tx.txDemand.demandSize
+      , tx.txDemand.demandScript._scriptSize
+      , tx.txDemand.demandScript._scriptExUnits
+      )
+    | TxSubmitted slot actorId tx <- toList events
+    , tx.txProvenance == FreshDemand
+    ]
+
+  rankingBlockSlots events =
+    [ slot
+    | BlockProduced slot summary <- toList events
+    , case summary of
+        RbPraos{} -> True
+        RbCertifying{} -> True
+        _ -> False
+    ]
+
 {- The live configs are not generally content-asserted — only that they still
 parse, that the mechanism set remains complete, and that selecting a workload
 at run time has not mutated their embedded historical load.
@@ -198,6 +274,10 @@ assertLiveConfigsParse = do
   mapM_ (parseSimConfig . (.variantConfig)) inversionD16Smoke.sweepVariants
   canonicalFinalSmoke <- loadSweepSpec "config/sweeps/canonical-final-smoke.json"
   assertTrue "canonical final smoke is summary-only" canonicalFinalSmoke.sweepSummaryOnly
+  assertEqual
+    "archived-reference smoke preserves the shared RNG sequence"
+    SharedRandomness
+    canonicalFinalSmoke.sweepRandomnessMode
   assertEqual "canonical final smoke uses ten paired seeds" 10 canonicalFinalSmoke.sweepSeeds
   assertEqual "canonical final smoke has one integrated candidate" 1 (length canonicalFinalSmoke.sweepVariants)
   assertEqual
@@ -205,6 +285,38 @@ assertLiveConfigsParse = do
     ["config/variants/trickle-aging/thr-k10.json"]
     (map (.variantConfig) canonicalFinalSmoke.sweepVariants)
   mapM_ (parseSimConfig . (.variantConfig)) canonicalFinalSmoke.sweepVariants
+  canonicalHeadlines <- loadSweepSpec "config/sweeps/canonical-headlines.json"
+  assertTrue "canonical headline refresh is summary-only" canonicalHeadlines.sweepSummaryOnly
+  assertEqual "canonical headline refresh uses ten paired seeds" 10 canonicalHeadlines.sweepSeeds
+  assertEqual "canonical headline refresh uses 2,000 slots" 2_000 canonicalHeadlines.sweepSlots
+  assertEqual
+    "canonical headline refresh isolates exogenous randomness"
+    IndependentRandomness
+    canonicalHeadlines.sweepRandomnessMode
+  assertEqual
+    "canonical headline refresh pairs a fresh control with the recommendation"
+    [ "config/variants/flat-fee.json"
+    , "config/variants/trickle-aging/thr-k10.json"
+    ]
+    (map (.variantConfig) canonicalHeadlines.sweepVariants)
+  mapM_ (parseSimConfig . (.variantConfig)) canonicalHeadlines.sweepVariants
+  defaultThresholdAblation <- loadSweepSpec "config/sweeps/default-threshold-ablation.json"
+  assertTrue "default threshold ablation is summary-only" defaultThresholdAblation.sweepSummaryOnly
+  assertEqual "default threshold ablation uses 100 paired seeds" 100 defaultThresholdAblation.sweepSeeds
+  assertEqual "default threshold ablation uses 2,000 slots" 2_000 defaultThresholdAblation.sweepSlots
+  assertEqual
+    "default threshold ablation isolates exogenous randomness"
+    IndependentRandomness
+    defaultThresholdAblation.sweepRandomnessMode
+  assertEqual
+    "default threshold ablation changes only the threshold around D16/K10"
+    [ "config/variants/default-threshold/threshold-1.json"
+    , "config/variants/default-threshold/threshold-quarter-rb.json"
+    , "config/variants/trickle-aging/thr-k10.json"
+    , "config/variants/default-threshold/threshold-three-quarter-rb.json"
+    ]
+    (map (.variantConfig) defaultThresholdAblation.sweepVariants)
+  mapM_ (parseSimConfig . (.variantConfig)) defaultThresholdAblation.sweepVariants
   mechanisms <- loadSweepSpec "config/sweeps/mechanisms.json"
   assertEqual
     "mechanism sweep covers controls, phase-2 candidates, and windowed-priority companions"
@@ -319,6 +431,143 @@ assertHeadroomInvariant = do
     | scope <- scopesUnderTest
     , semantics <- semanticsUnderTest
     , lane <- [Standard, Priority]
+    ]
+
+assertWorstCaseNextPrices :: IO ()
+assertWorstCaseNextPrices = do
+  let controllerFor signal target denominator =
+        Eip1559Controller
+          { controllerTargetUtilisation = target
+          , controllerMaxChangeDenominator = denominator
+          , controllerInitialCoefficient = 1
+          , controllerSignal = signal
+          }
+      controller = controllerFor (CapacityWeightedWindow 1)
+      controllers standard priority multiplier floorCoeff =
+        ControllerConfig
+          { laneControllers = PerLane standard priority
+          , multiplierFloor = multiplier
+          , absoluteCoeffFloor = floorCoeff
+          }
+      input standardUsed priorityUsed =
+        ControllerInput
+          { recentBlocks = Seq.singleton block
+          , currentProduction = Seq.singleton block
+          }
+       where
+        capacity = Resources{resBytes = Bytes 100, resExUnits = ExUnits 100}
+        used n = Resources{resBytes = Bytes n, resExUnits = ExUnits n}
+        block =
+          RbPraos
+            []
+            BlockUsage
+              { usageCapacity = capacity
+              , usageUsed = used (standardUsed + priorityUsed)
+              , usageLanes = PerLane (used standardUsed) (used priorityUsed)
+              , usageSignalCapacity = capacity
+              }
+      noFloor =
+        ControllerConfig
+          { laneControllers =
+              PerLane
+                { perStandard = Just (controller 0.25 8)
+                , perPriority = Just (controller 0.75 8)
+                }
+          , multiplierFloor = Nothing
+          , absoluteCoeffFloor = 0
+          }
+      withMultiplierFloor =
+        noFloor
+          { multiplierFloor = Just 10
+          }
+      withFasterPriorityFloor =
+        withMultiplierFloor
+          { laneControllers =
+              PerLane
+                { perStandard = Just (controller 0.75 8)
+                , perPriority = Just (controller 0.25 8)
+                }
+          }
+      clamped target denominator =
+        noFloor
+          { laneControllers =
+              PerLane
+                { perStandard = Just (controller target denominator)
+                , perPriority = Nothing
+                }
+          }
+  assertEqual
+    "target below 0.5 uses the full upward bound while target above 0.5 preserves legacy headroom"
+    (Prices (PerLane 11 18))
+    (worstCaseNextPrices noFloor (Prices (PerLane 8 16)))
+  assertEqual
+    "worst-case bound propagates a faster standard lane through the multiplier floor"
+    (Prices (PerLane 11 110))
+    (worstCaseNextPrices withMultiplierFloor (Prices (PerLane 8 1)))
+  assertEqual
+    "worst-case bound applies the multiplier floor before scaling the priority lane"
+    (Prices (PerLane 9 110))
+    (worstCaseNextPrices withFasterPriorityFloor (Prices (PerLane 8 1)))
+  assertEqual
+    "worst-case bound uses the controller target and denominator clamps"
+    (worstCaseNextPrices (clamped 0.000_001 1) (Prices (PerLane 1 1)))
+    (worstCaseNextPrices (clamped 0 0) (Prices (PerLane 1 1)))
+  let endpointCases =
+        [ ( "capacity-window standard target " <> show target <> ", utilisation " <> show utilisation
+          , controllers (Just (controller target 8)) Nothing Nothing 0
+          , input utilisation 0
+          , Prices (PerLane 8 16)
+          )
+        | target <- [0.25, 0.5, 0.75]
+        , utilisation <- [0, 100]
+        ]
+          <> [ ( "per-block priority target " <> show target <> ", utilisation " <> show utilisation
+               , controllers Nothing (Just (controllerFor PriorityReservationUtil target 8)) Nothing 0
+               , input 0 utilisation
+               , Prices (PerLane 8 16)
+               )
+             | target <- [0.25, 0.75]
+             , utilisation <- [0, 100]
+             ]
+          <> [ ( "windowed priority target 0.5, utilisation " <> show utilisation
+               , controllers Nothing (Just (controllerFor (PriorityReservationWindow 1) 0.5 8)) Nothing 0
+               , input 0 utilisation
+               , Prices (PerLane 8 16)
+               )
+             | utilisation <- [0, 100]
+             ]
+      floorCases =
+        [ ( "multiplier floor couples the two updated lanes"
+          , controllers
+              (Just (controller 0.25 8))
+              (Just (controllerFor PriorityReservationUtil 0.75 8))
+              (Just 10)
+              0
+          , input 100 0
+          , Prices (PerLane 8 1)
+          )
+        , ( "absolute floor is applied around a controlled-lane update"
+          , controllers (Just (controller 0.5 8)) Nothing Nothing 10
+          , input 0 0
+          , Prices (PerLane 1 12)
+          )
+        , ( "absolute floor raises a lane without a controller"
+          , controllers Nothing (Just (controllerFor PriorityReservationUtil 0.25 8)) Nothing 7
+          , input 0 100
+          , Prices (PerLane 1 8)
+          )
+        ]
+  sequence_
+    [ let (actual, _) = updatePrices config controllerInput prices
+          upperBound = worstCaseNextPrices config prices
+       in do
+            assertTrue
+              (label <> ": standard actual " <> show actual.laneCoeffs.perStandard <> " <= bound " <> show upperBound.laneCoeffs.perStandard)
+              (actual.laneCoeffs.perStandard <= upperBound.laneCoeffs.perStandard)
+            assertTrue
+              (label <> ": priority actual " <> show actual.laneCoeffs.perPriority <> " <= bound " <> show upperBound.laneCoeffs.perPriority)
+              (actual.laneCoeffs.perPriority <= upperBound.laneCoeffs.perPriority)
+    | (label, config, controllerInput, prices) <- endpointCases <> floorCases
     ]
 
 {- | The windowless priority signal must read this update's own block

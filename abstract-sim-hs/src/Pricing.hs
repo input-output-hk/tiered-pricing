@@ -235,19 +235,28 @@ priceStepsAhead :: ControllerConfig -> Int -> Prices -> Prices
 priceStepsAhead controllers steps prices =
   iterate (worstCaseNextPrices controllers) prices !! max 0 steps
 
-{- | Upper bound on prices after the next controller update: one EIP-1559 step
-raises a lane's coefficient by at most @1 + 1\/maxChangeDenominator@, and the
-floors preserve that bound given already-floored inputs (the absolute floor is
-constant; the multiplier floor tracks the standard lane, which is itself
-bounded by its own step). Lanes without a controller never move.
+{- | Conservative upper bound on prices after the next controller update.
+The maximum upward adjustment is @(1 - target) / (target * denominator)@.
+Retaining @1 / denominator@ as a floor on that bound preserves the existing
+conservative headroom for targets at or above 0.5. Price floors are applied
+before and after the step, matching 'updatePrices'; lanes without a controller
+do not scale, but can still be raised by those floor applications.
 -}
 worstCaseNextPrices :: ControllerConfig -> Prices -> Prices
 worstCaseNextPrices controllers prices =
-  Prices (scale <$> controllers.laneControllers <*> prices.laneCoeffs)
+  applyPriceFloors controllers pricesAfterStep
  where
+  currentPrices = applyPriceFloors controllers prices
+  pricesAfterStep =
+    Prices (scale <$> controllers.laneControllers <*> currentPrices.laneCoeffs)
   scale Nothing coeff = coeff
   scale (Just controller) coeff =
-    coeff * (1 + 1 / fromIntegral (max 1 controller.controllerMaxChangeDenominator))
+    coeff * (1 + max legacyAdjustment maximumUpwardAdjustment)
+   where
+    target = max 0.000_001 controller.controllerTargetUtilisation
+    denominator = fromIntegral (max 1 controller.controllerMaxChangeDenominator)
+    legacyAdjustment = 1 / denominator
+    maximumUpwardAdjustment = ((1 - target) / target) / denominator
 
 applyPriceFloors :: ControllerConfig -> Prices -> Prices
 applyPriceFloors controllers =

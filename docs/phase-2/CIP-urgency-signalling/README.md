@@ -17,9 +17,11 @@ License: CC-BY-4.0
 
 We propose a solution with two pathways a transaction can submit to a node with: urgent and standard. Only urgent transactions can enter Ranking Blocks, while both urgent and standard transactions can enter Endorser Blocks. Since Ranking Blocks will be produced more frequently than Endorser Blocks, and are included on-chain immediately, this offers users who submit urgent transactions a route to quicker inclusion.
 
-The urgency rule is enforced by the ledger: Ranking Blocks may only contain transactions paying the urgent quote, so producers cannot sell fast-lane access below the posted price. In simulation the mechanism preserves about one-sixth more urgent transaction value under severe congestion than today's flat fee, where retained value means the share of a transaction's value that survives its wait for inclusion. At every other load tested the urgent lane matches or beats that baseline, and under a launch-day surge the mechanism retains more value overall. The cost falls on standard transactions at light load, which wait longer while Endorser Blocks fill, reducing overall retained value there by less than half of one percent. Exact figures, confidence intervals, and a thousand-seed replication are given in the Rationale.
+The urgency rule is enforced by the ledger: Ranking Blocks may only contain transactions paying the urgent quote, so producers cannot sell fast-lane access below the posted price. In simulation the mechanism preserves more urgent transaction value under severe congestion than today's flat fee, where retained value means the share of a transaction's value that survives its wait for inclusion. At every other load tested the urgent lane matches or beats that baseline, and under a launch-day surge the mechanism retains more value overall. The cost falls on standard transactions at light load, which wait longer while Endorser Blocks fill, very slightly reducing overall retained value there. Exact figures, confidence intervals, and a thousand-seed replication are given in the Rationale.
 
 ## Motivation: why is this CIP necessary?
+
+A mechanism that allows users to tell block producers that they'd benefit from faster inclusion has been identified as valuable to the community.
 
 With the advent of linear-Leios, a new block type (Endorser Block) is introduced. This block type, while only active at volumes beyond what current block capacity supports, has a different (slightly slower) latency profile when compared to Ranking Blocks. Due to this, latency variability also increases. To offset this, it'd be helpful to be able to signal urgency, to allow nodes to better allocate block-space to serve users' intents.
 
@@ -62,11 +64,11 @@ flowchart LR
     class MP,Q,UV,EV policy;
 ```
 
-This CIP introduces a transaction-level urgency signal with two lanes: standard and urgent. Urgent transactions pay a different, dynamic fee quote and are eligible for inclusion in both Ranking Blocks and Endorser Blocks. Standard transactions are eligible only for Endorser Blocks. The ledger enforces that Ranking Blocks contain only urgent-paying transactions. The dynamic fee is controlled by the EIP-1559 algorithm.
+This CIP introduces a transaction-level urgency signal with two lanes: standard and urgent. Both lanes are dynamically priced, each with its own fee quote controlled by its own EIP-1559 controller. Urgent transactions are eligible for inclusion in both Ranking Blocks and Endorser Blocks; standard transactions are eligible only for Endorser Blocks. The ledger enforces that Ranking Blocks contain only urgent-paying transactions.
 
-We specify that Ranking Blocks can only contain urgent transactions to prevent bribery of block producers. If bribery is allowed, a block producer has the incentive to accept a bribe over a legitimate urgent transaction, because it means they'll get to keep the entire bribe. If, instead, they chose to include a legitimate urgent transaction, the excess fees would go to the treasury. As such, preventing that incentive is necessary.
+We specify that Ranking Blocks can only contain urgent transactions in order to curb the incentive for block producers to accept bribes. Without this restriction, a block producer has the incentive to accept a bribe over a legitimate urgent transaction, because it means they'll get to keep the entire bribe. If, instead, they chose to include a legitimate urgent transaction, the excess fees would go to the treasury. As such, curbing that incentive is necessary.
 
-Additionally, in order to solve a problem that arises under low-ish load circumstances (RB fill somewhere between the fill target, 0.5 in the default case, and the RB max fill), we specify a modification: we prevent EB announcement unless the announced EB is larger than a given percentage of the RB's capacity. This modification is to defend against the case where, under the load scenario described above, some standard transactions are mixed in with urgent transactions in a steady flow. Without the modification, an EB is announced at every possible occasion, meaning there are frequent EB certificates included in RBs. This results in a self-sabotaging outcome, where standard transactions have to wait longer because they're not allowed in a non-full RB, and urgent transactions have to wait longer for the same reason, because RBs frequently contain certificates, excluding urgent transactions. The modification restores urgent transactions to parity with the flat-fee baseline at this load; in exchange, standard transactions queue until an EB is worth its certificate, a small additional wait we accept.
+Additionally, in order to solve a problem that arises under low-ish load circumstances (RB fill somewhere between the fill target, 0.5 in the default case, and the RB max fill), we specify a modification: we prevent a non-empty EB from being announced unless its payload reaches the threshold described below or at least K RBs have been produced since the previous EB announcement. This modification is to defend against the case where, under the load scenario described above, some standard transactions are mixed in with urgent transactions in a steady flow. Without the modification, an EB is announced at every possible occasion, meaning there are frequent EB certificates included in RBs. This results in a self-sabotaging outcome, where standard transactions have to wait longer because they're not allowed in a non-full RB, and urgent transactions have to wait longer for the same reason, because RBs frequently contain certificates, excluding urgent transactions. The modification restores urgent transactions to parity with the flat-fee baseline at this load; in exchange, standard transactions queue until an EB is worth its certificate, a small additional wait we accept.
 
 <details>
 <summary>Show glossary of terms</summary>
@@ -158,15 +160,15 @@ The parameter values, their validated envelopes, and the loads at which each was
 
 #### Controller updates and signals
 
-Both controllers update once per slot in which a block is produced. An update moves the lane's pricing coefficient by
+Both controllers update independently once per slot in which a block is produced. Each controller applies the following rule using its lane's utilisation signal, target utilisation, and max-change denominator:
 
 ```
-coeff' = coeff × max(0, 1 + (utilisation - target) / (target × D))
+coeff' = max(1.0, coeff × max(0, 1 + (utilisation - target) / (target × D)))
 ```
 
-with the measured utilisation clamped to [0, 1] before the update. At the recommended target of 0.5 and D = 16, every step is bounded to ±6.25%.
+Utilisation is clamped to [0, 1] before the update. The outer `max` applies the absolute coefficient floor. The urgent and standard utilisation signals are defined separately below. At the recommended target of 0.5 and D = 16, every step is bounded to ±6.25%.
 
-Two of the four block production kinds carry a controller sample: transaction-carrying Ranking Blocks and certified Endorser Blocks. A certificate-carrying RB is payload-free by construction, and an EB announcement carries no sample; an EB's payload enters the signals exactly once, at certification.
+There are four block production kinds: transaction-carrying Ranking Blocks, certificate-carrying Ranking Blocks, Endorser Block announcements, and certified Endorser Blocks. Two of the four carry a controller sample: transaction-carrying Ranking Blocks and certified Endorser Blocks. A certificate-carrying RB is payload-free by construction, and an EB announcement carries no sample; an EB's payload enters the signals exactly once, at certification.
 
 **Urgent signal (reservation utilisation, 5-sample window).** Each sample measures the urgent lane's usage in the sampled block against the reservation capacity: the reserved bytes (the full RB byte cap in this construction) and the RB ex-unit cap; the reservation caps bytes, never ex-units. A certified EB's sample is divided by the same reservation capacity, not by the EB's own capacity: the sample asks how many Ranking Blocks' worth of urgent traffic the EB carried, not how full the EB was. The window utilisation is the sum of urgent usage over the last five samples (each capped at the reservation capacity) divided by the sum of the reservation capacities, computed separately in bytes and ex-units, taking whichever ratio is larger.
 
@@ -176,13 +178,13 @@ The specification touches a few different areas:
 
 ### Mempool
 
-We are [proving](https://github.com/IntersectMBO/formal-ledger-specifications/compare/master...polina/commutativity) that causally independent transactions can be re-ordered, with the exception of governance actions. This means that no significant changes are required to the mempool, although we do need to adjust the validation performed when a transaction with the urgent flag enters the mempool. This is because we need to ensure that the transaction is valid both at the end of the entire mempool, _and_ at the end of the urgent queue. This comes with a (slightly less than) doubling of the phase-1 validation check costs for urgent transactions. Since phase-1 check costs are very low, we consider this to be an acceptable trade-off.
+The mempool queues transactions in arrival order, but Ranking Blocks may carry only urgent transactions, so constructing an RB selects transactions out of that order. This is only safe if the reordering cannot change the outcome of the transactions involved. We are [proving](https://github.com/IntersectMBO/formal-ledger-specifications/compare/master...polina/commutativity) that causally independent transactions can be re-ordered, with the exception of governance actions, which makes the selection safe. Given this, no significant changes are required to the mempool, although we do need to adjust the validation performed when a transaction with the urgent flag enters the mempool. This is because we need to ensure that the transaction is valid both at the end of the entire mempool, _and_ at the end of the urgent queue. This comes with a (slightly less than) doubling of the phase-1 validation check costs for urgent transactions. Since phase-1 check costs are very low, we consider this to be an acceptable trade-off.
 
 TODO Polina
 
 #### Queue structure
 
-The queue structure remains as it does today, but with an additional component. It must contain a view of urgent transaction indices (the indices point at the main queue). This view is consulted when constructing an RB.
+Constructing an RB requires identifying the urgent transactions in the mempool without scanning the whole queue. The queue structure therefore remains as it does today, but with an additional component: a view of urgent transaction indices (the indices point at the main queue). RB construction consults this view.
 
 EB construction operates the same way block construction operates on Cardano today: we consult the canonical queue in a FIFO manner.
 
@@ -212,18 +214,55 @@ An admitted transaction whose max fee is overtaken anyway is evicted. Eviction m
 
 None of this is enforced by the ledger, since mempool state is not observable on-chain. The simulator now applies this rule consistently. An implementation regression test forces an inversion (standard coefficient 4, urgent coefficient 2) and checks wallet choice and fee-cap construction, admission, revalidation, producer headroom, RB and EB settlement, and rejection of underfunded settlement.
 
-We also ran a bounded behavioural experiment rather than treating that regression test as quantitative evidence. It pairs ten 2,000-slot launch-day seeds from the saved, pre-correction denominator-8 anchor with two corrected runs on the same seeds: independent controllers with the max-of-two fee-cap rule, and the alternative rule clamping the urgent coefficient to at least 1× the standard coefficient. The launch-day anchor was selected because three saved traced seeds exercise the quote inversion and an exact ten-seed pre-correction summary was available. Cells below are paired mean changes from the pre-correction run with two-sided 95% paired-t confidence intervals.
+##### Cross-lane inversion experiments
+
+The regression test above is not quantitative evidence, so three bounded experiments back the fee-cap rule. They assess, in order:
+
+1. whether the fee-cap correction, in either candidate form, shifts the welfare headlines;
+2. whether the correction changes anything at the recommended denominator-16 calibration;
+3. whether the fully assembled recommendation runs and introduces any outcome change.
+
+###### Experiment 1: denominator-8 correction comparison
+
+**Hypothesis.** Neither candidate fee-cap correction produces a statistically detectable shift in the headline welfare metrics relative to the saved pre-correction denominator-8 anchor.
+
+**Experiment description.** We pair ten 2,000-slot launch-day seeds from the saved, pre-correction denominator-8 anchor with two corrected runs on the same seeds:
+
+1. independent controllers with the max-of-two fee-cap rule,
+2. the alternative rule clamping the urgent coefficient to at least 1× the standard coefficient.
+
+The launch-day anchor was selected because three saved traced seeds exercise the quote inversion and an exact ten-seed pre-correction summary was available. Cells below are paired mean changes from the pre-correction run with two-sided 95% paired-t confidence intervals.
 
 | Corrected rule | Overall retained value (pp) | Priority retained value (pp) | Unit service rate (pp) | Mean latency (blocks) |
 |---|---:|---:|---:|---:|
 | max(standard, urgent), no floor | -0.234 [-1.225, +0.756] | +2.181 [-0.664, +5.025] | -0.016 [-0.930, +0.898] | +0.045 [-0.139, +0.229] |
 | urgent coefficient ≥ 1× standard | +0.552 [-1.205, +2.309] | +0.697 [-1.449, +2.844] | +1.219 [-1.106, +3.545] | -0.040 [-0.246, +0.166] |
 
-No corrected-versus-pre-correction headline interval excludes zero, so this smoke found no statistically detectable difference in the displayed metrics. It does not establish equivalence: in particular, the max-of-two priority-retention interval still permits an increase as large as 5.025 percentage points, and only three of the ten legacy seeds retain event traces that directly demonstrate inversion exposure. The 1× floor also changes submission behaviour relative to max-of-two/no-floor, reducing mean within-seed priority submissions by 15.67% [6.11%, 25.24%]. We therefore use max-of-two on the semantic ground that it resolves fee-cap validity while leaving the two controller paths independent, not because the smoke proves the alternatives welfare-equivalent. The [preserved per-seed scalars](./cross-lane-inversion-smoke.json) allow the table to be audited without the ignored sweep outputs.
+**Result.** No corrected-versus-pre-correction headline interval excludes zero. The 1× floor changes submission behaviour relative to max-of-two/no-floor, reducing mean within-seed priority submissions by 15.67% [6.11%, 25.24%]. The [preserved per-seed scalars](./cross-lane-inversion-smoke.json) allow the table to be audited without the ignored sweep outputs.
 
-Because denominator 16 is the recommended controller calibration, we also repeated the max-of-two/no-floor candidate there against its archived pre-correction launch-day baseline, again for seeds 0-9 and 2,000 slots. The effective configurations were byte-identical, and all 55 reported scalars in every seed were exactly unchanged: 0 differences among 550 paired scalar comparisons. This is exact observed agreement for this particular calibration and workload, but it is still not a general equivalence result. No D16 legacy event traces remain to show that those runs actually entered an inverted-quote state, and the exact legacy simulator revision was not recorded, so the denominator-8 traces above provide the direct exposure evidence. The check deliberately omits the K = 10 announcement age escape because it was absent from the archived baseline; adding it would confound the fee-cap comparison. The [D16 evidence record](./cross-lane-inversion-d16-baseline.json) preserves the nine decision-facing metrics per seed, the exact-equality result, and the input and output checksums.
+**Interpretation.** This smoke found no statistically detectable difference in the displayed metrics, but it does not establish equivalence: in particular, the max-of-two priority-retention interval still permits an increase as large as 5.025 percentage points, and only three of the ten legacy seeds retain event traces that directly demonstrate inversion exposure. We therefore use max-of-two on the semantic ground that it resolves fee-cap validity while leaving the two controller paths independent, not because the smoke proves the alternatives welfare-equivalent.
 
-We then ran the complete canonical D16/K10 configuration as a post-correction integration check under the same launch-day profile, seeds, and horizon. Its effective configuration differs from the corrected D16 reference only by `ebAgeEscapeRbIntervals: 10`. Again, every reported scalar in every seed was exactly unchanged: 0 differences among 550 comparisons against the corrected D16/no-K10 run and likewise against the pre-correction D16 run. This confirms that the assembled recommendation executes and introduces no observed outcome change in this scenario. Because the run was summary-only, it does not directly establish whether the K = 10 condition was internally evaluated; the trickle sweep remains the evidence for the escape when it binds. The [canonical integration evidence](./canonical-final-smoke.json) preserves its per-seed metrics, exact comparison result, and provenance hashes.
+###### Experiment 2: denominator-16 correction check
+
+**Hypothesis.** At the recommended denominator-16 calibration, applying the max-of-two/no-floor correction does not change the decision-facing metrics under the launch-day workload.
+
+**Experiment description.** We repeated the max-of-two/no-floor candidate against its archived pre-correction launch-day baseline for seeds 0-9 and 2,000 slots. The archived baseline was generated before the K = 10 announcement age escape first appeared in the repository. The later corrected replay intentionally matched that no-K10 configuration, making the fee-cap semantics the only changed variable. The resulting comparison is isolated, but the historical baseline was not originally designed for it.
+
+**Result.** The effective configurations were byte-identical, and all 55 reported scalars in every seed were exactly unchanged: 0 differences among 550 paired scalar comparisons. The [D16 evidence record](./cross-lane-inversion-d16-baseline.json) preserves the nine decision-facing metrics per seed, the exact-equality result, and the input and output checksums.
+
+**Interpretation.** This is exact observed agreement for this particular calibration and workload, but it is not a general equivalence result. No D16 legacy event traces remain to show that those runs actually entered an inverted-quote state, and the exact legacy simulator revision was not recorded, so the denominator-8 traces above provide the direct exposure evidence.
+
+###### Experiment 3: canonical integration check
+
+**Hypothesis.** The complete canonical D16/K10 configuration executes successfully and introduces no outcome change under the same launch-day profile.
+
+**Experiment description.** We ran the complete canonical D16/K10 configuration as a post-correction integration check under the same launch-day profile, seeds, and horizon. Its effective configuration differs from the corrected D16 reference only by `ebAgeEscapeRbIntervals: 10`.
+
+**Result.** Every reported scalar in every seed was exactly unchanged: 0 differences among 550 comparisons against the corrected D16/no-K10 run and likewise against the pre-correction D16 run. The [canonical integration evidence](./canonical-final-smoke.json) preserves its per-seed metrics, exact comparison result, and provenance hashes.
+
+**Interpretation.** This confirms that the assembled recommendation executes and introduces no observed outcome change in this scenario. Because the run was summary-only, it does not directly establish whether the K = 10 condition was internally evaluated; the trickle sweep remains the evidence for the escape when it binds.
+
+###### Reproduction
 
 All three experiments are reproducible without retaining event traces:
 
@@ -255,12 +294,6 @@ extra phase-1 validation.
 POLINA TODO: describe why governance actions are excluded from the general reordering result
 and what policy applies to them.
 
-#### Tipping
-
-In times of congestion, the ability to separate transactions by urgency becomes impossible. In this case, users can use [nested transactions](https://github.com/cardano-foundation/CIPs/pull/862) to offer the block producer a tip in order to buy into RB space.
-
-POLINA TODO: explain how this should be done
-
 ### Ledger
 
 Since we want to enforce the rule that only transactions paying a sufficient fee to enter the urgent lane may be admitted to Ranking Blocks, we must make [ledger changes](https://github.com/IntersectMBO/formal-ledger-specifications/compare/master...polina/dynamic).
@@ -281,9 +314,9 @@ POLINA TODO
 
 Block producers need to be cognisant of fee change over time, with respect to dynamic fees. Consider the case:
 
-* A transaction is submitted to the dynamically priced urgent lane during a time of congestion, with more urgent transactions than Ranking Block space. The transaction's posted fee covers the necessary fee _at that time_ but no more.
-* A Ranking Block is produced, but the submitted transaction misses it due to the congestion.
-* The price increases, and the submitted transaction thus becomes stale, wasting mempool space during the time it was queued.
+1. A transaction is submitted to the dynamically priced urgent lane during a time of congestion, with more urgent transactions than Ranking Block space. The transaction's posted fee covers the necessary fee _at that time_ but no more.
+2. A Ranking Block is produced, but the submitted transaction misses it due to the congestion.
+3. The price increases, and the submitted transaction thus becomes stale, wasting mempool space during the time it was queued.
 
 The producer-side rule follows from this: a prudent producer selects only transactions whose max fee covers the quote one price update ahead, since one update can fire between selection and the certification check, and an EB filled this way cannot fail fee validation when certified. The admission-side counterpart of this rule is described under Revalidation and stale fees.
 
@@ -342,7 +375,7 @@ The starvation and its repair are visible directly in the simulation's demand-fa
 
 ![Demand fate and retained value at the same trickle with the age escape at K = 10: all standard units are included and most standard value is retained](images/trickle-0p1-thr-k10-seed-2.png)
 
-The threshold expression tracks the fee controller's headroom, but never falls below half the RB byte cap. Both halves of the rule were validated in a parameter stress test (ten seeds, three load profiles, target utilisation and max-change denominator swept around their defaults; see the experiment report). The intuition: a low target utilisation deliberately runs Ranking Blocks emptier, so the urgent lane needs more of them to move the same traffic, and certificates must be correspondingly rarer - the threshold rises with headroom. But a certificate's cost does not shrink when the controller runs blocks hotter, so the threshold must not follow shrinking headroom downward - hence the floor, below which certificates stop paying for the block space they consume.
+The threshold expression tracks the fee controller's headroom, but never falls below half the RB byte cap. Both halves of the rule were validated in a parameter stress test (ten seeds, four load profiles, target utilisation and max-change denominator swept around their defaults; see the experiment report). The intuition: a low target utilisation deliberately runs Ranking Blocks emptier, so the urgent lane needs more of them to move the same traffic, and certificates must be correspondingly rarer - the threshold rises with headroom. But a certificate's cost does not shrink when the controller runs blocks hotter, so the threshold must not follow shrinking headroom downward - hence the floor, below which certificates stop paying for the block space they consume.
 
 The same stress test bounds the controller parameters themselves. Inside the envelope (target utilisation 0.5-0.75, max-change denominator 8-16) no swept load shows a statistically detectable regression against the flat-fee baseline. At target 0.5 the advantage holds at every load; at target 0.75 it holds at every load except EB-saturating traffic, where it narrows to parity - the same worst case the design itself accepts at low load. Outside the envelope the mechanism inverts: at target utilisation 0.25 it retains less value than a flat fee under launch-day load. The threshold expression and the controller parameters are therefore specified as updatable protocol parameters, with the swept envelope recorded alongside them; retuning outside it should be treated as a mechanism change requiring re-analysis, not a routine parameter update. The parameters, their recommended defaults, and their validated envelopes:
 
@@ -442,6 +475,14 @@ The discarded tiered mechanism involved n tiers. In some designs, we looked at n
 * A security-adjacent concern: the more tiers, the more precisely a transaction's urgency, and thus potentially its purpose, is revealed, increasing the surface for front-running
 
 The two-lane mechanism specified here is a first increment, not a ceiling: if evidence emerges that finer-grained tiers retain meaningfully more value, a successor CIP can extend it.
+
+### Optional extensions
+
+#### Tipping
+
+In times of congestion, the ability to separate transactions by urgency becomes impossible. In this case, users can use [nested transactions](https://github.com/cardano-foundation/CIPs/pull/862) to offer the block producer a tip in order to buy into RB space.
+
+POLINA TODO: explain how this should be done
 
 ## Path to Active
 

@@ -5,6 +5,9 @@ Category: Consensus
 Status: Proposed
 Authors:
   - Will Gould <will.gould@iohk.io>
+  - Polina Vinogradova <polina.vinogradova@iohk.io>
+  - Nicolas Henin <nicolas.henin@iohk.io>
+  - Giorgos Panagiotakos <giorgos.panagiotakos@iohk.io>
 Implementors: []
 Discussions: []
 Solution-To:

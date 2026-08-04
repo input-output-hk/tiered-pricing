@@ -12,7 +12,7 @@ module Design (
   defaultControllerConfig,
 ) where
 
-import Data.Aeson (FromJSON (..), withObject, (.:), (.:?))
+import Data.Aeson (FromJSON (..), withObject, (.!=), (.:), (.:?))
 import Json (Alt (..), taggedSum)
 import Types (Duration (..), PerLane (..))
 
@@ -23,6 +23,11 @@ data Design = Design
   , designFeeSemantics :: FeeSemantics
   , designPriorityPremiumScope :: PriorityPremiumScope
   , designControllers :: ControllerConfig
+  , designProducerHeadroom :: Bool
+  -- ^ When False, EB selection takes any transaction covering the current
+  -- quote, without the one-further-step producer headroom; announced EBs can
+  -- then fail fee validation at the certification check. True in every real
+  -- construction; False exists to measure that failure rate.
   }
   deriving stock (Eq, Show)
 
@@ -36,6 +41,7 @@ instance FromJSON Design where
         <*> obj .: "feeSemantics"
         <*> obj .: "priorityPremiumScope"
         <*> obj .: "controllers"
+        <*> obj .:? "producerHeadroom" .!= True
 
 data SelectionPolicy
   = Fifo
@@ -135,6 +141,7 @@ defaultDesign =
     , designFeeSemantics = Eip1559
     , designPriorityPremiumScope = PremiumEverywhere
     , designControllers = defaultControllerConfig
+    , designProducerHeadroom = True
     }
 
 data Eip1559Controller = Eip1559Controller

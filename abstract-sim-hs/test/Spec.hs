@@ -20,7 +20,7 @@ import LoadProfile (LoadProfile (..), loadLoadProfile)
 import Metrics.Accumulator (MetricsAcc (..), emptyMetricsAcc)
 import Metrics.Price (PriceOscillation (..), PriceStability (..), priceOscillationFrom, priceStabilityFrom)
 import Parser (parseDesign, parseSimConfig)
-import Pricing (ControllerInput (..), PriceUpdate (..), Prices (..), admissionRequiredFee, coversProducerHeadroom, feeStillValid, initialPrices, quotedFee, realisedFee, requiredMaxFee, retentionWindow, updatePrices)
+import Pricing (ControllerInput (..), PriceUpdate (..), Prices (..), admissionRequiredFee, coversProducerHeadroom, feeStillValid, initialPrices, quotedFee, realisedFee, requiredMaxFee, retentionWindow, updatePrices, worstCaseNextPrices)
 import Resource (Bytes (..), ExUnits (..), Resources (..))
 import Retry (noRetries)
 import Run (RandomnessMode (..), Run (..), runWithSeed, runWithSeedToFile)
@@ -44,6 +44,7 @@ main = do
   assertLiveConfigsParse
   assertLoadProfiles
   assertHeadroomInvariant
+  assertWorstCaseNextPrices
   assertPriorityControllerReadsCurrentProduction
   assertPriorityReservationWindowUsesRbEquivalentCapacity
   assertPriorityReservationWindowRetention
@@ -299,6 +300,23 @@ assertLiveConfigsParse = do
     ]
     (map (.variantConfig) canonicalHeadlines.sweepVariants)
   mapM_ (parseSimConfig . (.variantConfig)) canonicalHeadlines.sweepVariants
+  defaultThresholdAblation <- loadSweepSpec "config/sweeps/default-threshold-ablation.json"
+  assertTrue "default threshold ablation is summary-only" defaultThresholdAblation.sweepSummaryOnly
+  assertEqual "default threshold ablation uses 100 paired seeds" 100 defaultThresholdAblation.sweepSeeds
+  assertEqual "default threshold ablation uses 2,000 slots" 2_000 defaultThresholdAblation.sweepSlots
+  assertEqual
+    "default threshold ablation isolates exogenous randomness"
+    IndependentRandomness
+    defaultThresholdAblation.sweepRandomnessMode
+  assertEqual
+    "default threshold ablation changes only the threshold around D16/K10"
+    [ "config/variants/default-threshold/threshold-1.json"
+    , "config/variants/default-threshold/threshold-quarter-rb.json"
+    , "config/variants/trickle-aging/thr-k10.json"
+    , "config/variants/default-threshold/threshold-three-quarter-rb.json"
+    ]
+    (map (.variantConfig) defaultThresholdAblation.sweepVariants)
+  mapM_ (parseSimConfig . (.variantConfig)) defaultThresholdAblation.sweepVariants
   mechanisms <- loadSweepSpec "config/sweeps/mechanisms.json"
   assertEqual
     "mechanism sweep covers controls, phase-2 candidates, and windowed-priority companions"
@@ -413,6 +431,143 @@ assertHeadroomInvariant = do
     | scope <- scopesUnderTest
     , semantics <- semanticsUnderTest
     , lane <- [Standard, Priority]
+    ]
+
+assertWorstCaseNextPrices :: IO ()
+assertWorstCaseNextPrices = do
+  let controllerFor signal target denominator =
+        Eip1559Controller
+          { controllerTargetUtilisation = target
+          , controllerMaxChangeDenominator = denominator
+          , controllerInitialCoefficient = 1
+          , controllerSignal = signal
+          }
+      controller = controllerFor (CapacityWeightedWindow 1)
+      controllers standard priority multiplier floorCoeff =
+        ControllerConfig
+          { laneControllers = PerLane standard priority
+          , multiplierFloor = multiplier
+          , absoluteCoeffFloor = floorCoeff
+          }
+      input standardUsed priorityUsed =
+        ControllerInput
+          { recentBlocks = Seq.singleton block
+          , currentProduction = Seq.singleton block
+          }
+       where
+        capacity = Resources{resBytes = Bytes 100, resExUnits = ExUnits 100}
+        used n = Resources{resBytes = Bytes n, resExUnits = ExUnits n}
+        block =
+          RbPraos
+            []
+            BlockUsage
+              { usageCapacity = capacity
+              , usageUsed = used (standardUsed + priorityUsed)
+              , usageLanes = PerLane (used standardUsed) (used priorityUsed)
+              , usageSignalCapacity = capacity
+              }
+      noFloor =
+        ControllerConfig
+          { laneControllers =
+              PerLane
+                { perStandard = Just (controller 0.25 8)
+                , perPriority = Just (controller 0.75 8)
+                }
+          , multiplierFloor = Nothing
+          , absoluteCoeffFloor = 0
+          }
+      withMultiplierFloor =
+        noFloor
+          { multiplierFloor = Just 10
+          }
+      withFasterPriorityFloor =
+        withMultiplierFloor
+          { laneControllers =
+              PerLane
+                { perStandard = Just (controller 0.75 8)
+                , perPriority = Just (controller 0.25 8)
+                }
+          }
+      clamped target denominator =
+        noFloor
+          { laneControllers =
+              PerLane
+                { perStandard = Just (controller target denominator)
+                , perPriority = Nothing
+                }
+          }
+  assertEqual
+    "target below 0.5 uses the full upward bound while target above 0.5 preserves legacy headroom"
+    (Prices (PerLane 11 18))
+    (worstCaseNextPrices noFloor (Prices (PerLane 8 16)))
+  assertEqual
+    "worst-case bound propagates a faster standard lane through the multiplier floor"
+    (Prices (PerLane 11 110))
+    (worstCaseNextPrices withMultiplierFloor (Prices (PerLane 8 1)))
+  assertEqual
+    "worst-case bound applies the multiplier floor before scaling the priority lane"
+    (Prices (PerLane 9 110))
+    (worstCaseNextPrices withFasterPriorityFloor (Prices (PerLane 8 1)))
+  assertEqual
+    "worst-case bound uses the controller target and denominator clamps"
+    (worstCaseNextPrices (clamped 0.000_001 1) (Prices (PerLane 1 1)))
+    (worstCaseNextPrices (clamped 0 0) (Prices (PerLane 1 1)))
+  let endpointCases =
+        [ ( "capacity-window standard target " <> show target <> ", utilisation " <> show utilisation
+          , controllers (Just (controller target 8)) Nothing Nothing 0
+          , input utilisation 0
+          , Prices (PerLane 8 16)
+          )
+        | target <- [0.25, 0.5, 0.75]
+        , utilisation <- [0, 100]
+        ]
+          <> [ ( "per-block priority target " <> show target <> ", utilisation " <> show utilisation
+               , controllers Nothing (Just (controllerFor PriorityReservationUtil target 8)) Nothing 0
+               , input 0 utilisation
+               , Prices (PerLane 8 16)
+               )
+             | target <- [0.25, 0.75]
+             , utilisation <- [0, 100]
+             ]
+          <> [ ( "windowed priority target 0.5, utilisation " <> show utilisation
+               , controllers Nothing (Just (controllerFor (PriorityReservationWindow 1) 0.5 8)) Nothing 0
+               , input 0 utilisation
+               , Prices (PerLane 8 16)
+               )
+             | utilisation <- [0, 100]
+             ]
+      floorCases =
+        [ ( "multiplier floor couples the two updated lanes"
+          , controllers
+              (Just (controller 0.25 8))
+              (Just (controllerFor PriorityReservationUtil 0.75 8))
+              (Just 10)
+              0
+          , input 100 0
+          , Prices (PerLane 8 1)
+          )
+        , ( "absolute floor is applied around a controlled-lane update"
+          , controllers (Just (controller 0.5 8)) Nothing Nothing 10
+          , input 0 0
+          , Prices (PerLane 1 12)
+          )
+        , ( "absolute floor raises a lane without a controller"
+          , controllers Nothing (Just (controllerFor PriorityReservationUtil 0.25 8)) Nothing 7
+          , input 0 100
+          , Prices (PerLane 1 8)
+          )
+        ]
+  sequence_
+    [ let (actual, _) = updatePrices config controllerInput prices
+          upperBound = worstCaseNextPrices config prices
+       in do
+            assertTrue
+              (label <> ": standard actual " <> show actual.laneCoeffs.perStandard <> " <= bound " <> show upperBound.laneCoeffs.perStandard)
+              (actual.laneCoeffs.perStandard <= upperBound.laneCoeffs.perStandard)
+            assertTrue
+              (label <> ": priority actual " <> show actual.laneCoeffs.perPriority <> " <= bound " <> show upperBound.laneCoeffs.perPriority)
+              (actual.laneCoeffs.perPriority <= upperBound.laneCoeffs.perPriority)
+    | (label, config, controllerInput, prices) <- endpointCases <> floorCases
     ]
 
 {- | The windowless priority signal must read this update's own block

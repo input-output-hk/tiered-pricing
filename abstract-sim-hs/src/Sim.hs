@@ -556,12 +556,14 @@ announceEndorserBlock slot rbSignalCapacity = do
       -- EB cannot fail validation. Ineligible txs are not evicted: they
       -- stay in the mempool (RB-eligible only as the reservation policy
       -- allows) and regain EB eligibility if prices fall.
-      ebEligible =
-        coversProducerHeadroom
-          design.designControllers
-          design.designPriorityPremiumScope
-          design.designFeeSemantics
-          prices
+      ebEligible tx =
+        not design.designProducerHeadroom
+          || coversProducerHeadroom
+            design.designControllers
+            design.designPriorityPremiumScope
+            design.designFeeSemantics
+            prices
+            tx
       (selectedTxs, _remainingTxs, _usage) =
         selectTxsByPolicy design.designSelection ebCapacity (Seq.filter ebEligible feeCheckedMempool.mempoolTxs)
       selectedTxList = toList selectedTxs

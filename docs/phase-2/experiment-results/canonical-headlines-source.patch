@@ -1,0 +1,1168 @@
+diff --git a/abstract-sim-hs/README.md b/abstract-sim-hs/README.md
+index 1d6f3fcf..077c167b 100644
+--- a/abstract-sim-hs/README.md
++++ b/abstract-sim-hs/README.md
+@@ -24,6 +24,37 @@ to both references across all 550 scalar comparisons (55 per seed); its compact
+ [evidence record](../docs/phase-2/experiment-results/canonical-final-smoke.json)
+ preserves the result outside the ignored sweep output.
+ 
++Refresh the five decision-facing headline comparisons with a fresh flat-fee
++control for every load:
++
++```console
++./scripts/run_canonical_headlines.sh
++```
++
++This runs the canonical and flat-fee variants over seeds 0–9 for 2,000 slots
++at low, mid, severe-congestion, EB-capacity-stress, and launch-day load (100
++summary-only simulations). It writes five sweep summaries with their effective
++configs and selected loads, plus
++`sweep-results/canonical-headlines/comparison.md` and `comparison.json`. The
++comparison records the Git revision and whether the simulator worktree was
++clean; for a dirty run it also preserves an applyable `source.patch` and its
++SHA-256. It records the built simulator's SHA-256 before starting the sweeps,
++so the executed artifact remains identifiable even if the worktree changes
++during a long run. The runner refuses to overwrite an existing result
++directory; use `--out DIR` for a subsequent refresh.
++
++This manifest opts into separate deterministic RNG streams for fresh-demand
++sampling, ranking-block production, and retry jitter. A paired seed therefore
++keeps the exogenous demand samples and block opportunities fixed even when the
++two mechanisms produce different retry flows. Other manifests default to the
++legacy shared stream, preserving the seeded sequence used by archived-reference
++smoke checks.
++
++This is a fresh estimate for the current canonical D16/K10 model, not a promise
++to reproduce the historical numbers exactly: four of the five published rows
++used the older D8 anchor, and splitting the RNG streams changes the seeded
++sequences. The generated report states these scope differences explicitly.
++
+ ## Experiment sweeps
+ 
+ Run the workload embedded in each variant config. The existing mechanism
+diff --git a/abstract-sim-hs/src/Run.hs b/abstract-sim-hs/src/Run.hs
+index 0a90dd5e..cf97273b 100644
+--- a/abstract-sim-hs/src/Run.hs
++++ b/abstract-sim-hs/src/Run.hs
+@@ -1,10 +1,13 @@
+ module Run (
+   Run (..),
++  RandomnessMode (..),
+   Seed,
+   defaultSimConfigPath,
+   run',
+   runWithSeed,
++  runWithSeedUsing,
+   runWithSeedToFile,
++  runWithSeedToFileUsing,
+ ) where
+ 
+ import Config (SimConfig (..))
+@@ -18,7 +21,7 @@ import Design (Design)
+ import Event (SimEvent)
+ import Metrics (Metrics, MetricsConfig (..), emptyMetricsAcc, finalizeMetrics, recordMetricsEvents)
+ import Parser (parseSimConfig)
+-import Sim (initSimSt, step, unSimM)
++import Sim (initSimSt, initSimStWithIndependentRngStreams, step, unSimM)
+ import System.IO (Handle, IOMode (WriteMode), withFile)
+ import System.Random (mkStdGen)
+ 
+@@ -32,20 +35,29 @@ defaultSimConfigPath :: FilePath
+ defaultSimConfigPath = "config/default-sim-config.json"
+ 
+ runWithSeedToFile :: SimConfig -> FilePath -> Seed -> Int -> IO Run
+-runWithSeedToFile config eventsPath seed slots =
++runWithSeedToFile = runWithSeedToFileUsing SharedRandomness
++
++runWithSeedToFileUsing :: RandomnessMode -> SimConfig -> FilePath -> Seed -> Int -> IO Run
++runWithSeedToFileUsing randomness config eventsPath seed slots =
+   withFile eventsPath WriteMode \handle ->
+-    runWithSeedAndSink config (writeTraceEvents handle) 0 seed slots
++    runWithSeedAndSink randomness config (writeTraceEvents handle) 0 seed slots
+ 
+ -- | Run a simulation without serialising its event stream. Metrics are still
+ -- folded from exactly the same per-slot events as a traced run; only the
+ -- event sink differs.
+ runWithSeed :: SimConfig -> Seed -> Int -> IO Run
+-runWithSeed config =
+-  runWithSeedAndSink config (\() _events -> pure ()) ()
++runWithSeed = runWithSeedUsing SharedRandomness
++
++runWithSeedUsing :: RandomnessMode -> SimConfig -> Seed -> Int -> IO Run
++runWithSeedUsing randomness config =
++  runWithSeedAndSink randomness config (\() _events -> pure ()) ()
+ 
+-runWithSeedAndSink :: SimConfig -> (sinkState -> [SimEvent] -> IO sinkState) -> sinkState -> Seed -> Int -> IO Run
+-runWithSeedAndSink config sink initialSinkState seed slots = do
+-  let st = initSimSt config (mkStdGen (fromInteger seed))
++runWithSeedAndSink :: RandomnessMode -> SimConfig -> (sinkState -> [SimEvent] -> IO sinkState) -> sinkState -> Seed -> Int -> IO Run
++runWithSeedAndSink randomness config sink initialSinkState seed slots = do
++  let rootRng = mkStdGen (fromInteger seed)
++      st = case randomness of
++        SharedRandomness -> initSimSt config rootRng
++        IndependentRandomness -> initSimStWithIndependentRngStreams config rootRng
+   (metricsAcc, _sinkState, _st') <-
+     runSimulation slots emptyMetricsAcc initialSinkState st
+   pure
+@@ -99,3 +111,8 @@ data Run = Run
+   }
+ 
+ type Seed = Integer
++
++data RandomnessMode
++  = SharedRandomness
++  | IndependentRandomness
++  deriving stock (Eq, Show)
+diff --git a/abstract-sim-hs/src/Sim.hs b/abstract-sim-hs/src/Sim.hs
+index 60d84499..b7c7cece 100644
+--- a/abstract-sim-hs/src/Sim.hs
++++ b/abstract-sim-hs/src/Sim.hs
+@@ -5,6 +5,7 @@ module Sim (
+   SimM (..),
+   SimSt (..),
+   initSimSt,
++  initSimStWithIndependentRngStreams,
+   step,
+ ) where
+ 
+@@ -32,7 +33,7 @@ import Mempool (Mempool (..), admitToMempool, emptyMempool, removeFromMempool, s
+ import Pricing (ControllerInput (..), Prices (..), admissionRequiredFee, coversProducerHeadroom, feeStillValid, initialPrices, realisedFee, requiredMaxFee, retentionWindow, updatePrices)
+ import Resource (Bytes (..), ExUnits (..), Resources (..))
+ import Retry (PendingRetry (..), RetryPolicy (..), capture)
+-import System.Random (StdGen, uniformR)
++import System.Random (StdGen, split, uniformR)
+ import Transaction (EvictionReason (..), Provenance (..), RejectReason (..), Tx (..), TxBody (..), TxId (..), TxSample (..))
+ import Types (Duration (Duration), Lovelace (..), SlotNo (SlotNo), addDuration, diffSlots)
+ 
+@@ -43,7 +44,13 @@ data SimSt = SimSt
+   , _simPendingEb :: Maybe PendingEb
+   , _simTxs :: Map TxId Tx
+   , _simSlot :: SlotNo
+-  , _simRng :: StdGen
++  , _simIndependentRngStreams :: Bool
++  , _simFreshDemandRng :: StdGen
++  -- ^ exogenous arrival counts, actor selection, and transaction samples
++  , _simBlockProductionRng :: StdGen
++  -- ^ exogenous ranking-block opportunities
++  , _simRetryRng :: StdGen
++  -- ^ mechanism-dependent retry jitter
+   , _simPrices :: Prices
+   , _simRecentBlocks :: Seq BlockSummary
+   , _simTxCounter :: Int
+@@ -80,15 +87,30 @@ instance Applicative AdmissionCheck where
+   AdmissionAccepted _ <*> AdmissionRejected reasons = AdmissionRejected reasons
+ 
+ initSimSt :: SimConfig -> StdGen -> SimSt
+-initSimSt conf rng =
+-  SimSt
++initSimSt = initSimStWithRngStreams False
++
++initSimStWithIndependentRngStreams :: SimConfig -> StdGen -> SimSt
++initSimStWithIndependentRngStreams = initSimStWithRngStreams True
++
++initSimStWithRngStreams :: Bool -> SimConfig -> StdGen -> SimSt
++initSimStWithRngStreams independentRngStreams conf rng =
++  let (freshDemandRng, blockProductionRng, retryRng)
++        | independentRngStreams =
++            let (fresh, remaining) = split rng
++                (blocks, retries) = split remaining
++             in (fresh, blocks, retries)
++        | otherwise = (rng, rng, rng)
++   in SimSt
+     { _simMempool = emptyMempool
+     , _simActors = conf.simConfigActors
+     , _simEbs = mempty
+     , _simPendingEb = Nothing
+     , _simTxs = mempty
+     , _simSlot = SlotNo 0
+-    , _simRng = rng
++    , _simIndependentRngStreams = independentRngStreams
++    , _simFreshDemandRng = freshDemandRng
++    , _simBlockProductionRng = blockProductionRng
++    , _simRetryRng = retryRng
+     , _simPrices = initialPrices conf.simConfigDesign
+     , _simRecentBlocks = mempty
+     , _simTxCounter = 0
+@@ -260,7 +282,7 @@ captureRetries events = do
+  where
+   enqueue pending = do
+     let Duration jitterWindow = pending.retryJitter
+-    jitter <- draw (uniformR (0, jitterWindow))
++    jitter <- drawRetry (uniformR (0, jitterWindow))
+     let wakeAt =
+           addDuration (Duration jitter) (addDuration pending.retryDelay pending.failedAt)
+     modify' \st ->
+@@ -268,7 +290,7 @@ captureRetries events = do
+ 
+ pickActor :: NonEmpty Actor -> SimM Actor
+ pickActor actors = do
+-  i <- draw (uniformR (0, NE.length actors - 1))
++  i <- drawFreshDemand (uniformR (0, NE.length actors - 1))
+   pure (actors NE.!! i)
+ 
+ {- | Run the controllers for this slot's block production. Windowed signals
+@@ -333,7 +355,7 @@ sampleArrivalCount rate
+   | otherwise = go 0 0
+  where
+   go count elapsed = do
+-    u <- draw (uniformR (0, 1))
++    u <- drawFreshDemand (uniformR (0, 1))
+     let elapsed' = elapsed - log (max 1e-300 u)
+     if elapsed' >= rate
+       then pure count
+@@ -342,21 +364,52 @@ sampleArrivalCount rate
+ drawTxSample :: SimM TxSample
+ drawTxSample =
+   TxSample
+-    <$> draw (uniformR (0, 1))
+-    <*> draw (uniformR (0, 1))
+-    <*> draw (uniformR (0, 1))
+-    <*> draw (uniformR (0, 1))
+-    <*> draw (uniformR (0, 1))
+-
+-draw :: (StdGen -> (a, StdGen)) -> SimM a
+-draw f = do
+-  g <- gets _simRng
++    <$> drawFreshDemand (uniformR (0, 1))
++    <*> drawFreshDemand (uniformR (0, 1))
++    <*> drawFreshDemand (uniformR (0, 1))
++    <*> drawFreshDemand (uniformR (0, 1))
++    <*> drawFreshDemand (uniformR (0, 1))
++
++drawFreshDemand :: (StdGen -> (a, StdGen)) -> SimM a
++drawFreshDemand f = do
++  g <- gets _simFreshDemandRng
+   let (x, g') = f g
+-  modify' \s -> s{_simRng = g'}
++  modify' \s ->
++    if s._simIndependentRngStreams
++      then s{_simFreshDemandRng = g'}
++      else setAllRngStreams g' s
+   pure x
+ 
++drawBlockProduction :: (StdGen -> (a, StdGen)) -> SimM a
++drawBlockProduction f = do
++  g <- gets _simBlockProductionRng
++  let (x, g') = f g
++  modify' \s ->
++    if s._simIndependentRngStreams
++      then s{_simBlockProductionRng = g'}
++      else setAllRngStreams g' s
++  pure x
++
++drawRetry :: (StdGen -> (a, StdGen)) -> SimM a
++drawRetry f = do
++  g <- gets _simRetryRng
++  let (x, g') = f g
++  modify' \s ->
++    if s._simIndependentRngStreams
++      then s{_simRetryRng = g'}
++      else setAllRngStreams g' s
++  pure x
++
++setAllRngStreams :: StdGen -> SimSt -> SimSt
++setAllRngStreams rng st =
++  st
++    { _simFreshDemandRng = rng
++    , _simBlockProductionRng = rng
++    , _simRetryRng = rng
++    }
++
+ roll :: Double -> SimM Bool
+-roll p = (< p) <$> draw (uniformR (0, 1))
++roll p = (< p) <$> drawBlockProduction (uniformR (0, 1))
+ 
+ rollRbProduction :: SimM Bool
+ rollRbProduction = do
+diff --git a/abstract-sim-hs/src/Sweep.hs b/abstract-sim-hs/src/Sweep.hs
+index 46b84fd2..52469fc1 100644
+--- a/abstract-sim-hs/src/Sweep.hs
++++ b/abstract-sim-hs/src/Sweep.hs
+@@ -21,7 +21,10 @@ self-contained for reproduction: the resolved spec is embedded in
+ an optional @--load-profile@ file is copied as
+ @selected-load-profile.json@. Preset and file overrides are written into
+ those effective variant configs. @f@ and @D@ are not sweep axes: they stay
+-fixed at the justified values in each config.
++fixed at the justified values in each config. Randomness defaults to the
++historical shared stream. A manifest may opt into @"independent-streams"@ to
++keep fresh demand and block opportunities fixed when mechanisms create
++different retry-jitter draw counts.
+ -}
+ module Sweep (
+   LoadOverride (..),
+@@ -63,7 +66,7 @@ import Metrics (
+   weightedMean,
+  )
+ import Parser (parseSimConfig)
+-import Run (Run (..), Seed, runWithSeed, runWithSeedToFile)
++import Run (RandomnessMode (..), Run (..), Seed, runWithSeedToFileUsing, runWithSeedUsing)
+ import System.Directory (copyFile, createDirectoryIfMissing)
+ import System.FilePath ((</>))
+ import Text.Printf (printf)
+@@ -85,6 +88,10 @@ data SweepSpec = SweepSpec
+   -- select either form.
+   , sweepSummaryOnly :: Bool
+   -- ^ Fold all events into metrics without writing per-run JSONL traces.
++  , sweepRandomnessMode :: RandomnessMode
++  -- ^ Shared preserves the historical seeded sequence; independent streams
++  -- keep fresh demand and block opportunities fixed across mechanism-specific
++  -- retry flows.
+   , sweepVariants :: [SweepVariant]
+   }
+   deriving (Eq, Show)
+@@ -158,6 +165,7 @@ data ParseSweepSpec = ParseSweepSpec
+   , parseSweepOut :: Maybe FilePath
+   , parseSweepLoad :: Maybe String
+   , parseSweepSummaryOnly :: Maybe Bool
++  , parseSweepRandomness :: Maybe String
+   , parseSweepVariants :: [ParseSweepVariant]
+   }
+ 
+@@ -171,6 +179,7 @@ instance FromJSON ParseSweepSpec where
+         <*> obj .:? "out"
+         <*> obj .:? "load"
+         <*> obj .:? "summaryOnly"
++        <*> obj .:? "randomness"
+         <*> obj .: "variants"
+ 
+ data ParseSweepVariant = ParseSweepVariant
+@@ -199,6 +208,7 @@ loadSweepSpec path = do
+ fromParseSweepSpec :: ParseSweepSpec -> Either String SweepSpec
+ fromParseSweepSpec parsed = do
+   variants <- traverse toVariant parsed.parseSweepVariants
++  randomnessMode <- parseRandomnessMode parsed.parseSweepRandomness
+   validate variants
+   pure
+     SweepSpec
+@@ -208,6 +218,7 @@ fromParseSweepSpec parsed = do
+       , sweepOutDir = fromMaybe "sweep-results" parsed.parseSweepOut
+       , sweepLoadOverride = LoadPreset <$> parsed.parseSweepLoad
+       , sweepSummaryOnly = fromMaybe False parsed.parseSweepSummaryOnly
++      , sweepRandomnessMode = randomnessMode
+       , sweepVariants = variants
+       }
+  where
+@@ -219,6 +230,15 @@ fromParseSweepSpec parsed = do
+             { variantName = variant.parseVariantName
+             , variantConfig = variant.parseVariantConfig
+             }
++  parseRandomnessMode = \case
++    Nothing -> Right SharedRandomness
++    Just "shared" -> Right SharedRandomness
++    Just "independent-streams" -> Right IndependentRandomness
++    Just value ->
++      Left
++        ( "randomness must be \"shared\" or \"independent-streams\", got "
++            <> show value
++        )
+   validate variants
+     | null variants = Left "at least one variant is required"
+     | names /= nub names = Left "variant names must be unique"
+@@ -290,8 +310,8 @@ runPoint spec name config seed = do
+   let tracePath = spec.sweepOutDir </> (name <> "-seed" <> show seed <> ".events.jsonl")
+   result <-
+     if spec.sweepSummaryOnly
+-      then runWithSeed config seed spec.sweepSlots
+-      else runWithSeedToFile config tracePath seed spec.sweepSlots
++      then runWithSeedUsing spec.sweepRandomnessMode config seed spec.sweepSlots
++      else runWithSeedToFileUsing spec.sweepRandomnessMode config tracePath seed spec.sweepSlots
+   let metrics = result._runResult
+       scalars = headlineScalars metrics
+   forceScalars scalars
+@@ -548,11 +568,15 @@ summaryJson spec resolvedLoad variants =
+     , "slots" .= spec.sweepSlots
+     , "seeds" .= spec.sweepSeeds
+     , "summaryOnly" .= spec.sweepSummaryOnly
++    , "randomness" .= randomnessModeJson spec.sweepRandomnessMode
+     , "loadOverride" .= fmap loadOverrideJson resolvedLoad
+     , "loadProfile" .= (resolvedLoad >>= selectedProfileJson)
+     , "variants" .= fmap variantJson variants
+     ]
+  where
++  randomnessModeJson = \case
++    SharedRandomness -> "shared" :: String
++    IndependentRandomness -> "independent-streams"
+   loadOverrideJson = \case
+     ResolvedPreset name ->
+       object
+diff --git a/abstract-sim-hs/test/Spec.hs b/abstract-sim-hs/test/Spec.hs
+index e1105ea1..b541b9e3 100644
+--- a/abstract-sim-hs/test/Spec.hs
++++ b/abstract-sim-hs/test/Spec.hs
+@@ -5,12 +5,16 @@ import Block (BlockSummary (..), BlockUsage (..), EbId (..), InclusionPoint (..)
+ import Config (SimConfig (..))
+ import Control.Exception (ErrorCall, evaluate, finally, try)
+ import Control.Monad (unless)
++import Control.Monad.Reader (runReaderT)
++import Control.Monad.State.Strict (runState)
+ import Curve (curvesDefault)
+ import Data.Aeson (eitherDecode)
+ import Data.ByteString.Lazy qualified as BL
++import Data.Foldable (toList)
+ import Data.List.NonEmpty (NonEmpty (..))
+ import Data.Sequence qualified as Seq
+ import Design (ControllerConfig (..), ControllerSignal (..), Design (..), Eip1559Controller (..), FeeSemantics (..), LaneStructure (..), PriorityPremiumScope (..), ReservationPolicy (..), SelectionPolicy (..), defaultDesign)
++import Event (SimEvent (..))
+ import Load (BurstEffect (..), arrivalRateAt, severeCongestionLoad, tryBurstEffectAt)
+ import LoadProfile (LoadProfile (..), loadLoadProfile)
+ import Metrics.Accumulator (MetricsAcc (..), emptyMetricsAcc)
+@@ -19,11 +23,13 @@ import Parser (parseDesign, parseSimConfig)
+ import Pricing (ControllerInput (..), PriceUpdate (..), Prices (..), admissionRequiredFee, coversProducerHeadroom, feeStillValid, initialPrices, quotedFee, realisedFee, requiredMaxFee, retentionWindow, updatePrices)
+ import Resource (Bytes (..), ExUnits (..), Resources (..))
+ import Retry (noRetries)
+-import Run (Run (..), runWithSeed, runWithSeedToFile)
++import Run (RandomnessMode (..), Run (..), runWithSeed, runWithSeedToFile)
++import Sim (SimSt (..), initSimStWithIndependentRngStreams, step, unSimM)
+ import Sweep (LoadOverride (..), SweepOverrides (..), SweepSpec (..), SweepVariant (..), applyOverrides, loadSweepSpec, parseSweepArgs)
+ import System.Directory (getTemporaryDirectory, removeFile)
+ import System.Exit (exitFailure)
+ import System.IO (hClose, openTempFile)
++import System.Random (mkStdGen)
+ import Transaction (Demand (..), Lane (..), Provenance (..), Script (..), Tx (..), TxBody (..), hash)
+ import Types (Duration (..), Lovelace (..), PerLane (..), SlotNo (..), Urgency (..), atLane)
+ 
+@@ -34,6 +40,7 @@ main = do
+   assertSweepFixture
+   assertSweepLoadProfileOverride
+   assertTracedAndUntracedMetricsEqual
++  assertRetryRandomnessDoesNotPerturbExogenousInputs
+   assertLiveConfigsParse
+   assertLoadProfiles
+   assertHeadroomInvariant
+@@ -127,6 +134,7 @@ expectedFixtureSweep =
+     , sweepOutDir = "/tmp/fixture-sweep"
+     , sweepLoadOverride = Just (LoadPreset "low")
+     , sweepSummaryOnly = False
++    , sweepRandomnessMode = SharedRandomness
+     , sweepVariants =
+         [ SweepVariant "a" "test/fixtures/sim-config.json"
+         , SweepVariant "b" "test/fixtures/sim-config.json"
+@@ -176,6 +184,73 @@ assertTracedAndUntracedMetricsEqual = do
+     traced._runResult
+     untraced._runResult
+ 
++-- | Retry failures are mechanism-dependent, while fresh demand and block
++-- opportunities are experiment inputs. Advancing retry jitter must therefore
++-- leave both exogenous streams unchanged for a matched seed. The one-byte
++-- mempool makes every fresh transaction fail admission, so the right-hand run
++-- genuinely consumes retry jitter while the no-retry run does not.
++assertRetryRandomnessDoesNotPerturbExogenousInputs :: IO ()
++assertRetryRandomnessDoesNotPerturbExogenousInputs = do
++  retryConfig <- parseSimConfig "config/variants/flat-fee.json"
++  let constrained = retryConfig{simConfigMempoolBytesCap = 1}
++      noRetryConfig = constrained{simConfigRetryPolicy = noRetries}
++      initial = initSimStWithIndependentRngStreams constrained (mkStdGen 431)
++  retryDiverged <- compareSteps (30 :: Int) noRetryConfig constrained initial initial False
++  assertTrue "retry fixture consumes mechanism-dependent jitter" retryDiverged
++ where
++  compareSteps 0 _ _ _ _ retryDiverged = pure retryDiverged
++  compareSteps remaining leftConfig rightConfig leftState rightState retryDiverged = do
++    let (leftEvents, leftState') = runOne leftConfig leftState
++        (rightEvents, rightState') = runOne rightConfig rightState
++    assertEqual
++      "retry policy does not change sampled fresh demand"
++      (freshDemandProjection leftEvents)
++      (freshDemandProjection rightEvents)
++    assertEqual
++      "retry policy does not change ranking-block opportunities"
++      (rankingBlockSlots leftEvents)
++      (rankingBlockSlots rightEvents)
++    assertEqual
++      "retry policy does not advance the fresh-demand RNG"
++      (show leftState'._simFreshDemandRng)
++      (show rightState'._simFreshDemandRng)
++    assertEqual
++      "retry policy does not advance the block-production RNG"
++      (show leftState'._simBlockProductionRng)
++      (show rightState'._simBlockProductionRng)
++    compareSteps
++      (remaining - 1)
++      leftConfig
++      rightConfig
++      leftState'
++      rightState'
++      (retryDiverged || show leftState'._simRetryRng /= show rightState'._simRetryRng)
++
++  runOne config state =
++    runState (runReaderT (unSimM step) config) state
++
++  freshDemandProjection events =
++    [ ( slot
++      , actorId
++      , tx.txDemand.demandValue
++      , tx.txDemand.demandUrgency
++      , tx.txDemand.demandSize
++      , tx.txDemand.demandScript._scriptSize
++      , tx.txDemand.demandScript._scriptExUnits
++      )
++    | TxSubmitted slot actorId tx <- toList events
++    , tx.txProvenance == FreshDemand
++    ]
++
++  rankingBlockSlots events =
++    [ slot
++    | BlockProduced slot summary <- toList events
++    , case summary of
++        RbPraos{} -> True
++        RbCertifying{} -> True
++        _ -> False
++    ]
++
+ {- The live configs are not generally content-asserted — only that they still
+ parse, that the mechanism set remains complete, and that selecting a workload
+ at run time has not mutated their embedded historical load.
+@@ -198,6 +273,10 @@ assertLiveConfigsParse = do
+   mapM_ (parseSimConfig . (.variantConfig)) inversionD16Smoke.sweepVariants
+   canonicalFinalSmoke <- loadSweepSpec "config/sweeps/canonical-final-smoke.json"
+   assertTrue "canonical final smoke is summary-only" canonicalFinalSmoke.sweepSummaryOnly
++  assertEqual
++    "archived-reference smoke preserves the shared RNG sequence"
++    SharedRandomness
++    canonicalFinalSmoke.sweepRandomnessMode
+   assertEqual "canonical final smoke uses ten paired seeds" 10 canonicalFinalSmoke.sweepSeeds
+   assertEqual "canonical final smoke has one integrated candidate" 1 (length canonicalFinalSmoke.sweepVariants)
+   assertEqual
+@@ -205,6 +284,21 @@ assertLiveConfigsParse = do
+     ["config/variants/trickle-aging/thr-k10.json"]
+     (map (.variantConfig) canonicalFinalSmoke.sweepVariants)
+   mapM_ (parseSimConfig . (.variantConfig)) canonicalFinalSmoke.sweepVariants
++  canonicalHeadlines <- loadSweepSpec "config/sweeps/canonical-headlines.json"
++  assertTrue "canonical headline refresh is summary-only" canonicalHeadlines.sweepSummaryOnly
++  assertEqual "canonical headline refresh uses ten paired seeds" 10 canonicalHeadlines.sweepSeeds
++  assertEqual "canonical headline refresh uses 2,000 slots" 2_000 canonicalHeadlines.sweepSlots
++  assertEqual
++    "canonical headline refresh isolates exogenous randomness"
++    IndependentRandomness
++    canonicalHeadlines.sweepRandomnessMode
++  assertEqual
++    "canonical headline refresh pairs a fresh control with the recommendation"
++    [ "config/variants/flat-fee.json"
++    , "config/variants/trickle-aging/thr-k10.json"
++    ]
++    (map (.variantConfig) canonicalHeadlines.sweepVariants)
++  mapM_ (parseSimConfig . (.variantConfig)) canonicalHeadlines.sweepVariants
+   mechanisms <- loadSweepSpec "config/sweeps/mechanisms.json"
+   assertEqual
+     "mechanism sweep covers controls, phase-2 candidates, and windowed-priority companions"
+diff --git a/abstract-sim-hs/config/sweeps/canonical-headlines.json b/abstract-sim-hs/config/sweeps/canonical-headlines.json
+new file mode 100644
+index 00000000..b827000f
+--- /dev/null
++++ b/abstract-sim-hs/config/sweeps/canonical-headlines.json
+@@ -0,0 +1,18 @@
++{
++  "description": "Fresh paired refresh of the CIP headline comparisons: flat fee versus the canonical D16/K10 urgency-signalling mechanism. The runner applies each of the five headline load profiles to this manifest, using ten seeds and 2,000 slots without retaining event traces.",
++  "seeds": 10,
++  "slots": 2000,
++  "summaryOnly": true,
++  "randomness": "independent-streams",
++  "out": "sweep-results/canonical-headlines",
++  "variants": [
++    {
++      "name": "flat-fee",
++      "config": "config/variants/flat-fee.json"
++    },
++    {
++      "name": "canonical-final-d16-k10",
++      "config": "config/variants/trickle-aging/thr-k10.json"
++    }
++  ]
++}
+diff --git a/abstract-sim-hs/scripts/compare_canonical_headlines.py b/abstract-sim-hs/scripts/compare_canonical_headlines.py
+new file mode 100755
+index 00000000..6e7c7df3
+--- /dev/null
++++ b/abstract-sim-hs/scripts/compare_canonical_headlines.py
+@@ -0,0 +1,464 @@
++#!/usr/bin/env python3
++"""Build the paired canonical refresh report for the five CIP headline loads."""
++
++from __future__ import annotations
++
++import argparse
++import hashlib
++import json
++import subprocess
++from pathlib import Path
++from typing import Any
++
++from compare_cross_lane_inversion_smoke import (
++    interval_text,
++    load_summary,
++    numeric_scalar,
++    paired_interval,
++    variant_runs,
++)
++
++
++FLAT_VARIANT = "flat-fee"
++CANONICAL_VARIANT = "canonical-final-d16-k10"
++LOADS = (
++    ("low", "Low"),
++    ("mid-load", "Mid load"),
++    ("severe-congestion", "Severe congestion"),
++    ("eb-capacity-stress", "EB-capacity stress"),
++    ("launch-day", "Launch day"),
++)
++URGENT_LOADS = LOADS[:-1]
++PROJECT_DIR = Path(__file__).resolve().parent.parent
++
++
++def mean(values: list[float]) -> float:
++    if not values:
++        raise ValueError("cannot calculate a mean from no values")
++    return sum(values) / len(values)
++
++
++def source_provenance(patch_path: Path) -> dict[str, Any]:
++    try:
++        repo_root = Path(
++            subprocess.run(
++                ["git", "rev-parse", "--show-toplevel"],
++                cwd=PROJECT_DIR,
++                check=True,
++                capture_output=True,
++                text=True,
++            ).stdout.strip()
++        )
++        project_path = str(PROJECT_DIR.relative_to(repo_root))
++        revision = subprocess.run(
++            ["git", "rev-parse", "HEAD"],
++            cwd=repo_root,
++            check=True,
++            capture_output=True,
++            text=True,
++        ).stdout.strip()
++        status = subprocess.run(
++            [
++                "git",
++                "status",
++                "--porcelain",
++                "--untracked-files=all",
++                "--",
++                project_path,
++            ],
++            cwd=repo_root,
++            check=True,
++            capture_output=True,
++            text=True,
++        ).stdout
++    except (OSError, subprocess.CalledProcessError):
++        return {
++            "git_revision": None,
++            "abstract_sim_worktree_clean": None,
++            "dirty_patch": None,
++        }
++
++    provenance: dict[str, Any] = {
++        "git_revision": revision,
++        "abstract_sim_worktree_clean": not bool(status.strip()),
++        "dirty_patch": None,
++    }
++    if provenance["abstract_sim_worktree_clean"]:
++        return provenance
++
++    try:
++        tracked_patch = subprocess.run(
++            ["git", "diff", "--binary", "HEAD", "--", project_path],
++            cwd=repo_root,
++            check=True,
++            capture_output=True,
++        ).stdout
++        untracked_output = subprocess.run(
++            [
++                "git",
++                "ls-files",
++                "--others",
++                "--exclude-standard",
++                "-z",
++                "--",
++                project_path,
++            ],
++            cwd=repo_root,
++            check=True,
++            capture_output=True,
++        ).stdout
++        patch_parts = [tracked_patch]
++        for raw_path in sorted(path for path in untracked_output.split(b"\0") if path):
++            path = raw_path.decode("utf-8", errors="surrogateescape")
++            result = subprocess.run(
++                ["git", "diff", "--no-index", "--binary", "/dev/null", path],
++                cwd=repo_root,
++                capture_output=True,
++            )
++            if result.returncode not in (0, 1):
++                raise OSError(result.stderr.decode("utf-8", errors="replace"))
++            patch_parts.append(result.stdout)
++        patch = b"".join(patch_parts)
++        patch_path.write_bytes(patch)
++    except (OSError, subprocess.CalledProcessError):
++        return provenance
++
++    provenance["dirty_patch"] = {
++        "path": patch_path.name,
++        "sha256": hashlib.sha256(patch).hexdigest(),
++        "bytes": len(patch),
++    }
++    return provenance
++
++
++def load_pair(root: Path, directory: str) -> tuple[Path, dict[int, dict[str, float]], dict[int, dict[str, float]], int]:
++    path = root / directory / "summary.json"
++    summary = load_summary(path)
++    expected_configs = {
++        FLAT_VARIANT: "config/variants/flat-fee.json",
++        CANONICAL_VARIANT: "config/variants/trickle-aging/thr-k10.json",
++    }
++    actual_configs = {
++        variant.get("name"): variant.get("config") for variant in summary["variants"]
++    }
++    if actual_configs != expected_configs:
++        raise ValueError(
++            f"unexpected variants/configs in {path}: "
++            f"expected={expected_configs!r}, actual={actual_configs!r}"
++        )
++    load_override = summary.get("loadOverride")
++    if not isinstance(load_override, dict):
++        raise ValueError(f"missing load override in {path}")
++    if directory == "low":
++        expected_load = {"type": "preset", "name": "low"}
++    else:
++        expected_load = {
++            "type": "profile",
++            "name": directory,
++            "source": f"config/loads/{directory}.json",
++        }
++    for key, expected in expected_load.items():
++        if load_override.get(key) != expected:
++            raise ValueError(
++                f"unexpected {key} in load override in {path}: "
++                f"expected={expected!r}, actual={load_override.get(key)!r}"
++            )
++    flat = variant_runs(summary, FLAT_VARIANT, path)
++    canonical = variant_runs(summary, CANONICAL_VARIANT, path)
++    if set(flat) != set(canonical):
++        raise ValueError(
++            f"paired comparison requires identical seed sets in {path}: "
++            f"flat={sorted(flat)}, canonical={sorted(canonical)}"
++        )
++    if len(flat) < 2:
++        raise ValueError(f"paired comparison requires at least two seeds in {path}")
++    declared_seeds = summary.get("seeds")
++    if declared_seeds != len(flat):
++        raise ValueError(
++            f"declared seed count does not match runs in {path}: "
++            f"declared={declared_seeds!r}, runs={len(flat)}"
++        )
++    slots = summary.get("slots")
++    if isinstance(slots, bool) or not isinstance(slots, int) or slots < 1:
++        raise ValueError(f"missing/invalid slot count in {path}")
++    if summary.get("summaryOnly") is not True:
++        raise ValueError(f"headline refresh was expected to be summary-only: {path}")
++    if summary.get("randomness") != "independent-streams":
++        raise ValueError(f"headline refresh requires independent RNG streams: {path}")
++    return path, flat, canonical, slots
++
++
++def scalar(run: dict[str, float], key: str, variant: str, seed: int) -> float:
++    return numeric_scalar(run, key, variant, seed)
++
++
++def retained_row(
++    directory: str,
++    label: str,
++    flat: dict[int, dict[str, float]],
++    canonical: dict[int, dict[str, float]],
++) -> dict[str, Any]:
++    seeds = sorted(flat)
++    flat_values: list[float] = []
++    canonical_values: list[float] = []
++
++    if directory == "launch-day":
++        for seed in seeds:
++            flat_run = flat[seed]
++            offered = sum(
++                scalar(flat_run, key, FLAT_VARIANT, seed)
++                for key in (
++                    "value.retainedLovelace",
++                    "value.lostLovelace",
++                    "value.unresolvedLovelace",
++                )
++            )
++            if offered <= 0:
++                raise ValueError(f"non-positive launch-day offered value for seed {seed}")
++            flat_values.append(
++                100.0
++                * scalar(flat_run, "value.retainedLovelace", FLAT_VARIANT, seed)
++                / offered
++            )
++            canonical_values.append(
++                100.0
++                * scalar(
++                    canonical[seed],
++                    "value.retainedLovelace",
++                    CANONICAL_VARIANT,
++                    seed,
++                )
++                / offered
++            )
++        metric = "Overall retained value (historical flat-fee denominator)"
++    else:
++        key = "value.urgent.retainedRatio"
++        for seed in seeds:
++            flat_values.append(100.0 * scalar(flat[seed], key, FLAT_VARIANT, seed))
++            canonical_values.append(
++                100.0 * scalar(canonical[seed], key, CANONICAL_VARIANT, seed)
++            )
++        metric = "Urgent retained value"
++
++    differences = [candidate - control for candidate, control in zip(canonical_values, flat_values)]
++    estimate, low, high = paired_interval(differences)
++    return {
++        "load": directory,
++        "label": label,
++        "metric": metric,
++        "unit": "percentage points",
++        "flat_mean_percent": mean(flat_values),
++        "canonical_mean_percent": mean(canonical_values),
++        "canonical_minus_flat": {
++            "mean": estimate,
++            "ci95_low": low,
++            "ci95_high": high,
++        },
++        "canonical_wins": sum(candidate > control for candidate, control in zip(canonical_values, flat_values)),
++        "paired_seeds": len(seeds),
++    }
++
++
++def latency_row(
++    directory: str,
++    label: str,
++    flat: dict[int, dict[str, float]],
++    canonical: dict[int, dict[str, float]],
++) -> dict[str, Any]:
++    key = "latency.urgent.meanBlocks"
++    seeds = sorted(flat)
++    flat_values = [scalar(flat[seed], key, FLAT_VARIANT, seed) for seed in seeds]
++    canonical_values = [
++        scalar(canonical[seed], key, CANONICAL_VARIANT, seed) for seed in seeds
++    ]
++    differences = [candidate - control for candidate, control in zip(canonical_values, flat_values)]
++    estimate, low, high = paired_interval(differences)
++    return {
++        "load": directory,
++        "label": label,
++        "metric": "Urgent mean latency",
++        "unit": "blocks",
++        "flat_mean": mean(flat_values),
++        "canonical_mean": mean(canonical_values),
++        "canonical_minus_flat": {
++            "mean": estimate,
++            "ci95_low": low,
++            "ci95_high": high,
++        },
++        "canonical_wins": sum(candidate < control for candidate, control in zip(canonical_values, flat_values)),
++        "paired_seeds": len(seeds),
++    }
++
++
++def build_report(root: Path, simulator_sha256: str) -> dict[str, Any]:
++    pairs: dict[str, tuple[dict[int, dict[str, float]], dict[int, dict[str, float]]]] = {}
++    sources: dict[str, str] = {}
++    slot_counts: set[int] = set()
++    seed_sets: set[tuple[int, ...]] = set()
++
++    for directory, _label in LOADS:
++        path, flat, canonical, slots = load_pair(root, directory)
++        pairs[directory] = (flat, canonical)
++        sources[directory] = str(path)
++        slot_counts.add(slots)
++        seed_sets.add(tuple(sorted(flat)))
++
++    if len(slot_counts) != 1:
++        raise ValueError(f"loads use different slot counts: {sorted(slot_counts)}")
++    if len(seed_sets) != 1:
++        raise ValueError("loads use different seed sets")
++
++    retention = [
++        retained_row(directory, label, *pairs[directory])
++        for directory, label in LOADS
++    ]
++    latency = [
++        latency_row(directory, label, *pairs[directory])
++        for directory, label in URGENT_LOADS
++    ]
++    seeds = list(next(iter(seed_sets)))
++    provenance = source_provenance(root / "source.patch")
++    provenance["simulator_sha256"] = simulator_sha256
++    return {
++        "method": "paired mean difference with two-sided 95% Student-t confidence interval",
++        "variants": {"control": FLAT_VARIANT, "candidate": CANONICAL_VARIANT},
++        "seeds": seeds,
++        "slots": next(iter(slot_counts)),
++        "sources": sources,
++        "provenance": provenance,
++        "retained_value": retention,
++        "urgent_latency": latency,
++        "launch_day_denominator": (
++            "For each paired seed, both retained-value numerators are divided by "
++            "the flat-fee run's retained + lost + unresolved value, matching the "
++            "historical headline calculation. This accounts for demand that reached "
++            "a first submission; the summary format does not record fresh samples "
++            "that declined before submission, so this is a flat-fee proxy rather "
++            "than a literal ledger of all offered demand."
++        ),
++        "refresh_scope": (
++            "This is a replacement estimate for the current canonical D16/K10 model, "
++            "not an exact reproduction of the published numbers. The published low, "
++            "mid, EB-stress, and launch-day rows used the D8 anchor; this refresh also "
++            "uses newly separated RNG streams and the committed 320/400 tx-per-slot "
++            "EB-stress profile."
++        ),
++        "producer_policy": (
++            "The simulator eagerly announces an EB when eligible payload is non-empty "
++            "and either its threshold or K=10 eligibility condition is met; producer "
++            "withholding is not modelled."
++        ),
++    }
++
++
++def markdown(report: dict[str, Any]) -> str:
++    seeds = report["seeds"]
++    provenance = report["provenance"]
++    revision = provenance["git_revision"] or "unknown"
++    clean = provenance["abstract_sim_worktree_clean"]
++    source_state = "clean" if clean is True else "dirty" if clean is False else "unknown"
++    source_line = f"Source revision: `{revision}`; `abstract-sim-hs` worktree: {source_state}."
++    dirty_patch = provenance.get("dirty_patch")
++    if dirty_patch:
++        source_line += (
++            f" Dirty source: `{dirty_patch['path']}` "
++            f"(SHA-256 `{dirty_patch['sha256']}`)."
++        )
++    source_line += f" Simulator SHA-256: `{provenance['simulator_sha256']}`."
++    lines = [
++        "# Canonical CIP headline refresh",
++        "",
++        (
++            f"Flat fee versus canonical D16/K10; paired seeds "
++            f"{seeds[0]}–{seeds[-1]} (n={len(seeds)}), {report['slots']:,} slots each. "
++            "Intervals are two-sided 95% paired-t confidence intervals."
++        ),
++        "",
++        source_line,
++        "",
++        "## Retained value",
++        "",
++        "| Load | Metric | Flat | Canonical | Canonical − flat (95% CI) | Seeds better |",
++        "|---|---|---:|---:|---:|---:|",
++    ]
++    for row in report["retained_value"]:
++        lines.append(
++            "| {label} | {metric} | {flat:.2f}% | {canonical:.2f}% | {difference} pp | {wins}/{seeds} |".format(
++                label=row["label"],
++                metric=row["metric"],
++                flat=row["flat_mean_percent"],
++                canonical=row["canonical_mean_percent"],
++                difference=interval_text(row["canonical_minus_flat"], 3),
++                wins=row["canonical_wins"],
++                seeds=row["paired_seeds"],
++            )
++        )
++
++    lines.extend(
++        [
++            "",
++            "## Urgent mean latency",
++            "",
++            "| Load | Flat | Canonical | Canonical − flat (95% CI) | Seeds faster |",
++            "|---|---:|---:|---:|---:|",
++        ]
++    )
++    for row in report["urgent_latency"]:
++        lines.append(
++            "| {label} | {flat:.3f} | {canonical:.3f} | {difference} blocks | {wins}/{seeds} |".format(
++                label=row["label"],
++                flat=row["flat_mean"],
++                canonical=row["canonical_mean"],
++                difference=interval_text(row["canonical_minus_flat"], 3),
++                wins=row["canonical_wins"],
++                seeds=row["paired_seeds"],
++            )
++        )
++
++    lines.extend(
++        [
++            "",
++            "## Interpretation notes",
++            "",
++            f"- {report['launch_day_denominator']}",
++            f"- {report['refresh_scope']}",
++            "- Independent seeded RNG streams keep fresh-demand samples and ranking-block opportunities common across the paired mechanisms; retry jitter remains mechanism-dependent.",
++            f"- {report['producer_policy']}",
++            "- Positive retained-value differences favour the canonical mechanism; negative latency differences are faster.",
++            "",
++        ]
++    )
++    return "\n".join(lines)
++
++
++def parse_args() -> argparse.Namespace:
++    parser = argparse.ArgumentParser(description=__doc__)
++    parser.add_argument("--root", required=True, help="directory containing the five load subdirectories")
++    parser.add_argument("--simulator-sha256", required=True, help="SHA-256 of the executable used for every run")
++    parser.add_argument("--markdown-output", required=True, help="path for the Markdown report")
++    parser.add_argument("--json-output", required=True, help="path for the machine-readable report")
++    return parser.parse_args()
++
++
++def main() -> int:
++    args = parse_args()
++    try:
++        simulator_sha256 = args.simulator_sha256.lower()
++        if len(simulator_sha256) != 64 or any(
++            character not in "0123456789abcdef" for character in simulator_sha256
++        ):
++            raise ValueError("--simulator-sha256 must be 64 hexadecimal characters")
++        report = build_report(Path(args.root), simulator_sha256)
++        markdown_text = markdown(report)
++        markdown_path = Path(args.markdown_output)
++        json_path = Path(args.json_output)
++        markdown_path.write_text(markdown_text, encoding="utf-8")
++        json_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
++    except (OSError, ValueError) as error:
++        raise SystemExit(f"error: {error}") from error
++    print(markdown_text, end="")
++    return 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/abstract-sim-hs/scripts/run_canonical_headlines.sh b/abstract-sim-hs/scripts/run_canonical_headlines.sh
+new file mode 100755
+index 00000000..02a0863e
+--- /dev/null
++++ b/abstract-sim-hs/scripts/run_canonical_headlines.sh
+@@ -0,0 +1,122 @@
++#!/usr/bin/env bash
++
++set -euo pipefail
++
++script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
++project_dir="$(cd -- "$script_dir/.." && pwd)"
++manifest="config/sweeps/canonical-headlines.json"
++out_dir="sweep-results/canonical-headlines"
++seeds=10
++slots=2000
++
++usage() {
++  cat <<'EOF'
++usage: ./scripts/run_canonical_headlines.sh [--out DIR] [--seeds N] [--slots N]
++
++Refresh the CIP's five headline experiments by pairing flat fee with the
++canonical D16/K10 mechanism. By default this runs seeds 0-9 for 2,000 slots
++at low, mid, severe-congestion, EB-capacity-stress, and launch-day load
++(100 summary-only simulations), then writes comparison.md and comparison.json.
++
++The script refuses to overwrite an existing output directory. --seeds and
++--slots are intended for quick harness checks; omit them for the headline run.
++EOF
++}
++
++positive_integer() {
++  [[ "$1" =~ ^[1-9][0-9]*$ ]]
++}
++
++while [[ $# -gt 0 ]]; do
++  case "$1" in
++    -h|--help)
++      usage
++      exit 0
++      ;;
++    --out)
++      [[ $# -ge 2 ]] || { usage >&2; exit 2; }
++      [[ -n "$2" ]] || { echo "error: --out must not be empty" >&2; exit 2; }
++      out_dir="$2"
++      shift 2
++      ;;
++    --seeds)
++      [[ $# -ge 2 ]] || { usage >&2; exit 2; }
++      positive_integer "$2" || { echo "error: --seeds needs a positive integer" >&2; exit 2; }
++      seeds="$2"
++      shift 2
++      ;;
++    --slots)
++      [[ $# -ge 2 ]] || { usage >&2; exit 2; }
++      positive_integer "$2" || { echo "error: --slots needs a positive integer" >&2; exit 2; }
++      slots="$2"
++      shift 2
++      ;;
++    *)
++      usage >&2
++      exit 2
++      ;;
++  esac
++done
++
++if (( seeds < 2 )); then
++  echo "error: --seeds must be at least 2 for the paired confidence intervals" >&2
++  exit 2
++fi
++
++cd "$project_dir"
++
++if [[ -e "$out_dir" ]]; then
++  echo "error: refusing to overwrite existing output directory: $out_dir" >&2
++  echo "choose another directory with --out DIR" >&2
++  exit 2
++fi
++
++stack build
++simulator="$(stack path --local-install-root)/bin/abstract-sim-hs-exe"
++if [[ ! -x "$simulator" ]]; then
++  echo "error: built simulator executable not found: $simulator" >&2
++  exit 2
++fi
++simulator_hash_line="$(sha256sum -- "$simulator")"
++simulator_sha256="${simulator_hash_line%% *}"
++
++out_parent="$(dirname -- "$out_dir")"
++mkdir -p "$out_parent"
++if ! mkdir -- "$out_dir"; then
++  echo "error: could not reserve output directory: $out_dir" >&2
++  exit 2
++fi
++
++run_preset() {
++  local name="$1"
++  local preset="$2"
++  "$simulator" sweep "$manifest" \
++    --seeds "$seeds" \
++    --slots "$slots" \
++    --summary-only \
++    --load "$preset" \
++    --out "$out_dir/$name"
++}
++
++run_profile() {
++  local name="$1"
++  local profile="$2"
++  "$simulator" sweep "$manifest" \
++    --seeds "$seeds" \
++    --slots "$slots" \
++    --summary-only \
++    --load-profile "$profile" \
++    --out "$out_dir/$name"
++}
++
++run_preset low low
++run_profile mid-load config/loads/mid-load.json
++run_profile severe-congestion config/loads/severe-congestion.json
++run_profile eb-capacity-stress config/loads/eb-capacity-stress.json
++run_profile launch-day config/loads/launch-day.json
++
++python3 scripts/compare_canonical_headlines.py \
++  --root "$out_dir" \
++  --simulator-sha256 "$simulator_sha256" \
++  --markdown-output "$out_dir/comparison.md" \
++  --json-output "$out_dir/comparison.json"

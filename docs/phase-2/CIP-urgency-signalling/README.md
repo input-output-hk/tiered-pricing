@@ -398,11 +398,11 @@ only priority tier transactions first).
 
 We define an `SDPolicy` record containing four variables that are used in the following way :
 
-  (1) `diversityPolicy : TierNo ⇀ PolicyClause` - a set of tiers and their associated tier coefficients
-  (2) `totalSize : TierNo ⇀ ℕ` : the total size computed by adding up the size in bytes of all transactions in the list inside a block body, aggregated by tier
-  (3) `totalRefScriptSize` - the total size computed by adding up the size in bytes of all reference scripts and datums 
+  1. `diversityPolicy : TierNo ⇀ PolicyClause` - a set of tiers and their associated tier coefficients
+  1. `totalSize : TierNo ⇀ ℕ` : the total size computed by adding up the size in bytes of all transactions in the list inside a block body, aggregated by tier
+  1. `totalRefScriptSize` - the total size computed by adding up the size in bytes of all reference scripts and datums 
   referenced by all the transactions in the list inside a block body, aggregated by tier
-  (4) `totalExUnits : TierNo ⇀ ℕ` - the total amounts computed by adding up the size in bytes of all 
+  1. `totalExUnits : TierNo ⇀ ℕ` - the total amounts computed by adding up the size in bytes of all 
   execution units (memory and CPU, 
   separately) specified by all scripts in all the transactions in the list inside a block body, aggregated by tier
 
@@ -411,20 +411,20 @@ There is a new parameter `policyState : SDPolicy`  in the `UTxOState`.
 Let `adjusted_tier_coeff` be `priority` if it was in an RB with a transaction list, and `standard` 
 if it was in an EB. following are the key ledger rule changes having to do with processing the *fee payment* :
 
-  (1) updated min-fee constraint (enough to cover *targeted* tier) : `tier_coeff·minfee ≤ txFee`
-  (2) `txfee - minfee * adjusted_tier_coeff` is the amount of change sent to `reward_account` if it exists, 
+  1. updated min-fee constraint (enough to cover *targeted* tier) : `tier_coeff·minfee ≤ txFee`
+  1. `txfee - minfee * adjusted_tier_coeff` is the amount of change sent to `reward_account` if it exists, 
   and to the treasury if it does not
-  (3) exactly `minfee` is sent to the fee pot
-  (4) `minfee * (adjusted_tier_coeff - 1)` is sent to the treasury
+  1. exactly `minfee` is sent to the fee pot
+  1. `minfee * (adjusted_tier_coeff - 1)` is sent to the treasury
 
 The following have to do with correct tier specification `poilcyState`, and the change given :
 
-  (1) Tier coefficient in `poilcyState` associated with the transaction body-specified 
+  1. Tier coefficient in `poilcyState` associated with the transaction body-specified 
   `tier_no` is `≤ tier_coeff` in the `tx` body
-  (2) The tier number in the body is `≤ adjusted_tier_coeff` and such that it is 
+  1. The tier number in the body is `≤ adjusted_tier_coeff` and such that it is 
   `priority` if `tx` was in an RB with a transaction list, and `standard` if `tx` was in an EB
-  (3) `policyState` is updated to reflect the current aggregated values 2-4 to reflect `tx`
-  (4) the the change given (as calculated above) is sent to the specified account address
+  1. `policyState` is updated to reflect the current aggregated values 2-4 to reflect `tx`
+  1. the the change given (as calculated above) is sent to the specified account address
 
 #### Block validity
 
@@ -456,11 +456,11 @@ There is a new rule called `DIVUP` that updates the `SDPolicy` state. The same s
 updated by `LEDGERS` during block processing is passed to this rule as the input state. Given protocol parameters and 
 the block type and its environment, the update does the following :
 
-  (1) Checks that if the block containing the transaction list is an EB, at least one of 
+  1. Checks that if the block containing the transaction list is an EB, at least one of 
   `totalSize , totalRefScriptSize , totalExUnits` exceeds the per-block limits for an RB specified in the protocol parameters
-  (2) Resets `totalSize , totalRefScriptSize , totalExUnits` to be empty, so that the variables can be reused to 
+  1. Resets `totalSize , totalRefScriptSize , totalExUnits` to be empty, so that the variables can be reused to 
   track data in the next block
-  (3) Updates the `diversityPolicy : SDPolicy` to specify new coefficients associated with each tier. **Note that 
+  1. Updates the `diversityPolicy : SDPolicy` to specify new coefficients associated with each tier. **Note that 
   this calculation remains unspecified and should be the result of experimental data**. 
 
 

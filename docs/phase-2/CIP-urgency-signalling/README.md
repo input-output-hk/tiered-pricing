@@ -92,7 +92,7 @@ Additionally, in order to solve a problem that arises under low-ish load circums
 
 #### Pricing primitives
 
-**Pricing coefficient**: The value by which the base fee is multiplied (which results in the quote).
+**Pricing coefficient**: The value by which the base fee is multiplied (which results in the quote). Also called *tier coefficient*.
 
 **Quote**: The result of multiplying the pricing coefficient by the base fee; in effect, a snapshot of the dynamic fee for a given transaction.
 
@@ -178,9 +178,104 @@ The specification touches a few different areas:
 
 ### Mempool
 
-The mempool queues transactions in arrival order, but Ranking Blocks may carry only urgent transactions, so constructing an RB selects transactions out of that order. This is only safe if the reordering cannot change the outcome of the transactions involved. We are [proving](https://github.com/IntersectMBO/formal-ledger-specifications/compare/master...polina/commutativity) that causally independent transactions can be re-ordered, with the exception of governance actions, which makes the selection safe. Given this, no significant changes are required to the mempool, although we do need to adjust the validation performed when a transaction with the urgent flag enters the mempool. This is because we need to ensure that the transaction is valid both at the end of the entire mempool, _and_ at the end of the urgent queue. This comes with a (slightly less than) doubling of the phase-1 validation check costs for urgent transactions. Since phase-1 check costs are very low, we consider this to be an acceptable trade-off.
+Our priority signaling design includes changes to the consensus protocol, the Leios protocol specifically. 
+For this reason we have 
+[specified](https://github.com/IntersectMBO/ouroboros-consensus/compare/polina/mempool-spec?expand=1) in Agda both 
+the Praos (`Mempool.lagda.md`), Leios, and Leios with priority signaling mempools. 
+In all three specifications, the mempool imposes the same constraints on the block as enforced at the ledger level 
+by the corresponding consensus protocol,
+e.g. block size limits, the constraint that an RB has either transactions or an EB certificate and never both, etc. 
+The Praos specification is based on the current mempool design directly. 
 
-TODO Polina
+#### Praos and Leios Mempool Specifications 
+
+The Leios mempool (`MempoolLeios.lagda.md`) design features two distinct types of blocks (RB and EB), and 
+an extra stored ledger state `ebLedger`. This ledger state 
+variable is `Nothing` whenever *no EB* has been sent across the network for inclusion in a future RB, and is set to 
+the ledger state updated with `heldEB` when that EB arrives across the network. All transactions in the mempool 
+are applied to/validated against `ebLedger` (if non-`Nothing`), and the resulting updated ledger state is stored 
+in `updatedLedger`.
+
+For *non-epoch boundary blocks*, the ledger state can be updated in O(1) in some cases. Specifically, when an RB 
+arrives containing a certificate for the `heldEB` block, the `ebLedger` becomes the new ledger state at the tip
+with inly some minor additional block-level bookkeeping. For epoch boundary blocks, a full ledger state recomputation 
+for the incoming RB/EB must be performed. The function generating blocks from mempool content, `forgeBlock`, 
+returns a pair `(RB, Maybe EB)`. The `RB` is sent across the network to be added to nodes' chan tips, whereas 
+`EB` is sent across the network to be added to the nodes' mempools `heldEB` variable. 
+
+#### Priority Signaling Mempool Specifications
+
+The priority signaling mempool design, specified in `MempoolLeiosPricing.lagda.md`,
+features two distinct ledger states in place of `updatedLedger`: 
+
+  (1) `priorityUpdatedLedger`, corresponding to the application of all transactions in the `priorityTxs` queue 
+  (transactions specifying the priority tier) to `ebLedger` or `ledger`, depending on if a valid EB has arrived
+  (2) `standardUpdatedLedger`, corresponding to the application of all transactions in the `standardTxs` queue
+  (transactions specifying the standard tier) to `priorityUpdatedLedger`
+
+The mempool is able to request transactions of a specific tier from its peers. 
+It first requests the priority tier transactions, 
+and only when none are available, requests standard transactions. 
+
+#### Transaction Reordering for the Leios with Priority Signaling Mempool 
+
+The mempool designed to support urgency signaling in Leios requires priority transactions to be placed ahead 
+of standard ones, out of FIFO queue order. 
+That is, an incoming priority transaction enters the queue after all `priorityTxs` and in front of `standardTxs`.
+The mempool update cost for each priority transaction is proportional to the number of standard transactions 
+that need to be revalidated against the new `priorityUpdatedLedger`.
+
+To address this inefficiency, we have 
+[proved](https://github.com/IntersectMBO/formal-ledger-specifications/compare/polina/txcomm?expand=1) 
+a theorem stating that two lists containing the same transactions 
+produce the same *updated* ledger state 
+when applied to the same state and in the same environment.
+It has the following (also proved) corollary:
+
+::: {#cor-simple}
+Let `txs1` and `txs2` be lists of transactions, `tx : Tx`, `s : LedgerState`, 
+and `e : LEnv`. Given that `txs1 ++ txs2`, 
+`(tx :: txs1) ++ txs2`, and `tx :: txs2` are valid in `e, s`, then `(tx :: txs1) ++ txs2 == txs1 ++ (tx :: txs2)`
+:::
+
+Priority transactions that can be commuted to the front of the `standardTxs` queue (i.e. back of `priorityTxs` queue)
+are limited. We refer to transactions that can have priority status as `SimpleTx`, and this constraint is as
+follows :
+
+```
+record SimpleTx (t : Tx) : Type where
+  field
+    -- reason : certificates may overwrite each other
+    noCerts : t .Tx.body .TxBody.txCerts ≡ []
+    -- reason : withdrawals read exact reward balances, which subsequent writes may change
+    noWdrls : t .Tx.body .TxBody.txWithdrawals ˢ ≡ᵉ ∅
+    -- reason : governance proposals get recorded in an ordered list 
+    noGovProps : t .Tx.body .TxBody.txGovProposals ≡ []
+    -- reason : governance votes may be doing conflicting writes
+    noGovVotes : t .Tx.body .TxBody.txGovVotes ≡ []
+```
+
+There is also a constraint on all standard transactions that must be imposed for the commutativity property to hold :
+
+```
+record SpendOnly (t : Tx) : Type where
+  field
+    valid   : t .Tx.isValid ≡ true
+    noRefs  : t .Tx.body .TxBody.refInputs ≡ᵉ ∅
+    collSub : collIns t ⊆ ins t
+```
+
+The reason for the `SpendOnly` constraint is that all standard transaction must spend all the inputs 
+they read. Otherwise,
+a regular transaction may reference an input a freshly inserted priority transaction spends, and this will not be 
+observable using only the two validations (but it will cause validation failure when validating a block in 
+regular order). Neither of these constraints need to be enforced at the ledger level. 
+
+**Decision required** Transactions with `isValid` set to `false` should probably be admitted to the priority lane 
+without paying priority prices to ensure Phase-2 validation work is always paid for. 
+
+Note that while the queue structure in the 
+specification is made up of two lists, it can also be expressed via a view (as discussed next).
 
 #### Queue structure
 
@@ -189,14 +284,6 @@ Constructing an RB requires identifying the urgent transactions in the mempool w
 EB construction operates the same way block construction operates on Cardano today: we consult the canonical queue in a FIFO manner.
 
 Mempool structure remains node policy, so this is not enforced.
-
-#### Admission validation
-
-A proof of commutativity for transactions up to governance actions and dependencies is [in progress](https://github.com/IntersectMBO/formal-ledger-specifications/compare/master...polina/commutativity). The proof's current form reaches this via conservative restrictions (disjoint certificate credentials, disjoint withdrawals, no DRep certificates); these are proof-stage approximations of causal independence, not separate exclusions. In its final form, two transactions are causally linked if they share any ledger state (UTxOs, certificate credentials, withdrawal accounts, DRep state); causally independent transactions may be reordered freely, causally linked transactions retain their relative order, and governance actions are excluded entirely. All causal-link channels are syntactically visible in transaction bodies, so linkage is decidable at admission from the candidate transaction and the queue alone.
-
-The commutativity result means that we can cheaply validate incoming urgent transactions both at the end of the canonical mempool queue _and_ at the end of the urgent transaction view.
-
-As such, governance actions may not enter RBs, and ordering of causally linked transactions must be maintained.
 
 #### Revalidation and stale fees
 
@@ -280,35 +367,138 @@ The first command runs only the twenty corrected denominator-8 simulations; the 
 
 #### Dependencies and conflicts
 
-POLINA TODO: describe how dependent transactions are handled when one transaction is urgent
-and another is standard, especially UTxO dependencies and causally dependent chains.
+A priority transaction may be in conflict with transactions in the standard queue (even if it satisfies 
+the `SimpleTx` constraint).
+Conflict is detected whenever a transaction `tx` is Phase-1 validated both at the end of the priority 
+queue and the end of the standard queue, and one of those validations fails. Then, `tx` will not be 
+admitted to the mempool because doing so requires evicting one or more standard transactions from the 
+standard queue, which is outside the scope of the kind of priority signaling this CIP is meant to enable. 
+A common cause of such conflict is that `tx` is spending the same UTxO entry as some transaction in the 
+standard queue. 
 
 #### Capacity, eviction, and DoS
 
-POLINA TODO: describe whether urgent transactions get reserved mempool capacity, whether stale
-or underpriced urgent transactions are evicted preferentially, and the resource impact of
-extra phase-1 validation.
-
-#### Governance actions
-
-POLINA TODO: describe why governance actions are excluded from the general reordering result
-and what policy applies to them.
+Priority transactions get at least an RB's worth of space and ExUnits allocated to them in the 
+mempool, and may be admitted to an EB when that space if full. The eviction process for 
+transactions that become Phase-1 invalid remains the same as in prior eras. That is, 
+when a new block arrives, the entire mempool is revalidated (kicking out stale transactions, 
+or ones whose inputs were spent, etc.). If the newly arrived block is an RB containing 
+an EB certificate which (1) matches the one in the `heldEB` variable in the mempool, and (2) the RB 
+is not an epoch boundary block, revalidation of the entire queue is not required. 
+Otherwise, it is required.
 
 ### Ledger
 
-Since we want to enforce the rule that only transactions paying a sufficient fee to enter the urgent lane may be admitted to Ranking Blocks, we must make [ledger changes](https://github.com/IntersectMBO/formal-ledger-specifications/compare/master...polina/dynamic).
+Since we want to enforce the rule that only transactions paying a sufficient fee to enter the urgent lane may be admitted to Ranking Blocks, we must make [ledger changes](https://github.com/IntersectMBO/formal-ledger-specifications/compare/polina/dynamic).
 
 #### Transaction representation
 
-POLINA TODO
+The CDDL changes are as follows :
 
-#### Fee validity
+```
+tier_no    = 0 / 1          ; 0 = priority, 1 = standard
+tier_coeff = uint           ; price multiplier γ, ≥ 1 
+tx_tier    = [tier_no, tier_coeff]
 
-POLINA TODO
+transaction_body = { ...
+  , 23 : tx_tier          ; claimed tier
+  , ? 24 : reward_account   ; fee change address
+  }
+```
+
+That is, a transaction body must specify the `tier_no` which indicates whether it's a priority or standard transaction, 
+and the `tier_coeff` positive integer. This tier coefficient 
+is what the transaction expects its `minfee` will be multiplied by to obtain the amount 
+of fee it has to pay to get into its specified tier. 
+
+The `reward_account` is specifies the address of the account to which change is returned when a transaction 
+specifies a `txfee` that is larger than necessary. 
+
+```
+transaction =
+  [ transaction_body
+  , transaction_witness_set
+  , bool                     ; isValid  (producer-set)
+  , auxiliary_data / nil
+  , tier_no                  ; actualTier (producer-set)
+  ]
+```
+
+The `tier_no` is also included by the producer in the transaction itself.
+Validation fails if it differs from the `tier_no` inside the transaction body. However, it is not signed by 
+anyone (similar to `isValid`). The purpose of this field is to allow the networking/consensus/DApps to 
+have access to the tier without having to inspect the transaction body (e.g. the mempool will request 
+only priority tier transactions first).
+
+#### Ledger Rule Changes
+
+We define an `SDPolicy` record containing four variables that are used in the following way :
+
+  (1) `diversityPolicy : TierNo ⇀ PolicyClause` - a set of tiers and their associated tier coefficients
+  (2) `totalSize : TierNo ⇀ ℕ` : the total size computed by adding up the size in bytes of all transactions in the list inside a block body, aggregated by tier
+  (3) `totalRefScriptSize` - the total size computed by adding up the size in bytes of all reference scripts and datums 
+  referenced by all the transactions in the list inside a block body, aggregated by tier
+  (4) `totalExUnits : TierNo ⇀ ℕ` - the total amounts computed by adding up the size in bytes of all 
+  execution units (memory and CPU, 
+  separately) specified by all scripts in all the transactions in the list inside a block body, aggregated by tier
+
+There is a new parameter `policyState : SDPolicy`  in the `UTxOState`.
+
+Let `adjusted_tier_coeff` be `priority` if it was in an RB with a transaction list, and `standard` 
+if it was in an EB. following are the key ledger rule changes having to do with processing the *fee payment* :
+
+  (1) updated min-fee constraint (enough to cover *targeted* tier) : `tier_coeff·minfee ≤ txFee`
+  (2) `txfee - minfee * adjusted_tier_coeff` is the amount of change sent to `reward_account` if it exists, 
+  and to the treasury if it does not
+  (3) exactly `minfee` is sent to the fee pot
+  (4) `minfee * (adjusted_tier_coeff - 1)` is sent to the treasury
+
+The following have to do with correct tier specification `poilcyState`, and the change given :
+
+  (1) Tier coefficient in `poilcyState` associated with the transaction body-specified 
+  `tier_no` is `≤ tier_coeff` in the `tx` body
+  (2) The tier number in the body is `≤ adjusted_tier_coeff` and such that it is 
+  `priority` if `tx` was in an RB with a transaction list, and `standard` if `tx` was in an EB
+  (3) `policyState` is updated to reflect the current aggregated values 2-4 to reflect `tx`
+  (4) the the change given (as calculated above) is sent to the specified account address
 
 #### Block validity
 
-POLINA TODO
+This CIP relies on Leios block structure. For this reason, we change the top-level block processing.
+The block requires an additional field `ebCert : Maybe EBCert`, which is an endorsement block certificate, 
+and the block header body also must specify the block type (`EB` or `RB`). 
+
+A block can either contain a list of transactions or an `ebCert`. A block is of `RB` type and contains a list of transactions, 
+it is processed similar to a Praos block :
+  - block-level checks are performed (including that `ebCert` is not included), 
+  - the list of transactions is processed
+  - after processing the transactions, the `DIVUP` rule is applied (see below) to modify the state variables used to 
+keep track of dynamic pricing.
+
+A block of `RB` type that contains an `ebCert` requires that :
+  - block-level checks are performed (same as above),
+  - the block-processing rule is called again on the `EB` block corresponding to the `ebCert`
+
+If a block is one that corresponds to an `ebCert` (and is therefore an `EB` block), 
+  - it must contain a list of transactions,
+  - block level checks are performed (may be specific to `EB` blocks)
+  - each transaction is processed
+  - the `DIVUP` rule is applied 
+
+
+#### DIVUP Rule
+
+There is a new rule called `DIVUP` that updates the `SDPolicy` state. The same state that was previously 
+updated by `LEDGERS` during block processing is passed to this rule as the input state. Given protocol parameters and 
+the block type and its environment, the update does the following :
+
+  (1) Checks that if the block containing the transaction list is an EB, at least one of 
+  `totalSize , totalRefScriptSize , totalExUnits` exceeds the per-block limits for an RB specified in the protocol parameters
+  (2) Resets `totalSize , totalRefScriptSize , totalExUnits` to be empty, so that the variables can be reused to 
+  track data in the next block
+  (3) Updates the `diversityPolicy : SDPolicy` to specify new coefficients associated with each tier. **Note that 
+  this calculation remains unspecified and should be the result of experimental data**. 
+
 
 ### Block production and node policy
 
@@ -482,7 +672,14 @@ The two-lane mechanism specified here is a first increment, not a ceiling: if ev
 
 In times of congestion, the ability to separate transactions by urgency becomes impossible. In this case, users can use [nested transactions](https://github.com/cardano-foundation/CIPs/pull/862) to offer the block producer a tip in order to buy into RB space.
 
-POLINA TODO: explain how this should be done
+With nested transactions `tx` implemented, any user can create an incomplete transaction whose `produced` value 
+is less than its `consumed` value. The funds
+that make up the difference can be directed to any user running a nested transaction aggregator. The aggregator 
+can then construct a complete transaction `tx'` containing `tx` directing the funds difference to the aggregator's
+address. This works regardless of which aggregator receives `tx`, but only the aggregator who successfully submits 
+a block that contains `tx'` (and gets included in the chain) will receive the "tip". This way, the transaction author 
+can tip whoever's completed transaction makes it on-chain, likely the same user that is running the aggregator alongside 
+a node who turn to produce a block it happened to be.
 
 ## Path to Active
 

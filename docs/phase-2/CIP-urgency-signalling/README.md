@@ -643,7 +643,24 @@ The instability that excludes denominator 4 is visible directly in the price tra
 
 ### Incentives
 
-NICOLAS TODO
+From an incentives perspective, we focus on three properties introduced in the [analysis](https://timroughgarden.org/papers/eip1559.pdf) of EIP-1559:
+
+**Incentive-combatability for myopic miners (MMIC):** Block producers should be incentivized to follow the prescribed transaction inclusion rule.
+
+**User-incentive compatibility (UIC):** There should be an obvious optimal bidding strategy when creating a new transaction. This property is related to having good user experience, and thus making it easy for users to use the system efficiently.
+
+**Off-chain agreement proof (OCA-proof):** It should not be profitable for a user and a block producer to collude in order to include some transaction in the blockchain.
+
+Next, we briefly argue that our design satisfies all three properties outlined above.
+
+**MMIC:** The utility maximizing strategy for the block producer is to include all transactions that pay their fees (if possible) and avoid Including any fake traffic to the block as it will have to pay for it. This is exactly the transaction inclusion rule defined by our mechanism. Note, that in Cardano fees are redistributed through the reward mechanism to all block producers.
+
+**UIC:** When prices are not set excessively low, which should be the typical case as prices dynamically adapt to traffic, the optimal bidding strategy for an *urgent* user is to set its fee cap to the maximum value it is willing to pay and submit to DP1. Otherwise, it may either (i) not get the best possible service, if it sets a lower fee-cap or submits its tx to DP2, or (ii) risk losing money, if it sets a higher fee-cap.
+
+**OCP:** A user directly paying a block producer for quick inclusion does not increase their joint utility; someone at the end of the day has to pay for the inclusion fee.
+
+
+
 
 ## Rationale: how does this CIP achieve its goals?
 

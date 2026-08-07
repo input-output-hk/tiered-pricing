@@ -757,9 +757,34 @@ a node who turn to produce a block it happened to be.
 
 ### Acceptance Criteria
 
+The proposal is active when all of the following are true:
 
+- [ ] CIP-164 (linear-Leios) is active on mainnet, or one hard fork activates both CIP-164 and this mechanism.
+- [ ] The fee change CIP, which specifies the refund mechanism, is merged and active.
+- [ ] The formal ledger specification of the new rules is complete and merged upstream. The rules are: RB lane eligibility, fee settlement, the per-lane quote update, and the EB certificate threshold with the age escape.
+- [ ] The Agda mempool specifications for Leios with urgency signalling are complete and merged upstream.
+- [ ] Simulation or testnet evidence covers the reference-script and execution-unit branches of the EB threshold rule.
+- [ ] A peer-reviewed node implementation of the mempool changes, the block production policy, and the ledger rules is available.
+- [ ] An implementation-independent conformance test suite covers the new rules, and the node implementation passes it.
+- [ ] Load tests on a public testnet replay a published synthetic workload with assigned value-decay profiles against a flat-fee comparator. The metrics and pass margins are declared before the tests run. Under congestion, urgent-class results improve by at least the declared margins. At low and trickle load, standard-class and overall results stay within the declared regression bounds.
+- [ ] An independent audit of the specification, the implementation, and the incentives analysis is published. Material findings from the audit are resolved.
+- [ ] Wallets and transaction-construction libraries support the new transaction fields: lane choice, maximum fee, and refund account.
+- [ ] The community agrees on the initial values of the protocol parameters listed in "The recommended construction".
+- [ ] A hard fork enables the mechanism on mainnet.
 
 ### Implementation Plan
+
+The work items, in approximate order:
+
+- [ ] Merge the ledger and mempool specifications into their upstream repositories.
+- [ ] Extend the experimental evidence to the reference-script and execution-unit branches of the EB threshold.
+- [ ] Write a node-level technical specification, coordinated with the CIP-164 node work.
+- [ ] Implement the changes in `cardano-node`, integrated with the linear-Leios implementation.
+- [ ] Develop implementation-independent conformance tests, aligned with the CIP-164 blueprint work.
+- [ ] Update wallets and libraries for the new CDDL fields.
+- [ ] Publish the synthetic testnet workload, the metrics, and the pass margins. Then run load tests on a Leios testnet, and compare the results with the declared margins.
+- [ ] Audit the specification, the implementation, and the incentives analysis.
+- [ ] Schedule the hard-fork activation with, or after, the linear-Leios rollout.
 
 ## Versioning
 

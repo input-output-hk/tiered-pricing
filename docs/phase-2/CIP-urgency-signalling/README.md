@@ -653,11 +653,20 @@ From an incentives perspective, we focus on three properties introduced in the [
 
 Next, we briefly argue that our design satisfies all three properties outlined above.
 
-**MMIC:** The utility maximizing strategy for the block producer is to include all transactions that pay their fees (if possible) and avoid Including any fake traffic to the block as it will have to pay for it. This is exactly the transaction inclusion rule defined by our mechanism. Note, that in Cardano fees are redistributed through the reward mechanism to all block producers.
+**MMIC:** The utility maximizing strategy for the block producer is to include all transactions that pay their fees (if possible), and avoid including any "fake" traffic it generates as it will have to pay the cost. This is exactly the transaction inclusion rule defined by our mechanism. Note, that in Cardano fees are redistributed through the reward mechanism to all block producers.
 
-**UIC:** When prices are not set excessively low, which should be the typical case as prices dynamically adapt to traffic, the optimal bidding strategy for an *urgent* user is to set its fee cap to the maximum value it is willing to pay and submit to DP1. Otherwise, it may either (i) not get the best possible service, if it sets a lower fee-cap or submits its tx to DP2, or (ii) risk losing money, if it sets a higher fee-cap.
+**UIC:** When prices are not set excessively low, which should be the typical case as prices dynamically adapt to traffic, the optimal bidding strategy for an *urgent* user is to set its fee cap to the maximum value it is willing to pay and submit to the urgent lane. Otherwise, it may either (i) not get the best possible service, if it sets a lower fee-cap or submits its tx to the standard lane, or (ii) risk losing money, if it sets a higher fee-cap.
 
-**OCP:** A user directly paying a block producer for quick inclusion does not increase their joint utility; someone at the end of the day has to pay for the inclusion fee.
+**OCP:** A user directly paying/bribing a block producer for quick inclusion does not increase their joint utility; someone at the end of the day has to pay the inclusion fee.
+
+
+As a side-effect, the mechanism proposed may reveal/leak information about the value of certain transactions; a transaction submitted to the urgent lane may be correlated 
+with high-value, and further with high miner extractable value (MEV). While this may make MEV attacks simpler to launch, as it would be easier to identify 
+potential targets, we note that the quick inclusion of txs submitted to the urgent lane offers some protection against them--high value urgent txs settle faster through our mechanism. 
+Further, a tx that is highly sensitive to MEV attacks can still be submitted privately to some node operator first. 
+Note also, that in Cardano today high-MEV txs are not fully  protected against attacks, i.e., a block producer that 
+observes such a tx in some block, may decide to fork the chain in order to take the MEV opportunity itself. Thus, besides possibly leaking some information about a tx's value,  
+a public urgency signal does not create extra/new MEV opportunities compared to a publicly submitted txs in current mainnet. 
 
 
 

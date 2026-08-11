@@ -360,12 +360,24 @@ headline =
   , ("latency.standard.count", \m -> int (laneLatencyStats Standard m).statCount)
   , ("latency.standard.meanSlots", \m -> (laneLatencyStats Standard m).statMean)
   , ("latency.standard.meanBlocks", \m -> (laneBlockLatencyStats Standard m).statMean)
+  , ("latency.standard.p50Slots", \m -> slots (laneLatencyStats Standard m).statMedian)
+  , ("latency.standard.p95Slots", \m -> slots (laneLatencyStats Standard m).statP95)
+  , ("latency.standard.p50Blocks", \m -> int (laneBlockLatencyStats Standard m).statMedian)
+  , ("latency.standard.p95Blocks", \m -> int (laneBlockLatencyStats Standard m).statP95)
   , ("latency.priority.count", \m -> int (laneLatencyStats Priority m).statCount)
   , ("latency.priority.meanSlots", \m -> (laneLatencyStats Priority m).statMean)
   , ("latency.priority.meanBlocks", \m -> (laneBlockLatencyStats Priority m).statMean)
+  , ("latency.priority.p50Slots", \m -> slots (laneLatencyStats Priority m).statMedian)
+  , ("latency.priority.p95Slots", \m -> slots (laneLatencyStats Priority m).statP95)
+  , ("latency.priority.p50Blocks", \m -> int (laneBlockLatencyStats Priority m).statMedian)
+  , ("latency.priority.p95Blocks", \m -> int (laneBlockLatencyStats Priority m).statP95)
   , ("latency.urgent.count", \m -> int (urgentLatencyStats m).statCount)
   , ("latency.urgent.meanSlots", \m -> (urgentLatencyStats m).statMean)
   , ("latency.urgent.meanBlocks", \m -> (urgentBlockLatencyStats m).statMean)
+  , ("latency.urgent.p50Slots", \m -> slots (urgentLatencyStats m).statMedian)
+  , ("latency.urgent.p95Slots", \m -> slots (urgentLatencyStats m).statP95)
+  , ("latency.urgent.p50Blocks", \m -> int (urgentBlockLatencyStats m).statMedian)
+  , ("latency.urgent.p95Blocks", \m -> int (urgentBlockLatencyStats m).statP95)
   , ("latency.meanBlocks", latencyMeanBlocks)
   , ("value.retainedLovelace", \m -> lovelace (sumLovelace (fmap (.retainedValue) (Map.elems m.value))))
   , ("value.lostLovelace", \m -> lovelace (sumLovelace (fmap (.lostValue) (Map.elems m.value))))
@@ -398,6 +410,7 @@ headline =
  where
   int = fromIntegral
   lovelace (Lovelace n) = fromInteger n
+  slots (Duration n) = fromIntegral n
 
 headlineScalars :: Metrics -> [(String, Double)]
 headlineScalars metrics =

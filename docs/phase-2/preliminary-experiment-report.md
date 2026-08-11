@@ -1493,6 +1493,57 @@ From `abstract-sim-hs`, rerun with `./scripts/run_canonical_headlines.sh --out s
 
 ---
 
+### Latency distribution at 1,000 seeds ###
+
+The question this experiment answers: does the mechanism make inclusion delay more predictable for urgent demand, and not only faster on average? CPS-0031 names a reduction in wait-time spread for high-urgency transactions as an evaluation criterion, and mean latency alone cannot show it. Every earlier latency figure in this report is a mean.
+
+We reran the thousand-seed replication of flat fee against the canonical byte-only D16/K10 configuration (`config/sweeps/canonical-headlines.json`, paired seeds 0-999, 2,000 slots, summary-only, independent random streams) at low load and at severe congestion. The simulator already computed a five-number summary of each latency sample. The rerun only added the median and 95th-percentile order statistics to the emitted scalars, so it changed no simulation behaviour. Every one of the 22 metric summaries that the earlier record already held reproduced exactly, per-seed values included, which is the regression check for that claim.
+
+Latency is reported two ways. Block latency counts produced Ranking Blocks between first submission and inclusion. Slot latency counts slots. Intervals are two-sided 95% paired-t confidence intervals over the 1,000 paired seeds. Negative is faster.
+
+Urgent demand class, severe congestion:
+
+| Statistic | Flat | D16/K10 | D16/K10 − flat (95% CI) | Seeds worse |
+|---|---:|---:|---:|---:|
+| Mean (blocks) | 2.966 | 2.509 | -0.457 [-0.467, -0.448] | 0/1000 |
+| Median (blocks) | 2.448 | 2.000 | -0.448 [-0.479, -0.417] | 0/1000 |
+| 95th percentile (blocks) | 5.743 | 4.794 | -0.949 [-1.000, -0.898] | 2/1000 |
+| Median to 95th spread (blocks) | 3.295 | 2.794 | -0.501 [-0.558, -0.444] | 119/1000 |
+| Mean (slots) | 58.166 | 49.148 | -9.018 [-9.188, -8.848] | 0/1000 |
+| Median (slots) | 52.494 | 44.069 | -8.425 [-8.612, -8.238] | 0/1000 |
+| 95th percentile (slots) | 115.583 | 108.060 | -7.523 [-7.909, -7.137] | 22/1000 |
+| Median to 95th spread (slots) | 63.089 | 63.991 | +0.902 [+0.540, +1.264] | 619/1000 |
+
+Urgent demand class, low load:
+
+| Statistic | Flat | D16/K10 | D16/K10 − flat (95% CI) | Seeds worse |
+|---|---:|---:|---:|---:|
+| 95th percentile (blocks) | 2.907 | 2.527 | -0.380 [-0.417, -0.343] | 36/1000 |
+| Median to 95th spread (blocks) | 0.957 | 0.544 | -0.413 [-0.452, -0.374] | 40/1000 |
+| 95th percentile (slots) | 87.122 | 87.512 | +0.390 [-0.313, +1.093] | 408/1000 |
+| Median to 95th spread (slots) | 58.708 | 59.347 | +0.639 [-0.058, +1.336] | 501/1000 |
+
+Standard lane, both loads:
+
+| Statistic | Load | Flat | D16/K10 | D16/K10 − flat (95% CI) |
+|---|---|---:|---:|---:|
+| Mean (blocks) | Low | 1.783 | 2.993 | +1.210 [+1.189, +1.231] |
+| 95th percentile (blocks) | Low | 2.958 | 5.730 | +2.772 [+2.691, +2.853] |
+| 95th percentile (slots) | Low | 87.933 | 113.922 | +25.989 [+24.859, +27.119] |
+| Mean (blocks) | Severe congestion | 2.993 | 2.985 | -0.008 [-0.011, -0.005] |
+| Median (blocks) | Severe congestion | 2.468 | 2.471 | +0.003 [-0.009, +0.015] |
+| 95th percentile (blocks) | Severe congestion | 5.849 | 5.838 | -0.011 [-0.033, +0.011] |
+
+Three results follow. First, urgent block latency improves more at the 95th percentile than at the median under severe congestion, so the distribution both moves earlier and draws in. The same tightening appears at low load, where the retained-value difference is null. Second, the block and slot measures disagree about tightening: in slots the distribution moves earlier by a similar margin but its median-to-95th spread does not fall, and under severe congestion it rises slightly. Block position is the quantity the mechanism decides, and the interval between Ranking Blocks is exogenous with the same distribution under both variants, so it adds dispersion to both arms that no fee rule can remove. We report the block measure as the predictability result and record the slot measure as unchanged, without a mechanism for the small rise.
+
+Third, the standard lane pays for this at low load and not under congestion. Its low-load 95th-percentile wait almost doubles, from 2.96 to 5.73 blocks, which is proportionally worse than its mean, so the mean figure elsewhere in this report understates the low-load cost. Under severe congestion every standard-lane difference is at or near zero.
+
+Two limits apply. The mechanism's severe-congestion median is 2.000 blocks in almost every seed, so part of the spread reduction there is a median that has stopped moving. The 95th percentile fell by more than the median, so the reduction is not only that effect. Separately, urgent-class submissions fall about 9.8% at severe congestion, from a mean 3,439 to 3,103 per run, while the urgent-class service rate rises from 98.20% to 98.42%. These distributions therefore describe populations that differ at the entry margin. The next section measures that entry effect directly.
+
+The [preserved record](../CIP-urgency-signalling/thousand-seed-low-severe.json) holds the per-seed values for every row above, the paired statistics, provenance hashes, and the reproduction commands.
+
+---
+
 ### Urgent-class entry and composition at severe congestion ###
 
 The question this experiment answers: is the severe-congestion retained-value headline inflated by demand composition? The mechanism's dynamic quotes change who submits, so its urgent-class population differs from flat fee's, and a retained-value *ratio* can improve merely because harder demand stayed away. The thousand-seed low-load replication had already measured entry moving the other way there (urgent-class submissions up ~7.6% under the mechanism, because a reserved lane exists); at severe congestion the entry direction and size were unmeasured, because no earlier record preserved the submitted counts at that load.

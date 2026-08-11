@@ -35,9 +35,19 @@ LOW_METRICS = [
     ("inclusion.urgent.serviceRate", 9, 100.0, "pp"),
     ("latency.urgent.meanBlocks", 6, 1.0, "blocks"),
     ("latency.urgent.meanSlots", 6, 1.0, "slots"),
+    ("latency.urgent.p50Slots", 6, 1.0, "slots"),
+    ("latency.urgent.p95Slots", 6, 1.0, "slots"),
+    ("latency.urgent.p50Blocks", 6, 1.0, "blocks"),
+    ("latency.urgent.p95Blocks", 6, 1.0, "blocks"),
     ("latency.standard.meanBlocks", 6, 1.0, "blocks"),
     ("latency.standard.meanSlots", 6, 1.0, "slots"),
-    ("latency.priority.meanSlots", 6, 1.0, "slots"),
+    ("latency.standard.p50Slots", 6, 1.0, "slots"),
+    ("latency.standard.p95Slots", 6, 1.0, "slots"),
+    ("latency.standard.p50Blocks", 6, 1.0, "blocks"),
+    ("latency.standard.p95Blocks", 6, 1.0, "blocks"),
+    # No latency.priority.* rows: flat fee routes nothing through the priority
+    # lane, so its scalars are a structural zero and the paired difference would
+    # report the mechanism's own level as if it were an effect.
     ("latency.meanSlots", 6, 1.0, "slots"),
     ("value.retainedLovelace", 0, 1.0, "lovelace"),
     ("value.lostLovelace", 0, 1.0, "lovelace"),
@@ -54,6 +64,16 @@ SEVERE_METRICS = [
     ("inclusion.urgent.serviceRate", 9, 100.0, "pp"),
     ("latency.urgent.meanBlocks", 6, 1.0, "blocks"),
     ("latency.urgent.meanSlots", 6, 1.0, "slots"),
+    ("latency.urgent.p50Slots", 6, 1.0, "slots"),
+    ("latency.urgent.p95Slots", 6, 1.0, "slots"),
+    ("latency.urgent.p50Blocks", 6, 1.0, "blocks"),
+    ("latency.urgent.p95Blocks", 6, 1.0, "blocks"),
+    ("latency.standard.meanBlocks", 6, 1.0, "blocks"),
+    ("latency.standard.meanSlots", 6, 1.0, "slots"),
+    ("latency.standard.p50Slots", 6, 1.0, "slots"),
+    ("latency.standard.p95Slots", 6, 1.0, "slots"),
+    ("latency.standard.p50Blocks", 6, 1.0, "blocks"),
+    ("latency.standard.p95Blocks", 6, 1.0, "blocks"),
 ]
 
 

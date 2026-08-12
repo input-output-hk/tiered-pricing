@@ -35,9 +35,19 @@ LOW_METRICS = [
     ("inclusion.urgent.serviceRate", 9, 100.0, "pp"),
     ("latency.urgent.meanBlocks", 6, 1.0, "blocks"),
     ("latency.urgent.meanSlots", 6, 1.0, "slots"),
+    ("latency.urgent.p50Slots", 6, 1.0, "slots"),
+    ("latency.urgent.p95Slots", 6, 1.0, "slots"),
+    ("latency.urgent.p50Blocks", 6, 1.0, "blocks"),
+    ("latency.urgent.p95Blocks", 6, 1.0, "blocks"),
     ("latency.standard.meanBlocks", 6, 1.0, "blocks"),
     ("latency.standard.meanSlots", 6, 1.0, "slots"),
-    ("latency.priority.meanSlots", 6, 1.0, "slots"),
+    ("latency.standard.p50Slots", 6, 1.0, "slots"),
+    ("latency.standard.p95Slots", 6, 1.0, "slots"),
+    ("latency.standard.p50Blocks", 6, 1.0, "blocks"),
+    ("latency.standard.p95Blocks", 6, 1.0, "blocks"),
+    # No latency.priority.* rows: flat fee routes nothing through the priority
+    # lane, so its scalars are a structural zero and the paired difference would
+    # report the mechanism's own level as if it were an effect.
     ("latency.meanSlots", 6, 1.0, "slots"),
     ("value.retainedLovelace", 0, 1.0, "lovelace"),
     ("value.lostLovelace", 0, 1.0, "lovelace"),
@@ -52,8 +62,21 @@ SEVERE_METRICS = [
     ("value.urgent.retainedRatio", 9, 100.0, "pp"),
     ("value.retainedRatio", 9, 100.0, "pp"),
     ("inclusion.urgent.serviceRate", 9, 100.0, "pp"),
+    ("inclusion.urgent.submitted", 0, 1.0, "transactions"),
+    ("inclusion.priority.submitted", 0, 1.0, "transactions"),
+    ("inclusion.standard.submitted", 0, 1.0, "transactions"),
     ("latency.urgent.meanBlocks", 6, 1.0, "blocks"),
     ("latency.urgent.meanSlots", 6, 1.0, "slots"),
+    ("latency.urgent.p50Slots", 6, 1.0, "slots"),
+    ("latency.urgent.p95Slots", 6, 1.0, "slots"),
+    ("latency.urgent.p50Blocks", 6, 1.0, "blocks"),
+    ("latency.urgent.p95Blocks", 6, 1.0, "blocks"),
+    ("latency.standard.meanBlocks", 6, 1.0, "blocks"),
+    ("latency.standard.meanSlots", 6, 1.0, "slots"),
+    ("latency.standard.p50Slots", 6, 1.0, "slots"),
+    ("latency.standard.p95Slots", 6, 1.0, "slots"),
+    ("latency.standard.p50Blocks", 6, 1.0, "blocks"),
+    ("latency.standard.p95Blocks", 6, 1.0, "blocks"),
 ]
 
 
@@ -61,7 +84,7 @@ def sha256_file(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def git_provenance() -> dict[str, Any]:
+def git_provenance(patch_output: Path) -> dict[str, Any]:
     try:
         revision = subprocess.run(
             ["git", "rev-parse", "HEAD"],
@@ -79,10 +102,25 @@ def git_provenance() -> dict[str, Any]:
         ).stdout
     except (OSError, subprocess.CalledProcessError):
         return {"git_revision": None, "abstract_sim_worktree_clean": None}
-    return {
+    provenance: dict[str, Any] = {
         "git_revision": revision,
         "abstract_sim_worktree_clean": not bool(status.strip()),
     }
+    if status.strip():
+        diff = subprocess.run(
+            ["git", "diff", "HEAD", "--", "."],
+            cwd=PROJECT_DIR,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
+        patch_output.write_text(diff)
+        provenance["comparisonTimeSourcePatch"] = {
+            "path": patch_output.name,
+            "sha256": sha256_file(patch_output),
+            "coversUntrackedFiles": False,
+        }
+    return provenance
 
 
 def round_value(value: float, decimals: int) -> Any:
@@ -167,12 +205,19 @@ def build_record(args: argparse.Namespace) -> dict[str, Any]:
                 'sim="$(stack path --local-install-root)/bin/abstract-sim-hs-exe"',
                 '"$sim" sweep config/sweeps/canonical-headlines.json --seeds 1000 --slots 2000 --summary-only --load low --out sweep-results/canonical-1000-low',
                 '"$sim" sweep config/sweeps/canonical-headlines.json --seeds 1000 --slots 2000 --summary-only --load-profile config/loads/severe-congestion.json --out sweep-results/canonical-1000-severe-congestion',
-                "python3 scripts/compare_thousand_seed.py",
+                "python3 scripts/compare_thousand_seed.py --generated-at <YYYY-MM-DD>",
             ],
         },
         "results": {"low": low, "severe-congestion": severe},
     }
-    record["provenance"] = git_provenance()
+    patch_output = args.json_output.with_name(args.json_output.stem + "-source.patch")
+    record["provenance"] = git_provenance(patch_output)
+    record["provenance"]["sweepExecutableSha256"] = args.sweep_executable_sha256
+    if args.sweep_executable_sha256 is None:
+        record["provenance"]["sweepExecutableNote"] = (
+            "The executable hash was not captured when the 1,000-seed sweeps ran. "
+            "Pass --sweep-executable-sha256 after a rerun that records it."
+        )
     if args.provenance_note:
         record["provenance"]["note"] = args.provenance_note
     return record
@@ -197,6 +242,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         / "docs/phase-2/CIP-urgency-signalling/thousand-seed-low-severe.json",
     )
     parser.add_argument("--generated-at", default=None)
+    parser.add_argument(
+        "--sweep-executable-sha256",
+        default=None,
+        help="SHA-256 of the simulator executable that produced the sweeps, when known",
+    )
     parser.add_argument("--provenance-note", default=None)
     args = parser.parse_args(argv)
     if args.generated_at is None:

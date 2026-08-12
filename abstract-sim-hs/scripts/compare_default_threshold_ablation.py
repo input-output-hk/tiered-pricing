@@ -61,11 +61,13 @@ CONTRASTS = (
 
 URGENT_METRICS = (
     ("value.urgent.retainedLovelace", "Urgent retained value", "lovelace"),
+    ("value.urgent.retainedRatio", "Urgent retained-value ratio", "ratio"),
     ("latency.urgent.meanBlocks", "Urgent mean latency", "blocks"),
     ("latency.standard.meanBlocks", "Standard mean latency", "blocks"),
 )
 LAUNCH_DAY_METRICS = (
     ("value.retainedLovelace", "Overall retained value", "lovelace"),
+    ("value.retainedRatio", "Overall retained-value ratio", "ratio"),
 )
 
 

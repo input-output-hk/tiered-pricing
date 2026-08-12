@@ -281,10 +281,6 @@ the standard queue, and once at its insertion point. It is then checked for the 
 the `standardTxs` queue. If all checks pass, no standard transaction needs revalidation.
 On any conflict, the priority transaction is simply discarded. 
 
-**TODO** : the mempool design is otherwise settled for the purposes of this CIP, but the 
-commutativity-based mechanism for dealing with revalidation proposed here is not. Alternative options 
-(e.g. unconditional revalidation of the standard queue) should be discussed here. 
-
 The lookups use one counted multiset (a map from key to occurrence count) per conflict source, maintained
 alongside the standard queue: non-consumption reads keyed by `TxIn`, certificate targets and withdrawal
 credentials keyed by `Credential`, deposit keys keyed by `DepositPurpose`, and vote targets keyed by
@@ -296,6 +292,63 @@ ID or credential are likely the same user, and therefore it is not necessary to 
 a scheme for users to undercut their own actions. Governance proposals form a kind of linked list in the 
 order of appearance. Reordering this list by allowing priority transactions to get ahead of standard 
 ones is not a necessary feature to support. 
+
+##### Alternative: a lazy inclusion buffer for non-commuting transactions
+
+An alternative to discarding a conflicting priority transaction is to hold it rather than drop it.
+Besides `priorityTxs` and `standardTxs`, the mempool keeps a third list, `lazyTxs`, reserved for
+incoming priority transactions that fail the conflict check above. Instead of being applied against
+`priorityUpdatedLedger` or the standard queue's ledger state, a `lazyTxs` entry is applied against the
+ledger state of the currently selected chain (i.e. the state before any mempool transaction is applied),
+and `lazyTxs` behaves as an ordinary FIFO queue on top of that state.
+
+`lazyTxs` is flushed on every new chain selection: its contents are appended to the end of `priorityTxs`,
+and the whole queue is then revalidated exactly as it already is whenever a new block arrives (see
+[Capacity, eviction, and DoS](#capacity-eviction-and-dos)). Basing `lazyTxs` on the chain-selected state
+rather than on `priorityUpdatedLedger` or the standard queue's ledger state is what makes this flush cheap
+to reason about: once a new chain is selected, none of the existing guarantees about which transactions
+from `priorityTxs` or `standardTxs` survive revalidation hold anyway, so merging `lazyTxs` in at that
+point adds no new uncertainty. Diffusion of `lazyTxs` contents is unchanged: they propagate to peers
+exactly as any other mempool transaction does.
+
+**Evaluation against the discard mechanism above.**
+
+- *Loss of transactions.* The discard mechanism above drops a conflicting priority transaction outright;
+  the submitter must notice and resubmit. The lazy buffer instead holds it, so a transaction that only
+  conflicted transiently (the standard transaction it clashed with is later evicted, or a new chain
+  changes the picture entirely) gets a chance at inclusion without user action.
+- *Latency.* A transaction sitting in `lazyTxs` cannot be selected into an RB or EB until the next
+  chain-selection event flushes it into `priorityTxs`. The discard mechanism resolves immediately
+  (accept or reject at submission); the lazy buffer trades that immediacy for a wait of up to one block.
+- *State and complexity.* The lazy buffer is a third piece of mempool state, with its own admission
+  logic (Phase-1 validation against the chain-tip ledger state) and its own capacity/eviction policy,
+  which is not yet specified here and would need the same treatment
+  [Capacity, eviction, and DoS](#capacity-eviction-and-dos) gives `priorityTxs` and `standardTxs` —
+  otherwise it is a new, uncapped surface for a submitter to fill with non-commuting transactions.
+- *Cost at the point it matters.* Because `lazyTxs` is only merged in at a chain-selection boundary, and
+  the entire queue is revalidated at that boundary regardless, the merge itself adds no revalidation pass
+  beyond what [Capacity, eviction, and DoS](#capacity-eviction-and-dos) already performs. The counted-multiset
+  conflict check above runs once, at admission to `lazyTxs`; nothing pays for it again while the transaction waits.
+- *Intra-buffer conflicts.* The design does not yet say what happens when two `lazyTxs` entries conflict
+  with each other rather than with `standardTxs`. Treating `lazyTxs` as an ordinary FIFO queue over the
+  chain-tip state (as `standardTxs` is treated today) resolves this the same way order-of-arrival resolves
+  any other queue conflict, but this should be stated explicitly if the buffer is adopted.
+
+**Behaviour change**.
+Both mechanisms are compatible with the commutativity result above. The main deciding factor should be
+the change in behaviour in terms of what transactions survive in the `standardTxs` queue once an RB 
+is released containing the `lazyTxs`. Because flushed `lazyTxs` entries are appended ahead of
+`standardTxs` before the whole queue is revalidated, any standard transaction they still conflict
+with will now fail validation and be evicted — the lazy buffer gives priority transactions a way to
+evict standard ones on purpose. That is precisely what admission is designed to prevent (see
+[Dependencies and conflicts](#dependencies-and-conflicts): a conflicting priority transaction is
+discarded rather than admitted because admitting it would require evicting a standard transaction).
+If adopted, the flush should therefore re-apply the same rule — dropping or re-buffering any entry
+that would still evict a standard transaction — rather than letting it through unconditionally.
+
+
+**TODO** : decide whether to adopt the lazy inclusion buffer in place of, or alongside, outright discard,
+and if adopted, specify its capacity and eviction policy. 
 
 Note that while the queue structure in the 
 specification is made up of two lists, it can also be expressed via a view (as discussed next).

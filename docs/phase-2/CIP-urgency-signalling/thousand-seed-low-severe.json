@@ -86819,13 +86819,8 @@
   }
  },
  "provenance": {
-  "git_revision": "50408ad8316a6de844a1055a48a4fda4dda11da6",
-  "abstract_sim_worktree_clean": false,
-  "comparisonTimeSourcePatch": {
-   "path": "thousand-seed-low-severe-source.patch",
-   "sha256": "d6c6d8395f08a27180bc6c37708515a754f59040f6a164bb49a7e42f5650289f",
-   "coversUntrackedFiles": false
-  },
+  "git_revision": "0fdf458712eecbba46637508a09d4d6d3e2ae361",
+  "abstract_sim_worktree_clean": true,
   "sweepExecutableSha256": null,
   "sweepExecutableNote": "The executable hash was not captured when the 1,000-seed sweeps ran. Pass --sweep-executable-sha256 after a rerun that records it."
  }

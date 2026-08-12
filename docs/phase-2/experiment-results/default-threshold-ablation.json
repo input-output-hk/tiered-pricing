@@ -170,13 +170,9 @@
     }
   },
   "provenance": {
-    "git_revision": "50408ad8316a6de844a1055a48a4fda4dda11da6",
-    "abstract_sim_worktree_clean": false,
-    "dirty_patch": {
-      "path": "source.patch",
-      "sha256": "d6c6d8395f08a27180bc6c37708515a754f59040f6a164bb49a7e42f5650289f",
-      "bytes": 4855
-    },
+    "git_revision": "0fdf458712eecbba46637508a09d4d6d3e2ae361",
+    "abstract_sim_worktree_clean": true,
+    "dirty_patch": null,
     "simulator_sha256": "3843646696ac5d1190d00565ecc7a28b40d2eb009225ad5a67cb14ec49174c85"
   },
   "loads": [

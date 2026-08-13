@@ -200,21 +200,107 @@ The canonical simulator configuration for the experiments is [`thr-k10.json`](./
 
 The parameter values, the grid points tested, and the loads at which each was stressed are tabulated in the "Endorser Block announcement threshold" section.
 
-#### Controller updates and signals
+### Controller updates and signals
 
-Both controllers update independently once per slot in which a block is produced. Each controller applies the following rule using its lane's utilisation signal, target utilisation, and max-change denominator:
+The design uses two independent pricing controllers, one for each lane:
 
-```
-coeff' = max(1.0, coeff × max(0, 1 + (utilisation - target) / (target × D)))
-```
+- the **urgent controller** sets the urgent-lane pricing coefficient;
+- the **standard controller** sets the standard-lane pricing coefficient.
 
-The controller clamps utilisation to [0, 1] before the update. The outer `max` applies the absolute coefficient floor. The urgent and standard utilisation signals are defined separately below. At the recommended target of 0.5 and D = 16, every step stays within ±6.25%.
+A pricing controller is a feedback mechanism. It observes recent utilisation of its lane and adjusts that lane's pricing coefficient. Utilisation above the target raises the coefficient; utilisation below the target reduces it. The lane's quote is obtained by applying its current coefficient to the ordinary minimum fee.
 
-There are four block production kinds: non-certificate Ranking Blocks, certificate-carrying Ranking Blocks, Endorser Block announcements, and certified Endorser Blocks. Two of the four carry a controller sample: non-certificate Ranking Blocks and certified Endorser Blocks. A certificate-carrying RB is payload-free by construction, and an EB announcement carries no sample. An EB's payload enters the signals exactly once, at certification.
+The two controllers use the same update rule and recommended `target` and `D` values. They differ in their initial coefficient and, more importantly, in how they calculate utilisation:
 
-**Urgent signal (reservation utilisation, 5-sample window).** Each sample measures the urgent lane's usage in the sampled block against the RB's capacity. A certified EB's sample uses the same reservation capacity as its denominator, not the EB's own capacity: the sample asks how many Ranking Blocks' worth of urgent traffic the EB carried, not how full the EB was. The window utilisation is the sum of urgent usage over the last five samples (each capped at the reservation capacity) divided by the sum of the reservation capacities. The controller computes this ratio separately in bytes and ex-units and takes the larger one.
+| Controller | Initial `coeff` | Utilisation signal | Window |
+|---|---:|---|---:|
+| Urgent | `2.0` | Urgent usage measured against RB reservation capacity | **5 payload samples** |
+| Standard | `1.0` | Standard usage measured against the combined capacity of recent blocks | **20 block summaries** |
 
-**Standard signal (capacity-weighted utilisation, 20-block window).** The window utilisation is the total standard-lane usage across the last twenty block summaries divided by the total capacity of those blocks. The controller again computes this ratio separately in bytes and ex-units and takes the larger one. Certificate-carrying RBs and EB announcements contribute neither usage nor capacity. Non-certificate RBs contribute their full capacity to the denominator even when empty, though standard transactions cannot occupy them. The capacity weighting is implicit in the sums: each block counts in proportion to its capacity. At the capacities used throughout the experiments, a certified EB (12,000,000 bytes) outweighs a Ranking Block (90,112 bytes) by two orders of magnitude, so the standard quote tracks Endorser Block fill.
+The urgent window of **5 samples** is an experimentally selected compromise between responsiveness and stability. Windows of `3` and `5` samples were tested, while windows of `10–20` reduced the number of price shocks but generally increased latency and peak-to-trough price movement and reduced urgent retained value.
+
+The standard window of **20 block summaries** is the recommended default, but its length has not been independently swept.
+
+The recommended `target = 0.5` and `D = 16` values were tested for both controllers in lockstep. Independent per-lane values were not tested.
+
+#### Shared update rule
+
+Both controllers are evaluated independently once per slot in which a block is produced. Each applies the same update rule to its own utilisation signal:
+
+$$ \mathrm{coeff}' = \max\left( 1.0,\; \mathrm{coeff} \times \max\left( 0,\; 1+ \frac{\mathrm{utilisation}-\mathrm{target}} {\mathrm{target}\times D} \right) \right) $$
+
+Before applying the rule, the controller clamps `utilisation` to `[0, 1]`. The outer `max` prevents the coefficient from falling below `1.0`, so a lane's quote cannot fall below the ordinary minimum fee.
+
+The recommended shared parameters are:
+
+| Parameter | Recommended value | Effect |
+|---|---:|---|
+| `target` | `0.5` | Utilisation above 50% raises the coefficient; utilisation below 50% lowers it |
+| `D` | `16` | Bounds the size of each coefficient update |
+| Absolute coefficient floor | `1.0` | Prevents a quote from falling below the ordinary minimum fee |
+
+With `target = 0.5` and `D = 16`, a single update changes the coefficient by no more than `±6.25%`.
+
+#### When block activity enters the signals
+
+A block-production event contributes utilisation information only when transaction payload is applied:
+
+| Block-production event | Transaction payload applied? | Contributes utilisation? |
+|---|---|---|
+| Non-certificate Ranking Block | Yes — RB payload | Yes |
+| Certificate-carrying Ranking Block | No — payload-free | No |
+| Endorser Block announcement | No — announcement only | No |
+| Certified Endorser Block | Yes — EB payload | Yes |
+
+Each transaction payload therefore enters the controller signals exactly once:
+
+- an RB payload when its non-certificate Ranking Block is produced;
+- an EB payload when its Endorser Block is certified.
+
+Both controllers observe the same payload-application events, but they calculate different utilisation values from them.
+
+#### Urgent controller: 5-sample reservation-utilisation window
+
+The urgent controller measures urgent demand against the scarce capacity available for urgent service. Its window contains the **five most recent payload samples**, not necessarily the five most recent slots or block-production events.
+
+For each sample:
+
+1. Measure urgent-lane usage in bytes and execution units.
+2. Compare that usage with the urgent reservation capacity of a Ranking Block.
+3. Cap the measured usage at that reservation capacity.
+4. Compute utilisation separately for bytes and execution units.
+5. Use the larger of the two results.
+
+A certified EB uses the same RB reservation capacity as its denominator, rather than the EB's much larger capacity. The urgent signal therefore asks how many Ranking Blocks' worth of urgent traffic the payload carried; it does not measure how full the Endorser Block was.
+
+Across the five-sample window:
+
+$$ \mathrm{urgentUtilisation} = \max\left( \frac{\sum \mathrm{urgentBytes}}      {\sum \mathrm{RBReservationBytes}}, \; \frac{\sum \mathrm{urgentExUnits}}      {\sum \mathrm{RBReservationExUnits}} \right) $$
+
+Each sample's urgent usage is capped at the corresponding RB reservation capacity before being added to the numerator.
+
+#### Standard controller: 20-block capacity-weighted window
+
+The standard controller measures standard-lane usage against the combined capacity represented by the **twenty most recent block summaries**.
+
+Across the window:
+
+1. Sum standard-lane usage.
+2. Sum the corresponding block capacities.
+3. Divide total usage by total capacity.
+4. Compute the ratio separately for bytes and execution units.
+5. Use the larger ratio.
+
+The resulting signal is:
+
+$$ \mathrm{standardUtilisation} = \max\left( \frac{\sum \mathrm{standardBytes}}      {\sum \mathrm{blockCapacityBytes}}, \; \frac{\sum \mathrm{standardExUnits}}      {\sum \mathrm{blockCapacityExUnits}} \right) $$
+
+The block-production events contribute as follows:
+
+- certificate-carrying RBs and EB announcements contribute neither usage nor capacity;
+- non-certificate RBs contribute their full capacity to the denominator, even when empty and even though standard transactions cannot occupy them;
+- certified EBs contribute their EB capacity and the standard traffic they carry.
+
+This is a capacity-weighted signal: each block affects the result in proportion to its capacity. At the capacities used in the experiments, a certified EB provides `12,000,000` bytes of capacity, compared with `90,112` bytes for a Ranking Block. A certified EB therefore carries approximately 133 times the byte weight of an RB, so the standard quote responds primarily to Endorser Block utilisation.
 
 The specification covers several areas:
 

@@ -16,6 +16,50 @@ Created: 2026-06-24
 License: CC-BY-4.0
 ---
 
+<details>
+<summary><strong>Table of contents</strong></summary>
+
+- [1. Abstract](#abstract)
+- [2. Motivation: why is this CIP necessary?](#motivation-why-is-this-cip-necessary)
+- [3. Specification](#specification)
+  - [3.1 The recommended construction](#the-recommended-construction)
+  - [3.2 Controller updates and signals](#controller-updates-and-signals)
+  - [3.3 Mempool](#mempool)
+    - [3.3.1 Praos and Leios Mempool Specifications](#praos-and-leios-mempool-specifications)
+    - [3.3.2 Priority Signaling Mempool Specifications](#priority-signaling-mempool-specifications)
+    - [3.3.3 Transaction Reordering for the Leios with Priority Signaling Mempool](#transaction-reordering-for-the-leios-with-priority-signaling-mempool)
+    - [3.3.4 Queue structure](#queue-structure)
+    - [3.3.5 Revalidation and stale fees](#revalidation-and-stale-fees)
+    - [3.3.6 Dependencies and conflicts](#dependencies-and-conflicts)
+    - [3.3.7 Capacity, eviction, and DoS](#capacity-eviction-and-dos)
+  - [3.4 Ledger](#ledger)
+    - [3.4.1 Transaction representation](#transaction-representation)
+    - [3.4.2 Ledger Rule Changes](#ledger-rule-changes)
+    - [3.4.3 Block validity](#block-validity)
+    - [3.4.4 DIVUP Rule](#divup-rule)
+  - [3.5 Block production and node policy](#block-production-and-node-policy)
+  - [3.6 Endorser Block announcement threshold](#endorser-block-announcement-threshold)
+    - [3.6.1 Validation evidence](#validation-evidence)
+      - [3.6.1.1 Experiment 1: low-load threshold](#experiment-1-low-load-threshold)
+      - [3.6.1.2 Experiment 2: announcement age escape](#experiment-2-announcement-age-escape)
+      - [3.6.1.3 Experiment 3: parameter stress](#experiment-3-parameter-stress)
+      - [3.6.1.4 Experiment 4: default-point byte-threshold sensitivity](#experiment-4-default-point-byte-threshold-sensitivity)
+  - [3.7 Incentives](#incentives)
+- [4. Rationale: how does this CIP achieve its goals?](#rationale-how-does-this-cip-achieve-its-goals)
+  - [4.1 Experimental evidence](#experimental-evidence)
+    - [4.1.1 D16/K10 headline rerun](#d16k10-headline-rerun)
+    - [4.1.2 Thousand-seed replication at low and severe-congestion load](#thousand-seed-replication-at-low-and-severe-congestion-load)
+  - [4.2 Why not full tiered pricing?](#why-not-full-tiered-pricing)
+  - [4.3 Optional extensions](#optional-extensions)
+    - [4.3.1 Tipping](#tipping)
+- [5. Path to Active](#path-to-active)
+  - [5.1 Acceptance Criteria](#acceptance-criteria)
+  - [5.2 Implementation Plan](#implementation-plan)
+- [6. Versioning](#versioning)
+- [7. Copyright](#copyright)
+
+</details>
+
 ## Abstract
 
 We propose two lanes by which a user can submit a transaction to a node: urgent and standard. Only urgent transactions can enter Ranking Blocks. Both urgent and standard transactions can enter Endorser Blocks. Nodes produce Ranking Blocks more frequently than Endorser Blocks, and a Ranking Block enters the chain immediately. When capacity and queue order permit, an urgent transaction can therefore enter an earlier Ranking Block instead of the later Endorser Block path. This creates an earlier inclusion opportunity, not a guarantee of earlier inclusion.

@@ -271,8 +271,13 @@ in `standardTxs` that we must check for:
 - overlapping **withdrawal credentials**, or a withdrawal credential matching the other transaction's certificate target;
 - overlapping **governance vote targets** (same action and voter);
 - **governance proposals and DRep (de)registration**, which conflict *globally* (they re-filter all pending votes), so no
-  pairwise check can license commuting past them. This category is restricted to a single tier:
-  either the priority or the standard one (decision deferred) rather than being conflict-checked.
+  pairwise check can license commuting past them. This category is restricted to a single tier
+  rather than being conflict-checked, and that tier must be the priority one: when Leios falls back
+  to Praos-mode operation, only the priority queue feeds Ranking Blocks, and no standard transaction
+  gets in — placing governance proposals in the standard tier would mean censoring governance for
+  the whole duration of the fallback. **Decision required**: whether governance-proposing
+  transactions, despite living in the priority queue, are allowed to pay the standard quote rather
+  than the urgent one (so that governance participation is not priced as urgency).
 
 To address these conflicts and maintain a better than linear (in the size of the `standardTxs` queue) time 
 for including incoming priority transactions, we adopt the following strategy, proved correct in the
@@ -345,6 +350,17 @@ evict standard ones on purpose. That is precisely what admission is designed to 
 discarded rather than admitted because admitting it would require evicting a standard transaction).
 If adopted, the flush should therefore re-apply the same rule — dropping or re-buffering any entry
 that would still evict a standard transaction — rather than letting it through unconditionally.
+
+The evictions enabled by an unconditional flush are not limited to a user displacing their own
+transactions: most of the conflict classes above can arise between transactions with fully disjoint
+signature sets. Reference inputs are unwitnessed reads, so a priority transaction consuming a shared
+UTxO (an oracle updating its datum, a maintainer rotating a reference script) would evict every
+standard transaction of strangers who merely read it; two unrelated users contending for the same
+script UTxO (a DEX pool, a batcher) would resolve the race in favour of whoever paid the urgent
+quote; and a registration certificate requires no witness at all, so a priority transaction could
+evict a targeted standard transaction without any authorization from its victim. An unconditional
+flush would therefore amount to a purchasable eviction mechanism over contested state — exactly the
+kind of priority auction this CIP does not intend to create.
 
 
 **TODO** : decide whether to adopt the lazy inclusion buffer in place of, or alongside, outright discard,

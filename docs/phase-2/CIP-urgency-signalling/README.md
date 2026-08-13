@@ -90,64 +90,43 @@ We also specify a modification that corrects a problem at moderate load, when RB
 <details>
 <summary>Show glossary of terms</summary>
 
-<br>
+**Transactions and reservation**
 
-**Standard transaction**: A transaction that does not pay to enter the urgent lane. Cardano's current transactions.
+- **Standard transaction:** A transaction that does not pay to enter the urgent lane. Cardano's current transactions.
+- **Urgent transaction:** A transaction that pays to enter the urgent lane. The payment asks nodes to include the transaction before standard transactions, where possible.
+- **Reserved:** An urgent-lane mechanism that reserves RB block space for urgent transactions. The ledger enforces the reservation.
 
-**Urgent transaction**: A transaction that pays to enter the urgent lane. The payment asks nodes to include the transaction before standard transactions, where possible.
+**Lanes and routing**
 
-**Reserved**: An urgent-lane mechanism that reserves RB block space for urgent transactions. The ledger enforces the reservation.
+- **Standard lane:** A pathway for transactions that do not pay the urgent fee.
+- **Urgent lane:** A pathway for transactions that pay the urgent fee.
+- **Lane selection (the user-side decision):** The choice of lane, made by the constructor of a transaction.
 
-#### Lanes and routing
+**Pricing primitives**
 
-**Standard lane**: A pathway for transactions that do not pay the urgent fee.
+- **Pricing coefficient:** The value that multiplies the base fee to produce the quote. Also called *tier coefficient*.
+- **Quote:** The pricing coefficient multiplied by the base fee. In effect, a snapshot of the dynamic fee for a given transaction.
+- **Urgent premium:** The difference between the urgent lane quote and the standard lane quote.
+- **Absolute coefficient floor:** The minimum allowed lane pricing coefficient, set to `1.0`: no quote can fall below the ordinary Cardano minimum fee.
+- **Fixed (pricing):** Basic Cardano fee, as today.
+- **Dynamic (pricing):** EIP-1559 style dynamic fee.
+- **EIP-1559 (controller):** The feedback mechanism that adjusts a lane's pricing coefficient after each block: up when utilisation is above target, down when below, by a bounded step.
+- **Max-change denominator (D):** The scale in the controller update. Before the coefficient floor, the largest downward step is `1/D`. The largest upward step is `(1 - targetUtilisation) / (targetUtilisation × D)`. At target 0.5 these are equal, so the price rises and falls at the same maximum rate. Below 0.5 the price can rise faster than it falls. Above 0.5 it rises more slowly.
+- **Signal window:** The number of recent blocks over which the controller measures utilisation, so a single unusual block cannot swing the price.
+- **Target utilisation:** The block fill level the controller steers towards (0.5 in the default configuration). Utilisation above the target raises the price. Utilisation below it lowers the price.
+- **Quote drift:** The difference between the quote at submission time and the quote at inclusion time.
 
-**Urgent lane**: A pathway for transactions that pay the urgent fee.
+**User-side fee fields**
 
-**Lane selection (the user-side decision)**: The choice of lane, made by the constructor of a transaction.
+- **Posted fee vs actual fee:** The posted fee is the amount attached to the transaction at submission. The actual fee is the quote at inclusion time. The ledger refunds the difference.
+- **Refund:** The return of the excess fee to a specified address.
+- **Max fee (`max_fee_lovelace` / fee ceiling on the user side):** The most a user agrees to pay, posted with the transaction. It buffers against quote drift. If the quote exceeds it, the transaction cannot be included.
 
+**Value / actors**
 
-#### Pricing primitives
-
-**Pricing coefficient**: The value that multiplies the base fee to produce the quote. Also called *tier coefficient*.
-
-**Quote**: The pricing coefficient multiplied by the base fee. In effect, a snapshot of the dynamic fee for a given transaction.
-
-**Urgent premium**: The difference between the urgent lane quote and the standard lane quote.
-
-**Absolute coefficient floor**: The minimum allowed lane pricing coefficient, set to `1.0`: no quote can fall below the ordinary Cardano minimum fee.
-
-**Fixed (pricing)**: Basic Cardano fee, as today.
-
-**Dynamic (pricing)**: EIP-1559 style dynamic fee.
-
-**EIP-1559 (controller)**: The feedback mechanism that adjusts a lane's pricing coefficient after each block: up when utilisation is above target, down when below, by a bounded step.
-
-**Max-change denominator (D)**: The scale in the controller update. Before the coefficient floor, the largest downward step is `1/D`. The largest upward step is `(1 - targetUtilisation) / (targetUtilisation × D)`. At target 0.5 these are equal, so the price rises and falls at the same maximum rate. Below 0.5 the price can rise faster than it falls. Above 0.5 it rises more slowly.
-
-**Signal window**: The number of recent blocks over which the controller measures utilisation, so a single unusual block cannot swing the price.
-
-**Target utilisation**: The block fill level the controller steers towards (0.5 in the default configuration). Utilisation above the target raises the price. Utilisation below it lowers the price.
-
-**Quote drift**: The difference between the quote at submission time and the quote at inclusion time.
-
-
-#### User-side fee fields
-
-**Posted fee vs actual fee**: The posted fee is the amount attached to the transaction at submission. The actual fee is the quote at inclusion time. The ledger refunds the difference.
-
-**Refund**: The return of the excess fee to a specified address.
-
-**Max fee (max_fee_lovelace / fee ceiling on the user side)**: The most a user agrees to pay, posted with the transaction. It buffers against quote drift. If the quote exceeds it, the transaction cannot be included.
-
-
-#### Value / actors
-
-**Urgency**: The rate at which the value of a transaction decays.
-
-**Urgent demand class**: The fastest-decaying demand class in the model. It is independent of the lane a transaction selects.
-
-**Retained value metric**: The numerator is the sum of modelled delay-discounted gross transaction value remaining at inclusion, before fees. It is not the simulator's fee-subtracted utility measure, and it is not an observed economic quantity. Unless a table states a different denominator, a retained-value ratio is `retained / (retained + lost)`. The ratio excludes value still unresolved at the simulation horizon.
+- **Urgency:** The rate at which the value of a transaction decays.
+- **Urgent demand class:** The fastest-decaying demand class in the model. It is independent of the lane a transaction selects.
+- **Retained value metric:** The numerator is the sum of modelled delay-discounted gross transaction value remaining at inclusion, before fees. It is not the simulator's fee-subtracted utility measure, and it is not an observed economic quantity. Unless a table states a different denominator, a retained-value ratio is `retained / (retained + lost)`. The ratio excludes value still unresolved at the simulation horizon.
 </details>
 
 <br>

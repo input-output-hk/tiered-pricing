@@ -24,10 +24,15 @@ License: CC-BY-4.0
 - [3. Specification](#specification)
   - [3.1 The recommended construction](#the-recommended-construction)
   - [3.2 Controller updates and signals](#controller-updates-and-signals)
+    - [3.2.1 Shared update rule](#shared-update-rule)
+    - [3.2.2 When block activity enters the signals](#when-block-activity-enters-the-signals)
+    - [3.2.3 Urgent controller: 5-sample reservation-utilisation window](#urgent-controller-5-sample-reservation-utilisation-window)
+    - [3.2.4 Standard controller: 20-block capacity-weighted window](#standard-controller-20-block-capacity-weighted-window)
   - [3.3 Mempool](#mempool)
     - [3.3.1 Praos and Leios Mempool Specifications](#praos-and-leios-mempool-specifications)
     - [3.3.2 Priority Signaling Mempool Specifications](#priority-signaling-mempool-specifications)
-    - [3.3.3 Transaction Reordering for the Leios with Priority Signaling Mempool](#transaction-reordering-for-the-leios-with-priority-signaling-mempool)
+    - [3.3.3 Safe Reordering of Priority Transactions](#safe-reordering-of-priority-transactions)
+      - [3.3.3.1 Alternative: a lazy inclusion buffer for non-commuting transactions](#alternative-a-lazy-inclusion-buffer-for-non-commuting-transactions)
     - [3.3.4 Queue structure](#queue-structure)
     - [3.3.5 Revalidation and stale fees](#revalidation-and-stale-fees)
     - [3.3.6 Dependencies and conflicts](#dependencies-and-conflicts)
@@ -36,7 +41,8 @@ License: CC-BY-4.0
     - [3.4.1 Transaction representation](#transaction-representation)
     - [3.4.2 Ledger Rule Changes](#ledger-rule-changes)
     - [3.4.3 Block validity](#block-validity)
-    - [3.4.4 DIVUP Rule](#divup-rule)
+    - [3.4.4 Additional post-transaction-application validation](#additional-post-transaction-application-validation)
+    - [3.4.5 New protocol parameter](#new-protocol-parameter)
   - [3.5 Block production and node policy](#block-production-and-node-policy)
   - [3.6 Endorser Block announcement threshold](#endorser-block-announcement-threshold)
     - [3.6.1 Validation evidence](#validation-evidence)
@@ -45,13 +51,22 @@ License: CC-BY-4.0
       - [3.6.1.3 Experiment 3: parameter stress](#experiment-3-parameter-stress)
       - [3.6.1.4 Experiment 4: default-point byte-threshold sensitivity](#experiment-4-default-point-byte-threshold-sensitivity)
   - [3.7 Incentives](#incentives)
+    - [3.7.1 Giorgos](#giorgos)
+    - [3.7.2 Nicolas](#nicolas)
 - [4. Rationale: how does this CIP achieve its goals?](#rationale-how-does-this-cip-achieve-its-goals)
-  - [4.1 Experimental evidence](#experimental-evidence)
-    - [4.1.1 D16/K10 headline rerun](#d16k10-headline-rerun)
-    - [4.1.2 Thousand-seed replication at low and severe-congestion load](#thousand-seed-replication-at-low-and-severe-congestion-load)
-  - [4.2 Why not full tiered pricing?](#why-not-full-tiered-pricing)
-  - [4.3 Optional extensions](#optional-extensions)
-    - [4.3.1 Tipping](#tipping)
+  - [4.1 How this CIP addresses CPS-0031](#how-this-cip-addresses-cps-0031)
+    - [4.1.1 Goal 1: reduce value destroyed by avoidable delay](#goal-1-reduce-value-destroyed-by-avoidable-delay)
+    - [4.1.2 Goal 2: permissionless access](#goal-2-permissionless-access)
+    - [4.1.3 Goal 3: predictability over raw speed](#goal-3-predictability-over-raw-speed)
+    - [4.1.4 Constraints](#constraints)
+    - [4.1.5 Open questions](#open-questions)
+  - [4.2 Experimental evidence](#experimental-evidence)
+    - [4.2.1 D16/K10 headline rerun](#d16k10-headline-rerun)
+    - [4.2.2 Thousand-seed replication at low and severe-congestion load](#thousand-seed-replication-at-low-and-severe-congestion-load)
+  - [4.3 Prototype](#prototype)
+  - [4.4 Why not full tiered pricing?](#why-not-full-tiered-pricing)
+  - [4.5 Optional extensions](#optional-extensions)
+    - [4.5.1 Tipping](#tipping)
 - [5. Path to Active](#path-to-active)
   - [5.1 Acceptance Criteria](#acceptance-criteria)
   - [5.2 Implementation Plan](#implementation-plan)
@@ -868,6 +883,35 @@ The instability that excludes denominator 4 is visible directly in the price tra
 
 ### Incentives
 
+#### Giorgos
+
+From an incentives perspective, we focus on three properties introduced in the [analysis](https://timroughgarden.org/papers/eip1559.pdf) of EIP-1559:
+
+**Incentive-compatibility for myopic miners (MMIC):** Block producers should be incentivized to follow the prescribed transaction inclusion rule.
+
+**User-incentive compatibility (UIC):** There should be an obvious optimal bidding strategy when creating a new transaction. This property is related to having good user experience, and thus making it easy for users to use the system efficiently.
+
+**Off-chain agreement proof (OCA-proof):** It should not be profitable for a user and a block producer to collude in order to include some transaction in the blockchain.
+
+Next, we briefly argue that our design satisfies all three properties outlined above.
+
+**MMIC:** The utility maximizing strategy for the block producer is to include all transactions that pay their fees (if possible), and avoid including any "fake" traffic it generates as it will have to pay the cost. This is exactly the transaction inclusion rule defined by our mechanism. Note, that in Cardano fees are redistributed through the reward mechanism to all block producers.
+
+**UIC:** When prices are not set excessively low, which should be the typical case as prices dynamically adapt to traffic, the optimal bidding strategy for an *urgent* user is to set its fee cap to the maximum value it is willing to pay and submit to the urgent lane. Otherwise, it may either (i) not get the best possible service, if it sets a lower fee-cap or submits its tx to the standard lane, or (ii) risk losing money, if it sets a higher fee-cap.
+
+**OCP:** A user directly paying/bribing a block producer for quick inclusion does not increase their joint utility; someone at the end of the day has to pay the inclusion fee.
+
+
+As a side-effect, the mechanism proposed may reveal/leak information about the value of certain transactions; a transaction submitted to the urgent lane may be correlated 
+with high-value, and further with high miner extractable value (MEV). While this may make MEV attacks simpler to launch, as it would be easier to identify 
+potential targets, we note that the quick inclusion of txs submitted to the urgent lane offers some protection against them--high value urgent txs settle faster through our mechanism. 
+Further, a tx that is highly sensitive to MEV attacks can still be submitted privately to some node operator first. 
+Note also, that in Cardano today high-MEV txs are not fully  protected against attacks, i.e., a block producer that 
+observes such a tx in some block, may decide to fork the chain in order to take the MEV opportunity itself. Thus, besides possibly leaking some information about a tx's value,  
+a public urgency signal does not create extra/new MEV opportunities compared to a publicly submitted txs in current mainnet. 
+
+#### Nicolas
+
 From an incentives perspective, we use three properties introduced in the [analysis](https://timroughgarden.org/papers/eip1559.pdf) of EIP-1559 as evaluation criteria:
 
 - **Myopic miner incentive compatibility (MMIC):** a block producer should be incentivised to follow the prescribed transaction-inclusion rule.
@@ -915,7 +959,7 @@ CPS-0031 asks that urgent transactions have a way to avoid value-destroying dela
 
 #### Goal 2: permissionless access
 
-CPS-0031 requires that priority be available to anyone willing to fulfil the necessary prerequisites, and not negotiated through relationships or private arrangements. Under this mechanism the only prerequisite is the fee. Any transaction whose posted fee covers the urgent quote is eligible for the urgent lane. The quote is a single posted price that every node computes from the chain by the same formula, so every user sees the same cost at the same time, and no gatekeeper sits between a user and the lane. A relationship cannot substitute for the quote either: a Ranking Block that contains a transaction whose fee authorisation does not cover the urgent quote is invalid, so a producer cannot sell below-quote access at any price. The premium above the ordinary min fee goes to the treasury rather than to the producer, and [Incentives](#incentives) argues that a user and a producer cannot raise their joint utility by an off-chain agreement. This is the public counterpart of the private SPO arrangements that CPS-0031 reports and rejects: the same priority, but uniformly priced, open to all, and verifiable on-chain.
+CPS-0031 requires that priority be available to anyone willing to fulfil the necessary prerequisites, and not negotiated through relationships or private arrangements. Under this mechanism the only prerequisite is the fee. Any transaction whose posted fee covers the urgent quote is eligible for the urgent lane. The quote is a single posted price that every node computes from the chain by the same formula, so every user sees the same cost at the same time, and no gatekeeper sits between a user and the lane. A relationship cannot substitute for the quote either: a Ranking Block that contains a transaction whose fee authorisation does not cover the urgent quote is invalid, so a producer cannot sell below-quote access at any price. The premium above the ordinary min fee goes to the treasury rather than to the producer, and [Incentives](#incentives) argues that this removes the direct benefit of an off-chain agreement to sell below-quote access, while recording that other off-chain arrangements remain possible. This is the public counterpart of the private SPO arrangements that CPS-0031 reports and rejects: the same priority, but uniformly priced, open to all, and verifiable on-chain.
 
 #### Goal 3: predictability over raw speed
 
@@ -943,7 +987,7 @@ CPS-0031 closes with seven open questions. Each is answered in turn.
 
 **How can whatever protocol-level commitments are decided upon be enforced or incentivised?**
 
-This CIP separates protocol commitments, which ledger rules enforce, from implementation policies, which incentives hold in place. The "Enforcement boundary" row in [The recommended construction](#the-recommended-construction) records the split. The ledger enforces the protocol commitments: Ranking Block lane eligibility, inclusion-point fee validity, settlement, deterministic quote updates, and Endorser Block certificate eligibility. A block that breaks any of them is invalid, so every validating node enforces them and no trust in the producer is needed. Mempool organisation, transaction ordering, admission headroom, revalidation, and eviction are implementation policies rather than protocol commitments. The reference policy preserves the canonical FIFO queue and adds an urgent view, providing an efficient implementation. [Incentives](#incentives) argues that following the inclusion rule maximises a producer's utility, that a user has an obvious optimal bidding strategy, and that off-chain agreements between a user and a producer do not pay. Sending the premium to the treasury removes the key bribery incentive, because a producer cannot earn anything by placing a standard-paying transaction in a Ranking Block. Two producer behaviours remain outside ledger enforcement: suppression of a qualifying Endorser Block, and off-chain side payments. Suppression does limited harm: a later producer can announce the withheld Endorser Block, and Ranking Blocks stay urgent-only in the meantime ([Endorser Block announcement threshold](#endorser-block-announcement-threshold)). The incentive argument above covers side payments.
+This CIP separates protocol commitments, which ledger rules enforce, from implementation policies, which incentives hold in place. The "Enforcement boundary" row in [The recommended construction](#the-recommended-construction) records the split. The ledger enforces the protocol commitments: Ranking Block lane eligibility, inclusion-point fee validity, settlement, deterministic quote updates, and Endorser Block certificate eligibility. A block that breaks any of them is invalid, so every validating node enforces them and no trust in the producer is needed. Mempool organisation, transaction ordering, admission headroom, revalidation, and eviction are implementation policies rather than protocol commitments. The reference policy preserves the canonical FIFO queue and adds an urgent view, providing an efficient implementation. [Incentives](#incentives) argues that the fee flows support the policies: the producer keeps its existing protocol rewards while the premium goes to the treasury, a user can post its maximum willingness to pay without automatically paying it, and selling below-quote Ranking Block access earns a producer nothing. The same section records the limits of these arguments. Sending the premium to the treasury removes the key bribery incentive, because a producer cannot earn anything by placing a standard-paying transaction in a Ranking Block. Two producer behaviours remain outside ledger enforcement: suppression of a qualifying Endorser Block, and off-chain side payments. Suppression does limited harm: a later producer can announce the withheld Endorser Block, and Ranking Blocks stay urgent-only in the meantime ([Endorser Block announcement threshold](#endorser-block-announcement-threshold)). The incentive argument above removes the direct fee benefit of side payments, but it does not rule them out.
 
 **How should updated fee or priority quotes be propagated?**
 
@@ -963,11 +1007,11 @@ Three tools keep a queued transaction's fee valid while prices move: a posted ma
 
 **What information is leaked when a transaction signals urgency?**
 
-One bit of lane choice, plus a fee ceiling. The lane field appears in the transaction body and is repeated in the transaction envelope, so the network can read it without inspecting the body. The posted fee reveals an upper bound on what the submitter will pay, and the bidding strategy that [Incentives](#incentives) recommends sets that bound at the submitter's true maximum, so an observer can estimate what timely inclusion is worth to an urgent submitter. The refund account is the only other new field. One bit is the minimum for any mechanism that signals urgency at all, and a two-lane design stays at that minimum. Finer tiers would reveal a transaction's urgency, and so potentially its purpose, more precisely; [Why not full tiered pricing?](#why-not-full-tiered-pricing) notes this front-running surface as a security-adjacent concern with the tiered design. The CPS's own on-chain-record constraint requires the price of the signal to be public.
+One bit of lane choice, plus a fee ceiling. The lane field appears in the transaction body and is repeated in the transaction envelope, so the network can read it without inspecting the body. The posted fee reveals an upper bound on what the submitter will pay, and the bidding strategy that [Incentives](#incentives) describes sets that bound at the submitter's true maximum, so an observer can estimate what timely inclusion is worth to an urgent submitter. The refund account is the only other new field. One bit is the minimum for any mechanism that signals urgency at all, and a two-lane design stays at that minimum. Finer tiers would reveal a transaction's urgency, and so potentially its purpose, more precisely; [Why not full tiered pricing?](#why-not-full-tiered-pricing) notes this front-running surface as a security-adjacent concern with the tiered design. The CPS's own on-chain-record constraint requires the price of the signal to be public.
 
 **What MEV opportunities are created or amplified by public urgency signals?**
 
-The new information an extractor gains is the mark itself: the urgent lane collects transactions that are worth watching, such as liquidations and oracle updates, without any inspection of their contents. The design limits what that mark is worth. The quote is a posted price set by the controller, not a bid set by competition between users, so the signal creates no priority auction that an extractor can outbid, and the optimal user strategy stays the obvious one. The premium goes to the treasury, so a producer gains no direct fee revenue by reordering or displacing urgent transactions, and [Incentives](#incentives) argues that the collusive variant, an off-chain agreement between a user and a producer, does not pay. Ordering within a lane is node policy rather than a ledger rule, so ordering-dependent extraction that exists today is neither created nor removed by this CIP. Two limits remain. Once urgent demand alone exceeds Ranking Block capacity the signal stops discriminating, and the [Tipping](#tipping) extension discusses the explicit in-lane priority market that could follow. And the simulator does not model adversarial producer behaviour, so these are incentive arguments rather than measurements; the independent audit in [Path to Active](#acceptance-criteria) covers the incentives analysis.
+The new information an extractor gains is the mark itself: the urgent lane collects transactions that are worth watching, such as liquidations and oracle updates, without any inspection of their contents. The design limits what that mark is worth. The quote is a posted price set by the controller, not a bid set by competition between users, so the signal creates no priority auction that an extractor can outbid, and the optimal user strategy stays the obvious one. The premium goes to the treasury, so a producer gains no direct fee revenue by reordering or displacing urgent transactions, and [Incentives](#incentives) argues that the collusive variant, an off-chain agreement between a user and a producer, earns the producer no direct fee revenue, though such agreements remain possible. Ordering within a lane is node policy rather than a ledger rule, so ordering-dependent extraction that exists today is neither created nor removed by this CIP. Two limits remain. Once urgent demand alone exceeds Ranking Block capacity the signal stops discriminating, and the [Tipping](#tipping) extension discusses the explicit in-lane priority market that could follow. And the simulator does not model adversarial producer behaviour, so these are incentive arguments rather than measurements; the independent audit in [Path to Active](#acceptance-criteria) covers the incentives analysis.
 
 ### Experimental evidence
 

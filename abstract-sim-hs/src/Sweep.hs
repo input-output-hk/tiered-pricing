@@ -79,6 +79,7 @@ data LoadOverride
 
 data SweepSpec = SweepSpec
   { sweepDescription :: Maybe String
+  , sweepSeedStart :: Int
   , sweepSeeds :: Int
   , sweepSlots :: Int
   , sweepOutDir :: FilePath
@@ -107,7 +108,8 @@ type RunScalars = [(String, Double)]
 -- | Command-line overrides on top of the manifest, for quick iteration
 -- without editing the committed experiment definition.
 data SweepOverrides = SweepOverrides
-  { overrideSeeds :: Maybe Int
+  { overrideSeedStart :: Maybe Int
+  , overrideSeeds :: Maybe Int
   , overrideSlots :: Maybe Int
   , overrideOut :: Maybe FilePath
   , overrideLoad :: Maybe LoadOverride
@@ -116,7 +118,7 @@ data SweepOverrides = SweepOverrides
   deriving (Eq, Show)
 
 parseSweepArgs :: [String] -> Either String (FilePath, SweepOverrides)
-parseSweepArgs = go (Nothing, SweepOverrides Nothing Nothing Nothing Nothing False)
+parseSweepArgs = go (Nothing, SweepOverrides Nothing Nothing Nothing Nothing Nothing False)
  where
   go (manifest, overrides) = \case
     [] ->
@@ -126,6 +128,9 @@ parseSweepArgs = go (Nothing, SweepOverrides Nothing Nothing Nothing Nothing Fal
     "--seeds" : value : rest -> do
       seeds <- readPositive "--seeds" value
       go (manifest, overrides{overrideSeeds = Just seeds}) rest
+    "--seed-start" : value : rest -> do
+      seedStart <- readNonNegative "--seed-start" value
+      go (manifest, overrides{overrideSeedStart = Just seedStart}) rest
     "--slots" : value : rest -> do
       slots <- readPositive "--slots" value
       go (manifest, overrides{overrideSlots = Just slots}) rest
@@ -148,10 +153,16 @@ parseSweepArgs = go (Nothing, SweepOverrides Nothing Nothing Nothing Nothing Fal
       [(n, "")] | n >= 1 -> Right n
       _ -> Left ("sweep: " <> flag <> " needs a positive integer, got " <> show value)
 
+  readNonNegative flag value =
+    case reads value of
+      [(n, "")] | n >= 0 -> Right n
+      _ -> Left ("sweep: " <> flag <> " needs a non-negative integer, got " <> show value)
+
 applyOverrides :: SweepOverrides -> SweepSpec -> SweepSpec
 applyOverrides overrides spec =
   spec
-    { sweepSeeds = fromMaybe spec.sweepSeeds overrides.overrideSeeds
+    { sweepSeedStart = fromMaybe spec.sweepSeedStart overrides.overrideSeedStart
+    , sweepSeeds = fromMaybe spec.sweepSeeds overrides.overrideSeeds
     , sweepSlots = fromMaybe spec.sweepSlots overrides.overrideSlots
     , sweepOutDir = fromMaybe spec.sweepOutDir overrides.overrideOut
     , sweepLoadOverride = overrides.overrideLoad <|> spec.sweepLoadOverride
@@ -160,6 +171,7 @@ applyOverrides overrides spec =
 
 data ParseSweepSpec = ParseSweepSpec
   { parseSweepDescription :: Maybe String
+  , parseSweepSeedStart :: Maybe Int
   , parseSweepSeeds :: Maybe Int
   , parseSweepSlots :: Maybe Int
   , parseSweepOut :: Maybe FilePath
@@ -174,6 +186,7 @@ instance FromJSON ParseSweepSpec where
     withObject "ParseSweepSpec" \obj ->
       ParseSweepSpec
         <$> obj .:? "description"
+        <*> obj .:? "seedStart"
         <*> obj .:? "seeds"
         <*> obj .:? "slots"
         <*> obj .:? "out"
@@ -213,6 +226,7 @@ fromParseSweepSpec parsed = do
   pure
     SweepSpec
       { sweepDescription = parsed.parseSweepDescription
+      , sweepSeedStart = fromMaybe 0 parsed.parseSweepSeedStart
       , sweepSeeds = fromMaybe 10 parsed.parseSweepSeeds
       , sweepSlots = fromMaybe 2_000 parsed.parseSweepSlots
       , sweepOutDir = fromMaybe "sweep-results" parsed.parseSweepOut
@@ -242,6 +256,8 @@ fromParseSweepSpec parsed = do
   validate variants
     | null variants = Left "at least one variant is required"
     | names /= nub names = Left "variant names must be unique"
+    | maybe False (< 0) parsed.parseSweepSeedStart =
+        Left "seedStart must be non-negative"
     | any (< 1) (fromMaybe 1 <$> [parsed.parseSweepSeeds, parsed.parseSweepSlots]) =
         Left "seeds and slots must be positive"
     | otherwise = Right ()
@@ -253,7 +269,11 @@ runSweep spec = do
   resolvedLoad <- traverse resolveLoadOverride spec.sweepLoadOverride
   createDirectoryIfMissing True spec.sweepOutDir
   copySelectedProfile spec resolvedLoad
-  variants <- traverse (runVariant spec (loadValue <$> resolvedLoad)) spec.sweepVariants
+  -- Save and parse every variant config before the first run: the sweep no
+  -- longer depends on the source files staying put beneath a multi-hour run,
+  -- and a config problem in a late variant surfaces immediately.
+  prepared <- traverse (prepareVariant spec (loadValue <$> resolvedLoad)) spec.sweepVariants
+  variants <- traverse (runVariant spec) prepared
   let summaryPath = spec.sweepOutDir </> "summary.json"
   BL.writeFile summaryPath (encode (summaryJson spec resolvedLoad variants))
   putStrLn ("wrote " <> summaryPath)
@@ -278,8 +298,8 @@ copySelectedProfile _ (Just ResolvedPreset{}) = pure ()
 copySelectedProfile spec (Just (ResolvedProfile path _)) =
   copyFile path (spec.sweepOutDir </> "selected-load-profile.json")
 
-runVariant :: SweepSpec -> Maybe Value -> SweepVariant -> IO (SweepVariant, [(Seed, RunScalars)])
-runVariant spec selectedLoad variant = do
+prepareVariant :: SweepSpec -> Maybe Value -> SweepVariant -> IO (SweepVariant, SimConfig)
+prepareVariant spec selectedLoad variant = do
   -- the output directory is self-contained for reproduction: the exact
   -- config of every variant rides along with the traces it produced. When a
   -- load override is in force we write the effective config (with the load
@@ -287,8 +307,14 @@ runVariant spec selectedLoad variant = do
   let savedConfig = spec.sweepOutDir </> (variant.variantName <> ".config.json")
   writeEffectiveConfig selectedLoad variant.variantConfig savedConfig
   config <- parseSimConfig savedConfig
+  pure (variant, config)
+
+runVariant :: SweepSpec -> (SweepVariant, SimConfig) -> IO (SweepVariant, [(Seed, RunScalars)])
+runVariant spec (variant, config) = do
   runs <-
-    traverse (runPoint spec variant.variantName config) (fromIntegral <$> [0 .. spec.sweepSeeds - 1])
+    traverse
+      (runPoint spec variant.variantName config)
+      (fromIntegral <$> [spec.sweepSeedStart .. spec.sweepSeedStart + spec.sweepSeeds - 1])
   pure (variant, runs)
 
 {- | Copy a variant config into the sweep output, optionally replacing its
@@ -578,6 +604,7 @@ summaryJson :: SweepSpec -> Maybe ResolvedLoad -> [(SweepVariant, [(Seed, RunSca
 summaryJson spec resolvedLoad variants =
   object
     [ "description" .= spec.sweepDescription
+    , "seedStart" .= spec.sweepSeedStart
     , "slots" .= spec.sweepSlots
     , "seeds" .= spec.sweepSeeds
     , "summaryOnly" .= spec.sweepSummaryOnly

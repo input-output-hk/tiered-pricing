@@ -130,6 +130,7 @@ expectedFixtureSweep :: SweepSpec
 expectedFixtureSweep =
   SweepSpec
     { sweepDescription = Just "fixture"
+    , sweepSeedStart = 0
     , sweepSeeds = 3
     , sweepSlots = 500
     , sweepOutDir = "/tmp/fixture-sweep"
@@ -145,7 +146,7 @@ expectedFixtureSweep =
 assertSweepLoadProfileOverride :: IO ()
 assertSweepLoadProfileOverride = do
   let profilePath = "config/loads/eb-capacity-stress.json"
-      overrides = SweepOverrides Nothing Nothing Nothing (Just (LoadProfileFile profilePath)) False
+      overrides = SweepOverrides Nothing Nothing Nothing Nothing (Just (LoadProfileFile profilePath)) False
   assertEqual
     "load profile command-line argument"
     (Right ("config/sweeps/mechanisms.json", overrides))
@@ -154,12 +155,12 @@ assertSweepLoadProfileOverride = do
     "load profile applied to sweep spec"
     (Just (LoadProfileFile profilePath))
     (applyOverrides overrides expectedFixtureSweep).sweepLoadOverride
-  let presetOverrides = SweepOverrides Nothing Nothing Nothing (Just (LoadPreset "low")) False
+  let presetOverrides = SweepOverrides Nothing Nothing Nothing Nothing (Just (LoadPreset "low")) False
   assertEqual
     "load preset command-line argument"
     (Right ("config/sweeps/mechanisms.json", presetOverrides))
     (parseSweepArgs ["config/sweeps/mechanisms.json", "--load", "low"])
-  let summaryOnlyOverrides = SweepOverrides Nothing Nothing Nothing Nothing True
+  let summaryOnlyOverrides = SweepOverrides Nothing Nothing Nothing Nothing Nothing True
   assertEqual
     "summary-only command-line argument"
     (Right ("config/sweeps/mechanisms.json", summaryOnlyOverrides))
@@ -167,6 +168,15 @@ assertSweepLoadProfileOverride = do
   assertTrue
     "summary-only applied to sweep spec"
     (applyOverrides summaryOnlyOverrides expectedFixtureSweep).sweepSummaryOnly
+  let seedStartOverrides = SweepOverrides (Just 100) Nothing Nothing Nothing Nothing False
+  assertEqual
+    "seed-start command-line argument"
+    (Right ("config/sweeps/mechanisms.json", seedStartOverrides))
+    (parseSweepArgs ["config/sweeps/mechanisms.json", "--seed-start", "100"])
+  assertEqual
+    "seed-start applied to sweep spec"
+    100
+    (applyOverrides seedStartOverrides expectedFixtureSweep).sweepSeedStart
 
 -- | Serialisation is an output concern only: suppressing it must not change
 -- the event fold or any final metric for the same config, seed, and horizon.
@@ -317,6 +327,27 @@ assertLiveConfigsParse = do
     ]
     (map (.variantConfig) defaultThresholdAblation.sweepVariants)
   mapM_ (parseSimConfig . (.variantConfig)) defaultThresholdAblation.sweepVariants
+  standardTargetScreen <- loadSweepSpec "config/sweeps/standard-target-screen.json"
+  assertTrue "standard-target screen is summary-only" standardTargetScreen.sweepSummaryOnly
+  assertEqual "standard-target screen starts at seed zero" 0 standardTargetScreen.sweepSeedStart
+  assertEqual "standard-target screen uses 100 paired seeds" 100 standardTargetScreen.sweepSeeds
+  assertEqual "standard-target screen uses 2,000 slots" 2_000 standardTargetScreen.sweepSlots
+  assertEqual
+    "standard-target screen isolates exogenous randomness"
+    IndependentRandomness
+    standardTargetScreen.sweepRandomnessMode
+  assertEqual
+    "standard-target screen contains the census, controls, and independent target arms"
+    [ "demand-census"
+    , "flat-fee"
+    , "canonical-s50-u50"
+    , "priority-only-u50"
+    , "s625-u50"
+    , "s75-u50"
+    , "s875-u50"
+    ]
+    (map (.variantName) standardTargetScreen.sweepVariants)
+  mapM_ (parseSimConfig . (.variantConfig)) standardTargetScreen.sweepVariants
   mechanisms <- loadSweepSpec "config/sweeps/mechanisms.json"
   assertEqual
     "mechanism sweep covers controls, phase-2 candidates, and windowed-priority companions"

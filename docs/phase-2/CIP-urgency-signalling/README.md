@@ -694,12 +694,21 @@ The producer-side rule follows from this: a prudent producer fills an EB only wi
 
 Reminder:
 
-```
-step_bound = max(1/D, (1 - targetUtilisation_l) / (targetUtilisation_l × D)), or 0 if lane l has no controller
+If lane $l$ has a controller:
 
-standard transaction:  max fee ≥ quote_standard × (1 + step_bound_standard)
-urgent transaction:    max fee ≥ max(quote_standard × (1 + step_bound_standard), quote_urgent × (1 + step_bound_urgent))
-```
+$$ \mathrm{stepBound}_{l} = \max\left( \frac{1}{D}, \frac{1-\mathrm{targetUtilisation}_{l}}{\mathrm{targetUtilisation}_{l} \times D} \right) $$
+
+Otherwise:
+
+$$ \mathrm{stepBound}_{l} = 0 $$
+
+For a standard transaction:
+
+$$ \mathrm{maxFee} \ge \mathrm{quote}_{\mathrm{standard}} \times \left(1+\mathrm{stepBound}_{\mathrm{standard}}\right) $$
+
+For an urgent transaction:
+
+$$ \mathrm{maxFee} \ge \max\left( \mathrm{quote}_{\mathrm{standard}} \times \left(1+\mathrm{stepBound}_{\mathrm{standard}}\right), \mathrm{quote}_{\mathrm{urgent}} \times \left(1+\mathrm{stepBound}_{\mathrm{urgent}}\right) \right) $$
 
 These fee-cap rules mean the bare current quote is never sufficient: a user must submit with a buffer against quote movement. With the lane-specific `step_bound` values defined under the "Revalidation and stale fees" section, a lane's quote can rise to at most `quote × (1 + step_bound)^k` over `k` worst-case updates. The ledger itself demands no buffer at all: at inclusion, the posted maximum need only cover the quote at that moment. The one-step requirements are node policy: admission checks one worst-case step ahead of the quote at admission, and an EB producer repeats the same check against the quote at selection. Anything beyond that is the user's insurance against eviction while they wait. A transaction that queues through `k` price updates keeps its place only while its posted maximum covers the current fee-cap quote. A user who expects to wait `k` updates must therefore post enough to cover every applicable lane's quote after `k` worst-case steps (for an urgent transaction, the larger of the two). At the recommended target 0.5 and D = 16 for both lanes, that is `(1 + 1/16)^k` times the current fee-cap quote. A transaction that expects to wait four updates posts roughly 27% above it. A buffer is palatable only with a refund of the difference between the posted fee and the actual quote charged at inclusion. [The fee change CIP](https://github.com/polinavino/CIPs/tree/fee-change/CIP-%3F%3F%3F%3F) describes this refund mechanism.
 

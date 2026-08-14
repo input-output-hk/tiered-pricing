@@ -1034,6 +1034,44 @@ The [preserved evidence record](./thousand-seed-low-severe.json) holds the per-s
 
 Full details, including method, configs, per-load tables, paired seed deltas, and figures: [preliminary experiment report](https://github.com/input-output-hk/tiered-pricing/blob/main/docs/phase-2/preliminary-experiment-report.md).
 
+### Prototype
+
+https://github.com/user-attachments/assets/6a4ef69a-516f-4517-bfbd-d7b8a97b09cf
+
+The two lanes running on the devnet (8 min 50 s): a walkthrough of the mechanism, followed by sustained demand, quote increases and transaction evictions, certification pressure and recovery, and the return to an idle network. Captions are included.
+
+The mechanism has been implemented end to end in a prototype based on the Linear Leios prototype node. The implementation covers four integration boundaries:
+
+- ledger validation, controller updates, fee settlement, and refunds;
+- consensus mempool admission, selection, and revalidation;
+- transaction construction and submission; and
+- Endorser Block announcement, voting, certification, and tracing.
+
+The prototype runs a three-node Dijkstra devnet with a live dashboard and generated senders that select lanes using the published quotes. It therefore complements the discrete-event simulator with implementation evidence from a running multi-node protocol. The code, launcher, change sets, design notes, and the mapping between the prototype terminology and this CIP are available in the [prototype repository](https://github.com/nhenin/dynamic-pricing).
+
+The prototype exercises the following transaction lifecycle:
+
+- A Ranking Block containing a transaction whose fee cap does not cover the applicable urgent quote fails ledger validation with `BidBelowQuote`.
+- Controller updates are executed as part of block processing. A certified Endorser Block contributes its payload to the utilisation signals exactly once, when it is certified.
+- At settlement, the posted fee cap is decomposed as:
+
+  $$ \mathrm{postedFeeCap} = \mathrm{baseFee} + \mathrm{premium} + \mathrm{refund} $$
+
+  The base fee enters the fee pot, the premium enters the treasury through the donation pot, and the excess is credited to the refund account specified by the transaction.
+- Node policy admits transactions using the one-step fee-cap buffer and revalidates them as quotes move. A transaction is evicted when its fee cap no longer satisfies the applicable admission requirement.
+- Endorser Block announcement is gated by the byte threshold—45,056 bytes with the tested configuration—and by the `K = 10` age escape. Below the threshold, standard transactions remain pooled until additional transactions arrive or the age escape opens.
+- All three nodes participate in the Linear Leios voting and certification pipeline. The certification-miss scenario suppresses votes at their source rather than fabricating a certificate or ledger outcome.
+
+The tested configuration uses a target utilisation of `0.5`, a max-change denominator of `16`, a five-sample urgent window, a twenty-block standard window, the urgent lane's initial `2×` coefficient, the announcement threshold, and the `K = 10` age escape. Utilisation is computed independently for bytes and execution units, using the larger ratio.
+
+Ledger validity requires the posted fee cap to cover the applicable quote at inclusion. Admission and producer selection additionally apply the one-step node-policy buffer described above. For an urgent transaction, this policy considers both possible delivery paths. If the transaction is delivered through a certified Endorser Block, it is charged the standard quote and the excess is refunded.
+
+The prototype FIFO-merges the urgent remainder with the standard lane when constructing an Endorser Block. A certificate-carrying Ranking Block contains no separate transaction payload: its unresolved transaction sequence is empty, and block resolution applies only the certified Endorser Block payload. This gives every transaction in the resolved block the same certified-delivery semantics.
+
+The most difficult integration issue was preserving a single transaction lifecycle while an Endorser Block was in flight. Announced transactions must leave the selectable mempool to prevent duplicate inclusion. Transactions from superseded uncertified payloads must be readmitted without violating dependencies, while certified transactions must be applied in dependency order. The prototype includes targeted tests and live traces for these behaviours.
+
+The prototype provides implementation evidence, but it is not production-ready. Production integration would additionally require governed protocol parameters, era-versioned serialization, complete dependency and governance-action handling, adversarial mempool and DoS analysis, wallet support, restart and rollback testing, fork-convergence testing, and shared conformance tests across the formal model, simulator, ledger, consensus, and wallet implementations.
+
 ### Why not full tiered pricing?
 
 We initially planned a mechanism based on the paper [Tiered Mechanisms for Blockchain Transaction Fees by Kiayias et al](https://arxiv.org/pdf/2304.06014) as the subject of this CIP. After discussion with stakeholders and investigation into the technical requirements, we decided that a reduced-complexity version is adequate for community needs. A simpler version is also easier to prove, is less likely to cause regression, and ships sooner. Earlier delivery can offset any value-retention differential anyway.

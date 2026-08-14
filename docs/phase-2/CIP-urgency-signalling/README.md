@@ -306,9 +306,11 @@ This is a capacity-weighted signal: each block affects the result in proportion 
 ### Mempool
 
 Our priority signaling design includes changes to the consensus protocol, the Leios protocol specifically. 
-For this reason we have 
-[specified](https://github.com/IntersectMBO/ouroboros-consensus/compare/polina/mempool-spec?expand=1) in Agda both 
-the Praos (`Mempool.lagda.md`), Leios, and Leios *with priority signaling* mempools. 
+For this reason, we [specified](https://github.com/IntersectMBO/ouroboros-consensus/compare/polina/mempool-spec?expand=1) three mempool variants in Agda:
+- the **Praos mempool** (`Mempool.lagda.md`);
+- the **baseline Leios mempool**;
+- the **Leios mempool with priority signaling**.
+
 In all three specifications, the mempool imposes the same constraints on the block as enforced at the ledger level 
 by the corresponding consensus protocol,
 e.g. block size limits, the constraint that an RB has either transactions or an EB certificate and never both, etc. 
@@ -335,10 +337,14 @@ returns a pair `(RB, Maybe EB)`. The `RB` is sent across the network to be added
 The priority signaling mempool design, specified in `MempoolLeiosPricing.lagda.md`,
 features two distinct ledger states in place of `updatedLedger`: 
 
-  1. `priorityUpdatedLedger`, corresponding to the application of all transactions in the `priorityTxs` queue 
-  (transactions specifying the priority tier) to `ebLedger` or `ledger`, depending on if a valid EB has arrived
-  1. `standardUpdatedLedger`, corresponding to the application of all transactions in the `standardTxs` queue
-  (transactions specifying the standard tier) to `priorityUpdatedLedger`
+- **`priorityUpdatedLedger`**: the result of applying every transaction in `priorityTxs` to:
+  - `ebLedger`, when a valid EB has arrived; or
+  - `ledger`, otherwise.
+
+  The `priorityTxs` queue contains transactions that specify the priority tier.
+- **`standardUpdatedLedger`**: the result of applying every transaction in `standardTxs` on top of `priorityUpdatedLedger`.
+
+  The `standardTxs` queue contains transactions that specify the standard tier.
 
 The mempool is able to request transactions of a specific tier from its peers. 
 It first requests the priority tier transactions, 

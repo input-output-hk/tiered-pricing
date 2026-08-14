@@ -495,12 +495,21 @@ A possible alternative is a 1× cross-lane clamp, which enforces `urgent quote �
 
 At admission, the posted max fee must cover the applicable lane quotes one worst-case controller step ahead: both lanes for an urgent transaction, since it can settle at either quote, and the standard lane alone otherwise. One step is the right horizon because an EB producer requires the same at selection, so nothing enters the mempool that a producer then refuses. At the recommended target 0.5 and D = 16 on both lanes, that is around 6.25% of headroom. The urgent lane requires headroom because of eviction. An urgent transaction that offers exactly the urgent fee and no more can be priced out while it waits during a price increase. The node must then evict it, and the transaction wasted mempool space for its whole stay.
 
-```
-step_bound = max(1/D, (1 - targetUtilisation_l) / (targetUtilisation_l × D)), or 0 if lane l has no controller
+If lane $l$ has a controller:
 
-standard transaction:  max fee ≥ quote_standard × (1 + step_bound_standard)
-urgent transaction:    max fee ≥ max(quote_standard × (1 + step_bound_standard), quote_urgent × (1 + step_bound_urgent))
-```
+$$ \mathrm{stepBound}_{l} = \max\left( \frac{1}{D}, \frac{1-\mathrm{targetUtilisation}_{l}}{\mathrm{targetUtilisation}_{l} \times D} \right) $$
+
+Otherwise:
+
+$$ \mathrm{stepBound}_{l} = 0 $$
+
+For a standard transaction:
+
+$$ \mathrm{maxFee} \ge \mathrm{quote}_{\mathrm{standard}} \times \left(1+\mathrm{stepBound}_{\mathrm{standard}}\right) $$
+
+For an urgent transaction:
+
+$$ \mathrm{maxFee} \ge \max\left( \mathrm{quote}_{\mathrm{standard}} \times \left(1+\mathrm{stepBound}_{\mathrm{standard}}\right), \mathrm{quote}_{\mathrm{urgent}} \times \left(1+\mathrm{stepBound}_{\mathrm{urgent}}\right) \right) $$
 
 The node rejects a transaction that cannot survive even one price update at the door. The rejection is visible, and the user can cheaply resubmit with a larger buffer. The alternative is worse: an admitted transaction sits against the mempool cap until it goes stale.
 

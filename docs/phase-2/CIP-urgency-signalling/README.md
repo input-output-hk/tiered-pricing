@@ -302,7 +302,6 @@ The block-production events contribute as follows:
 
 This is a capacity-weighted signal: each block affects the result in proportion to its capacity. At the capacities used in the experiments, a certified EB provides `12,000,000` bytes of capacity, compared with `90,112` bytes for a Ranking Block. A certified EB therefore carries approximately 133 times the byte weight of an RB, so the standard quote responds primarily to Endorser Block utilisation.
 
-The specification covers several areas:
 
 ### Mempool
 

@@ -163,12 +163,13 @@ We also specify a modification that corrects a problem at moderate load, when RB
 
 - **Standard lane:** A pathway for transactions that do not pay the urgent fee.
 - **Urgent lane:** A pathway for transactions that pay the urgent fee.
-- **Lane selection (the user-side decision):** The choice of lane, made by the constructor of a transaction.
+- **Priority:** The term the Mempool and Ledger sections use for urgent. The priority tier (`tier_no = 0`) is the urgent lane, and a priority transaction is a transaction in that tier.
+- **Lane choice (the user-side decision):** The choice of lane, made by the constructor of a transaction.
 
 **Pricing primitives**
 
-- **Pricing coefficient:** The value that multiplies the base fee to produce the quote. Also called *tier coefficient*.
-- **Quote:** The pricing coefficient multiplied by the base fee. In effect, a snapshot of the dynamic fee for a given transaction.
+- **Pricing coefficient:** The value that multiplies the ordinary minimum fee to produce the quote. Also called *tier coefficient*.
+- **Quote:** The pricing coefficient multiplied by the ordinary minimum fee. In effect, a snapshot of the dynamic fee for a given transaction.
 - **Urgent premium:** The difference between the urgent lane quote and the standard lane quote.
 - **Absolute coefficient floor:** The minimum allowed lane pricing coefficient, set to `1.0`: no quote can fall below the ordinary Cardano minimum fee.
 - **Fixed (pricing):** Basic Cardano fee, as today.
@@ -177,13 +178,13 @@ We also specify a modification that corrects a problem at moderate load, when RB
 - **Max-change denominator (D):** The scale in the controller update. Before the coefficient floor, the largest downward step is `1/D`. The largest upward step is `(1 - targetUtilisation) / (targetUtilisation × D)`. At target 0.5 these are equal, so the price rises and falls at the same maximum rate. Below 0.5 the price can rise faster than it falls. Above 0.5 it rises more slowly.
 - **Signal window:** The number of recent blocks over which the controller measures utilisation, so a single unusual block cannot swing the price.
 - **Target utilisation:** The block fill level the controller steers towards (0.5 for the urgent controller and 0.75 for the standard controller in the default configuration). Utilisation above the target raises the price. Utilisation below it lowers the price.
-- **Quote drift:** The difference between the quote at submission time and the quote at inclusion time.
+- **Quote movement:** The difference between the quote at submission time and the quote at inclusion time.
 
 **User-side fee fields**
 
 - **Posted fee vs actual fee:** The posted fee is the amount attached to the transaction at submission. The actual fee is the quote at inclusion time. The ledger refunds the difference.
 - **Refund:** The return of the excess fee to a specified address.
-- **Max fee (`max_fee_lovelace` / fee ceiling on the user side):** The most a user agrees to pay, posted with the transaction. It buffers against quote drift. If the quote exceeds it, the transaction cannot be included.
+- **Max fee (the fee ceiling on the user side):** The most a user agrees to pay, posted with the transaction. In the transaction representation this is the ordinary `txfee` field; the excess over the actual fee returns to the `reward_account`. It buffers against quote movement. If the quote exceeds it, the transaction cannot be included.
 
 **Value / actors**
 

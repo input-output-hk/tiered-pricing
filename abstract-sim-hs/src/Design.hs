@@ -162,7 +162,8 @@ instance FromJSON Eip1559Controller where
         <*> obj .: "signal"
 
 data ControllerSignal
-  = CapacityWeightedWindow Int
+  = CapacityWeightedUtil
+  | CapacityWeightedWindow Int
   | PriorityReservationUtil
   | PriorityReservationWindow Int
   deriving stock (Eq, Show)
@@ -171,7 +172,8 @@ instance FromJSON ControllerSignal where
   parseJSON =
     taggedSum
       "controller signal"
-      [ ("priority-reservation-util", Nullary PriorityReservationUtil)
+      [ ("capacity-weighted-util", Nullary CapacityWeightedUtil)
+      , ("priority-reservation-util", Nullary PriorityReservationUtil)
       , ("priority-reservation-window", WithFields \obj -> PriorityReservationWindow <$> obj .: "window")
       , ("capacity-weighted-window", WithFields \obj -> CapacityWeightedWindow <$> obj .: "window")
       ]

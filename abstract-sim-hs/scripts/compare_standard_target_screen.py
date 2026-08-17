@@ -126,10 +126,10 @@ def require(condition: bool, message: str) -> None:
         raise ValueError(message)
 
 
-def validate_effective_configs(root: Path) -> dict[str, str]:
+def validate_effective_configs(root: Path, candidates: list[str]) -> dict[str, str]:
     paths = {
         name: root / f"{name}.config.json"
-        for name in [CENSUS_VARIANT, FLAT_VARIANT, *CANDIDATE_VARIANTS]
+        for name in [CENSUS_VARIANT, FLAT_VARIANT, *candidates]
     }
     configs = {name: load_json(path) for name, path in paths.items()}
 
@@ -154,14 +154,17 @@ def validate_effective_configs(root: Path) -> dict[str, str]:
     require(reservation["ebThresholdBytes"] == 45056, "EB threshold must stay at half an RB")
     require(reservation["ebAgeEscapeRbIntervals"] == 10, "EB age escape must stay at K10")
 
-    expected_priority_only = copy.deepcopy(canonical)
-    del expected_priority_only["design"]["controllers"]["standardController"]
-    require(
-        configs["priority-only-u50"] == expected_priority_only,
-        "priority-only-u50 must differ from canonical only by removing standardController",
-    )
+    if "priority-only-u50" in configs:
+        expected_priority_only = copy.deepcopy(canonical)
+        del expected_priority_only["design"]["controllers"]["standardController"]
+        require(
+            configs["priority-only-u50"] == expected_priority_only,
+            "priority-only-u50 must differ from canonical only by removing standardController",
+        )
 
     for name, target in (("s625-u50", 0.625), ("s75-u50", 0.75), ("s875-u50", 0.875)):
+        if name not in configs:
+            continue
         expected = copy.deepcopy(canonical)
         expected["design"]["controllers"]["standardController"]["targetUtilisation"] = target
         require(
@@ -284,6 +287,7 @@ def build_report(
     manifest: Path,
     simulator_sha256: str | None,
     load_name: str,
+    stage: str = "screen",
 ) -> dict[str, Any]:
     summary_path = root / "summary.json"
     summary = load_summary(summary_path)
@@ -295,7 +299,13 @@ def build_report(
         f"screen must use the {load_name} profile",
     )
 
-    names = [CENSUS_VARIANT, FLAT_VARIANT, *CANDIDATE_VARIANTS]
+    summary_variant_names = {v.get("name") for v in summary["variants"]}
+    candidates = [name for name in CANDIDATE_VARIANTS if name in summary_variant_names]
+    require(
+        CANONICAL_VARIANT in candidates,
+        "the canonical-s50-u50 arm must be present for vs-canonical pairing",
+    )
+    names = [CENSUS_VARIANT, FLAT_VARIANT, *candidates]
     runs = {name: variant_runs(summary, name, summary_path) for name in names}
     seed_sets = {name: set(by_seed) for name, by_seed in runs.items()}
     expected_seeds = set(runs[CENSUS_VARIANT])
@@ -316,8 +326,8 @@ def build_report(
     )
     seeds = sorted(expected_seeds)
 
-    config_hashes = validate_effective_configs(root)
-    arm_names = [FLAT_VARIANT, *CANDIDATE_VARIANTS]
+    config_hashes = validate_effective_configs(root, candidates)
+    arm_names = [FLAT_VARIANT, *candidates]
     per_arm: dict[str, dict[str, list[float]]] = {}
     for name in arm_names:
         derived = [
@@ -381,15 +391,23 @@ def build_report(
             }
         )
 
+    if stage == "confirm":
+        description = f"Confirmatory paired rerun of the pre-selected independent standard-lane target under {load_name}. Deltas use two-sided 95% paired-t intervals and are conditional on this simulator calibration."
+        role = "confirmation of the pre-selected arm on a disjoint seed range"
+    else:
+        description = f"Exploratory paired screen of independent standard-lane targets under {load_name}. Deltas use two-sided 95% paired-t intervals and are conditional on this simulator calibration."
+        role = "candidate screening; use held-out seeds for confirmation"
     return {
-        "description": f"Exploratory paired screen of independent standard-lane targets under {load_name}. Deltas use two-sided 95% paired-t intervals and are conditional on this simulator calibration.",
+        "description": description,
         "method": {
             "randomness": summary.get("randomness"),
             "seeds": seeds,
             "seedStart": declared_seed_start,
             "slots": summary.get("slots"),
             "load": load_name,
-            "role": "candidate screening; use held-out seeds for confirmation",
+            "stage": stage,
+            "candidates": candidates,
+            "role": role,
             "demandCensus": "patient fixed-fee shadow arm with aligned fresh-demand stream; only its offered count/value totals are used",
         },
         "offeredDemand": offered_demand,
@@ -437,6 +455,8 @@ def render_markdown(report: dict[str, Any]) -> str:
     results = report["results"]
     n = len(method["seeds"])
     load_name = method["load"]
+    stage = method.get("stage", "screen")
+    candidates = method.get("candidates", CANDIDATE_VARIANTS)
     load_label = "Severe congestion" if load_name == "severe-congestion" else "Launch day"
     offered_line = (
         f"Mean offered demand: **{offered['units']['mean']:,.1f} units**, "
@@ -448,12 +468,24 @@ def render_markdown(report: dict[str, Any]) -> str:
             + f"; urgent class: **{offered['urgentUnits']['mean']:,.1f} units**, "
             + f"**{offered['urgentValueG']['mean']:,.3f} G lovelace**."
         )
+    if stage == "confirm":
+        title = f"# Independent standard-target confirmation: {load_label.lower()}"
+        intro = (
+            f"Confirmatory rerun over {n} paired seeds and {method['slots']} slots using "
+            "independent fresh-demand, block-production, and retry streams. Deltas are "
+            "candidate minus flat fee with two-sided 95% paired-t confidence intervals."
+        )
+    else:
+        title = f"# Independent standard-target screen: {load_label.lower()}"
+        intro = (
+            f"Exploratory screen over {n} paired seeds and {method['slots']} slots using "
+            "independent fresh-demand, block-production, and retry streams. Deltas are "
+            "candidate minus flat fee with two-sided 95% paired-t confidence intervals."
+        )
     lines = [
-        f"# Independent standard-target screen: {load_label.lower()}",
+        title,
         "",
-        f"Exploratory screen over {n} paired seeds and {method['slots']} slots using "
-        "independent fresh-demand, block-production, and retry streams. Deltas are "
-        "candidate minus flat fee with two-sided 95% paired-t confidence intervals.",
+        intro,
         "",
         "The patient shadow arm records the common generated-demand census. Its own "
         "service outcomes are not treated as a candidate.",
@@ -465,7 +497,7 @@ def render_markdown(report: dict[str, Any]) -> str:
         "| Candidate | Retained (G) | Δ retained vs flat (95% CI) | Δ retained vs canonical (95% CI) | Submitted units | Δ units vs flat (95% CI) | Initial-declined value (G) | Retained / offered | Conditional ratio |",
         "|---|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
-    for name in CANDIDATE_VARIANTS:
+    for name in candidates:
         metrics = results[name]["metrics"]
         lines.append(
             f"| {VARIANT_LABELS[name]} "
@@ -489,7 +521,7 @@ def render_markdown(report: dict[str, Any]) -> str:
                 "|---|---:|---:|---:|---:|---:|---:|---:|",
             ]
         )
-        for name in CANDIDATE_VARIANTS:
+        for name in candidates:
             metrics = results[name]["metrics"]
             lines.append(
                 f"| {VARIANT_LABELS[name]} "
@@ -520,7 +552,7 @@ def render_markdown(report: dict[str, Any]) -> str:
             "|---|---:|---:|---:|---:|---:|",
         ]
     )
-    for name in CANDIDATE_VARIANTS:
+    for name in candidates:
         metrics = results[name]["metrics"]
         lines.append(
             f"| {VARIANT_LABELS[name]} "
@@ -531,12 +563,22 @@ def render_markdown(report: dict[str, Any]) -> str:
             f"| {plain(metrics['price.shockCount']['mean'], 2)} |"
         )
 
+    if stage == "confirm":
+        closing = (
+            "This is the confirmatory rerun of the pre-selected arm against flat fee "
+            "and canonical on a disjoint seed range. The selection rule and this arm "
+            "were fixed before these seeds were inspected."
+        )
+    else:
+        closing = (
+            "This is a candidate-selection screen, not confirmatory evidence. Select "
+            "the decision rule before inspecting held-out seeds, then rerun only the "
+            "selected arm against flat fee and canonical on a disjoint seed range."
+        )
     lines.extend(
         [
             "",
-            "This is a candidate-selection screen, not confirmatory evidence. Select "
-            "the decision rule before inspecting held-out seeds, then rerun only the "
-            "selected arm against flat fee and canonical on a disjoint seed range.",
+            closing,
             "",
             "`retained - realised fees` is user-side model value. Gross retained value "
             "is the appropriate total if fees are treated entirely as transfers; neither "
@@ -561,6 +603,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=PROJECT_DIR / "config/sweeps/standard-target-screen.json",
     )
     parser.add_argument("--simulator-sha256", default=None)
+    parser.add_argument(
+        "--stage",
+        choices=("screen", "confirm"),
+        default="screen",
+        help="screen: exploratory candidate screen; confirm: confirmatory rerun of the pre-selected arm",
+    )
     parser.add_argument("--markdown-output", type=Path, required=True)
     parser.add_argument("--json-output", type=Path, required=True)
     return parser.parse_args(argv)
@@ -568,7 +616,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
-    report = build_report(args.root, args.manifest, args.simulator_sha256, args.load_name)
+    report = build_report(args.root, args.manifest, args.simulator_sha256, args.load_name, args.stage)
     args.json_output.parent.mkdir(parents=True, exist_ok=True)
     args.json_output.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     args.markdown_output.parent.mkdir(parents=True, exist_ok=True)

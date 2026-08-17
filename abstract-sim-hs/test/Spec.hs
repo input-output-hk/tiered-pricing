@@ -46,6 +46,7 @@ main = do
   assertHeadroomInvariant
   assertWorstCaseNextPrices
   assertPriorityControllerReadsCurrentProduction
+  assertCapacityWeightedControllerReadsCurrentProduction
   assertPriorityReservationWindowUsesRbEquivalentCapacity
   assertPriorityReservationWindowRetention
   assertCapacityWeightedWindowCountsCertifiedEbs
@@ -667,6 +668,69 @@ assertPriorityControllerReadsCurrentProduction = do
       assertEqual "priority coeff after update" 18.0 (atLane Priority newPrices.laneCoeffs)
     _ -> do
       putStrLn ("expected exactly one priority update, got " <> show (length updates))
+      exitFailure
+
+{- | The windowless standard signal aggregates this update's complete block
+production. A certification update can end with a payload-free EB announcement,
+so treating a one-summary history as "windowless" would hide the certified EB.
+-}
+assertCapacityWeightedControllerReadsCurrentProduction :: IO ()
+assertCapacityWeightedControllerReadsCurrentProduction = do
+  let ebCapacity = Resources{resBytes = Bytes 100, resExUnits = ExUnits 1_000}
+      certifiedHalfStandard =
+        BlockUsage
+          { usageCapacity = ebCapacity
+          , usageUsed = Resources{resBytes = Bytes 50, resExUnits = ExUnits 0}
+          , usageLanes =
+              PerLane
+                { perStandard = Resources{resBytes = Bytes 50, resExUnits = ExUnits 0}
+                , perPriority = mempty
+                }
+          , usageSignalCapacity = mempty
+          }
+      emptyUsage =
+        BlockUsage
+          { usageCapacity = ebCapacity
+          , usageUsed = mempty
+          , usageLanes = pure mempty
+          , usageSignalCapacity = mempty
+          }
+      standardOnly =
+        ControllerConfig
+          { laneControllers =
+              PerLane
+                { perStandard =
+                    Just
+                      Eip1559Controller
+                        { controllerTargetUtilisation = 0.50
+                        , controllerMaxChangeDenominator = 8
+                        , controllerInitialCoefficient = 1.0
+                        , controllerSignal = CapacityWeightedUtil
+                        }
+                , perPriority = Nothing
+                }
+          , multiplierFloor = Nothing
+          , absoluteCoeffFloor = 1.0
+          }
+      input =
+        ControllerInput
+          { recentBlocks = Seq.fromList [EbAnnounced (EbId 8) emptyUsage]
+          , currentProduction =
+              Seq.fromList
+                [ RbCertifying (EbId 7)
+                , EbCertified (EbId 7) certifiedHalfStandard
+                , EbAnnounced (EbId 8) emptyUsage
+                ]
+          }
+      (newPrices, updates) = updatePrices standardOnly input (Prices (PerLane 8.0 1.0))
+  case updates of
+    [update] -> do
+      assertEqual "capacity-util update lane" Standard update.priceUpdateLane
+      assertEqual "capacity-util current-production utilisation" 0.5 update.priceUpdateUtilisation
+      assertEqual "capacity-util ignores trailing announcement" 8.0 update.priceUpdateNewCoeff
+      assertEqual "standard coeff after capacity-util update" 8.0 (atLane Standard newPrices.laneCoeffs)
+    _ -> do
+      putStrLn ("expected exactly one standard update, got " <> show (length updates))
       exitFailure
 
 assertPriorityReservationWindowUsesRbEquivalentCapacity :: IO ()

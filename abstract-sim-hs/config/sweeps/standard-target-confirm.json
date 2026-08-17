@@ -1,0 +1,15 @@
+{
+  "description": "Confirmatory rerun of the selected S=.75/U=.50 arm from the independent standard-lane target screen, paired against flat fee and canonical D16/K10 with the patient demand-census control, on the disjoint seed range 200-299. All other inputs (D16, windows 20/5, half-RB threshold, K10) stay fixed. The census arm always first-submits and supplies the common offered-demand denominator; its own inclusion outcomes are not candidates.",
+  "seedStart": 200,
+  "seeds": 100,
+  "slots": 2000,
+  "summaryOnly": true,
+  "randomness": "independent-streams",
+  "out": "sweep-results/standard-target-confirm/severe-congestion",
+  "variants": [
+    { "name": "demand-census", "config": "config/variants/standard-target-screen/demand-census.json" },
+    { "name": "flat-fee", "config": "config/variants/flat-fee.json" },
+    { "name": "canonical-s50-u50", "config": "config/variants/trickle-aging/thr-k10.json" },
+    { "name": "s75-u50", "config": "config/variants/standard-target-screen/s75-u50.json" }
+  ]
+}

@@ -1,0 +1,52 @@
+{
+  "description": "Held-out confirmation of the controller-window ablation. Uses three arms to confirm the two effects selected before this run: launch-day throughput under an instantaneous standard signal, and severe-congestion price-path oscillation under an instantaneous urgent signal. Pilot seeds 300-304 are excluded from confirmatory inference.",
+  "analysisPlan": {
+    "stage": "held-out-confirmation",
+    "pilot": {
+      "report": "sweep-results/window-ablation-smoke/comparison.json",
+      "reportSha256": "97b7a5f628d74cb55f06d191998044f7d8b54a925d6fc7dca7437c730379f55f",
+      "sourcePatchSha256": "c658660f40d481c42bc488816621d7b68e99d0b13b69b7914437afbe5c63d24b",
+      "seeds": [300, 301, 302, 303, 304],
+      "excludedFromInference": true
+    },
+    "primaryProcedure": "Two co-primary paired contrasts use two-sided 97.5% Student-t confidence intervals (Bonferroni-adjusted across the two endpoints). Each endpoint must also agree in the expected direction in at least 9 of 10 paired seeds. Both endpoints must pass.",
+    "primaryEndpoints": [
+      {
+        "id": "launch-standard-throughput",
+        "load": "launch-day",
+        "contrast": "standard-instant-minus-current",
+        "metric": "throughput.txPerSlot",
+        "expectedDirection": "negative"
+      },
+      {
+        "id": "severe-urgent-oscillation-travel",
+        "load": "severe-congestion",
+        "contrast": "urgent-instant-minus-current",
+        "metric": "price.oscillationExcessTravel",
+        "expectedDirection": "positive"
+      }
+    ],
+    "secondaryProcedure": "All other load, metric, and contrast results are descriptive coherence and safety checks with ordinary two-sided 95% paired-t confidence intervals. They are not additional confirmatory tests.",
+    "scope": "Passing supports standard windowing for launch-day throughput and urgent windowing for severe-load price-path stability over the tested instantaneous alternatives under this simulator calibration. It does not establish welfare, real-world optimality, or that window lengths 20 and 5 are globally optimal."
+  },
+  "seedStart": 400,
+  "seeds": 10,
+  "slots": 2000,
+  "summaryOnly": true,
+  "randomness": "independent-streams",
+  "out": "sweep-results/window-ablation-confirm/severe-congestion",
+  "variants": [
+    {
+      "name": "current-w20-w5",
+      "config": "config/variants/standard-target-screen/s75-u50.json"
+    },
+    {
+      "name": "standard-instant-w5",
+      "config": "config/variants/window-ablation/standard-instant-w5.json"
+    },
+    {
+      "name": "w20-urgent-instant",
+      "config": "config/variants/window-ablation/w20-urgent-instant.json"
+    }
+  ]
+}

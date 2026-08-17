@@ -1,0 +1,27 @@
+{
+  "description": "Exploratory paired 2x2 signal-window ablation. Holds the S=.75/U=.50, D16, half-RB threshold, K10 mechanism fixed while comparing standard W20 versus current-production capacity weighting and urgent W5 versus the current-production reservation signal. Five paired seeds across the five headline loads are intended as a directional 5-10 minute smoke test, not confirmatory evidence.",
+  "seedStart": 300,
+  "seeds": 5,
+  "slots": 2000,
+  "summaryOnly": true,
+  "randomness": "independent-streams",
+  "out": "sweep-results/window-ablation-smoke/severe-congestion",
+  "variants": [
+    {
+      "name": "current-w20-w5",
+      "config": "config/variants/standard-target-screen/s75-u50.json"
+    },
+    {
+      "name": "standard-instant-w5",
+      "config": "config/variants/window-ablation/standard-instant-w5.json"
+    },
+    {
+      "name": "w20-urgent-instant",
+      "config": "config/variants/window-ablation/w20-urgent-instant.json"
+    },
+    {
+      "name": "both-instant",
+      "config": "config/variants/window-ablation/both-instant.json"
+    }
+  ]
+}

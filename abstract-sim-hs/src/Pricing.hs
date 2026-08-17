@@ -295,6 +295,8 @@ updateLanePrice lane input oldCoeff controller =
 controllerUtilisation :: Lane -> ControllerInput -> Eip1559Controller -> Double
 controllerUtilisation lane input controller =
   case controller.controllerSignal of
+    CapacityWeightedUtil ->
+      capacityWeightedUtilisation lane input.currentProduction
     signal@CapacityWeightedWindow{} ->
       capacityWeightedWindowUtilisation lane (signalWindow signal) input.recentBlocks
     PriorityReservationUtil ->
@@ -308,6 +310,7 @@ starve them however the other controller is configured.
 -}
 signalWindow :: ControllerSignal -> Int
 signalWindow = \case
+  CapacityWeightedUtil -> 0
   CapacityWeightedWindow windowSize -> max 1 windowSize
   PriorityReservationUtil -> 0
   PriorityReservationWindow windowSize -> 3 * max 1 windowSize
@@ -336,11 +339,15 @@ applyEip1559Update controller oldCoeff utilisationValue =
 
 capacityWeightedWindowUtilisation :: Lane -> Int -> Seq BlockSummary -> Double
 capacityWeightedWindowUtilisation lane windowSize recentBlocks =
+  capacityWeightedUtilisation lane (takeLast windowSize recentBlocks)
+
+capacityWeightedUtilisation :: (Foldable f) => Lane -> f BlockSummary -> Double
+capacityWeightedUtilisation lane summaries =
   max
-    (utilisationRatio (fmap laneUsedBytes summaries) (fmap summaryCapacityBytes summaries))
-    (utilisationRatio (fmap laneUsedExUnits summaries) (fmap summaryCapacityExUnits summaries))
+    (utilisationRatio (fmap laneUsedBytes summaryList) (fmap summaryCapacityBytes summaryList))
+    (utilisationRatio (fmap laneUsedExUnits summaryList) (fmap summaryCapacityExUnits summaryList))
  where
-  summaries = takeLast windowSize recentBlocks
+  summaryList = Foldable.toList summaries
   laneUsedBytes summary =
     (atLane lane (summaryLaneUsage summary)).resBytes.unBytes
   laneUsedExUnits summary =

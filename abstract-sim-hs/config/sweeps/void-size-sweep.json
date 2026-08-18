@@ -1,0 +1,39 @@
+{
+  "description": "Exploratory paired sweep of the cert-void backfill size: the capacity a no-cert Ranking Block contributes to the W20 standard window, from the RB's own capacity (the recommended design's contribution, ~1/133 of an EB) up to a third of an empty EB. Both void resource caps scale with the EB fraction except the rbcaps arm, which uses the exact RB caps and is expected to reproduce the recommended arm bit-for-bit. Urgent controller stays W5; everything else fixed at S=.75/U=.50, D16, half-RB threshold, K10. Five paired seeds across the five headline loads; directional only, not confirmatory evidence.",
+  "seedStart": 300,
+  "seeds": 5,
+  "slots": 2000,
+  "summaryOnly": true,
+  "randomness": "independent-streams",
+  "out": "sweep-results/void-size-sweep/severe-congestion",
+  "variants": [
+    {
+      "name": "current-w20-w5",
+      "config": "config/variants/standard-target-screen/s75-u50.json"
+    },
+    {
+      "name": "standard-void-rbcaps-w5",
+      "config": "config/variants/window-ablation/standard-void-rbcaps-w5.json"
+    },
+    {
+      "name": "standard-void-32nd-w5",
+      "config": "config/variants/window-ablation/standard-void-32nd-w5.json"
+    },
+    {
+      "name": "standard-void-16th-w5",
+      "config": "config/variants/window-ablation/standard-void-16th-w5.json"
+    },
+    {
+      "name": "standard-void-8th-w5",
+      "config": "config/variants/window-ablation/standard-void-8th-w5.json"
+    },
+    {
+      "name": "standard-void-quarter-w5",
+      "config": "config/variants/window-ablation/standard-void-quarter-w5.json"
+    },
+    {
+      "name": "standard-void-third-w5",
+      "config": "config/variants/window-ablation/standard-void-third-w5.json"
+    }
+  ]
+}

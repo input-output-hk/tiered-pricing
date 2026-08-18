@@ -1368,6 +1368,77 @@ The corrected target-0.25 low-load formula/fixed pair is the documented exceptio
 
 ---
 
+### Independent standard-lane target screen and confirmation ###
+
+The parameter stress test above moves both controller targets together. This experiment moves only the standard-lane target. The urgent target stays at 0.5, and every other input stays fixed. It asks whether the two lanes want different equilibrium loads.
+
+An exploratory screen compared standard targets 0.625, 0.75, and 0.875, a fixed-standard arm with no standard controller, the canonical 0.5/0.5 calibration, and flat fee. It ran 100 paired seeds (0-99) and 2,000 slots per run, with independent random streams, under severe-congestion and launch-day loads. A patient demand-census arm supplied each seed's common offered-demand denominators. A full rerun of the screen on seeds 100-199 reproduced every arm ordering. In both seed ranges, targets 0.625 and 0.75 retained more overall value than the canonical calibration on both loads. Target 0.875 and the fixed-standard arm gave up most of the launch-day gain.
+
+We selected 0.75, the arm with the largest minimum improvement over canonical across the two loads. The confirmation then reran only that arm against flat fee and canonical on the disjoint seed range 200-299, with the demand-census arm retained. The selection rule and the arm were fixed before the confirmation seeds were inspected. Severe congestion and launch day were the compared loads. Low load, mid load, and EB-capacity stress ran as regression stages.
+
+Under severe congestion (mean offered value 456.0 G lovelace), the 0.75 target retains +6.842 G more than canonical (95% CI [+5.864, +7.820]). Unlike canonical, it also beats flat fee: +0.943 G [+0.870, +1.016] against canonical's -5.899 G [-6.904, -4.893]. Urgent-class retained value is +0.144 G above canonical's [+0.127, +0.163], at a wait cost of +0.06 blocks mean and +0.23 blocks p95. Against flat fee, the urgent p95 wait improves by 0.56 blocks under the 0.75 target, against 0.79 blocks under canonical on the same seeds.
+
+Under launch day (mean offered value 1,357.2 G lovelace), the 0.75 target retains +31.127 G more than canonical [+23.654, +38.600]. Against flat fee it retains +128.792 G [+123.411, +134.173], against canonical's +97.665 G [+92.799, +102.532]. Urgent-class rows are intentionally omitted for launch day: the load's time-varying urgency multipliers fragment the simulator's urgency bands.
+
+The regression stages behave as follows. At low and mid load the 0.75 and 0.5 configurations are bit-identical over all 100 seeds and every reported scalar, because the standard coefficient rests on its 1.0 floor under either target. EB-capacity stress prices the change. The lower standard quote draws 29% more urgent-class submissions (3,889 to 5,015 per run). Relative to canonical, the urgent-class service rate falls by 4.1 percentage points, mean wait rises +0.35 blocks, and p95 wait rises +1.05 blocks. Urgent-class retained value still rises (+0.094 G [+0.066, +0.121]), and overall retained value rises (+9.28 G [+7.05, +11.50]). Relative to flat fee, every urgent-class comparison at this load remains an improvement: +0.327 G [+0.311, +0.343] retained, -0.39 blocks mean wait, and -0.62 blocks p95 wait.
+
+Artifacts: manifests [standard-target-screen.json](../../abstract-sim-hs/config/sweeps/standard-target-screen.json) and [standard-target-confirm.json](../../abstract-sim-hs/config/sweeps/standard-target-confirm.json), runners [run_standard_target_screen.sh](../../abstract-sim-hs/scripts/run_standard_target_screen.sh) and [run_standard_target_confirm.sh](../../abstract-sim-hs/scripts/run_standard_target_confirm.sh), and the comparison reports [comparison.md](../../abstract-sim-hs/sweep-results/standard-target-confirm/comparison.md) and [comparison-launch-day.md](../../abstract-sim-hs/sweep-results/standard-target-confirm/comparison-launch-day.md). `scripts/compare_standard_target_screen.py` regenerates the paired comparisons from the sweep outputs.
+
+---
+
+### Window-removal experiment ###
+
+The recommended signals smooth over windows: 20 block summaries for the standard controller and 5 payload samples for the urgent controller. This experiment asks whether the windows are necessary at all. It replaces each window with an instantaneous signal that reads only the current block-production event. All arms use the recommended calibration: standard target 0.75, urgent target 0.5, D = 16, the announcement threshold, and the K = 10 age escape. An earlier comparison of urgent window lengths (3, 5, 10, and 20) is part of the mechanism sweep in the Mechanisms section.
+
+A four-arm pilot on paired seeds 300-304 and the five headline loads selected the two effects to confirm: the launch-day throughput loss without the standard window, and the severe-congestion increase in quote movement without the urgent window. We recorded hashes of the pilot report and the analysis plan before any confirmation seed ran. The confirmation then compared three arms on fresh seeds 400-409. Under the plan, an effect is confirmed only if its two-sided 97.5% confidence interval excludes zero (Bonferroni-adjusted across the two effects). It must also point in the expected direction in at least nine of the ten seed pairs. Both effects passed both tests, in ten of ten seeds.
+
+Without the standard window, launch-day throughput decreases by 18.694 tx/slot (97.5% CI [-22.283, -15.106]), and overall retained value decreases by 121.3 G lovelace (95% CI [-139.1, -103.5]). The retained ratio decreases from 68.8% to 56.3%. The cause is structural. Certified EBs arrive only every ten to twenty blocks. A signal that reads one block-production event at a time sees mostly payload-free Ranking Blocks. It therefore holds the standard quote at its floor and admits demand that the lane cannot serve (757k against 658k submissions). At low and mid load the instantaneous and windowed standard signals are bit-identical, because the standard coefficient rests on its floor under both.
+
+Without the urgent window, quote movement increases at every load. Under severe congestion, the excess log-coefficient travel increases from 0.532 to 3.487 (+2.955, 97.5% CI [+2.496, +3.414]). The increase is comparable at the other loads, from +1.56 at low load to +3.09 at launch day. Retained value and latency show no meaningful change. Under severe congestion, urgent-class retained value is marginally higher without the window (+0.013 G [+0.001, +0.025]). The benefit of the urgent window is therefore quote stability, not retained value.
+
+The result supports both windows: the standard window for service during demand surges, and the urgent window for quote stability. It does not show that the window lengths 20 and 5 are optimal. Provenance: source revision `1c0d34b1`, dirty worktree preserved as [source.patch](../../abstract-sim-hs/sweep-results/window-ablation-confirm/source.patch) (SHA-256 `84d5b426d4428cd962ddac0e1746eaa07c2fac0de927027bda80daed0380b4b6`), simulator SHA-256 `25dd1d5f194745729d396b57452fe3664e7923803d2c75ed56ab9505291b5d03`, pre-run hash ledger [analysis-plan.sha256](../../abstract-sim-hs/sweep-results/window-ablation-confirm/analysis-plan.sha256).
+
+Artifacts: manifests [window-ablation-smoke.json](../../abstract-sim-hs/config/sweeps/window-ablation-smoke.json) and [window-ablation-confirm.json](../../abstract-sim-hs/config/sweeps/window-ablation-confirm.json), runners [run_window_ablation_smoke.sh](../../abstract-sim-hs/scripts/run_window_ablation_smoke.sh) and [run_window_ablation_confirm.sh](../../abstract-sim-hs/scripts/run_window_ablation_confirm.sh), and the confirmation report [comparison.md](../../abstract-sim-hs/sweep-results/window-ablation-confirm/comparison.md). `scripts/compare_window_ablation_confirm.py` regenerates the confirmation report and verifies the pinned analysis plan.
+
+---
+
+### Non-certificate window contribution ###
+
+The standard controller's window counts a non-certificate Ranking Block as its own capacity with zero standard usage. Standard transactions cannot occupy a Ranking Block, so this contribution reads as unused capacity and applies mild downward pressure between certificates. This experiment asks whether that contribution has the right size. It replaces the contribution with alternatives from zero up to a third of an empty EB. It also tests a controller that updates only when a certified EB is applied, so that the quote freezes between certificates.
+
+Exploratory sweeps on paired seeds 300-304 covered ten alternative contributions and the certificate-only controller, over the five headline loads. The arm configured with the Ranking Block's exact capacity reproduced the recommended design bit-for-bit on every load, which validates the comparison path. Launch-day overall retained value against the recommended design, per arm (exploratory, n = 5):
+
+| Contribution per non-certificate block | Launch-day Δ overall retained (G) |
+|---|---:|
+| Ranking Block's exact capacity (90,112 B) | bit-identical |
+| EB/32 (375,000 B) | -11.7 |
+| EB/16 (750,000 B) | -29.8 |
+| EB/8 (1,500,000 B) | -66.1 |
+| EB/4 (3,000,000 B) | -107.2 |
+| EB/3 (4,000,000 B) | -116.5 |
+| RB/2 (45,056 B) | +1.3 |
+| RB/4 (22,528 B) | +1.9 |
+| RB/8 (11,264 B) | +2.8 |
+| zero | +3.1 |
+
+Above the Ranking Block's capacity the loss grows monotonically. Below it, every outcome moves by less than half a percent of the 832 G base, and severe congestion shows losses of at most 0.05 G in the same arms. At low and mid load, every arm is bit-identical to the recommended design, because the standard coefficient rests on its floor either way.
+
+A pre-registered confirmation then tested the two selected effects on fresh seeds 420-429. We recorded hashes of the pilot report and the analysis plan before any confirmation seed ran, and the evaluator refuses to run if any pinned file changes. Under the plan, an effect is confirmed only if its two-sided 97.5% confidence interval excludes zero (Bonferroni-adjusted across the two effects). It must also point in the expected direction in at least nine of the ten seed pairs. Both effects passed both tests, in ten of ten seeds.
+
+With certificate-only updates, launch-day overall retained value decreases by 54.622 G lovelace (97.5% CI [-60.513, -48.731]). The retained ratio falls by 6.2 percentage points, and the standard service rate falls by 7.6 points. Certified EBs arrive only every ten to twenty blocks, and one update moves the coefficient upward by at most 2.08%. The quote therefore cannot follow rising demand between certificates.
+
+With a third of an empty EB per non-certificate block, launch-day overall retained value decreases by 119.205 G lovelace (97.5% CI [-130.244, -108.165]). The retained ratio falls by 12.7 percentage points, and the standard service rate falls by 15.1 points. Each certificate-free block adds 4,000,000 bytes of unused capacity to the window, so measured utilisation collapses between certificates and holds the quote near its floor while demand rises.
+
+The descriptive secondaries stay small. Under severe congestion the third-of-an-EB arm retains +0.160 G [+0.016, +0.305] more than the recommended design. Under EB-capacity stress its retained ratio falls by 0.36 percentage points [-0.63, -0.09] and its excess quote travel rises by +0.18 [+0.01, +0.36]. At low and mid load, every reported metric ties exactly in all ten seeds for both arms.
+
+The result supports the recommended contribution, the Ranking Block's own capacity. That choice needs no synthetic constant, and the sweep brackets it from both sides. It is not shown to be globally optimal: the sub-RB region moved outcomes by less than half a percent, and only the two selected effects were confirmed. The tested loads always keep some demand above the quote, so certificate droughts stay short (a pending EB is announced after the K = 10 age escape). The case where the quote prices out all standard demand, so that no EB can form and only the window's decay can lower the price, remains an argument rather than a measurement.
+
+Provenance: pilot report [comparison.json](../../abstract-sim-hs/sweep-results/cert-void-smoke/comparison.json) (SHA-256 `254f59113bea4166087cdc11afa7f60a8c9f8ab949088f737af3e9c34726750e`), pilot source state preserved as [source.patch](../../abstract-sim-hs/sweep-results/cert-void-smoke/source.patch) (SHA-256 `132cdb7a7d7d6cd336b540b7283758064b4500fce5565dbce1e074d95f98bf10`), simulator SHA-256 `d3778553381b902cb9b5351dc03c64b42ca92ee0fa15a7b9262970d72c8f83f8` for the pilot and the confirmation, pre-run hash ledger [analysis-plan.sha256](../../abstract-sim-hs/sweep-results/cert-void-confirm/analysis-plan.sha256).
+
+Artifacts: manifests [cert-void-smoke.json](../../abstract-sim-hs/config/sweeps/cert-void-smoke.json), [void-size-sweep.json](../../abstract-sim-hs/config/sweeps/void-size-sweep.json), [void-size-sweep-low.json](../../abstract-sim-hs/config/sweeps/void-size-sweep-low.json), and [cert-void-confirm.json](../../abstract-sim-hs/config/sweeps/cert-void-confirm.json) (the confirmation manifest embeds the pre-registered plan), runner [run_cert_void_confirm.sh](../../abstract-sim-hs/scripts/run_cert_void_confirm.sh), and the confirmation report [comparison.md](../../abstract-sim-hs/sweep-results/cert-void-confirm/comparison.md). `scripts/compare_cert_void_confirm.py` regenerates the confirmation report and verifies the pre-registered plan. `scripts/compare_void_sweep.py` regenerates the dial tables.
+
+---
+
 ### Demand elasticity stress test ###
 
 **Ten seeds; severe-congestion and launch-day loads; recommended calibration (target 0.5, denominator 16, window 5), each demand mix paired with its own flat-fee control.**

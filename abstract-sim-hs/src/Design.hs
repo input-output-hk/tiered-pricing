@@ -166,6 +166,16 @@ data ControllerSignal
   | CapacityWeightedWindow Int
   | PriorityReservationUtil
   | PriorityReservationWindow Int
+  | -- | Sample-and-hold comparison arm: the controller updates only in a
+    -- block production that applies a certified EB, reading that
+    -- production's capacity-weighted utilisation; every other production
+    -- leaves the coefficient unchanged and emits no update.
+    CertGatedCapacityUtil
+  | -- | Windowed comparison arm: as 'CapacityWeightedWindow', except a
+    -- Praos Ranking Block enters the window with the configured empty
+    -- capacity (bytes, then ex-units — for example a third of an EB)
+    -- instead of its own capacity. Certified EBs contribute unchanged.
+    CertVoidCapacityWindow Int Int Int
   deriving stock (Eq, Show)
 
 instance FromJSON ControllerSignal where
@@ -176,6 +186,8 @@ instance FromJSON ControllerSignal where
       , ("priority-reservation-util", Nullary PriorityReservationUtil)
       , ("priority-reservation-window", WithFields \obj -> PriorityReservationWindow <$> obj .: "window")
       , ("capacity-weighted-window", WithFields \obj -> CapacityWeightedWindow <$> obj .: "window")
+      , ("cert-gated-capacity-util", Nullary CertGatedCapacityUtil)
+      , ("cert-void-capacity-window", WithFields \obj -> CertVoidCapacityWindow <$> obj .: "window" <*> obj .: "voidBytes" <*> obj .: "voidExUnits")
       ]
 
 data ControllerConfig = ControllerConfig

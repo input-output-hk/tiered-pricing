@@ -217,7 +217,7 @@ updatePrices controllers input prices =
     applyPriceFloors controllers prices
   laneResults :: PerLane (Maybe PriceUpdate)
   laneResults =
-    (\lane coeff -> fmap (updateLanePrice lane input coeff))
+    (\lane coeff -> (updateLanePrice lane input coeff =<<))
       <$> lanes
       <*> currentPrices.laneCoeffs
       <*> controllers.laneControllers
@@ -281,28 +281,47 @@ applyMultiplierFloor controllers prices =
           }
     _ -> prices
 
-updateLanePrice :: Lane -> ControllerInput -> Double -> Eip1559Controller -> PriceUpdate
+-- | 'Nothing' means the signal produced no sample this production, so the
+-- coefficient holds and no update is emitted.
+updateLanePrice :: Lane -> ControllerInput -> Double -> Eip1559Controller -> Maybe PriceUpdate
 updateLanePrice lane input oldCoeff controller =
-  PriceUpdate
-    { priceUpdateLane = lane
-    , priceUpdateOldCoeff = oldCoeff
-    , priceUpdateNewCoeff = applyEip1559Update controller oldCoeff utilisationValue
-    , priceUpdateUtilisation = utilisationValue
-    }
+  mkUpdate <$> controllerUtilisation lane input controller
  where
-  utilisationValue = controllerUtilisation lane input controller
+  mkUpdate utilisationValue =
+    PriceUpdate
+      { priceUpdateLane = lane
+      , priceUpdateOldCoeff = oldCoeff
+      , priceUpdateNewCoeff = applyEip1559Update controller oldCoeff utilisationValue
+      , priceUpdateUtilisation = utilisationValue
+      }
 
-controllerUtilisation :: Lane -> ControllerInput -> Eip1559Controller -> Double
+controllerUtilisation :: Lane -> ControllerInput -> Eip1559Controller -> Maybe Double
 controllerUtilisation lane input controller =
   case controller.controllerSignal of
     CapacityWeightedUtil ->
-      capacityWeightedUtilisation lane input.currentProduction
+      Just (capacityWeightedUtilisation lane input.currentProduction)
     signal@CapacityWeightedWindow{} ->
-      capacityWeightedWindowUtilisation lane (signalWindow signal) input.recentBlocks
+      Just (capacityWeightedWindowUtilisation lane (signalWindow signal) input.recentBlocks)
     PriorityReservationUtil ->
-      priorityReservationUtilisation input.currentProduction
+      Just (priorityReservationUtilisation input.currentProduction)
     PriorityReservationWindow windowSize ->
-      priorityReservationWindowUtilisation windowSize input.recentBlocks
+      Just (priorityReservationWindowUtilisation windowSize input.recentBlocks)
+    CertGatedCapacityUtil
+      | any appliesCertifiedEb input.currentProduction ->
+          Just (capacityWeightedUtilisation lane input.currentProduction)
+      | otherwise -> Nothing
+    signal@(CertVoidCapacityWindow _ voidBytes voidExUnits) ->
+      Just
+        ( certVoidCapacityWindowUtilisation
+            lane
+            (signalWindow signal)
+            Resources{resBytes = Bytes voidBytes, resExUnits = ExUnits voidExUnits}
+            input.recentBlocks
+        )
+ where
+  appliesCertifiedEb = \case
+    EbCertified{} -> True
+    _ -> False
 
 {- | How much retained history a controller signal reads. Per-block signals
 read none of it — they consume 'currentProduction' — so retention cannot
@@ -314,6 +333,8 @@ signalWindow = \case
   CapacityWeightedWindow windowSize -> max 1 windowSize
   PriorityReservationUtil -> 0
   PriorityReservationWindow windowSize -> 3 * max 1 windowSize
+  CertGatedCapacityUtil -> 0
+  CertVoidCapacityWindow windowSize _ _ -> max 1 windowSize
 
 {- | How far back the price controllers can read the recent-block history.
 Derived from 'signalWindow' so the engine's retention and the signals'
@@ -342,7 +363,33 @@ capacityWeightedWindowUtilisation lane windowSize recentBlocks =
   capacityWeightedUtilisation lane (takeLast windowSize recentBlocks)
 
 capacityWeightedUtilisation :: (Foldable f) => Lane -> f BlockSummary -> Double
-capacityWeightedUtilisation lane summaries =
+capacityWeightedUtilisation =
+  capacityWeightedUtilisationWith \case
+    RbPraos _ usage -> usage.usageCapacity
+    RbCertifying _ -> mempty
+    EbAnnounced _ _ -> mempty
+    EbCertified _ usage -> usage.usageCapacity
+
+{- | 'capacityWeightedWindowUtilisation' with the no-cert contribution
+replaced: a Praos Ranking Block enters the window with the configured void
+capacity instead of its own. A comparison arm for the window-signal
+discussion, not the recommended design.
+-}
+certVoidCapacityWindowUtilisation :: Lane -> Int -> Resources -> Seq BlockSummary -> Double
+certVoidCapacityWindowUtilisation lane windowSize voidCapacity recentBlocks =
+  capacityWeightedUtilisationWith
+    ( \case
+        RbPraos _ _ -> voidCapacity
+        RbCertifying _ -> mempty
+        EbAnnounced _ _ -> mempty
+        EbCertified _ usage -> usage.usageCapacity
+    )
+    lane
+    (takeLast windowSize recentBlocks)
+
+capacityWeightedUtilisationWith ::
+  (Foldable f) => (BlockSummary -> Resources) -> Lane -> f BlockSummary -> Double
+capacityWeightedUtilisationWith summaryCapacity lane summaries =
   max
     (utilisationRatio (fmap laneUsedBytes summaryList) (fmap summaryCapacityBytes summaryList))
     (utilisationRatio (fmap laneUsedExUnits summaryList) (fmap summaryCapacityExUnits summaryList))
@@ -361,11 +408,6 @@ capacityWeightedUtilisation lane summaries =
     RbCertifying _ -> pure mempty
     EbAnnounced _ _ -> pure mempty
     EbCertified _ usage -> usage.usageLanes
-  summaryCapacity = \case
-    RbPraos _ usage -> usage.usageCapacity
-    RbCertifying _ -> mempty
-    EbAnnounced _ _ -> mempty
-    EbCertified _ usage -> usage.usageCapacity
 
 {- | The design doc's @priorityUtil(b)@, per priced block: the controller
 event in this update's block production — a Praos RB's fill of the

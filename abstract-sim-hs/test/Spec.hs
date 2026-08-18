@@ -47,6 +47,8 @@ main = do
   assertWorstCaseNextPrices
   assertPriorityControllerReadsCurrentProduction
   assertCapacityWeightedControllerReadsCurrentProduction
+  assertCertGatedControllerSamplesOnlyCertifiedEbs
+  assertCertVoidWindowBackfillsVoidCapacity
   assertPriorityReservationWindowUsesRbEquivalentCapacity
   assertPriorityReservationWindowRetention
   assertCapacityWeightedWindowCountsCertifiedEbs
@@ -731,6 +733,156 @@ assertCapacityWeightedControllerReadsCurrentProduction = do
       assertEqual "standard coeff after capacity-util update" 8.0 (atLane Standard newPrices.laneCoeffs)
     _ -> do
       putStrLn ("expected exactly one standard update, got " <> show (length updates))
+      exitFailure
+
+{- | The cert-gated signal is a sample-and-hold comparison arm: it must read
+the certified EB's capacity-weighted utilisation when one is applied, and it
+must leave the coefficient untouched — emitting no update — in every other
+block production, where the instant signal would step the price.
+-}
+assertCertGatedControllerSamplesOnlyCertifiedEbs :: IO ()
+assertCertGatedControllerSamplesOnlyCertifiedEbs = do
+  let ebCapacity = Resources{resBytes = Bytes 100, resExUnits = ExUnits 1_000}
+      certifiedHalfStandard =
+        BlockUsage
+          { usageCapacity = ebCapacity
+          , usageUsed = Resources{resBytes = Bytes 50, resExUnits = ExUnits 0}
+          , usageLanes =
+              PerLane
+                { perStandard = Resources{resBytes = Bytes 50, resExUnits = ExUnits 0}
+                , perPriority = mempty
+                }
+          , usageSignalCapacity = mempty
+          }
+      rbCapacity = Resources{resBytes = Bytes 10, resExUnits = ExUnits 100}
+      emptyRbUsage =
+        BlockUsage
+          { usageCapacity = rbCapacity
+          , usageUsed = mempty
+          , usageLanes = pure mempty
+          , usageSignalCapacity = rbCapacity
+          }
+      standardOnly signal =
+        ControllerConfig
+          { laneControllers =
+              PerLane
+                { perStandard =
+                    Just
+                      Eip1559Controller
+                        { controllerTargetUtilisation = 0.50
+                        , controllerMaxChangeDenominator = 8
+                        , controllerInitialCoefficient = 1.0
+                        , controllerSignal = signal
+                        }
+                , perPriority = Nothing
+                }
+          , multiplierFloor = Nothing
+          , absoluteCoeffFloor = 1.0
+          }
+      certInput =
+        ControllerInput
+          { recentBlocks = Seq.empty
+          , currentProduction =
+              Seq.fromList
+                [ RbCertifying (EbId 7)
+                , EbCertified (EbId 7) certifiedHalfStandard
+                ]
+          }
+      rbOnlyInput =
+        ControllerInput
+          { recentBlocks = Seq.empty
+          , currentProduction = Seq.fromList [RbPraos [] emptyRbUsage]
+          }
+      prices = Prices (PerLane 8.0 1.0)
+  case updatePrices (standardOnly CertGatedCapacityUtil) certInput prices of
+    (newPrices, [update]) -> do
+      assertEqual "cert-gated update lane" Standard update.priceUpdateLane
+      assertEqual "cert-gated utilisation reads the certified EB" 0.5 update.priceUpdateUtilisation
+      assertEqual "standard coeff after cert-gated update" 8.0 (atLane Standard newPrices.laneCoeffs)
+    (_, updates) -> do
+      putStrLn ("expected exactly one cert-gated update, got " <> show (length updates))
+      exitFailure
+  let (heldPrices, heldUpdates) =
+        updatePrices (standardOnly CertGatedCapacityUtil) rbOnlyInput prices
+      (instantPrices, _) =
+        updatePrices (standardOnly CapacityWeightedUtil) rbOnlyInput prices
+  assertEqual "cert-gated hold emits no update" 0 (length heldUpdates)
+  assertEqual "cert-gated hold keeps the coefficient" 8.0 (atLane Standard heldPrices.laneCoeffs)
+  assertEqual "instant signal steps where cert-gated holds" 7.0 (atLane Standard instantPrices.laneCoeffs)
+
+{- | The cert-void window is 'CapacityWeightedWindow' with the no-cert
+contribution replaced: a Praos RB must enter the window with the configured
+void capacity instead of its own, while certified EBs, certificate-carrying
+RBs, and announcements contribute exactly as in the recommended signal.
+-}
+assertCertVoidWindowBackfillsVoidCapacity :: IO ()
+assertCertVoidWindowBackfillsVoidCapacity = do
+  let ebCapacity = Resources{resBytes = Bytes 90, resExUnits = ExUnits 900}
+      certifiedFullStandard =
+        BlockUsage
+          { usageCapacity = ebCapacity
+          , usageUsed = Resources{resBytes = Bytes 90, resExUnits = ExUnits 0}
+          , usageLanes =
+              PerLane
+                { perStandard = Resources{resBytes = Bytes 90, resExUnits = ExUnits 0}
+                , perPriority = mempty
+                }
+          , usageSignalCapacity = mempty
+          }
+      rbCapacity = Resources{resBytes = Bytes 10, resExUnits = ExUnits 100}
+      emptyRbUsage =
+        BlockUsage
+          { usageCapacity = rbCapacity
+          , usageUsed = mempty
+          , usageLanes = pure mempty
+          , usageSignalCapacity = rbCapacity
+          }
+      standardOnly signal =
+        ControllerConfig
+          { laneControllers =
+              PerLane
+                { perStandard =
+                    Just
+                      Eip1559Controller
+                        { controllerTargetUtilisation = 0.75
+                        , controllerMaxChangeDenominator = 16
+                        , controllerInitialCoefficient = 1.0
+                        , controllerSignal = signal
+                        }
+                , perPriority = Nothing
+                }
+          , multiplierFloor = Nothing
+          , absoluteCoeffFloor = 1.0
+          }
+      history =
+        Seq.fromList
+          [ EbCertified (EbId 7) certifiedFullStandard
+          , RbCertifying (EbId 7)
+          , EbAnnounced (EbId 8) emptyRbUsage
+          , RbPraos [] emptyRbUsage
+          ]
+      input =
+        ControllerInput
+          { recentBlocks = history
+          , currentProduction = Seq.fromList [RbPraos [] emptyRbUsage]
+          }
+      prices = Prices (PerLane 8.0 1.0)
+      -- void capacity 30 bytes: the full 90-byte EB plus one backfilled RB
+      -- reads 90 / (90 + 30) = 0.75, exactly on target, so the coefficient
+      -- holds; the recommended window reads 90 / (90 + 10) = 0.9 and steps up.
+      voidSignal = CertVoidCapacityWindow 20 30 300
+  case updatePrices (standardOnly voidSignal) input prices of
+    (newPrices, [update]) -> do
+      assertEqual "cert-void utilisation backfills the void capacity" 0.75 update.priceUpdateUtilisation
+      assertEqual "cert-void on-target coeff holds" 8.0 (atLane Standard newPrices.laneCoeffs)
+    (_, updates) -> do
+      putStrLn ("expected exactly one cert-void update, got " <> show (length updates))
+      exitFailure
+  case updatePrices (standardOnly (CapacityWeightedWindow 20)) input prices of
+    (_, [update]) ->
+      assertEqual "recommended window reads the RB's own capacity" 0.9 update.priceUpdateUtilisation
+    (_, updates) -> do
+      putStrLn ("expected exactly one windowed update, got " <> show (length updates))
       exitFailure
 
 assertPriorityReservationWindowUsesRbEquivalentCapacity :: IO ()

@@ -1,0 +1,31 @@
+{
+  "description": "Exploratory paired sweep of the cert-void backfill size below the RB's own capacity: the capacity a no-cert Ranking Block contributes to the W20 standard window, from half an RB down to zero. At zero a certless block adds neither usage nor capacity, so between certs the window reads the fills of the EBs still inside it, and a window that loses its last EB reads utilisation 0. The recommended design (RB-sized contribution) is the base arm; the earlier void-size-sweep showed everything above RB-sized loses monotonically on launch day. Urgent controller stays W5; everything else fixed at S=.75/U=.50, D16, half-RB threshold, K10. Five paired seeds across the five headline loads; directional only, not confirmatory evidence.",
+  "seedStart": 300,
+  "seeds": 5,
+  "slots": 2000,
+  "summaryOnly": true,
+  "randomness": "independent-streams",
+  "out": "sweep-results/void-size-sweep-low/severe-congestion",
+  "variants": [
+    {
+      "name": "current-w20-w5",
+      "config": "config/variants/standard-target-screen/s75-u50.json"
+    },
+    {
+      "name": "standard-void-halfrb-w5",
+      "config": "config/variants/window-ablation/standard-void-halfrb-w5.json"
+    },
+    {
+      "name": "standard-void-quarterrb-w5",
+      "config": "config/variants/window-ablation/standard-void-quarterrb-w5.json"
+    },
+    {
+      "name": "standard-void-eighthrb-w5",
+      "config": "config/variants/window-ablation/standard-void-eighthrb-w5.json"
+    },
+    {
+      "name": "standard-void-zero-w5",
+      "config": "config/variants/window-ablation/standard-void-zero-w5.json"
+    }
+  ]
+}

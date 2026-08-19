@@ -12,7 +12,7 @@ module Design (
   defaultControllerConfig,
 ) where
 
-import Data.Aeson (FromJSON (..), withObject, (.:), (.:?))
+import Data.Aeson (FromJSON (..), withObject, (.!=), (.:), (.:?))
 import Json (Alt (..), taggedSum)
 import Types (Duration (..), PerLane (..))
 
@@ -23,6 +23,11 @@ data Design = Design
   , designFeeSemantics :: FeeSemantics
   , designPriorityPremiumScope :: PriorityPremiumScope
   , designControllers :: ControllerConfig
+  , designProducerHeadroom :: Bool
+  -- ^ When False, EB selection takes any transaction covering the current
+  -- quote, without the one-further-step producer headroom; announced EBs can
+  -- then fail fee validation at the certification check. True in every real
+  -- construction; False exists to measure that failure rate.
   }
   deriving stock (Eq, Show)
 
@@ -36,6 +41,7 @@ instance FromJSON Design where
         <*> obj .: "feeSemantics"
         <*> obj .: "priorityPremiumScope"
         <*> obj .: "controllers"
+        <*> obj .:? "producerHeadroom" .!= True
 
 data SelectionPolicy
   = Fifo
@@ -71,8 +77,9 @@ instance FromJSON FeeSemantics where
 'PremiumEverywhere' charges the priority quote wherever the tx lands.
 'PremiumRbOnly' charges it only for RB inclusion: a priority tx landing in
 an EB received standard service, so it is refunded down to the standard
-quote (the Giorgos design). Only the realised fee is affected — mempool
-validity is checked against the posted lane's quote in both scopes.
+quote (the Giorgos design). The rb-only priority max fee and validity checks
+cover the larger of the two quotes because either inclusion point is possible;
+the realised fee remains specific to the actual inclusion point.
 -}
 data PriorityPremiumScope
   = PremiumEverywhere
@@ -89,6 +96,13 @@ instance FromJSON PriorityPremiumScope where
 
 data ReservationPolicy
   = PriorityReservationRb Int
+  | -- | Strict RB reservation (never mixed) with a gated EB: an EB may only
+    -- be announced when its payload reaches the threshold in bytes. Standard
+    -- transactions are served exclusively through EBs, in batches. The
+    -- optional age escape lifts the byte gate once at least that many ranking
+    -- blocks have been produced since the last EB announcement, so a trickle
+    -- below the threshold cannot pool forever ('Nothing' = no escape).
+    PriorityReservationRbEbThreshold Int Int (Maybe Int)
   | NoReservation
   deriving stock (Eq, Show)
 
@@ -98,6 +112,14 @@ instance FromJSON ReservationPolicy where
       "reservation policy"
       [ ("no-reservation", Nullary NoReservation)
       , ("priority-reservation-rb", WithFields \obj -> PriorityReservationRb <$> obj .: "bytes")
+      ,
+        ( "priority-reservation-rb-eb-threshold"
+        , WithFields \obj ->
+            PriorityReservationRbEbThreshold
+              <$> obj .: "bytes"
+              <*> obj .: "ebThresholdBytes"
+              <*> obj .:? "ebAgeEscapeRbIntervals"
+        )
       ]
 
 data LaneStructure = One | Two deriving stock (Eq, Show)
@@ -119,6 +141,7 @@ defaultDesign =
     , designFeeSemantics = Eip1559
     , designPriorityPremiumScope = PremiumEverywhere
     , designControllers = defaultControllerConfig
+    , designProducerHeadroom = True
     }
 
 data Eip1559Controller = Eip1559Controller
@@ -139,18 +162,32 @@ instance FromJSON Eip1559Controller where
         <*> obj .: "signal"
 
 data ControllerSignal
-  = CapacityWeightedWindow Int
+  = CapacityWeightedUtil
+  | CapacityWeightedWindow Int
   | PriorityReservationUtil
   | PriorityReservationWindow Int
+  | -- | Sample-and-hold comparison arm: the controller updates only in a
+    -- block production that applies a certified EB, reading that
+    -- production's capacity-weighted utilisation; every other production
+    -- leaves the coefficient unchanged and emits no update.
+    CertGatedCapacityUtil
+  | -- | Windowed comparison arm: as 'CapacityWeightedWindow', except a
+    -- Praos Ranking Block enters the window with the configured empty
+    -- capacity (bytes, then ex-units — for example a third of an EB)
+    -- instead of its own capacity. Certified EBs contribute unchanged.
+    CertVoidCapacityWindow Int Int Int
   deriving stock (Eq, Show)
 
 instance FromJSON ControllerSignal where
   parseJSON =
     taggedSum
       "controller signal"
-      [ ("priority-reservation-util", Nullary PriorityReservationUtil)
+      [ ("capacity-weighted-util", Nullary CapacityWeightedUtil)
+      , ("priority-reservation-util", Nullary PriorityReservationUtil)
       , ("priority-reservation-window", WithFields \obj -> PriorityReservationWindow <$> obj .: "window")
       , ("capacity-weighted-window", WithFields \obj -> CapacityWeightedWindow <$> obj .: "window")
+      , ("cert-gated-capacity-util", Nullary CertGatedCapacityUtil)
+      , ("cert-void-capacity-window", WithFields \obj -> CertVoidCapacityWindow <$> obj .: "window" <*> obj .: "voidBytes" <*> obj .: "voidExUnits")
       ]
 
 data ControllerConfig = ControllerConfig

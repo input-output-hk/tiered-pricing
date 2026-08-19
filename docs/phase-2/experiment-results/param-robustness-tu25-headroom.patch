@@ -1,0 +1,18 @@
+diff --git a/abstract-sim-hs/src/Pricing.hs b/abstract-sim-hs/src/Pricing.hs
+index 6ef2c20a..8555f832 100644
+--- a/abstract-sim-hs/src/Pricing.hs
++++ b/abstract-sim-hs/src/Pricing.hs
+@@ -212,7 +212,12 @@ worstCaseNextPrices controllers prices =
+  where
+   scale Nothing coeff = coeff
+   scale (Just controller) coeff =
+-    coeff * (1 + 1 / fromIntegral (max 1 controller.controllerMaxChangeDenominator))
++    coeff * (1 + max legacyAdjustment maximumUpwardAdjustment)
++   where
++    target = max 0.000_001 controller.controllerTargetUtilisation
++    denominator = fromIntegral (max 1 controller.controllerMaxChangeDenominator)
++    legacyAdjustment = 1 / denominator
++    maximumUpwardAdjustment = ((1 - target) / target) / denominator
+ 
+ applyPriceFloors :: ControllerConfig -> Prices -> Prices
+ applyPriceFloors controllers =

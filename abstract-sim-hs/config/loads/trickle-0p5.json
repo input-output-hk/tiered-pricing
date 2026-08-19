@@ -1,0 +1,5 @@
+{
+  "name": "trickle-0.5",
+  "description": "Light trickle: constant 0.5 tx/slot, crossing the EB threshold slowly; probes the boundary where the age escape and natural accumulation compete",
+  "load": { "type": "constant", "rate": 0.5 }
+}

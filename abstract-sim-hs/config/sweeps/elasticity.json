@@ -1,0 +1,17 @@
+{
+  "description": "Demand-elasticity sweep on the recommended calibration (both-dynamic-strict-threshold, window 5, target 0.5, max-change denominator 16). The stability envelope was validated at one demand elasticity; this sweep varies it: all10x scales every actor's values 10x (demand sheds ~10x later), hv10/hv25 add a bounded-inelastic tranche (10%/25% of arrivals at 100x values - very high but finite willingness to pay), and mech-hv25-d8 runs the harshest mix at denominator 8 to check the envelope's D range under steep demand. Each mix carries its own flat-fee control because the mix changes offered value: paired deltas must compare like against like. The base mix's pair (bdst-tu50-d16, flat-fee) is included for within-sweep anchoring. Run under severe-congestion and launch-day profiles with matching --out directories",
+  "seeds": 10,
+  "slots": 2000,
+  "out": "sweep-results/elasticity",
+  "variants": [
+    { "name": "mech-base", "config": "config/variants/param-robustness/bdst-tu50-d16.json" },
+    { "name": "flat-base", "config": "config/variants/flat-fee.json" },
+    { "name": "mech-all10x", "config": "config/variants/elasticity/mech-all10x.json" },
+    { "name": "flat-all10x", "config": "config/variants/elasticity/flat-all10x.json" },
+    { "name": "mech-hv10", "config": "config/variants/elasticity/mech-hv10.json" },
+    { "name": "flat-hv10", "config": "config/variants/elasticity/flat-hv10.json" },
+    { "name": "mech-hv25", "config": "config/variants/elasticity/mech-hv25.json" },
+    { "name": "flat-hv25", "config": "config/variants/elasticity/flat-hv25.json" },
+    { "name": "mech-hv25-d8", "config": "config/variants/elasticity/mech-hv25-d8.json" }
+  ]
+}

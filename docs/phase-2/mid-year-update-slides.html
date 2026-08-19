@@ -1,0 +1,667 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tiered Pricing Research: Mid-year Update</title>
+<style>
+  :root {
+    --surface: #fcfcfb;
+    --ink: #0b0b0b;
+    --ink-2: #52514e;
+    --ink-3: #8a8983;
+    --accent: #2a78d6;
+    --accent-deep: #1c5cab;
+    --good: #0b7a0b;
+    --card: #ffffff;
+    --line: #e7e6e2;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    background: var(--surface);
+    color: var(--ink);
+    overflow: hidden;
+  }
+  .slide {
+    display: none;
+    position: absolute;
+    inset: 0;
+    padding: clamp(2rem, 5vh, 4rem) clamp(2.5rem, 7vw, 7rem);
+    flex-direction: column;
+  }
+  .slide.active { display: flex; }
+  .kicker {
+    font-size: clamp(0.8rem, 1.6vh, 1rem);
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent-deep);
+    margin-bottom: 1rem;
+  }
+  h1 {
+    font-size: clamp(1.8rem, 5.2vh, 3.2rem);
+    font-weight: 700;
+    line-height: 1.15;
+    letter-spacing: -0.01em;
+    max-width: 22ch;
+  }
+  .subtitle {
+    font-size: clamp(1rem, 2.6vh, 1.4rem);
+    color: var(--ink-2);
+    margin-top: 1rem;
+    max-width: 50ch;
+    line-height: 1.45;
+  }
+
+  /* Slide 1 */
+  #s1 {
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+  }
+  #s1 h1 { max-width: 26ch; }
+  #s1 .subtitle { max-width: 56ch; }
+  #s1 .who {
+    margin-top: 2.2rem;
+    font-size: clamp(1.05rem, 2.4vh, 1.3rem);
+    color: var(--ink);
+    font-weight: 600;
+  }
+  #s1 .who span { color: var(--ink-2); font-weight: 400; }
+  #s1 .team {
+    margin-top: 0.7rem;
+    font-size: clamp(0.95rem, 2.2vh, 1.15rem);
+    color: var(--ink-2);
+  }
+  #s1 .team strong { color: var(--ink); font-weight: 600; }
+  #s1 .banner {
+    margin-top: 3rem;
+    align-self: center;
+    background: var(--accent);
+    color: #ffffff;
+    font-weight: 600;
+    font-size: clamp(1.1rem, 2.6vh, 1.4rem);
+    padding: 0.7em 1.2em;
+    border-radius: 8px;
+  }
+
+  /* Slide 2 */
+  #s2 .body {
+    display: flex;
+    gap: clamp(2rem, 5vw, 5rem);
+    align-items: center;
+    flex: 1;
+    min-height: 0;
+    margin-top: 1.5rem;
+  }
+  #s2 ul {
+    list-style: none;
+    flex: 1.2;
+    display: flex;
+    flex-direction: column;
+    gap: clamp(1rem, 3vh, 1.8rem);
+  }
+  #s2 li {
+    font-size: clamp(1rem, 2.7vh, 1.45rem);
+    line-height: 1.45;
+    padding-left: 1.4em;
+    position: relative;
+    max-width: 46ch;
+  }
+  #s2 li::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 0.55em;
+    width: 0.55em;
+    height: 0.55em;
+    border-radius: 50%;
+    background: var(--accent);
+  }
+  .stat {
+    flex: 1;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: clamp(1.2rem, 3.5vh, 2.2rem);
+  }
+  .stat .label {
+    font-size: clamp(1rem, 2.3vh, 1.2rem);
+    color: var(--ink-2);
+    line-height: 1.4;
+  }
+  .stat .value {
+    font-size: clamp(2.6rem, 9vh, 5rem);
+    font-weight: 600;
+    line-height: 1.1;
+    margin: 0.15em 0;
+  }
+  .stat .delta {
+    font-size: clamp(0.85rem, 2vh, 1.05rem);
+    font-weight: 600;
+    color: var(--good);
+  }
+  .stat .context {
+    font-size: clamp(1rem, 2.3vh, 1.2rem);
+    color: var(--ink-3);
+    margin-top: 0.6em;
+    line-height: 1.4;
+  }
+
+  /* Slide 3 */
+  #s3 { padding-bottom: 1.5rem; padding-top: 1rem; }
+  #s3 .zones { gap: clamp(0.45rem, 1vh, 0.75rem); }
+  #s3 .proof-title { margin-top: 0; }
+  #s3 .lane { padding-top: 0.45em; padding-bottom: 0.45em; }
+  #s3 .proof { padding: clamp(0.7rem, 1.7vh, 1rem); }
+  #s3 .ask { padding-top: clamp(0.6rem, 1.5vh, 0.95rem); padding-bottom: clamp(0.6rem, 1.5vh, 0.95rem); }
+  #s3 h1 { max-width: none; font-size: clamp(1.5rem, 4.2vh, 2.4rem); }
+  #s3 .kicker { margin-bottom: 0.3rem; }
+  #s3 .zones {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: clamp(0.8rem, 2.2vh, 1.4rem);
+    margin-top: 1.2rem;
+    min-height: 0;
+  }
+  .lanes {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+  }
+  .lane {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 0.55em 1.1em;
+    font-size: clamp(0.9rem, 2.2vh, 1.15rem);
+  }
+  .lane .tag {
+    font-weight: 700;
+    min-width: 7.5ch;
+  }
+  .lane.urgent .tag { color: var(--accent-deep); }
+  .lane .arrow { color: var(--ink-3); }
+  .lane .dest { color: var(--ink-2); }
+  .lane .dest strong { color: var(--ink); }
+  .rule {
+    font-size: clamp(0.95rem, 2.2vh, 1.15rem);
+    color: var(--ink-2);
+    line-height: 1.4;
+    max-width: 100ch;
+  }
+  .rule strong { color: var(--ink); }
+  .proof-title {
+    font-size: clamp(0.8rem, 1.7vh, 0.95rem);
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    margin-top: 0.4rem;
+  }
+  .proofs {
+    display: flex;
+    gap: clamp(0.8rem, 1.8vw, 1.4rem);
+    align-items: stretch;
+  }
+  .proof {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: clamp(0.8rem, 2vh, 1.2rem);
+    display: flex;
+    flex-direction: column;
+  }
+  .proof .head {
+    font-weight: 700;
+    font-size: clamp(0.95rem, 2.2vh, 1.15rem);
+    color: var(--accent-deep);
+    margin-bottom: 0.4em;
+  }
+  .proof p {
+    font-size: clamp(0.9rem, 2vh, 1.05rem);
+    color: var(--ink-2);
+    line-height: 1.4;
+    margin-top: 0;
+  }
+  .proof.sim { flex: 1.9; }
+  .proof.sim .headrow {
+    display: flex;
+    align-items: baseline;
+    gap: 1em;
+    flex-wrap: wrap;
+  }
+  .proof.sim .headline {
+    font-size: clamp(0.9rem, 2vh, 1.05rem);
+    color: var(--ink);
+  }
+  .proof.sim .headline strong { font-weight: 700; }
+  .panels {
+    display: flex;
+    gap: clamp(0.8rem, 1.6vw, 1.4rem);
+    margin-top: 0.25rem;
+  }
+  .panel { flex: 1; min-width: 0; }
+  .panel .ptitle {
+    font-size: clamp(0.8rem, 1.85vh, 0.95rem);
+    font-weight: 600;
+    color: var(--ink-2);
+    margin-bottom: 0.25rem;
+  }
+  .panel svg { width: 100%; height: auto; display: block; }
+  .footnote {
+    font-size: clamp(0.74rem, 1.7vh, 0.88rem);
+    color: var(--ink-3);
+    line-height: 1.35;
+    margin-top: 0.25rem;
+  }
+  .proof-col {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: clamp(0.8rem, 1.8vh, 1.2rem);
+  }
+  .proof-col .proof { flex: 1; }
+  .timeline {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .step {
+    display: flex;
+    align-items: center;
+    gap: 0.4em;
+    font-size: clamp(0.76rem, 1.8vh, 0.94rem);
+    color: var(--ink-2);
+    white-space: nowrap;
+  }
+  .step .dot {
+    width: 0.9em;
+    height: 0.9em;
+    border-radius: 50%;
+    flex: none;
+    box-sizing: border-box;
+  }
+  .step.done .dot { background: var(--accent); }
+  .step.doing .dot { background: linear-gradient(90deg, var(--accent) 50%, #cde2fb 50%); }
+  .step.now { color: var(--accent-deep); font-weight: 700; }
+  .step.now .dot { width: 1.05em; height: 1.05em; background: #ffffff; border: 3px solid var(--accent); }
+  .step.todo { color: var(--ink-3); }
+  .step.todo .dot { background: #d8d7d2; }
+  .connector { flex: 1; height: 2px; background: var(--line); min-width: 6px; }
+  .ask {
+    background: var(--accent);
+    color: #ffffff;
+    border-radius: 12px;
+    padding: clamp(0.9rem, 2.4vh, 1.4rem) clamp(1.1rem, 2.5vw, 1.8rem);
+    display: flex;
+    gap: clamp(1rem, 3vw, 2.5rem);
+    align-items: center;
+  }
+  .ask .main {
+    font-size: clamp(1.1rem, 2.7vh, 1.45rem);
+    font-weight: 700;
+    line-height: 1.35;
+    flex: 1.2;
+  }
+  .ask .side {
+    font-size: clamp(1rem, 2.3vh, 1.2rem);
+    line-height: 1.4;
+    opacity: 0.92;
+    flex: 1;
+  }
+
+  /* Chrome */
+  .hud {
+    position: fixed;
+    top: 0.9rem;
+    right: 1.2rem;
+    font-size: 0.85rem;
+    color: var(--ink-3);
+    user-select: none;
+    z-index: 5;
+    background: rgba(252, 252, 251, 0.9);
+    padding: 0.15em 0.5em;
+    border-radius: 4px;
+  }
+  .stopwatch {
+    position: fixed;
+    top: 2.7rem;
+    right: 1.2rem;
+    z-index: 6;
+    display: none;
+    font-size: 1.5rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: var(--ink-2);
+    background: rgba(252, 252, 251, 0.9);
+    padding: 0.05em 0.4em;
+    border-radius: 6px;
+  }
+  .stopwatch.warn { color: #c98500; }
+  .stopwatch.over { color: #d03b3b; }
+  .stopwatch.paused { opacity: 0.55; }
+  .notes {
+    position: fixed;
+    left: 0; right: 0; bottom: 0;
+    max-height: 62vh;
+    overflow-y: auto;
+    background: #22211f;
+    color: #e8e7e0;
+    padding: 1.2rem 2rem 1.6rem;
+    font-size: 0.95rem;
+    line-height: 1.55;
+    display: none;
+    z-index: 10;
+    box-shadow: 0 -4px 24px rgba(0,0,0,0.25);
+  }
+  .notes.open { display: block; }
+  .notes h2 {
+    font-size: 0.8rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #a5a49b;
+    margin-bottom: 0.6rem;
+  }
+  .notes ul { list-style: disc; padding-left: 1.3em; }
+  .notes li { margin-bottom: 0.6em; }
+  .notes ul ul { margin-top: 0.4em; }
+  .notes ul ul li { margin-bottom: 0.35em; color: #c9c8bf; }
+  .notes .lead { color: #ffffff; font-weight: 700; }
+  .notes .cue { color: #ffd27a; font-weight: 600; }
+  .notes .time { color: #8fc1f5; font-weight: 600; }
+</style>
+</head>
+<body>
+
+<!-- Slide 1: Intro -->
+<section class="slide active" id="s1">
+  <div class="kicker">Tiered pricing research · Mid-year update · July 2026</div>
+  <h1>Dynamic pricing and urgency signalling for Cardano transactions</h1>
+  <p class="subtitle">Where the research stands at mid-year, how it has moved from theory to validation, and what we need from you.</p>
+  <p class="who">Will Gould <span>· IOHK</span></p>
+  <p class="team">Team: <strong>Polina Vinogradova</strong> · <strong>Nicolas Henin</strong> · <strong>Giorgos Panagiotakos</strong></p>
+</section>
+
+<!-- Slide 2: Before -->
+<section class="slide" id="s2">
+  <div class="kicker">Before</div>
+  <h1>Today: every transaction waits in the same line</h1>
+  <div class="body">
+    <ul>
+      <li>One flat fee. Fees do not respond to congestion, and there is no way to pay to be included sooner.</li>
+      <li>No way for a transaction to say it is time-sensitive, so nodes cannot serve urgent intents first.</li>
+      <li>Linear-Leios adds a second, high-capacity inclusion path: two block types with different wait profiles, and no way for a transaction to choose between them.</li>
+    </ul>
+    <div class="stat">
+      <div class="label">Urgent transaction value retained under simulated severe congestion, flat fee</div>
+      <div class="value">44.32%</div>
+      <div class="context">Value-weighted share of urgent demand served in time, ten seeded simulation runs</div>
+    </div>
+  </div>
+</section>
+
+<!-- Slide 3: After -->
+<section class="slide" id="s3">
+  <div class="kicker">After</div>
+  <h1>Urgency signalling: a fast lane the ledger enforces</h1>
+  <div class="zones">
+    <div class="lanes">
+      <div class="lane urgent">
+        <span class="tag">Urgent</span>
+        <span class="arrow">&#8594;</span>
+        <span class="dest">pays a dynamic quote &#8594; eligible for <strong>Ranking Blocks</strong>: fastest inclusion</span>
+      </div>
+      <div class="lane">
+        <span class="tag">Standard</span>
+        <span class="arrow">&#8594;</span>
+        <span class="dest">pays its own dynamic quote &#8594; included via <strong>Endorser Blocks</strong></span>
+      </div>
+    </div>
+    <p class="rule"><strong>Ledger-enforced rule:</strong> a Ranking Block may only contain transactions paying the urgent quote, so block producers cannot sell fast-lane access below the posted price. <strong>Both lanes are dynamic by design</strong> (EIP-1559 style). At quiet times the standard quote rests at today's minimum fee, and an Endorser Block is announced only once its payload is worth its certificate: at least half a Ranking Block's capacity.</p>
+    <div class="proof-title">From theory to validation</div>
+    <div class="proofs">
+      <div class="proof sim">
+        <div class="headrow">
+          <div class="head">Simulated</div>
+          <div class="headline">Severe congestion: <strong>44.32% &#8594; 50.97%</strong> urgent retained value; never below flat fee.</div>
+        </div>
+        <div class="panels">
+          <div class="panel">
+            <div class="ptitle">Urgent retained value, pp vs flat fee</div>
+            <svg id="chart-rv"></svg>
+          </div>
+          <div class="panel">
+            <div class="ptitle">Urgent latency reduction, blocks vs flat fee</div>
+            <svg id="chart-lat"></svg>
+          </div>
+        </div>
+        <div class="footnote">Paired deltas against a matched flat-fee control, ten seeded runs; whiskers are 95% confidence intervals. Launch-day retained value is measured in percentage points of total offered value and improves through admission rather than latency.</div>
+      </div>
+      <div class="proof-col">
+        <div class="proof">
+          <div class="head">Prototyped</div>
+          <p>Ledger and mempool changes running end to end on a private devnet: both lanes submitting, forging, and clearing real blocks.</p>
+        </div>
+        <div class="proof">
+          <div class="head">Formalised</div>
+          <p>Transaction commutativity proof in progress in the Cardano formal ledger specification.</p>
+        </div>
+      </div>
+    </div>
+    <div class="timeline">
+      <div class="step done"><span class="dot"></span>Theory</div>
+      <div class="connector"></div>
+      <div class="step done"><span class="dot"></span>Simulation</div>
+      <div class="connector"></div>
+      <div class="step done"><span class="dot"></span>Devnet prototype</div>
+      <div class="connector"></div>
+      <div class="step doing"><span class="dot"></span>Formal spec</div>
+      <div class="connector"></div>
+      <div class="step doing"><span class="dot"></span>CIP draft</div>
+      <div class="connector"></div>
+      <div class="step now"><span class="dot"></span>Your feedback: now</div>
+      <div class="connector"></div>
+      <div class="step todo"><span class="dot"></span>CIP finalised: end July</div>
+      <div class="connector"></div>
+      <div class="step todo"><span class="dot"></span>Incentives: +6 months</div>
+    </div>
+    <div class="ask">
+      <div class="main">Read the CIP draft: Transaction Urgency Signalling on <span style="white-space:nowrap">Linear-Leios</span>. Feedback before end of July.</div>
+      <div class="side">Incentive analysis follows in the next 6 months, after the CIP is finalised. Your feedback now shapes what gets analysed.</div>
+    </div>
+  </div>
+</section>
+
+<div class="hud"><span id="counter">1 / 3</span> &nbsp;·&nbsp; arrows to navigate · N notes · S stopwatch · R reset</div>
+<div class="stopwatch" id="stopwatch">00:00</div>
+
+<!-- Speaker notes -->
+<div class="notes" id="notes-1">
+  <h2>Slide 1 · Intro · <span class="time">about 1 minute</span></h2>
+  <ul>
+    <li><span class="lead">Who you are.</span> Name, role at IOHK, how long on this work.</li>
+    <li><span class="lead">One-liner.</span> Fees that respond to congestion + a way to signal urgency, under linear-Leios.</li>
+    <li><span class="lead">Agenda.</span> The problem, the mechanism, the evidence, and what happens next. Save the feedback ask for the end of slide 3; do not front-load it.</li>
+  </ul>
+</div>
+
+<div class="notes" id="notes-2">
+  <h2>Slide 2 · Before · <span class="time">about 2.5 minutes</span></h2>
+  <ul>
+    <li><span class="lead">The problem.</span> Flat fee, one queue. No way to say "time-sensitive": liquidations, oracle updates, arbitrage windows.</li>
+    <li><span class="lead">Leios makes it timely.</span> Big throughput win, delivered through two block types: RBs frequent and immediate, EBs carrying the bulk and settling later. The wait now depends on the path, and transactions cannot pick their path. If asked: Leios is not slower for the same load; the point is choice, not slowdown.</li>
+    <li><span class="lead">CPS-0031.</span> We wrote the problem statement up formally, as part of this project.</li>
+    <li><span class="lead">Phase 1 = theory.</span> Analysed "Tiered Mechanisms for Blockchain Transaction Fees". Cardano diverges: two block types, variable tx sizes, two-dimensional pricing. Direct port wrong shape.</li>
+    <li><span class="lead">Feedback shaped this once already.</span> Full tiered pricing trimmed to a simple urgency signal after community discussion, and Carlos Lopez De Lara was at Buidlerfest talking with community members about this work. Today is round two.</li>
+    <li><span class="lead">The number.</span> 44.32% of urgent value retained (flat fee, severe congestion). Retained value = value-weighted share of urgent demand served in time; the rest lost to delay or failure.</li>
+  </ul>
+</div>
+
+<div class="notes" id="notes-3">
+  <h2>Slide 3 · After · <span class="time">about 5.5 minutes</span></h2>
+  <ul>
+    <li><span class="lead">Mechanism</span> · <span class="time">~1.5 min</span>
+      <ul>
+        <li>Two lanes, chosen by the transaction. Urgent: dynamic quote, eligible for RBs. Standard: own quote, via EBs.</li>
+        <li>Quotes adjust per lane after every block, EIP-1559 style.</li>
+        <li>Ledger-enforced: RBs may only contain urgent-quote payers. Closes bribery: no private deal can sell fast-lane access below the posted price.</li>
+        <li><span class="cue">Own it: both lanes are dynamic, deliberately.</span> We know a dynamic standard lane is debated; we think it is the best way forward. Evidence: at launch-day load a statically priced standard lane delivers nothing (it cannot shed demand, jams the shared mempool, and starves the reserved lane). Reassurance: at quiet times the standard quote rests at today's minimum fee, and an EB is only announced once its payload reaches half an RB's capacity, so standard-lane dynamism only engages under real load.</li>
+      </ul>
+    </li>
+    <li><span class="lead">Validation</span> · <span class="time">~2.5 min</span>
+      <ul>
+        <li>Experiments (Will): ten seeded runs per mechanism, multiple loads incl. launch-day calibrated to SundaeSwap, Jan 2022.</li>
+        <li>44.32% &#8594; 50.97% urgent retained value (+6.65 &plusmn; 2.40 pp, ~15% relative). Latency 2.91 &#8594; 2.52 blocks.</li>
+        <li>Walk the chart: beats flat fee at every contended load (+3.04 mid, +6.65 severe, +5.83 launch-day, +7.38 EB-stress); parity at low load (+1.01, CI spans zero, by design). Latency 0.06 to 0.81 blocks sooner; launch-day gains via admission instead.</li>
+        <li>Stress tests: holds across a validated parameter envelope, not fragile.</li>
+        <li>Prototype (Nicolas): ledger rules + fee controller + two-lane mempool on the real node stack, end to end on a three-node private devnet. Both lanes forge and clear. Early, happy path, but real code on a real network.</li>
+        <li>Formal spec (Polina): transaction commutativity proof under way in the formal ledger spec; underpins the reordering the two-lane design relies on.</li>
+        <li>Incentives (Giorgos): analysis in the next 6 months. Deferred until the CIP is finalised, so it analyses what the community converges on.</li>
+      </ul>
+    </li>
+    <li><span class="lead">Where we are: CIP nearly ready.</span> Theory, simulation, and the devnet prototype are behind us; the formal spec proof and the CIP draft are the pieces still moving (the draft has open sections). What's left is the community's part: feedback now, CIP finalised end of July, incentive analysis in the 6 months after.</li>
+    <li><span class="lead">The ask</span> · <span class="time">~1.5 min</span>
+      <ul>
+        <li>CIP draft: Transaction Urgency Signalling on Linear-Leios. In the tiered-pricing repo, docs/phase-2.</li>
+        <li>Not an open PR: read it as it stands. <span class="cue">Say out loud where to send feedback.</span></li>
+        <li>Deadline end of July, so feedback gets folded in before the CIP is finalised.</li>
+      </ul>
+    </li>
+    <li><span class="lead">Close.</span> Thanks; where to find you afterwards.</li>
+  </ul>
+</div>
+
+<script>
+  const PER_LOAD = [
+    { load: 'Low', rv: [1.01, 1.46], lat: [0.06, 0.08] },
+    { load: 'Mid', rv: [3.04, 1.17], lat: [0.20, 0.07] },
+    { load: 'Severe', rv: [6.65, 2.40], lat: [0.48, 0.17] },
+    { load: 'Launch-day', rv: [5.83, 4.22], lat: null },
+    { load: 'EB stress', rv: [7.38, 3.73], lat: [0.81, 0.41] }
+  ];
+
+  function renderChart(svgId, key, axisMax, fmt, noneText) {
+    const svg = document.getElementById(svgId);
+    const W = 320, rowH = 20, top = 4, x0 = 80, plotW = 184;
+    const H = top + PER_LOAD.length * rowH + 4;
+    svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
+    const px = v => x0 + (v / axisMax) * plotW;
+    let s = '<line x1="' + x0 + '" y1="' + (top - 2) + '" x2="' + x0 + '" y2="' + (H - 2) + '" stroke="#d8d7d2" stroke-width="1"/>';
+    PER_LOAD.forEach((d, i) => {
+      const yMid = top + i * rowH + rowH / 2;
+      s += '<text x="' + (x0 - 8) + '" y="' + (yMid + 4) + '" text-anchor="end" font-size="12.5" fill="#52514e">' + d.load + '</text>';
+      const m = d[key];
+      if (!m) {
+        s += '<text x="' + (x0 + 6) + '" y="' + (yMid + 4) + '" font-size="11.5" font-style="italic" fill="#8a8983">' + noneText + '</text>';
+        return;
+      }
+      const v = m[0], ci = m[1];
+      const bh = 12, y = yMid - bh / 2, w = px(v) - x0, r = Math.min(4, w);
+      s += '<path d="M ' + x0 + ' ' + y + ' L ' + (x0 + w - r) + ' ' + y +
+           ' Q ' + (x0 + w) + ' ' + y + ' ' + (x0 + w) + ' ' + (y + r) +
+           ' L ' + (x0 + w) + ' ' + (y + bh - r) +
+           ' Q ' + (x0 + w) + ' ' + (y + bh) + ' ' + (x0 + w - r) + ' ' + (y + bh) +
+           ' L ' + x0 + ' ' + (y + bh) + ' Z" fill="#2a78d6"/>';
+      const lo = px(v - ci), hi = px(v + ci);
+      s += '<line x1="' + lo + '" y1="' + yMid + '" x2="' + hi + '" y2="' + yMid + '" stroke="#3a3935" stroke-width="1.4"/>';
+      s += '<line x1="' + lo + '" y1="' + (yMid - 4) + '" x2="' + lo + '" y2="' + (yMid + 4) + '" stroke="#3a3935" stroke-width="1.4"/>';
+      s += '<line x1="' + hi + '" y1="' + (yMid - 4) + '" x2="' + hi + '" y2="' + (yMid + 4) + '" stroke="#3a3935" stroke-width="1.4"/>';
+      s += '<text x="' + Math.min(hi + 6, W - 40) + '" y="' + (yMid + 4) + '" font-size="12.5" font-weight="600" fill="#0b0b0b">' + fmt(v) + '</text>';
+    });
+    svg.innerHTML = s;
+  }
+
+  renderChart('chart-rv', 'rv', 11.5, v => '+' + v.toFixed(2), '');
+  renderChart('chart-lat', 'lat', 1.3, v => v.toFixed(2), 'gain via admission, not latency');
+
+  const slides = Array.from(document.querySelectorAll('.slide'));
+  const notes = [1, 2, 3].map(n => document.getElementById('notes-' + n));
+  const counter = document.getElementById('counter');
+  let current = 0;
+  let notesOpen = false;
+  let fromRemote = false;
+
+  const channel = ('BroadcastChannel' in window) ? new BroadcastChannel('mid-year-slides') : null;
+
+  function show(i) {
+    current = Math.max(0, Math.min(slides.length - 1, i));
+    slides.forEach((s, j) => s.classList.toggle('active', j === current));
+    notes.forEach((p, j) => p.classList.toggle('open', notesOpen && j === current));
+    counter.textContent = (current + 1) + ' / ' + slides.length;
+    history.replaceState(null, '', '#' + (current + 1));
+    if (!fromRemote) {
+      if (channel) channel.postMessage(current);
+      try { localStorage.setItem('mid-year-slide', current + ':' + Date.now()); } catch (e) {}
+    }
+  }
+
+  function followRemote(i) {
+    if (i === current) return;
+    fromRemote = true;
+    show(i);
+    fromRemote = false;
+  }
+
+  if (channel) channel.onmessage = e => followRemote(e.data);
+  window.addEventListener('storage', e => {
+    if (e.key === 'mid-year-slide' && e.newValue) followRemote(parseInt(e.newValue, 10));
+  });
+
+  const swEl = document.getElementById('stopwatch');
+  let swRunning = false, swAccum = 0, swStart = 0, swTimer = null;
+
+  function swRender() {
+    const ms = swAccum + (swRunning ? performance.now() - swStart : 0);
+    const s = Math.floor(ms / 1000);
+    swEl.textContent = String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
+    swEl.classList.toggle('warn', s >= 480 && s < 600);
+    swEl.classList.toggle('over', s >= 600);
+  }
+
+  function swToggle() {
+    swEl.style.display = 'block';
+    if (swRunning) {
+      swAccum += performance.now() - swStart;
+      swRunning = false;
+      clearInterval(swTimer);
+    } else {
+      swRunning = true;
+      swStart = performance.now();
+      swTimer = setInterval(swRender, 250);
+    }
+    swEl.classList.toggle('paused', !swRunning);
+    swRender();
+  }
+
+  function swReset() {
+    swAccum = 0;
+    swStart = performance.now();
+    swRender();
+  }
+
+  document.addEventListener('keydown', e => {
+    if (e.key === 'ArrowRight' || e.key === ' ' || e.key === 'PageDown') show(current + 1);
+    else if (e.key === 'ArrowLeft' || e.key === 'PageUp') show(current - 1);
+    else if (e.key === 'Home') show(0);
+    else if (e.key === 'End') show(slides.length - 1);
+    else if (e.key === 'n' || e.key === 'N') { notesOpen = !notesOpen; show(current); }
+    else if (e.key === 's' || e.key === 'S') swToggle();
+    else if (e.key === 'r' || e.key === 'R') swReset();
+  });
+
+  document.addEventListener('click', e => {
+    if (e.target.closest('.notes')) return;
+    show(current + 1);
+  });
+
+  show((parseInt(location.hash.slice(1), 10) || 1) - 1);
+</script>
+</body>
+</html>

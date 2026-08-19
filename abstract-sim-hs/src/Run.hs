@@ -1,9 +1,13 @@
 module Run (
   Run (..),
+  RandomnessMode (..),
   Seed,
   defaultSimConfigPath,
   run',
+  runWithSeed,
+  runWithSeedUsing,
   runWithSeedToFile,
+  runWithSeedToFileUsing,
 ) where
 
 import Config (SimConfig (..))
@@ -17,7 +21,7 @@ import Design (Design)
 import Event (SimEvent)
 import Metrics (Metrics, MetricsConfig (..), emptyMetricsAcc, finalizeMetrics, recordMetricsEvents)
 import Parser (parseSimConfig)
-import Sim (initSimSt, step, unSimM)
+import Sim (initSimSt, initSimStWithIndependentRngStreams, step, unSimM)
 import System.IO (Handle, IOMode (WriteMode), withFile)
 import System.Random (mkStdGen)
 
@@ -31,11 +35,31 @@ defaultSimConfigPath :: FilePath
 defaultSimConfigPath = "config/default-sim-config.json"
 
 runWithSeedToFile :: SimConfig -> FilePath -> Seed -> Int -> IO Run
-runWithSeedToFile config eventsPath seed slots = do
-  let st = initSimSt config (mkStdGen (fromInteger seed))
-  (metricsAcc, _st') <-
-    withFile eventsPath WriteMode \handle ->
-      runTrace handle slots emptyMetricsAcc 0 st
+runWithSeedToFile = runWithSeedToFileUsing SharedRandomness
+
+runWithSeedToFileUsing :: RandomnessMode -> SimConfig -> FilePath -> Seed -> Int -> IO Run
+runWithSeedToFileUsing randomness config eventsPath seed slots =
+  withFile eventsPath WriteMode \handle ->
+    runWithSeedAndSink randomness config (writeTraceEvents handle) 0 seed slots
+
+-- | Run a simulation without serialising its event stream. Metrics are still
+-- folded from exactly the same per-slot events as a traced run; only the
+-- event sink differs.
+runWithSeed :: SimConfig -> Seed -> Int -> IO Run
+runWithSeed = runWithSeedUsing SharedRandomness
+
+runWithSeedUsing :: RandomnessMode -> SimConfig -> Seed -> Int -> IO Run
+runWithSeedUsing randomness config =
+  runWithSeedAndSink randomness config (\() _events -> pure ()) ()
+
+runWithSeedAndSink :: RandomnessMode -> SimConfig -> (sinkState -> [SimEvent] -> IO sinkState) -> sinkState -> Seed -> Int -> IO Run
+runWithSeedAndSink randomness config sink initialSinkState seed slots = do
+  let rootRng = mkStdGen (fromInteger seed)
+      st = case randomness of
+        SharedRandomness -> initSimSt config rootRng
+        IndependentRandomness -> initSimStWithIndependentRngStreams config rootRng
+  (metricsAcc, _sinkState, _st') <-
+    runSimulation slots emptyMetricsAcc initialSinkState st
   pure
     Run
       { _runResult = finalizeMetrics metricsConfig slots metricsAcc
@@ -45,16 +69,17 @@ runWithSeedToFile config eventsPath seed slots = do
  where
   metricsConfig = metricsConfigFrom config
 
-  runTrace handle slotsRemaining metricsAcc nextEventNo simSt
-    | slotsRemaining <= 0 = pure (metricsAcc, simSt)
+  runSimulation slotsRemaining metricsAcc sinkState simSt
+    | slotsRemaining <= 0 = pure (metricsAcc, sinkState, simSt)
     | otherwise = do
         let (events, simSt') =
               runState
                 (runReaderT (unSimM step) config)
                 simSt
             metricsAcc' = recordMetricsEvents metricsAcc events
-        nextEventNo' <- writeTraceEvents handle nextEventNo (toList events)
-        runTrace handle (slotsRemaining - 1) metricsAcc' nextEventNo' simSt'
+            eventList = toList events
+        sinkState' <- sink sinkState eventList
+        runSimulation (slotsRemaining - 1) metricsAcc' sinkState' simSt'
 
 metricsConfigFrom :: SimConfig -> MetricsConfig
 metricsConfigFrom config =
@@ -86,3 +111,8 @@ data Run = Run
   }
 
 type Seed = Integer
+
+data RandomnessMode
+  = SharedRandomness
+  | IndependentRandomness
+  deriving stock (Eq, Show)

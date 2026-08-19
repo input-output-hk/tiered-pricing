@@ -1,0 +1,13 @@
+{
+  "description": "Integrated launch-day smoke for the canonical D16/D16, threshold-reservation, K=10 urgency-signalling configuration under the simulator's max-of-two fee-cap semantics. Runs seeds 0-9 for 2,000 slots without event traces. Results are paired against the archived corrected max-of-two/no-floor D16 calibration and its pre-correction counterpart; this is a diagnostic integration check, not an equivalence test.",
+  "seeds": 10,
+  "slots": 2000,
+  "summaryOnly": true,
+  "out": "sweep-results/canonical-final-d16-k10-launch-day",
+  "variants": [
+    {
+      "name": "canonical-final-d16-k10",
+      "config": "config/variants/trickle-aging/thr-k10.json"
+    }
+  ]
+}

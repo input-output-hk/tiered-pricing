@@ -1,0 +1,59 @@
+{
+  "name": "launch-day",
+  "description": "dApp-launch congestion profile calibrated to the January 2022 SundaeSwap launch, using per-block chain data (Koios/db-sync, Dec 25 2021 - Feb 10 2022; see docs/phase-2/launch-day-daily-chain-load.csv). Measured daily byte fullness against the 72KB block cap: ~31% baseline (late Dec), ~60% build-up (Jan 5-14), ~88% pre-launch surge (Jan 15-19), ~93% plateau from launch Jan 20 through Jan 27+, never exceeding 94.4%. Stages map those levels onto the sim's EB byte cap (~485 tx/slot at mean tx size): 160 (~33%), 290 (~60%), 430 (~89%), 600 (~123%, assumed onset overshoot - fullness is capacity-pinned and cannot show offered demand above it), 450 (~93%, outlasting the run horizon as the real event outlasted two weeks). Urgency multipliers are modelling assumptions, not measurements: x2 during the pre-launch surge and plateau, x4 at onset (maps each sim urgency band onto roughly the next band up); value distribution unchanged. The profile replays the event's saturation fractions, not its absolute volumes: 2022 daily transaction counts (~195k/day peak) would not stress linear-Leios.",
+  "load": {
+    "type": "burst",
+    "bursts": [
+      {
+        "baseRate": 0,
+        "burstRate": 160,
+        "burstStart": 0,
+        "burstEnd": 300,
+        "burstEffect": {
+          "valueMultiplier": 1,
+          "urgencyMultiplier": 1
+        }
+      },
+      {
+        "baseRate": 0,
+        "burstRate": 290,
+        "burstStart": 300,
+        "burstEnd": 700,
+        "burstEffect": {
+          "valueMultiplier": 1,
+          "urgencyMultiplier": 1
+        }
+      },
+      {
+        "baseRate": 0,
+        "burstRate": 430,
+        "burstStart": 700,
+        "burstEnd": 950,
+        "burstEffect": {
+          "valueMultiplier": 1,
+          "urgencyMultiplier": 2
+        }
+      },
+      {
+        "baseRate": 0,
+        "burstRate": 600,
+        "burstStart": 950,
+        "burstEnd": 1150,
+        "burstEffect": {
+          "valueMultiplier": 1,
+          "urgencyMultiplier": 4
+        }
+      },
+      {
+        "baseRate": 0,
+        "burstRate": 450,
+        "burstStart": 1150,
+        "burstEnd": 2000,
+        "burstEffect": {
+          "valueMultiplier": 1,
+          "urgencyMultiplier": 2
+        }
+      }
+    ]
+  }
+}

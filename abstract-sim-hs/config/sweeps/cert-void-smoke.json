@@ -1,0 +1,23 @@
+{
+  "description": "Exploratory paired smoke of two alternative standard-controller signals against the recommended W20 window: cert-gated sample-and-hold (updates only when a certified EB is applied) and cert-void backfill (a no-cert Ranking Block enters the window as a third of an empty EB, 4,000,000 B / 3,166,377,816 exunits, instead of its own capacity). Urgent controller stays W5; everything else fixed at S=.75/U=.50, D16, half-RB threshold, K10. Five paired seeds across the five headline loads; directional only, not confirmatory evidence.",
+  "seedStart": 300,
+  "seeds": 5,
+  "slots": 2000,
+  "summaryOnly": true,
+  "randomness": "independent-streams",
+  "out": "sweep-results/cert-void-smoke/severe-congestion",
+  "variants": [
+    {
+      "name": "current-w20-w5",
+      "config": "config/variants/standard-target-screen/s75-u50.json"
+    },
+    {
+      "name": "standard-cert-only-w5",
+      "config": "config/variants/window-ablation/standard-cert-only-w5.json"
+    },
+    {
+      "name": "standard-void-third-w5",
+      "config": "config/variants/window-ablation/standard-void-third-w5.json"
+    }
+  ]
+}

@@ -1,0 +1,5 @@
+{
+  "name": "trickle-0.1",
+  "description": "Near-zero standard trickle: constant 0.1 tx/slot, far below the EB threshold accumulation rate; the regime where the announcement age escape is the only route to standard-lane inclusion",
+  "load": { "type": "constant", "rate": 0.1 }
+}

@@ -5,6 +5,7 @@ module Block (
   PendingEb (..),
   BlockUsage (..),
   BlockSummary (..),
+  RbSelectionMode (..),
   mkBlockUsage,
   prioritySignalCapacity,
   selectTxsByPolicy,
@@ -15,6 +16,7 @@ module Block (
   selectFifoWithStandardCap,
   selectPriorityByBlockCapacity,
   txBlockResources,
+  txsBytes,
 )
 where
 
@@ -96,6 +98,11 @@ data BlockSummary
   | EbCertified EbId BlockUsage
   deriving stock (Eq, Show)
 
+-- | Whether a transaction-carrying RB applied the priority-only rule or used
+-- all of its capacity for a mixed block because the queued transactions fit.
+data RbSelectionMode = ReservedRb | MixedRb
+  deriving stock (Eq, Show)
+
 {- | The wire encoding predates this type's shape and is pinned by the viz
 ingester: ranking blocks carry a nested @block@ tag (Praos\/Certifying), a
 certifying RB serialises as an all-zero usage, and the signal-capacity keys
@@ -173,6 +180,8 @@ prioritySignalCapacity reservation rbCapacity =
   case reservation of
     PriorityReservationRb reservationBytes ->
       rbCapacity{resBytes = min rbCapacity.resBytes (Bytes reservationBytes)}
+    PriorityReservationRbEbThreshold reservationBytes _ _ ->
+      rbCapacity{resBytes = min rbCapacity.resBytes (Bytes reservationBytes)}
     NoReservation -> rbCapacity
 
 {- | How a producer orders the mempool into a block, absent any reservation
@@ -197,22 +206,32 @@ selectTxsByPolicy selection capacity txs =
     FifoWithStandardCap standardShare ->
       selectFifoWithStandardCap standardShare capacity txs
 
-{- | Ranking-block selection under the design's reservation policy. The
-reservation rule admits only priority txs to RBs, so every selection policy
-collapses to priority-only FIFO within the reserved capacity.
+{- | Ranking-block selection under the design's reservation policy. Both
+reservation policies keep the RB priority-only; the EB-threshold policy
+differs only in when an EB may be announced, which is decided at
+announcement time (see @ebNeeded@ in "Sim"), not here.
 -}
 selectRbTxs ::
   SelectionPolicy ->
   ReservationPolicy ->
   Resources ->
   Seq Tx ->
-  (Seq Tx, Seq Tx, Resources)
+  (Seq Tx, Seq Tx, Resources, RbSelectionMode)
 selectRbTxs selection reservation rbCapacity txs =
   case reservation of
     PriorityReservationRb{} ->
-      selectPriorityByBlockCapacity (prioritySignalCapacity reservation rbCapacity) txs
+      withMode ReservedRb $ selectPriorityByBlockCapacity (prioritySignalCapacity reservation rbCapacity) txs
+    PriorityReservationRbEbThreshold{} ->
+      withMode ReservedRb $ selectPriorityByBlockCapacity (prioritySignalCapacity reservation rbCapacity) txs
     NoReservation ->
-      selectTxsByPolicy selection rbCapacity txs
+      withMode MixedRb $ selectTxsByPolicy selection rbCapacity txs
+ where
+  withMode mode (selected, remaining, usage) = (selected, remaining, usage, mode)
+
+-- | Total body bytes of a set of transactions — the byte footprint the
+-- set would occupy as an EB payload.
+txsBytes :: Seq Tx -> Int
+txsBytes = sum . fmap ((._txSize) . (.txBody))
 
 nextEbId :: Map EbId EndorserBlock -> EbId
 nextEbId ebs =

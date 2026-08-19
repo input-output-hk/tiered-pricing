@@ -3,6 +3,7 @@
   "seeds": 3,
   "slots": 500,
   "out": "/tmp/fixture-sweep",
+  "load": "low",
   "variants": [
     { "name": "a", "config": "test/fixtures/sim-config.json" },
     { "name": "b", "config": "test/fixtures/sim-config.json" }

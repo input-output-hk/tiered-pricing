@@ -12,7 +12,7 @@ Linear-Leios needs a transaction-fee mechanism that handles congestion well, giv
 
 Phase-2 pivoted away from full tiering toward a narrower "dynamic pricing" scope after product and community feedback. The candidate set below is the result of that down-select: a single-lane dynamic fee mechanism and three two-lane mechanisms that pair a priority lane with a standard lane. The flat-fee status quo serves as the baseline against which these candidates are evaluated; it is not itself a candidate.
 
-All live candidates preserve Cardano's existing additive fee structure (`minFeeB + minFeeA × bytes`). Dynamic adjustment lives entirely in the per-byte coefficient. The constant `minFeeB` is unchanged across every live mechanism.
+All live candidates use Cardano's existing minimum-fee calculation as the base fee for each transaction. The dynamic lane coefficient multiplies the full Cardano minimum fee, including the additive constant, byte component, execution-unit costs, and reference-script costs where applicable. A coefficient of `1` therefore gives today's minimum fee.
 
 ## Design-space matrix
 
@@ -40,7 +40,9 @@ Each transaction's existing `fee` field is interpreted as the maximum total love
 
 For validity, the current quoted fee for the transaction's posted lane must fit under that maximum:
 
-$$\text{minFeeB} + \text{currentQuotePerByte}(\text{postedLane}) \cdot \text{bytes} \le \text{maxFee}$$
+$$\text{currentQuote}(\text{postedLane}, \text{tx}, \text{state}) \le \text{maxFee}$$
+
+where `currentQuote` is the transaction's full Cardano minimum fee multiplied by the current coefficient for the posted lane.
 
 In single-lane, `postedLane` is the single dynamic lane. In two-lane mechanisms, the transaction's priority/standard intent determines which lane quote is checked.
 
@@ -62,18 +64,18 @@ Per-node mempool capped at a finite byte budget. Default cap: `2 × max block bo
 
 Two protocol-fixed constants underlie every mechanism:
 
-- `minFeeA = 44 lovelace/byte`: the minimum per-byte rate. The per-byte rate paid by any transaction is bounded at or above this floor.
-- `minFeeB = 155,381 lovelace/transaction`: an additive constant. It is paid identically by every transaction across every mechanism, never multiplied by any dynamic coefficient.
+- `minFeeA = 44 lovelace/byte`: the per-byte component of Cardano's minimum-fee calculation.
+- `minFeeB = 155,381 lovelace/transaction`: the additive constant in Cardano's minimum-fee calculation.
 
-The per-byte rate is the dynamic part. The constant is the static part.
+The base Cardano minimum fee is the floor. Lane coefficients are bounded at or above `1`, so dynamic pricing never makes a transaction cheaper than today's minimum-fee calculation. When a lane coefficient is above `1`, it multiplies the full minimum fee, including `minFeeB`.
 
 ### Notation
 
-Every transaction's fee is expressed as
+Let `minFee(tx)` be Cardano's minimum fee for a transaction under the current protocol parameters, including byte, execution-unit, reference-script, and additive-constant terms. A transaction's lane quote is expressed as
 
-$$\text{fee} = \text{minFeeB} + c \cdot \text{minFeeA} \cdot \text{bytes}$$
+$$\text{quote}(\text{lane}, \text{tx}) = c_\text{lane} \cdot \text{minFee}(\text{tx})$$
 
-where `c` is a dimensionless **fee coefficient**. `c = 1` is today's flat-fee Cardano rate (`minFeeB + minFeeA × bytes`). `c > 1` raises the per-byte rate; the era floor enforces `c ≥ 1` (so the per-byte rate never drops below `minFeeA`).
+where `c_lane` is a dimensionless **fee coefficient**. `c = 1` is today's Cardano minimum fee. `c > 1` raises the whole minimum fee proportionally; the era floor enforces `c ≥ 1`.
 
 Each mechanism specifies how `c` is determined and bounded. In single-lane, there is one `c` for everyone. In two-lane, there is one `c` per lane (`c_standard`, `c_priority`), with the cross-lane invariant `c_priority ≥ multiplier_floor × c_standard`.
 
@@ -110,7 +112,7 @@ Capacity-weighted aggregation addresses each: cadence is smoothed by the window 
 
 A single dynamic fee coefficient `c` applied uniformly to all transactions.
 
-**Fee:** `minFeeB + c × minFeeA × bytes`, with `c ≥ 1`.
+**Fee:** `c × minFee(tx)`, with `c ≥ 1`.
 
 The coefficient `c` is held in ledger state and updated deterministically.
 
@@ -139,8 +141,8 @@ The `±1/D` clamp restores symmetry: for whichever target the deployment picks, 
 **Properties.**
 
 - Aggregate welfare comparable to flat-fee under moderate demand, with prices that adapt to load.
-- Single user-facing knob: wallets and explorers handle the coefficient like today's `minFeeA`.
-- *Coarse* urgency signalling. At any given moment, all included transactions pay the same per-byte rate — there is no within-moment discrimination among them. But each user's choice of `maxFee` is itself a binary engage/don't-engage signal: a user posting a high `maxFee` stays in the mempool through price spikes (signalling "this is urgent enough to ride out the congestion"); a user posting a low `maxFee` gets invalidated and drops out (signalling "not urgent enough to pay through this"). Less expressive than an explicit priority lane, but not nothing — and it disappears entirely under flat fees.
+- Single user-facing knob: wallets and explorers handle the coefficient as a multiplier over the usual minimum-fee estimate.
+- *Coarse* urgency signalling. At any given moment, all included transactions pay under the same fee multiplier — there is no within-moment discrimination among them. But each user's choice of `maxFee` is itself a binary engage/don't-engage signal: a user posting a high `maxFee` stays in the mempool through price spikes (signalling "this is urgent enough to ride out the congestion"); a user posting a low `maxFee` gets invalidated and drops out (signalling "not urgent enough to pay through this"). Less expressive than an explicit priority lane, but not nothing — and it disappears entirely under flat fees.
 - The simplest live candidate. One controller, one price, one user-facing knob — less to implement, audit, calibrate, and surface to users than any of the two-lane variants.
 
 ### RB-reserved priority-only premium
@@ -149,10 +151,10 @@ Two lanes: a static standard lane at today's Cardano fees, and a dynamic priorit
 
 **Fee:**
 
-- Standard transactions: `c_standard = 1`, fee = `minFeeB + minFeeA × bytes`. Unchanged from today.
-- Priority transactions: `c_priority ≥ multiplier_floor`, fee = `minFeeB + c_priority × minFeeA × bytes`.
+- Standard transactions: `c_standard = 1`, fee = `minFee(tx)`. Unchanged from today.
+- Priority transactions: `c_priority ≥ multiplier_floor`, fee = `c_priority × minFee(tx)`.
 
-`c_priority` is dynamic; it moves with the priority controller. `c_standard` is fixed at 1. The multiplier floor (default 16, configurable) gives a price-discrimination guarantee: the priority per-byte rate is always at least `multiplier_floor` times the standard per-byte rate, never more lenient.
+`c_priority` is dynamic; it moves with the priority controller. `c_standard` is fixed at 1. The multiplier floor (default 16, configurable) gives a price-discrimination guarantee: for a given transaction, the priority quote is always at least `multiplier_floor` times the standard quote, never more lenient.
 
 **On-ledger partition rule.**
 
@@ -226,10 +228,10 @@ Two dynamic controllers — one for the priority lane, one for the standard lane
 
 **Fee:**
 
-- Standard: `c_standard ≥ 1`, fee = `minFeeB + c_standard × minFeeA × bytes`.
-- Priority: `c_priority ≥ multiplier_floor × c_standard`, fee = `minFeeB + c_priority × minFeeA × bytes`.
+- Standard: `c_standard ≥ 1`, fee = `c_standard × minFee(tx)`.
+- Priority: `c_priority ≥ multiplier_floor × c_standard`, fee = `c_priority × minFee(tx)`.
 
-Both coefficients move dynamically. The cross-lane invariant is enforced after every controller update: priority's per-byte rate is always at least `multiplier_floor` times standard's. With both lanes dynamic, the standard side also responds to load — preserving today's flat-fee experience is sacrificed in exchange for fuller load adaptation.
+Both coefficients move dynamically. The cross-lane invariant is enforced after every controller update: for a given transaction, the priority quote is always at least `multiplier_floor` times the standard quote. With both lanes dynamic, the standard side also responds to load — preserving today's flat-fee experience is sacrificed in exchange for fuller load adaptation.
 
 **Maximum-fee semantics apply to both lanes.** A standard-fee transaction and a priority-fee transaction each carry one maximum authorised fee value in the existing transaction `fee` field. The transaction's posted lane determines which quote is checked while it sits in mempool. It is invalidated if that lane's current quoted fee rises above its `maxFee`, and it is refunded the difference between `maxFee` and the actual fee charged at inclusion.
 
@@ -283,14 +285,14 @@ The anti-standard cap is *only* introduced under the FIFO fallback. Under `prior
 
 | Parameter | Status | Notes |
 |---|---|---|
-| `minFeeA = 44 lov/byte` | Protocol invariant | Era floor; bounds dynamic coefficients from below |
-| `minFeeB = 155,381 lov/tx` | Protocol invariant | Additive constant; never multiplied; identical across mechanisms |
+| `minFeeA = 44 lov/byte` | Protocol invariant | Per-byte component of the base minimum-fee calculation |
+| `minFeeB = 155,381 lov/tx` | Protocol invariant | Additive component of the base minimum-fee calculation; multiplied as part of the full minimum fee when `c > 1` |
 | `max_block_size` | Protocol invariant | Cardano network parameter; defines RB capacity |
 | `priority_reservation_bytes` | Spec invariant for RB-reserved | Set to `max_block_size`; experimentally relaxable |
 | `multiplier_floor` | Calibration parameter (configurable) | Default 16; enforces priority-vs-standard price discrimination |
 | `target_utilisation` per controller | Calibration parameter | EIP-1559 controller target fill rate |
 | `max_change_denominator` (`D`) per controller | Calibration parameter | EIP-1559 per-step price-change cap, `±1/D` |
-| `initial_coefficient` per controller | Calibration parameter | Starting per-byte coefficient |
+| `initial_coefficient` per controller | Calibration parameter | Starting multiplier over Cardano's minimum fee |
 | Mempool cap | Per-node configuration | Default `2 × max_block_body_size`; mainnet convention |
 | `priority_first` scan order | Spec invariant for live two-lane mechanisms | Falls back to FIFO + anti-standard cap if real-mempool constraints force it |
 | Controller-signal window length | Calibration parameter (placeholder) | Length of the capacity-weighted aggregate window; pending calibration. See *Open questions*. |

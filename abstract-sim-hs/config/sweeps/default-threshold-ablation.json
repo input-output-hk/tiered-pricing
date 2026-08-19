@@ -1,0 +1,26 @@
+{
+  "description": "Default-point EB-threshold ablation on the current canonical mechanism. Every arm uses target utilisation 0.5, denominator 16, K=10, and the same corrected fee semantics; only ebThresholdBytes changes. The half-RB arm is the recommended configuration, the 1-byte arm measures the effect of gating, and the quarter/three-quarter-RB arms measure threshold sensitivity. Run across the five headline loads with paired seeds and independent random streams.",
+  "seeds": 100,
+  "slots": 2000,
+  "summaryOnly": true,
+  "randomness": "independent-streams",
+  "out": "sweep-results/default-threshold-ablation",
+  "variants": [
+    {
+      "name": "threshold-1",
+      "config": "config/variants/default-threshold/threshold-1.json"
+    },
+    {
+      "name": "threshold-quarter-rb",
+      "config": "config/variants/default-threshold/threshold-quarter-rb.json"
+    },
+    {
+      "name": "threshold-half-rb",
+      "config": "config/variants/trickle-aging/thr-k10.json"
+    },
+    {
+      "name": "threshold-three-quarter-rb",
+      "config": "config/variants/default-threshold/threshold-three-quarter-rb.json"
+    }
+  ]
+}

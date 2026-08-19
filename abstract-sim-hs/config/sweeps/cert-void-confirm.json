@@ -1,0 +1,52 @@
+{
+  "description": "Held-out confirmation of the cert-void pilot. Uses three arms to confirm the two effects selected before this run: launch-day overall retained value under a cert-gated sample-and-hold standard signal, and launch-day overall retained value when the no-cert window contribution is a third of an empty EB. Pilot seeds 300-304 are excluded from confirmatory inference.",
+  "analysisPlan": {
+    "stage": "held-out-confirmation",
+    "pilot": {
+      "report": "sweep-results/cert-void-smoke/comparison.json",
+      "reportSha256": "254f59113bea4166087cdc11afa7f60a8c9f8ab949088f737af3e9c34726750e",
+      "sourcePatchSha256": "132cdb7a7d7d6cd336b540b7283758064b4500fce5565dbce1e074d95f98bf10",
+      "seeds": [300, 301, 302, 303, 304],
+      "excludedFromInference": true
+    },
+    "primaryProcedure": "Two co-primary paired contrasts use two-sided 97.5% Student-t confidence intervals (Bonferroni-adjusted across the two endpoints). Each endpoint must also agree in the expected direction in at least 9 of 10 paired seeds. Both endpoints must pass.",
+    "primaryEndpoints": [
+      {
+        "id": "launch-cert-only-retained",
+        "load": "launch-day",
+        "contrast": "cert-only-minus-current",
+        "metric": "value.retainedLovelace",
+        "expectedDirection": "negative"
+      },
+      {
+        "id": "launch-void-third-retained",
+        "load": "launch-day",
+        "contrast": "void-third-minus-current",
+        "metric": "value.retainedLovelace",
+        "expectedDirection": "negative"
+      }
+    ],
+    "secondaryProcedure": "All other load, metric, and contrast results are descriptive coherence and safety checks with ordinary two-sided 95% paired-t confidence intervals. They are not additional confirmatory tests.",
+    "scope": "Passing supports two claims about the standard controller under this simulator calibration: updating only on certified-EB applications underprices sustained ramping demand, and a no-cert window contribution as large as a third of an empty EB floor-pins the quote under the same demand. Together with the descriptive dial sweeps it supports keeping the Ranking Block's own capacity as the no-cert contribution. It does not establish welfare, real-world optimality, or that the RB-sized contribution is globally optimal; the sub-RB region moved outcomes by less than half a percent in the exploratory pilot and is not tested here."
+  },
+  "seedStart": 420,
+  "seeds": 10,
+  "slots": 2000,
+  "summaryOnly": true,
+  "randomness": "independent-streams",
+  "out": "sweep-results/cert-void-confirm/severe-congestion",
+  "variants": [
+    {
+      "name": "current-w20-w5",
+      "config": "config/variants/standard-target-screen/s75-u50.json"
+    },
+    {
+      "name": "standard-cert-only-w5",
+      "config": "config/variants/window-ablation/standard-cert-only-w5.json"
+    },
+    {
+      "name": "standard-void-third-w5",
+      "config": "config/variants/window-ablation/standard-void-third-w5.json"
+    }
+  ]
+}

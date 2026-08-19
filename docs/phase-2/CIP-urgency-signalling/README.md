@@ -208,9 +208,9 @@ The settled recommendation in one place. Each component is specified in detail i
 | EB announcement threshold | Let `thresholdFraction = max(1 - urgentTargetUtilisation, 1/2)`. Unless the age escape applies, a non-empty certified EB qualifies when any one of its serialised transaction size, its reference-script size, or either component of its execution-unit budget reaches that fraction of the corresponding RB limit. The default fraction is 1/2 (45,056 B for the simulated transaction-size component) |
 | EB announcement age escape | A certificate for a non-empty EB below the threshold can enter an RB once at least K = 10 Ranking Blocks have been produced since the last certified EB |
 | Fee semantics | Per-lane EIP-1559: each lane's quote is its pricing coefficient × the ordinary min fee |
-| Fee-cap basis | The two lane controllers' raw coefficients are sorted before use: the larger prices the priority tier and the smaller prices the standard tier, so the priority quote is never below the standard quote (see [Ledger Rule Changes](#ledger-rule-changes)). Sorting is a pure last step and does not alter either controller. An urgent transaction's fee cap, throughout wallet choice and every max-fee validity check, is therefore simply the priority quote; a standard transaction's is the standard quote |
-| Premium scope | rb-only: the applicable inclusion quote is the priority (urgent) quote in an RB and the standard quote in an EB |
-| Admission, revalidation, and selection (node policy) | Admission requires the posted max fee to cover the applicable quote after one conservative lane-specific controller step. While the transaction is queued, the max fee must cover the current fee-cap quote, or the node evicts the transaction. Prudent EB selection takes a transaction only if the max fee also covers one further lane-specific step (RB selection needs only the current quote, since inclusion is immediate) |
+| Fee-cap basis | For an urgent transaction under rb-only settlement, wallet choice and every max-fee validity check use max(standard quote, urgent quote). Temporary quote crossings are permitted and do not alter either controller |
+| Premium scope | rb-only: the applicable inclusion quote is the urgent quote in an RB and the standard quote in an EB |
+| Admission, revalidation, and selection (node policy) | Admission requires the posted max fee to cover the maximum applicable lane quote after one conservative lane-specific controller step. While the transaction is queued, the max fee must cover the current fee-cap quote, or the node evicts the transaction. Prudent EB selection takes a transaction only if the max fee also covers one further lane-specific step (RB selection needs only the current quote, since inclusion is immediate) |
 | Settlement and refund | Inclusion charges the applicable inclusion quote. The ordinary min-fee component goes to the fee pot, the premium above it goes to the treasury, and the posted excess goes back to the refund account. A posted maximum below the applicable quote is invalid |
 | Standard controller | Target utilisation 0.75, max-change denominator 16, capacity-weighted utilisation over a 20-block window, initial coefficient 1.0 |
 | Urgent controller | Target utilisation 0.5, max-change denominator 16, reservation utilisation over a 5-sample window, initial coefficient 2.0 |
@@ -390,15 +390,13 @@ produce the same *updated* ledger state
 when applied to the same state and in the same environment.
 It has the following (also proved) corollary:
 
-::: {#cor-simple}
-Let `standardTxs` and `priorityTxs` be lists of transactions, `tx : Tx`, 
-`s : LState`, and `e : LEnv`.
-Suppose the conditions `Cstd(standardTxs)`
-and `Cpri(tx::priorityTxs)` are satisfied. Suppose also that `standardTxs ++ priorityTxs`,
-`(tx :: standardTxs) ++ priorityTxs`, and `tx :: priorityTxs` are all valid in `e, s`.
-Then, applying `(tx :: standardTxs) ++ priorityTxs` or `standardTxs ++ (tx :: priorityTxs)`
-to `s` in `e` gives the same updated ledger state.
-:::
+> **Corollary.** Let `standardTxs` and `priorityTxs` be lists of transactions, `tx : Tx`, 
+> `s : LState`, and `e : LEnv`.
+> Suppose the conditions `Cstd(standardTxs)`
+> and `Cpri(tx::priorityTxs)` are satisfied. Suppose also that `standardTxs ++ priorityTxs`,
+> `(tx :: standardTxs) ++ priorityTxs`, and `tx :: priorityTxs` are all valid in `e, s`.
+> Then, applying `(tx :: standardTxs) ++ priorityTxs` or `standardTxs ++ (tx :: priorityTxs)`
+> to `s` in `e` gives the same updated ledger state.
 
 We do not specify `Cstd` and `Cpri` here exactly (both are encoded in the commutativity proof).
 Instead, we list the resulting types of conflict an incoming priority transaction may have with transactions 
@@ -520,11 +518,13 @@ Mempool structure remains node policy, so the ledger does not enforce it.
 
 A dynamic quote can rise after admission. A posted max fee that covered the quote at submission can then fall short when the transaction is selected. We handle this with three layers of node policy, ordered by when each acts.
 
-The two controllers remain independent: each accumulates its own coefficient from its own lane's utilisation signal alone (see [Controller updates and signals](#controller-updates-and-signals)). Before either raw coefficient is used to price a transaction, the two are sorted: the larger becomes the priority quote's coefficient and the smaller becomes the standard quote's coefficient (`effectiveTierCoeff` in [Ledger Rule Changes](#ledger-rule-changes)). This guarantees the priority quote is never below the standard quote. Because an urgent transaction always settles at a quote no higher than the priority quote, its fee-cap quote throughout wallet lane choice, admission, revalidation, and producer selection is simply the priority quote. Its actual fee remains inclusion-point-specific: the priority (urgent) quote in an RB and the standard quote in an EB.
+The two controllers are independent, so the standard quote can temporarily rise above the urgent quote. This is a permitted controller state, not a reason to impose a cross-lane multiplier floor. Because an urgent transaction can settle through either path, its fee-cap quote is `max(standard quote, urgent quote)` throughout wallet lane choice, admission, revalidation, and producer selection. Its actual fee remains inclusion-point-specific: the urgent quote in an RB and the standard quote in an EB.
 
-A cross-lane multiplier floor that instead forced `urgent quote ≥ standard quote` by raising the urgent controller's own coefficient whenever the lanes inverted was considered and rejected: it couples the controllers, feeding standard-lane pressure back into the urgent controller's own trajectory even when urgent-lane utilisation does not justify it. Sorting the two raw outputs after each computes independently avoids this: it fixes which label attaches to the larger number without feeding that number back into either controller's own future updates, so each controller's trajectory depends only on its own lane's utilisation.
+A possible alternative is a 1× cross-lane clamp, which enforces `urgent quote ≥ standard quote`: it raises the urgent quote whenever the lanes invert. We do not adopt it because it couples the controllers and can raise the RB price when urgent-lane utilisation does not justify it. Max-of-two instead changes only the fee cap needed to cover both settlement paths. It does not change either controller or the inclusion-point-specific charge.
 
-At admission, the posted max fee must cover the applicable quote one worst-case controller step ahead. For an urgent transaction that quote is the priority quote; because it is the larger of the two controllers' raw coefficients and either could be the larger one after the next step, bounding it conservatively still requires projecting both lanes one step ahead and taking the larger projection (see the formula below). A standard transaction only ever needs to cover the standard lane's own projection. One step is the right horizon because an EB producer requires the same at selection, so nothing enters the mempool that a producer then refuses. At the recommended target 0.5 and D = 16 on both lanes, that is around 6.25% of headroom. The urgent lane requires headroom because of eviction. An urgent transaction that offers exactly the priority fee and no more can be priced out while it waits during a price increase. The node must then evict it, and the transaction wasted mempool space for its whole stay.
+At admission, the posted max fee must cover the applicable lane quotes one worst-case controller step ahead: both lanes for an urgent transaction, since it can settle at either quote, and the standard lane alone otherwise. One step is the right horizon because an EB producer requires the same at selection, so nothing enters the mempool that a producer then refuses. At the recommended target 0.5 and D = 16 on both lanes, that is around 6.25% of headroom. The urgent lane requires headroom because of eviction. An urgent transaction that offers exactly the urgent fee and no more can be priced out while it waits during a price increase. The node must then evict it, and the transaction wasted mempool space for its whole stay.
+
+This headroom matters most for a transaction that posts only the bare minimum for its own tier. If an urgent transaction's posted max fee covers only the current urgent quote, and the standard quote later rises past it before the transaction reaches an RB, the transaction becomes temporarily invalid for EB inclusion: its posted fee no longer covers the standard quote it would be charged there (see the explicit fee-sufficiency rule for the adjusted tier in [Ledger Rule Changes](#ledger-rule-changes)). It is not overcharged — that rule is what keeps it from ever being charged more than it posted — it is simply excluded from EB inclusion until the standard quote falls back within its cap, or evicted under ordinary stale-fee eviction if it never recovers a valid path. Posting the one-step-ahead `max(standard quote, urgent quote)` headroom recommended above avoids this.
 
 If lane $l$ has a controller:
 
@@ -623,16 +623,12 @@ There is a new state variable `policyState : SDPolicy` in the `UTxOState`.
 
 The two controllers remain fully independent: `rawCoeff(priority)` and `rawCoeff(standard)` each evolve from 
 their own controller's own utilisation signal alone, exactly as specified in 
-[Controller updates and signals](#controller-updates-and-signals). The coefficient actually used to price a 
-transaction is not read off `rawCoeff` directly, however. We define 
-
-  - `effectiveTierCoeff(priority) = max(rawCoeff(priority), rawCoeff(standard))` 
-  - `effectiveTierCoeff(standard) = min(rawCoeff(priority), rawCoeff(standard))`
-
-Sorting the two raw controller outputs this way, rather than reading either off directly, guarantees 
-`effectiveTierCoeff(priority) ≥ effectiveTierCoeff(standard)` at every block, without coupling either 
-controller's own trajectory to the other's utilisation: only the final, externally used coefficient is 
-swapped when the raw outputs invert, never either controller's own stored `rawCoeff`.
+[Controller updates and signals](#controller-updates-and-signals). The coefficient used to price a transaction 
+is each tier's own controller output directly, with no sorting or combination between the two: 
+`effectiveTierCoeff(t) = rawCoeff(t)`. In particular, `rawCoeff(priority)` and `rawCoeff(standard)` can 
+temporarily invert — that is a permitted controller state (see 
+[Revalidation and stale fees](#revalidation-and-stale-fees) for how node policy handles it), not something the 
+ledger corrects.
 
 Let `adjusted_tier_no` be `priority` if `tx` was in an RB with a *transaction list*, 
 and `standard` if `tx` was in an EB. Let `adjusted_tier_coeff` be `effectiveTierCoeff(adjusted_tier_no)`. 
@@ -640,6 +636,10 @@ The following are the key rule changes (to transaction application)
 having to do with processing the *fee payment* :
 
   1. updated min-fee constraint (enough to cover *targeted* tier) : `tier_coeff·minfee ≤ txFee`
+  1. new min-fee constraint (enough to cover the tier the transaction is actually *charged*, which may differ 
+  from the targeted tier when `rawCoeff(priority)` and `rawCoeff(standard)` are inverted) : 
+  `adjusted_tier_coeff·minfee ≤ txFee`; a transaction that fails this constraint is invalid for inclusion at 
+  its adjusted tier
   1. `txfee - minfee * adjusted_tier_coeff` is the amount of change sent to `reward_account` if it exists, 
   and to the treasury if it does not
   1. exactly `minfee` is sent to the fee pot
@@ -654,11 +654,13 @@ with respect to `policyState` :
   1. The tier number in `tx_tier` is `≤ adjusted_tier_no` 
   1. `policyState` is updated so that the current aggregated values 2-4 reflect `tx`
 
-Note that these constraints together guarantee that the change amount is never negative: the transaction 
-covers the coefficient quoted for its targeted tier, and it can only be included in that tier or a lower one, 
-whose coefficient is no higher — the `effectiveTierCoeff` sort above guarantees this holds across every block, 
-not merely most of the time, since `rawCoeff(priority)` and `rawCoeff(standard)` can never leave 
-`effectiveTierCoeff(priority)` below `effectiveTierCoeff(standard)`.
+Note that these constraints together guarantee that the change amount is never negative: the explicit 
+`adjusted_tier_coeff·minfee ≤ txFee` constraint above requires the posted fee to cover whatever coefficient the 
+transaction is actually charged at its adjusted tier, so `txfee - minfee * adjusted_tier_coeff` cannot be 
+negative. This holds regardless of how `rawCoeff(priority)` and `rawCoeff(standard)` compare to one another — 
+no ordering between the two controllers is required. A transaction that does not post enough to cover its 
+adjusted tier's coefficient is simply invalid for inclusion at that tier (see 
+[Revalidation and stale fees](#revalidation-and-stale-fees) for the resulting eviction risk).
 
 #### Block validity
 
@@ -701,9 +703,9 @@ the block type, with the following steps:
   track data in the next block
   1. Update the `diversityPolicy : TierNo ⇀ PolicyClause` field of the `SDPolicy` state to specify new 
   `rawCoeff` values for each tier's controller, computed using the moving average over `coeffWindow`. This 
-  step updates each controller's own coefficient independently; it does not sort or otherwise combine 
-  `rawCoeff(priority)` and `rawCoeff(standard)` — that combination happens only where `effectiveTierCoeff` 
-  is used (see [Ledger Rule Changes](#ledger-rule-changes))
+  step updates each controller's own coefficient independently; it does not combine `rawCoeff(priority)` and 
+  `rawCoeff(standard)` in any way — `effectiveTierCoeff(t) = rawCoeff(t)` reads each tier's coefficient off 
+  its own controller directly (see [Ledger Rule Changes](#ledger-rule-changes))
   1. Append the newly computed `rawCoeff` values to `coeffWindow`, dropping the oldest entry whenever 
   the window exceeds `windowSize` (the protocol parameter) entries
   
@@ -756,7 +758,7 @@ These fee-cap rules mean the bare current quote is never sufficient: a user must
 
 The urgent premium is scoped to the Ranking Block (rb-only). An urgent transaction included via an Endorser Block instead pays the standard quote at inclusion time, and the refund returns everything above it. The premium buys the reserved lane. A user whose transaction does not receive Ranking Block inclusion does not pay for it.
 
-Settlement must never silently cap the charge below the applicable quote. If the posted maximum does not cover the inclusion-point quote, the transaction is invalid for inclusion. The two controllers' raw coefficients can still invert relative to each other — that remains a permitted, independent controller state — but the priority and standard quotes used for settlement are the sorted `effectiveTierCoeff` values, which never invert (see [Ledger Rule Changes](#ledger-rule-changes)). The max-of-lane fee-cap rule above makes the settlement invariant hold regardless of which raw controller is currently larger.
+Settlement must never silently cap the charge below the applicable quote. If the posted maximum does not cover the inclusion-point quote, the transaction is invalid for inclusion. The max-of-lane fee-cap rule above makes that invariant hold even while the lane quotes are inverted.
 
 Settlement at inclusion splits the posted bid three ways:
 

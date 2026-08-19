@@ -759,11 +759,11 @@ The reservation rule above creates a problem at light loads. When the RB is rese
 
 At certificate inclusion, the certificate-bearing RB rule evaluates the `qualifies(EB)` predicate below. The rule uses the three resource groups that `SDPolicy` accumulates for the certified EB: `totalSize`, `totalRefScriptSize`, and the memory and step components of `totalExUnits`. The rule derives the K age escape from the chain state.
 
-Each total below means the sum across tiers over the whole immutable EB. With the corresponding positive RB limits (`maxBlockSize`, `maxRefScriptSizePerBlock`, and `maxBlockExUnits`) from the protocol parameters that validate the certifying RB, define
+Each total below means the sum across tiers over the whole immutable EB. With the corresponding positive RB limits (`maxBlockBodySize`, `maxRefScriptSizePerBlock`, and `maxBlockExUnits`) from the protocol parameters that validate the certifying RB, define
 
 ```
 thresholdFraction  = max(1 - urgentTargetUtilisation, 1/2)
-txThreshold        = ceil(thresholdFraction × maxBlockSize)
+txThreshold        = ceil(thresholdFraction × maxBlockBodySize)
 refScriptThreshold = ceil(thresholdFraction × maxRefScriptSizePerBlock)
 memoryThreshold    = ceil(thresholdFraction × maxBlockExUnits.memory)
 stepsThreshold     = ceil(thresholdFraction × maxBlockExUnits.steps)

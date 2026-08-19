@@ -412,9 +412,8 @@ in `standardTxs` that we must check for:
   rather than being conflict-checked, and that tier must be the priority one: when Leios falls back
   to Praos-mode operation, only the priority queue feeds Ranking Blocks, and no standard transaction
   gets in — placing governance proposals in the standard tier would mean censoring governance for
-  the whole duration of the fallback. **Decision required**: whether governance-proposing
-  transactions, despite living in the priority queue, are allowed to pay the standard quote rather
-  than the urgent one (so that governance participation is not priced as urgency).
+  the whole duration of the fallback. Governance-proposing transactions therefore must always pay
+  the urgency price.
 
 To address these conflicts and maintain a better than linear (in the size of the `standardTxs` queue) time 
 for including incoming priority transactions, we adopt the following strategy, proved correct in the
@@ -499,9 +498,10 @@ evict a targeted standard transaction without any authorization from its victim.
 flush would therefore amount to a purchasable eviction mechanism over contested state — exactly the
 kind of priority auction this CIP does not intend to create.
 
-
-**TODO** : decide whether to adopt the lazy inclusion buffer in place of, or alongside, outright discard,
-and if adopted, specify its capacity and eviction policy. 
+Building `lazyTxs` in the first place does not avoid this conflict-detection work either: deciding
+whether an incoming priority transaction may be admitted to `lazyTxs` (as opposed to 
+dropped) requires the same conflict check the discard mechanism would run
+for reference inputs and collateral inputs. 
 
 Note that while the queue structure in the 
 specification is made up of two lists, it can also be expressed via a view (as discussed next).

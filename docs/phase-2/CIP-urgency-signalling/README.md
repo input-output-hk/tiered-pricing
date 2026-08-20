@@ -390,15 +390,13 @@ produce the same *updated* ledger state
 when applied to the same state and in the same environment.
 It has the following (also proved) corollary:
 
-::: {#cor-simple}
-Let `standardTxs` and `priorityTxs` be lists of transactions, `tx : Tx`, 
-`s : LState`, and `e : LEnv`.
-Suppose the conditions `Cstd(standardTxs)`
-and `Cpri(tx::priorityTxs)` are satisfied. Suppose also that `standardTxs ++ priorityTxs`,
-`(tx :: standardTxs) ++ priorityTxs`, and `tx :: priorityTxs` are all valid in `e, s`.
-Then, applying `(tx :: standardTxs) ++ priorityTxs` or `standardTxs ++ (tx :: priorityTxs)`
-to `s` in `e` gives the same updated ledger state.
-:::
+> **Corollary.** Let `standardTxs` and `priorityTxs` be lists of transactions, `tx : Tx`, 
+> `s : LState`, and `e : LEnv`.
+> Suppose the conditions `Cstd(standardTxs)`
+> and `Cpri(tx::priorityTxs)` are satisfied. Suppose also that `standardTxs ++ priorityTxs`,
+> `(tx :: standardTxs) ++ priorityTxs`, and `tx :: priorityTxs` are all valid in `e, s`.
+> Then, applying `(tx :: standardTxs) ++ priorityTxs` or `standardTxs ++ (tx :: priorityTxs)`
+> to `s` in `e` gives the same updated ledger state.
 
 We do not specify `Cstd` and `Cpri` here exactly (both are encoded in the commutativity proof).
 Instead, we list the resulting types of conflict an incoming priority transaction may have with transactions 
@@ -414,9 +412,8 @@ in `standardTxs` that we must check for:
   rather than being conflict-checked, and that tier must be the priority one: when Leios falls back
   to Praos-mode operation, only the priority queue feeds Ranking Blocks, and no standard transaction
   gets in — placing governance proposals in the standard tier would mean censoring governance for
-  the whole duration of the fallback. **Decision required**: whether governance-proposing
-  transactions, despite living in the priority queue, are allowed to pay the standard quote rather
-  than the urgent one (so that governance participation is not priced as urgency).
+  the whole duration of the fallback. Governance-proposing transactions therefore must always pay
+  the urgency price.
 
 To address these conflicts and maintain a better than linear (in the size of the `standardTxs` queue) time 
 for including incoming priority transactions, we adopt the following strategy, proved correct in the
@@ -501,9 +498,10 @@ evict a targeted standard transaction without any authorization from its victim.
 flush would therefore amount to a purchasable eviction mechanism over contested state — exactly the
 kind of priority auction this CIP does not intend to create.
 
-
-**TODO** : decide whether to adopt the lazy inclusion buffer in place of, or alongside, outright discard,
-and if adopted, specify its capacity and eviction policy. 
+Building `lazyTxs` in the first place does not avoid this conflict-detection work either: deciding
+whether an incoming priority transaction may be admitted to `lazyTxs` (as opposed to 
+dropped) requires the same conflict check the discard mechanism would run
+for reference inputs and collateral inputs. 
 
 Note that while the queue structure in the 
 specification is made up of two lists, it can also be expressed via a view (as discussed next).
@@ -525,6 +523,8 @@ The two controllers are independent, so the standard quote can temporarily rise 
 A possible alternative is a 1× cross-lane clamp, which enforces `urgent quote ≥ standard quote`: it raises the urgent quote whenever the lanes invert. We do not adopt it because it couples the controllers and can raise the RB price when urgent-lane utilisation does not justify it. Max-of-two instead changes only the fee cap needed to cover both settlement paths. It does not change either controller or the inclusion-point-specific charge.
 
 At admission, the posted max fee must cover the applicable lane quotes one worst-case controller step ahead: both lanes for an urgent transaction, since it can settle at either quote, and the standard lane alone otherwise. One step is the right horizon because an EB producer requires the same at selection, so nothing enters the mempool that a producer then refuses. At the recommended target 0.5 and D = 16 on both lanes, that is around 6.25% of headroom. The urgent lane requires headroom because of eviction. An urgent transaction that offers exactly the urgent fee and no more can be priced out while it waits during a price increase. The node must then evict it, and the transaction wasted mempool space for its whole stay.
+
+This headroom matters most for a transaction that posts only the bare minimum for its own tier. If an urgent transaction's posted max fee covers only the current urgent quote, and the standard quote later rises past it before the transaction reaches an RB, the transaction becomes temporarily invalid for EB inclusion: its posted fee no longer covers the standard quote it would be charged there (see the explicit fee-sufficiency rule for the adjusted tier in [Ledger Rule Changes](#ledger-rule-changes)). It is not overcharged — that rule is what keeps it from ever being charged more than it posted — it is simply excluded from EB inclusion until the standard quote falls back within its cap, or evicted under ordinary stale-fee eviction if it never recovers a valid path. Posting the one-step-ahead `max(standard quote, urgent quote)` headroom recommended above avoids this.
 
 If lane $l$ has a controller:
 
@@ -605,8 +605,11 @@ specifies a `txfee` that is larger than necessary.
 We define an `SDPolicy` record containing five variables that are used in the following way :
 
   1. `diversityPolicy : TierNo ⇀ PolicyClause` - a map assigning to each tier a policy clause, which specifies, 
-  in particular, the tier coefficient
-  1. `coeffWindow : List (TierNo ⇀ ℕ)` - the most recent tier coefficients, one entry per processed block, 
+  in particular, the coefficient of the controller associated with that tier: the `priority` entry holds the 
+  urgent controller's own coefficient, and the `standard` entry holds the standard controller's own coefficient 
+  (see [Controller updates and signals](#controller-updates-and-signals)). We write `rawCoeff(t)` for the 
+  coefficient `diversityPolicy` associates with tier `t`
+  1. `coeffWindow : List (TierNo ⇀ ℕ)` - the most recent `rawCoeff` values, one entry per processed block, 
   of which at most `windowSize` (a new protocol parameter, see below) are stored; this is the data over which 
   the moving average used by the coefficient update is computed
   1. `totalSize : TierNo ⇀ ℕ` - the total size computed by adding up the size in bytes of all transactions in the list inside a block body, aggregated by tier
@@ -618,12 +621,25 @@ We define an `SDPolicy` record containing five variables that are used in the fo
 
 There is a new state variable `policyState : SDPolicy` in the `UTxOState`.
 
+The two controllers remain fully independent: `rawCoeff(priority)` and `rawCoeff(standard)` each evolve from 
+their own controller's own utilisation signal alone, exactly as specified in 
+[Controller updates and signals](#controller-updates-and-signals). The coefficient used to price a transaction 
+is each tier's own controller output directly, with no sorting or combination between the two: 
+`effectiveTierCoeff(t) = rawCoeff(t)`. In particular, `rawCoeff(priority)` and `rawCoeff(standard)` can 
+temporarily invert — that is a permitted controller state (see 
+[Revalidation and stale fees](#revalidation-and-stale-fees) for how node policy handles it), not something the 
+ledger corrects.
+
 Let `adjusted_tier_no` be `priority` if `tx` was in an RB with a *transaction list*, 
-and `standard` if `tx` was in an EB. Let `adjusted_tier_coeff` be the coefficient given for `adjusted_tier_no`
-by the `diversityPolicy` map in `policyState`. The following are the key rule changes (to transaction application)
+and `standard` if `tx` was in an EB. Let `adjusted_tier_coeff` be `effectiveTierCoeff(adjusted_tier_no)`. 
+The following are the key rule changes (to transaction application)
 having to do with processing the *fee payment* :
 
   1. updated min-fee constraint (enough to cover *targeted* tier) : `tier_coeff·minfee ≤ txFee`
+  1. new min-fee constraint (enough to cover the tier the transaction is actually *charged*, which may differ 
+  from the targeted tier when `rawCoeff(priority)` and `rawCoeff(standard)` are inverted) : 
+  `adjusted_tier_coeff·minfee ≤ txFee`; a transaction that fails this constraint is invalid for inclusion at 
+  its adjusted tier
   1. `txfee - minfee * adjusted_tier_coeff` is the amount of change sent to `reward_account` if it exists, 
   and to the treasury if it does not
   1. exactly `minfee` is sent to the fee pot
@@ -632,19 +648,19 @@ having to do with processing the *fee payment* :
 The following changes to transaction application ensure correct tier specification 
 with respect to `policyState` :
 
-  1. The tier coefficient that the `diversityPolicy` map in `policyState` associates with the `tier_no` specified in 
-  the `tx_tier` in the transaction body is `≤ tier_coeff` in `tx_tier`
+  1. `effectiveTierCoeff(tier_no)` — the coefficient derived from `diversityPolicy` as above, for the `tier_no` 
+  specified in the `tx_tier` in the transaction body — is `≤ tier_coeff` in `tx_tier`
   1. The tier number in `tx_tier` must be either `priority` or `regular`
   1. The tier number in `tx_tier` is `≤ adjusted_tier_no` 
   1. `policyState` is updated so that the current aggregated values 2-4 reflect `tx`
 
-Note that these constraints together guarantee that the change amount is never negative: the transaction 
-covers the coefficient quoted for its targeted tier, and it can only be included in that tier or a lower one, 
-whose coefficient is no higher.
-
-**TODO** : the two controllers are independent, so the coefficient computation can output a standard 
-coefficient higher than the urgent (priority) one. Specify that in this case the ledger sets the urgent 
-quote equal to the standard quote, so that the guarantee above holds across temporary quote crossings.
+Note that these constraints together guarantee that the change amount is never negative: the explicit 
+`adjusted_tier_coeff·minfee ≤ txFee` constraint above requires the posted fee to cover whatever coefficient the 
+transaction is actually charged at its adjusted tier, so `txfee - minfee * adjusted_tier_coeff` cannot be 
+negative. This holds regardless of how `rawCoeff(priority)` and `rawCoeff(standard)` compare to one another — 
+no ordering between the two controllers is required. A transaction that does not post enough to cover its 
+adjusted tier's coefficient is simply invalid for inclusion at that tier (see 
+[Revalidation and stale fees](#revalidation-and-stale-fees) for the resulting eviction risk).
 
 #### Block validity
 
@@ -686,8 +702,11 @@ the block type, with the following steps:
   1. Reset `totalSize , totalRefScriptSize , totalExUnits` to be empty, so that the variables can be reused to 
   track data in the next block
   1. Update the `diversityPolicy : TierNo ⇀ PolicyClause` field of the `SDPolicy` state to specify new 
-  coefficients associated with each tier, computed using the moving average over `coeffWindow`
-  1. Append the newly computed tier coefficients to `coeffWindow`, dropping the oldest entry whenever 
+  `rawCoeff` values for each tier's controller, computed using the moving average over `coeffWindow`. This 
+  step updates each controller's own coefficient independently; it does not combine `rawCoeff(priority)` and 
+  `rawCoeff(standard)` in any way — `effectiveTierCoeff(t) = rawCoeff(t)` reads each tier's coefficient off 
+  its own controller directly (see [Ledger Rule Changes](#ledger-rule-changes))
+  1. Append the newly computed `rawCoeff` values to `coeffWindow`, dropping the oldest entry whenever 
   the window exceeds `windowSize` (the protocol parameter) entries
   
 **NOTE : The calculation in the final step is left unspecified only in the Agda specification, where it is kept 

@@ -195,6 +195,13 @@ data ControllerConfig = ControllerConfig
   -- ^ a lane without a controller never re-prices
   , multiplierFloor :: Maybe Double
   , absoluteCoeffFloor :: Double
+  , headroomLegacyFloor :: Bool
+  -- ^ When True (the historical policy), the worst-case next-price bound used
+  -- by admission and producer headroom is @max(1\/D, (1-target)\/(target*D))@,
+  -- so a lane's headroom never falls below 1\/D even when its target above 0.5
+  -- caps the true upward step lower. When False, the bound is the pure
+  -- worst-case upward step @(1-target)\/(target*D)@. The two coincide for
+  -- targets at or below 0.5. Controller updates are identical either way.
   }
   deriving stock (Eq, Show)
 
@@ -205,11 +212,13 @@ instance FromJSON ControllerConfig where
       priority <- obj .:? "priorityController"
       multiplierFloor <- obj .:? "multiplierFloor"
       absoluteCoeffFloor <- obj .: "absoluteCoeffFloor"
+      headroomLegacyFloor <- obj .:? "headroomLegacyFloor" .!= True
       pure
         ControllerConfig
           { laneControllers = PerLane{perStandard = standard, perPriority = priority}
           , multiplierFloor
           , absoluteCoeffFloor
+          , headroomLegacyFloor
           }
 
 defaultControllerConfig :: ControllerConfig
@@ -236,4 +245,5 @@ defaultControllerConfig =
           }
     , multiplierFloor = Nothing -- Just 16.0
     , absoluteCoeffFloor = 1.0
+    , headroomLegacyFloor = True
     }

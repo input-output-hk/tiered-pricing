@@ -237,10 +237,13 @@ priceStepsAhead controllers steps prices =
 
 {- | Conservative upper bound on prices after the next controller update.
 The maximum upward adjustment is @(1 - target) / (target * denominator)@.
-Retaining @1 / denominator@ as a floor on that bound preserves the existing
-conservative headroom for targets at or above 0.5. Price floors are applied
-before and after the step, matching 'updatePrices'; lanes without a controller
-do not scale, but can still be raised by those floor applications.
+Under 'headroomLegacyFloor' (the historical policy, and the default),
+@1 / denominator@ is retained as a floor on that bound, preserving the
+existing conservative headroom for targets at or above 0.5; without it the
+bound is the pure worst-case upward step, which is smaller for targets above
+0.5 and identical otherwise. Price floors are applied before and after the
+step, matching 'updatePrices'; lanes without a controller do not scale, but
+can still be raised by those floor applications.
 -}
 worstCaseNextPrices :: ControllerConfig -> Prices -> Prices
 worstCaseNextPrices controllers prices =
@@ -251,12 +254,15 @@ worstCaseNextPrices controllers prices =
     Prices (scale <$> controllers.laneControllers <*> currentPrices.laneCoeffs)
   scale Nothing coeff = coeff
   scale (Just controller) coeff =
-    coeff * (1 + max legacyAdjustment maximumUpwardAdjustment)
+    coeff * (1 + bound)
    where
     target = max 0.000_001 controller.controllerTargetUtilisation
     denominator = fromIntegral (max 1 controller.controllerMaxChangeDenominator)
     legacyAdjustment = 1 / denominator
     maximumUpwardAdjustment = ((1 - target) / target) / denominator
+    bound
+      | controllers.headroomLegacyFloor = max legacyAdjustment maximumUpwardAdjustment
+      | otherwise = maximumUpwardAdjustment
 
 applyPriceFloors :: ControllerConfig -> Prices -> Prices
 applyPriceFloors controllers =

@@ -30,8 +30,8 @@ License: CC-BY-4.0
     - [3.2.4 Standard controller: 20-block capacity-weighted window](#standard-controller-20-block-capacity-weighted-window)
   - [3.3 Mempool](#mempool)
     - [3.3.1 Praos and Leios Mempool Specifications](#praos-and-leios-mempool-specifications)
-    - [3.3.2 Priority Signaling Mempool Specifications](#priority-signaling-mempool-specifications)
-    - [3.3.3 Safe Reordering of Priority Transactions](#safe-reordering-of-priority-transactions)
+    - [3.3.2 Urgency Signaling Mempool Specifications](#urgency-signaling-mempool-specifications)
+    - [3.3.3 Safe Reordering of Urgent Transactions](#safe-reordering-of-urgent-transactions)
       - [3.3.3.1 Alternative: a lazy inclusion buffer for non-commuting transactions](#alternative-a-lazy-inclusion-buffer-for-non-commuting-transactions)
     - [3.3.4 Queue structure](#queue-structure)
     - [3.3.5 Revalidation and stale fees](#revalidation-and-stale-fees)
@@ -164,7 +164,6 @@ We also specify a modification that corrects a problem at moderate load, when RB
 
 - **Standard lane:** A pathway for transactions that do not pay the urgent fee.
 - **Urgent lane:** A pathway for transactions that pay the urgent fee.
-- **Priority:** The term the Mempool and Ledger sections use for urgent. The priority tier (`tier_no = 0`) is the urgent lane, and a priority transaction is a transaction in that tier.
 - **Lane choice (the user-side decision):** The choice of lane, made by the constructor of a transaction.
 
 **Pricing primitives**
@@ -330,11 +329,11 @@ The size of the non-certificate contribution is a measured choice, not an assump
 
 ### Mempool
 
-Our priority signaling design includes changes to the consensus protocol, the Leios protocol specifically. 
+Our urgency signaling design includes changes to the consensus protocol, the Leios protocol specifically. 
 For this reason, we [specified](https://github.com/IntersectMBO/ouroboros-consensus/compare/polina/mempool-spec?expand=1) three mempool variants in Agda:
 - the **Praos mempool** (`Mempool.lagda.md`);
 - the **baseline Leios mempool**;
-- the **Leios mempool with priority signaling**.
+- the **Leios mempool with urgency signaling**.
 
 In all three specifications, the mempool imposes the same constraints on the block as enforced at the ledger level 
 by the corresponding consensus protocol,
@@ -357,30 +356,30 @@ for the incoming RB/EB must be performed. The function generating blocks from me
 returns a pair `(RB, Maybe EB)`. The `RB` is sent across the network to be added to nodes' chain tips, whereas 
 `EB` is sent across the network to be added to the nodes' mempools `heldEB` variable. 
 
-#### Priority Signaling Mempool Specifications
+#### Urgency Signaling Mempool Specifications
 
-The priority signaling mempool design, specified in `MempoolLeiosPricing.lagda.md`,
+The urgency signaling mempool design, specified in `MempoolLeiosPricing.lagda.md`,
 features two distinct ledger states in place of `updatedLedger`: 
 
 - **`priorityUpdatedLedger`**: the result of applying every transaction in `priorityTxs` to:
   - `ebLedger`, when a valid EB has arrived; or
   - `ledger`, otherwise.
 
-  The `priorityTxs` queue contains transactions that specify the priority tier.
+  The `priorityTxs` queue contains transactions that specify the urgent tier.
 - **`standardUpdatedLedger`**: the result of applying every transaction in `standardTxs` on top of `priorityUpdatedLedger`.
 
   The `standardTxs` queue contains transactions that specify the standard tier.
 
 The mempool is able to request transactions of a specific tier from its peers. 
-It first requests the priority tier transactions, 
+It first requests the urgent tier transactions, 
 and only when none are available, requests standard transactions. 
 
-#### Safe Reordering of Priority Transactions 
+#### Safe Reordering of Urgent Transactions 
 
-The mempool designed to support urgency signaling in Leios requires priority transactions to be placed ahead 
+The mempool designed to support urgency signaling in Leios requires urgent transactions to be placed ahead 
 of standard ones, out of FIFO queue order. 
-That is, an incoming priority transaction enters the queue after all `priorityTxs` and in front of `standardTxs`.
-The mempool update cost for each priority transaction is proportional to the number of standard transactions 
+That is, an incoming urgent transaction enters the queue after all `priorityTxs` and in front of `standardTxs`.
+The mempool update cost for each urgent transaction is proportional to the number of standard transactions 
 that need to be revalidated against the new `priorityUpdatedLedger`.
 
 To address this inefficiency, we have 
@@ -399,28 +398,28 @@ It has the following (also proved) corollary:
 > to `s` in `e` gives the same updated ledger state.
 
 We do not specify `Cstd` and `Cpri` here exactly (both are encoded in the commutativity proof).
-Instead, we list the resulting types of conflict an incoming priority transaction may have with transactions 
+Instead, we list the resulting types of conflict an incoming urgent transaction may have with transactions 
 in `standardTxs` that we must check for:
 
-- the priority transaction **consumes an input that some standard transaction reads without consuming**: a reference
+- the urgent transaction **consumes an input that some standard transaction reads without consuming**: a reference
   input, collateral it does not also spend, or (for a phase-2-invalid standard transaction) an unconsumed input;
 - overlapping **certificate targets** or **deposit keys**;
 - overlapping **withdrawal credentials**, or a withdrawal credential matching the other transaction's certificate target;
 - overlapping **governance vote targets** (same action and voter);
 - **governance proposals and DRep (de)registration**, which conflict *globally* (they re-filter all pending votes), so no
   pairwise check can license commuting past them. This category is restricted to a single tier
-  rather than being conflict-checked, and that tier must be the priority one: when Leios falls back
-  to Praos-mode operation, only the priority queue feeds Ranking Blocks, and no standard transaction
+  rather than being conflict-checked, and that tier must be the urgent one: when Leios falls back
+  to Praos-mode operation, only the urgent queue feeds Ranking Blocks, and no standard transaction
   gets in — placing governance proposals in the standard tier would mean censoring governance for
   the whole duration of the fallback. Governance-proposing transactions therefore must always pay
   the urgency price.
 
 To address these conflicts and maintain a better than linear (in the size of the `standardTxs` queue) time 
-for including incoming priority transactions, we adopt the following strategy, proved correct in the
-commutativity branch linked above. An incoming priority transaction is validated twice: once at the back of
+for including incoming urgent transactions, we adopt the following strategy, proved correct in the
+commutativity branch linked above. An incoming urgent transaction is validated twice: once at the back of
 the standard queue, and once at its insertion point. It is then checked for the conflicts listed above against
 the `standardTxs` queue. If all checks pass, no standard transaction needs revalidation.
-On any conflict, the priority transaction is simply discarded. 
+On any conflict, the urgent transaction is simply discarded. 
 
 The lookups use one counted multiset (a map from key to occurrence count) per conflict source, maintained
 alongside the standard queue: non-consumption reads keyed by `TxIn`, certificate targets and withdrawal
@@ -431,14 +430,14 @@ decremented when a single transaction leaves, and rebuilt for free during events
 whole queue. There may be some over-approximation in this strategy; however, users of the same Voter 
 ID or credential are likely the same user, and therefore it is not necessary to provide 
 a scheme for users to undercut their own actions. Governance proposals form a kind of linked list in the 
-order of appearance. Reordering this list by allowing priority transactions to get ahead of standard 
+order of appearance. Reordering this list by allowing urgent transactions to get ahead of standard 
 ones is not a necessary feature to support. 
 
 ##### Alternative: a lazy inclusion buffer for non-commuting transactions
 
-An alternative to discarding a conflicting priority transaction is to hold it rather than drop it.
+An alternative to discarding a conflicting urgent transaction is to hold it rather than drop it.
 Besides `priorityTxs` and `standardTxs`, the mempool keeps a third list, `lazyTxs`, reserved for
-incoming priority transactions that fail the conflict check above. Instead of being applied against
+incoming urgent transactions that fail the conflict check above. Instead of being applied against
 `priorityUpdatedLedger` or the standard queue's ledger state, a `lazyTxs` entry is applied against the
 ledger state of the currently selected chain (i.e. the state before any mempool transaction is applied),
 and `lazyTxs` behaves as an ordinary FIFO queue on top of that state.
@@ -454,7 +453,7 @@ exactly as any other mempool transaction does.
 
 **Evaluation against the discard mechanism above.**
 
-- *Loss of transactions.* The discard mechanism above drops a conflicting priority transaction outright;
+- *Loss of transactions.* The discard mechanism above drops a conflicting urgent transaction outright;
   the submitter must notice and resubmit. The lazy buffer instead holds it, so a transaction that only
   conflicted transiently (the standard transaction it clashed with is later evicted, or a new chain
   changes the picture entirely) gets a chance at inclusion without user action.
@@ -480,26 +479,26 @@ Both mechanisms are compatible with the commutativity result above. The main dec
 the change in behaviour in terms of what transactions survive in the `standardTxs` queue once an RB 
 is released containing the `lazyTxs`. Because flushed `lazyTxs` entries are appended ahead of
 `standardTxs` before the whole queue is revalidated, any standard transaction they still conflict
-with will now fail validation and be evicted — the lazy buffer gives priority transactions a way to
+with will now fail validation and be evicted — the lazy buffer gives urgent transactions a way to
 evict standard ones on purpose. That is precisely what admission is designed to prevent (see
-[Dependencies and conflicts](#dependencies-and-conflicts): a conflicting priority transaction is
+[Dependencies and conflicts](#dependencies-and-conflicts): a conflicting urgent transaction is
 discarded rather than admitted because admitting it would require evicting a standard transaction).
 If adopted, the flush should therefore re-apply the same rule — dropping or re-buffering any entry
 that would still evict a standard transaction — rather than letting it through unconditionally.
 
 The evictions enabled by an unconditional flush are not limited to a user displacing their own
 transactions: most of the conflict classes above can arise between transactions with fully disjoint
-signature sets. Reference inputs are unwitnessed reads, so a priority transaction consuming a shared
+signature sets. Reference inputs are unwitnessed reads, so an urgent transaction consuming a shared
 UTxO (an oracle updating its datum, a maintainer rotating a reference script) would evict every
 standard transaction of strangers who merely read it; two unrelated users contending for the same
 script UTxO (a DEX pool, a batcher) would resolve the race in favour of whoever paid the urgent
-quote; and a registration certificate requires no witness at all, so a priority transaction could
+quote; and a registration certificate requires no witness at all, so an urgent transaction could
 evict a targeted standard transaction without any authorization from its victim. An unconditional
 flush would therefore amount to a purchasable eviction mechanism over contested state — exactly the
 kind of priority auction this CIP does not intend to create.
 
 Building `lazyTxs` in the first place does not avoid this conflict-detection work either: deciding
-whether an incoming priority transaction may be admitted to `lazyTxs` (as opposed to 
+whether an incoming urgent transaction may be admitted to `lazyTxs` (as opposed to 
 dropped) requires the same conflict check the discard mechanism would run
 for reference inputs and collateral inputs. 
 
@@ -552,18 +551,18 @@ The ledger enforces none of this, since mempool state is not observable on-chain
 
 #### Dependencies and conflicts
 
-A priority transaction may be in conflict with transactions in the standard queue.
-Conflict is detected whenever a transaction `tx` is Phase-1 validated both at the end of the priority 
+An urgent transaction may be in conflict with transactions in the standard queue.
+Conflict is detected whenever a transaction `tx` is Phase-1 validated both at the end of the urgent 
 queue and the end of the standard queue, and one of those validations fails. Then, `tx` will not be 
 admitted to the mempool because doing so requires evicting one or more standard transactions from the 
-standard queue, which is outside the scope of the kind of priority signaling this CIP is designed to enable. 
+standard queue, which is outside the scope of the kind of urgency signaling this CIP is designed to enable. 
 A common cause of such conflict is that `tx` is spending the same UTxO entry as some transaction in the 
-standard queue. Additional conflicts requiring rejection of an incoming priority transaction may arise,
-see [Safe Reordering of Priority Transactions](#safe-reordering-of-priority-transactions).
+standard queue. Additional conflicts requiring rejection of an incoming urgent transaction may arise,
+see [Safe Reordering of Urgent Transactions](#safe-reordering-of-urgent-transactions).
 
 #### Capacity, eviction, and DoS
 
-Priority transactions get at least an RB's worth of space and ExUnits allocated to them in the 
+Urgent transactions get at least an RB's worth of space and ExUnits allocated to them in the 
 mempool, and may be admitted to an EB when that space is full. The eviction process for 
 transactions that become Phase-1 invalid remains the same as in prior eras. That is, 
 when a new block arrives, the entire mempool is revalidated (kicking out stale transactions, 
@@ -581,7 +580,7 @@ Only transactions that pay a sufficient fee for the urgent lane can enter Rankin
 The CDDL changes are as follows :
 
 ```
-tier_no    = 0 / 1          ; 0 = priority, 1 = standard
+tier_no    = 0 / 1          ; 0 = urgent, 1 = standard
 tier_coeff = uint           ; price multiplier γ, ≥ 1 
 tx_tier    = [tier_no, tier_coeff]
 
@@ -591,7 +590,7 @@ transaction_body = { ...
   }
 ```
 
-That is, a transaction body must specify the `tier_no` which indicates whether it's a priority or standard transaction, 
+That is, a transaction body must specify the `tier_no` which indicates whether it's an urgent or standard transaction, 
 and a positive integer `tier_coeff`. This tier coefficient 
 is what the transaction expects its `minfee` will be multiplied by to obtain the amount 
 of fee it has to pay to get into its specified tier. 
@@ -605,7 +604,7 @@ specifies a `txfee` that is larger than necessary.
 We define an `SDPolicy` record containing five variables that are used in the following way :
 
   1. `diversityPolicy : TierNo ⇀ PolicyClause` - a map assigning to each tier a policy clause, which specifies, 
-  in particular, the coefficient of the controller associated with that tier: the `priority` entry holds the 
+  in particular, the coefficient of the controller associated with that tier: the `urgent` entry holds the 
   urgent controller's own coefficient, and the `standard` entry holds the standard controller's own coefficient 
   (see [Controller updates and signals](#controller-updates-and-signals)). We write `rawCoeff(t)` for the 
   coefficient `diversityPolicy` associates with tier `t`
@@ -621,23 +620,23 @@ We define an `SDPolicy` record containing five variables that are used in the fo
 
 There is a new state variable `policyState : SDPolicy` in the `UTxOState`.
 
-The two controllers remain fully independent: `rawCoeff(priority)` and `rawCoeff(standard)` each evolve from 
+The two controllers remain fully independent: `rawCoeff(urgent)` and `rawCoeff(standard)` each evolve from 
 their own controller's own utilisation signal alone, exactly as specified in 
 [Controller updates and signals](#controller-updates-and-signals). The coefficient used to price a transaction 
 is each tier's own controller output directly, with no sorting or combination between the two: 
-`effectiveTierCoeff(t) = rawCoeff(t)`. In particular, `rawCoeff(priority)` and `rawCoeff(standard)` can 
+`effectiveTierCoeff(t) = rawCoeff(t)`. In particular, `rawCoeff(urgent)` and `rawCoeff(standard)` can 
 temporarily invert — that is a permitted controller state (see 
 [Revalidation and stale fees](#revalidation-and-stale-fees) for how node policy handles it), not something the 
 ledger corrects.
 
-Let `adjusted_tier_no` be `priority` if `tx` was in an RB with a *transaction list*, 
+Let `adjusted_tier_no` be `urgent` if `tx` was in an RB with a *transaction list*, 
 and `standard` if `tx` was in an EB. Let `adjusted_tier_coeff` be `effectiveTierCoeff(adjusted_tier_no)`. 
 The following are the key rule changes (to transaction application)
 having to do with processing the *fee payment* :
 
   1. updated min-fee constraint (enough to cover *targeted* tier) : `tier_coeff·minfee ≤ txFee`
   1. new min-fee constraint (enough to cover the tier the transaction is actually *charged*, which may differ 
-  from the targeted tier when `rawCoeff(priority)` and `rawCoeff(standard)` are inverted) : 
+  from the targeted tier when `rawCoeff(urgent)` and `rawCoeff(standard)` are inverted) : 
   `adjusted_tier_coeff·minfee ≤ txFee`; a transaction that fails this constraint is invalid for inclusion at 
   its adjusted tier
   1. `txfee - minfee * adjusted_tier_coeff` is the amount of change sent to `reward_account` if it exists, 
@@ -650,14 +649,14 @@ with respect to `policyState` :
 
   1. `effectiveTierCoeff(tier_no)` — the coefficient derived from `diversityPolicy` as above, for the `tier_no` 
   specified in the `tx_tier` in the transaction body — is `≤ tier_coeff` in `tx_tier`
-  1. The tier number in `tx_tier` must be either `priority` or `regular`
+  1. The tier number in `tx_tier` must be either `urgent` or `standard`
   1. The tier number in `tx_tier` is `≤ adjusted_tier_no` 
   1. `policyState` is updated so that the current aggregated values 2-4 reflect `tx`
 
 Note that these constraints together guarantee that the change amount is never negative: the explicit 
 `adjusted_tier_coeff·minfee ≤ txFee` constraint above requires the posted fee to cover whatever coefficient the 
 transaction is actually charged at its adjusted tier, so `txfee - minfee * adjusted_tier_coeff` cannot be 
-negative. This holds regardless of how `rawCoeff(priority)` and `rawCoeff(standard)` compare to one another — 
+negative. This holds regardless of how `rawCoeff(urgent)` and `rawCoeff(standard)` compare to one another — 
 no ordering between the two controllers is required. A transaction that does not post enough to cover its 
 adjusted tier's coefficient is simply invalid for inclusion at that tier (see 
 [Revalidation and stale fees](#revalidation-and-stale-fees) for the resulting eviction risk).
@@ -703,7 +702,7 @@ the block type, with the following steps:
   track data in the next block
   1. Update the `diversityPolicy : TierNo ⇀ PolicyClause` field of the `SDPolicy` state to specify new 
   `rawCoeff` values for each tier's controller, computed using the moving average over `coeffWindow`. This 
-  step updates each controller's own coefficient independently; it does not combine `rawCoeff(priority)` and 
+  step updates each controller's own coefficient independently; it does not combine `rawCoeff(urgent)` and 
   `rawCoeff(standard)` in any way — `effectiveTierCoeff(t) = rawCoeff(t)` reads each tier's coefficient off 
   its own controller directly (see [Ledger Rule Changes](#ledger-rule-changes))
   1. Append the newly computed `rawCoeff` values to `coeffWindow`, dropping the oldest entry whenever 
@@ -1099,7 +1098,7 @@ At low load the interval narrows by an order of magnitude. The urgent-class reta
 
 The larger sample also resolves a cost invisible at ten seeds: overall retained value at low load sits 0.40 percentage points below flat fee (95% CI [-0.41, -0.39], flat fee better in 982 of 1,000 seeds, where ratios count value whose fate resolved within the horizon). The urgent demand class's measured retention and service-rate differences sit within the bounds above, and its mean latency is slightly lower. Attribution of the 0.40 is less clean than a per-lane split, because the mechanism also changes lane choice. Under flat fee effectively all transactions travel the standard path (a mean 5,945 per run). Under the mechanism most of that demand selects the urgent lane instead, leaving 2,139. The transactions that stay standard wait a mean of 57.96 slots against 34.25 under flat fee (2.99 against 1.78 blocks) while they pool for Endorser Blocks worth their certificate. Their tail lengthens by proportionally more than their mean: the 95th-percentile standard wait rises from 2.96 to 5.73 blocks (+2.77, 95% CI [+2.69, +2.85]), and from 87.93 to 113.92 slots. Under severe congestion every standard-lane mean and quantile difference is at or near zero, so pooling for worthwhile Endorser Blocks costs standard traffic nothing once Endorser Blocks fill on their own. Yet the retained ratio among them is marginally higher than flat fee's (+0.68 percentage points, higher in 910 of 1,000 seeds). The 0.40 is therefore the net of longer standard-lane waits and the shifted lane composition, not a retention loss inside either lane taken alone. It prices the low-load trade in the byte-only simulator realisation. That simulated mechanism costs 0.40 ± 0.01 percentage points of overall retained value against flat fee at this load, in exchange for the +7.16-point urgent-class improvement under severe congestion. (The pairing does not isolate the announcement threshold's own contribution from the reservation rule's.)
 
-A dedicated hundred-seed attribution rerun (paired seeds 0-99, same configuration, per-lane value levels preserved) decomposes this cost. It reproduces the overall difference at -0.399 percentage points (95% CI [-0.443, -0.356]). The deficit does not come from lost entry. The mechanism submits marginally more units and more value than flat fee, in all 100 seeds. The per-lane value levels sum exactly to the overall totals in every seed. The difference therefore arises among submitted transactions. There are two accountings, kept separate. The -0.399 ratio counts only value whose fate resolved, and its driver is more value that decays before inclusion (+39.6M lovelace lost). In absolute terms the mechanism also carries more value still unresolved at the horizon (+38.8M), which the ratio excludes. The lane split at this load: about 71% of submitted value selects the priority lane and keeps the flat-fee latency profile (mean 35.0 slots against flat fee's 35.2), while the value that stays standard waits 59.1 slots. Both per-lane retained ratios are composition-shifted. The slower-decaying value stays standard, so its ratio rises even as its wait lengthens. The faster-decaying value migrates to the urgent lane, whose ratio sits below flat fee's overall figure despite equal latency. The [attribution record](./low-load-attribution-smoke.json) preserves the per-seed values for every metric, the derived residual check, and provenance hashes. `scripts/smoke_low_load_attribution.sh` reproduces it.
+A dedicated hundred-seed attribution rerun (paired seeds 0-99, same configuration, per-lane value levels preserved) decomposes this cost. It reproduces the overall difference at -0.399 percentage points (95% CI [-0.443, -0.356]). The deficit does not come from lost entry. The mechanism submits marginally more units and more value than flat fee, in all 100 seeds. The per-lane value levels sum exactly to the overall totals in every seed. The difference therefore arises among submitted transactions. There are two accountings, kept separate. The -0.399 ratio counts only value whose fate resolved, and its driver is more value that decays before inclusion (+39.6M lovelace lost). In absolute terms the mechanism also carries more value still unresolved at the horizon (+38.8M), which the ratio excludes. The lane split at this load: about 71% of submitted value selects the urgent lane and keeps the flat-fee latency profile (mean 35.0 slots against flat fee's 35.2), while the value that stays standard waits 59.1 slots. Both per-lane retained ratios are composition-shifted. The slower-decaying value stays standard, so its ratio rises even as its wait lengthens. The faster-decaying value migrates to the urgent lane, whose ratio sits below flat fee's overall figure despite equal latency. The [attribution record](./low-load-attribution-smoke.json) preserves the per-seed values for every metric, the derived residual check, and provenance hashes. `scripts/smoke_low_load_attribution.sh` reproduces it.
 
 The [preserved evidence record](./thousand-seed-low-severe.json) holds the per-seed values for every metric above, the paired statistics, provenance hashes, and the reproduction commands (`scripts/compare_thousand_seed.py` regenerates the record from the sweep outputs).
 

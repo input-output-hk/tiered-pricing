@@ -29,7 +29,7 @@ License: CC-BY-4.0
     - [3.2.3 Urgent controller: 5-sample reservation-utilisation window](#urgent-controller-5-sample-reservation-utilisation-window)
     - [3.2.4 Standard controller: 20-block capacity-weighted window](#standard-controller-20-block-capacity-weighted-window)
   - [3.3 Mempool](#mempool)
-    - [3.3.1 Praos and Leios Mempool Specifications](#praos-and-leios-mempool-specifications)
+    - [3.3.1 Leios Mempool Specifications](#leios-mempool-specifications)
     - [3.3.2 Urgency Signaling Mempool Specifications](#urgency-signaling-mempool-specifications)
     - [3.3.3 Safe Reordering of Urgent Transactions](#safe-reordering-of-urgent-transactions)
       - [3.3.3.1 Alternative: a lazy inclusion buffer for non-commuting transactions](#alternative-a-lazy-inclusion-buffer-for-non-commuting-transactions)
@@ -42,7 +42,8 @@ License: CC-BY-4.0
     - [3.4.2 Ledger Rule Changes](#ledger-rule-changes)
     - [3.4.3 Block validity](#block-validity)
     - [3.4.4 Additional post-transaction-application validation](#additional-post-transaction-application-validation)
-    - [3.4.5 New protocol parameter](#new-protocol-parameter)
+      - [3.4.4.1 Computing the windowed utilisation](#computing-the-windowed-utilisation)
+    - [3.4.5 New PParams](#new-pparams)
   - [3.5 Block production and node policy](#block-production-and-node-policy)
   - [3.6 Endorser Block announcement threshold](#endorser-block-announcement-threshold)
     - [3.6.1 Validation evidence](#validation-evidence)
@@ -51,6 +52,7 @@ License: CC-BY-4.0
       - [3.6.1.3 Experiment 3: parameter stress](#experiment-3-parameter-stress)
       - [3.6.1.4 Experiment 4: default-point byte-threshold sensitivity](#experiment-4-default-point-byte-threshold-sensitivity)
   - [3.7 Incentives](#incentives)
+    - [3.7.1 Producer influence over the quotes](#producer-influence-over-the-quotes)
     - [3.7.1 Giorgos](#giorgos)
     - [3.7.2 Nicolas](#nicolas)
 - [4. Rationale: how does this CIP achieve its goals?](#rationale-how-does-this-cip-achieve-its-goals)
@@ -184,7 +186,7 @@ We also specify a modification that corrects a problem at moderate load, when RB
 
 - **Posted fee vs actual fee:** The posted fee is the amount attached to the transaction at submission. The actual fee is the quote at inclusion time. The ledger refunds the difference.
 - **Refund:** The return of the excess fee to a specified address.
-- **Max fee (the fee ceiling on the user side):** The most a user agrees to pay, posted with the transaction. In the transaction representation this is the ordinary `txfee` field; the excess over the actual fee returns to the `reward_account`. It buffers against quote movement. If the quote exceeds it, the transaction cannot be included.
+- **Max fee (the fee ceiling on the user side):** The most a user agrees to pay, posted with the transaction. In the transaction representation this is the ordinary `txfee` field; the excess over the actual fee is credited to the transaction's `feeChangeAccount`. It buffers against quote movement. If the quote exceeds it, the transaction cannot be included.
 
 **Value / actors**
 
@@ -204,7 +206,7 @@ The settled recommendation in one place. Each component is specified in detail i
 | Lanes | Two: standard and urgent |
 | Ranking Blocks | Urgent-only at all loads (ledger-enforced). FIFO selection over the urgent view |
 | Endorser Blocks | Open to both lanes. FIFO selection over the canonical queue |
-| EB announcement threshold | Let `thresholdFraction = max(1 - urgentTargetUtilisation, 1/2)`. Unless the age escape applies, a non-empty certified EB qualifies when any one of its serialised transaction size, its reference-script size, or either component of its execution-unit budget reaches that fraction of the corresponding RB limit. The default fraction is 1/2 (45,056 B for the simulated transaction-size component) |
+| EB announcement threshold | Let `thresholdFraction = max(1 - urgentTarget, 1/2)`. Unless the age escape applies, a non-empty certified EB qualifies when any one of its serialised transaction size, its reference-script size, or either component of its execution-unit budget reaches that fraction of the corresponding RB limit. The default fraction is 1/2 (45,056 B for the simulated transaction-size component) |
 | EB announcement age escape | A certificate for a non-empty EB below the threshold can enter an RB once at least K = 10 Ranking Blocks have been produced since the last certified EB |
 | Fee semantics | Per-lane EIP-1559: each lane's quote is its pricing coefficient × the ordinary min fee |
 | Fee-cap basis | For an urgent transaction under rb-only settlement, wallet choice and every max-fee validity check use max(standard quote, urgent quote). Temporary quote crossings are permitted and do not alter either controller |
@@ -261,6 +263,8 @@ The recommended shared parameters are:
 | Absolute coefficient floor | `1.0` | Prevents a quote from falling below the ordinary minimum fee |
 
 With `D = 16`, a single update changes a coefficient by no more than `±6.25%`. At the urgent target of `0.5` the largest step is `6.25%` in both directions. At the standard target of `0.75` the largest upward step is `2.08%`, while the largest downward step remains `6.25%`.
+
+This section states the update rule in real-number form for readability. On-chain, a coefficient is stored as the fixed-point `uint` described in [Transaction representation](#transaction-representation) and [Ledger Rule Changes](#ledger-rule-changes): the same update is computed by substituting `10^tierDec` for `1.0` and flooring the result after scaling, so that `coeff` and `coeff'` above are always natural numbers in that representation.
 
 #### When block activity enters the signals
 
@@ -326,6 +330,28 @@ This is a capacity-weighted signal: each block affects the result in proportion 
 
 The size of the non-certificate contribution is a measured choice, not an assumption. A dedicated experiment replaced it with alternatives from zero up to a third of an empty EB, and with a controller that updates only on certified EBs ([Non-certificate window contribution](#non-certificate-window-contribution)). Every contribution larger than the Ranking Block's own capacity lost retained value under launch-day load, and so did the certificate-only controller. Contributions smaller than the Ranking Block's capacity changed outcomes by less than half a percent.
 
+**The standard signal measures service, not demand.** A consequence of the three contribution rules above
+is worth stating plainly, because it is not what one would assume of a congestion price. Every
+non-certificate Ranking Block adds a full block's capacity to the denominator while contributing
+structurally zero standard usage to the numerator, since standard transactions cannot occupy a Ranking
+Block at all. A stretch of chain with few certified Endorser Blocks therefore drives
+`standardUtilisation` toward zero and pins the standard coefficient to its floor — including in exactly
+the situation where standard transactions are piling up unserved because no Endorser Block is being
+certified. The signal reads "underused" when the lane is most backed up.
+
+This is deliberate, and it is the price of the determinism argument in
+[Block validity](#block-validity): the quote must be recomputable from the chain by every node, and mempool
+depth is not on the chain. A backlog-sensitive standard price would require consensus over what nodes are
+holding, which this design specifically avoids. The consequence is that the standard lane's relief
+mechanism is temporal rather than economic — the
+[age escape](#endorser-block-announcement-threshold) bounds how long a below-threshold Endorser Block can
+be held back, and it is what prevents indefinite starvation. Note what that does and does not buy: the
+escape bounds *latency* at one certificate per `K` Ranking Blocks, not queue *depth*. Under sustained
+standard demand that exceeds what one Endorser Block per `K` blocks can clear, the queue grows without the
+standard price rising to shed demand, and transactions leave by stale-fee eviction rather than by pricing.
+Sizing `K` against expected standard throughput is therefore a calibration question with a liveness
+consequence, not only a latency one.
+
 
 ### Mempool
 
@@ -335,12 +361,13 @@ For this reason, we [specified](https://github.com/IntersectMBO/ouroboros-consen
 - the **baseline Leios mempool**;
 - the **Leios mempool with urgency signaling**.
 
-In all three specifications, the mempool imposes the same constraints on the block as enforced at the ledger level 
-by the corresponding consensus protocol,
-e.g. block size limits, the constraint that an RB has either transactions or an EB certificate and never both, etc. 
+In all three specifications, the mempool imposes the same constraints on the block as enforced 
+at the time of block validation for inclusion in the chain,
+e.g. block size limits, the constraint that an RB has either transactions or an 
+EB certificate and never both, etc. 
 The Praos specification is based on the current mempool design directly. 
 
-#### Praos and Leios Mempool Specifications 
+#### Leios Mempool Specifications 
 
 The Leios mempool (`MempoolLeios.lagda.md`) design features two distinct types of blocks (RB and EB), and 
 an extra stored ledger state `ebLedger`. This ledger state 
@@ -361,26 +388,47 @@ returns a pair `(RB, Maybe EB)`. The `RB` is sent across the network to be added
 The urgency signaling mempool design, specified in `MempoolLeiosPricing.lagda.md`,
 features two distinct ledger states in place of `updatedLedger`: 
 
-- **`priorityUpdatedLedger`**: the result of applying every transaction in `priorityTxs` to:
+- **`urgentUpdatedLedger`**: the result of applying every transaction in `urgentTxs` to:
   - `ebLedger`, when a valid EB has arrived; or
   - `ledger`, otherwise.
 
-  The `priorityTxs` queue contains transactions that specify the urgent tier.
-- **`standardUpdatedLedger`**: the result of applying every transaction in `standardTxs` on top of `priorityUpdatedLedger`.
+  The `urgentTxs` queue contains transactions that specify the urgent tier.
+- **`standardUpdatedLedger`**: the result of applying every transaction in `standardTxs` on top of `urgentUpdatedLedger`.
 
-  The `standardTxs` queue contains transactions that specify the standard tier.
+The `standardTxs` queue contains transactions that specify the standard tier, and the
+`urgentTxs` queue contains transactions that specify the urgent tier.
 
 The mempool is able to request transactions of a specific tier from its peers. 
 It first requests the urgent tier transactions, 
 and only when none are available, requests standard transactions. 
 
+**The lane field in the transaction envelope.**
+Tier-selective fetch requires a node to know a transaction's tier *before* it downloads the body, so the
+`tier_no` component of `tx_tier` is repeated in the transaction envelope used by the diffusion layer,
+alongside the identifier a peer offers. 
+
+The envelope copy is **not authenticated**: it is outside the transaction body and therefore outside the
+signature. A peer may advertise a standard transaction as urgent and, on a node that acts on the claim
+without checking, obtain fetch precedence it did not pay for. The envelope copy is therefore an
+optimisation hint only, and the following are required of any implementation:
+
+- a node MUST compare the envelope's `tier_no` against the body's after download, and MUST treat the body
+  as authoritative for every subsequent decision — queue placement, fee validation, and block selection;
+- a mismatch MUST be attributed to the peer that supplied it, and repeated mismatches from one peer MUST
+  reduce that peer's fetch precedence and eventually disconnect it;
+- fetch precedence granted on an unverified envelope claim MUST be bounded independently per peer, so that
+  mislabelling cannot be amplified into a share of a node's bandwidth larger than the peer would otherwise
+  receive.
+
+This is enforced by the mempool when fetching transactions, and not enforced at the time of block application.
+
 #### Safe Reordering of Urgent Transactions 
 
 The mempool designed to support urgency signaling in Leios requires urgent transactions to be placed ahead 
 of standard ones, out of FIFO queue order. 
-That is, an incoming urgent transaction enters the queue after all `priorityTxs` and in front of `standardTxs`.
+That is, an incoming urgent transaction enters the queue after all `urgentTxs` and in front of `standardTxs`.
 The mempool update cost for each urgent transaction is proportional to the number of standard transactions 
-that need to be revalidated against the new `priorityUpdatedLedger`.
+that need to be revalidated against the new `urgentUpdatedLedger`.
 
 To address this inefficiency, we have 
 [proved](https://github.com/IntersectMBO/formal-ledger-specifications/compare/polina/txcomm?expand=1) 
@@ -389,30 +437,95 @@ produce the same *updated* ledger state
 when applied to the same state and in the same environment.
 It has the following (also proved) corollary:
 
-> **Corollary.** Let `standardTxs` and `priorityTxs` be lists of transactions, `tx : Tx`, 
-> `s : LState`, and `e : LEnv`.
-> Suppose the conditions `Cstd(standardTxs)`
-> and `Cpri(tx::priorityTxs)` are satisfied. Suppose also that `standardTxs ++ priorityTxs`,
-> `(tx :: standardTxs) ++ priorityTxs`, and `tx :: priorityTxs` are all valid in `e, s`.
-> Then, applying `(tx :: standardTxs) ++ priorityTxs` or `standardTxs ++ (tx :: priorityTxs)`
-> to `s` in `e` gives the same updated ledger state.
+> **Corollary.** Let `urgentTxs` and `standardTxs` be lists of transactions, `tx : Tx`,
+> `s : LState`, and `e : LEnv`. Suppose `Cpri(tx :: urgentTxs)` and `Cstd(standardTxs)` hold,
+> and that `tx` is conflict-free against every transaction in `standardTxs`.
+> Suppose also that, in `e` starting from `s`: applying `urgentTxs` reaches `s₀`; applying
+> `standardTxs` from `s₀` reaches `s₁`; `tx` is valid at `s₀`; and `tx` is valid at `s₁`,
+> reaching `s₂`.
+> Then `urgentTxs ++ (tx :: standardTxs)` is applicable from `s`, and the state it reaches is
+> equivalent to `s₂`.
 
-We do not specify `Cstd` and `Cpri` here exactly (both are encoded in the commutativity proof).
-Instead, we list the resulting types of conflict an incoming urgent transaction may have with transactions 
-in `standardTxs` that we must check for:
+
+The two `tx` validations in the hypotheses are the mempool's two checks — at the insertion point
+(the back of `urgentTxs`) and at the back of the standard queue — and `s₂` is the state the second
+one already computed. The conclusion is exactly what lets the node adopt `s₂` and leave the standard
+queue alone. Note the conclusion is state *equivalence* rather than syntactic equality, which is all
+the mempool needs and all the proof gives.
+
+`Cpri` is the condition on the **incoming urgent transaction**:
+
+1. it validates at its insertion point, the back of the urgent queue;
+2. it validates at the back of the standard queue;
+3. its footprint conflicts with no transaction in `standardTxs`.
+
+`Cstd` is the condition on the **standard queue**, held as an invariant of that queue rather than
+rechecked per urgent admission. For each transaction it checks that:
+
+1. it validates at the insertion point;
+1. none of them carries a governance action that never commutes — governance **action proposals** and
+   DRep **(de)registration** (`GovDomStable` in the proof).
+
+Condition 2 is a lane restriction rather than a conflict check.
+
+Conflict detection appears in `Cpri` only, and that asymmetry is the point. The incoming urgent
+transaction is the one that gets *moved* — ahead of the entire standard queue — so it is the only
+transaction required to commute with anything. A standard transaction is appended and validated at
+exactly the position it will be applied; nothing reorders it, so it owes commutation to nothing. It
+may conflict freely with urgent transactions, which are applied ahead of it in any case. That is
+ordinary FIFO ordering, not a reordering that needs licensing.
+
+Note also that `Cpri` places no restriction on an urgent transaction's *shape*: any transaction may be
+urgent, including one carrying governance. What constrains it is condition 3, not class membership.
+Nothing is required of the urgent transactions already queued ahead of it either.
+
+One consequence is worth noting: a standard transaction's admissibility is node-independent, since
+`GovDomStable` is a property of the transaction alone and decidable at submission, whereas an urgent
+transaction's depends on what the local standard queue happens to hold. The same urgent transaction
+may therefore be admitted by one node and discarded by another, with neither wrong.
+
+These are the conflicts condition 3 checks for, against the transactions in `standardTxs`:
 
 - the urgent transaction **consumes an input that some standard transaction reads without consuming**: a reference
   input, collateral it does not also spend, or (for a phase-2-invalid standard transaction) an unconsumed input;
 - overlapping **certificate targets** or **deposit keys**;
 - overlapping **withdrawal credentials**, or a withdrawal credential matching the other transaction's certificate target;
 - overlapping **governance vote targets** (same action and voter);
-- **governance proposals and DRep (de)registration**, which conflict *globally* (they re-filter all pending votes), so no
-  pairwise check can license commuting past them. This category is restricted to a single tier
-  rather than being conflict-checked, and that tier must be the urgent one: when Leios falls back
-  to Praos-mode operation, only the urgent queue feeds Ranking Blocks, and no standard transaction
-  gets in — placing governance proposals in the standard tier would mean censoring governance for
-  the whole duration of the fallback. Governance-proposing transactions therefore must always pay
-  the urgency price.
+- the urgent transaction **deregisters a DRep that some standard transaction votes with, or delegates
+  to**. A deregistration triggers a re-filter of recorded votes, dropping those cast by DReps that are
+  no longer registered, and it also invalidates any later delegation to that DRep, since delegating
+  requires the delegatee to be registered. 
+
+Governance placement follows from that last class, and is worth stating as a table, because the four
+kinds of governance content behave differently:
+
+| content | effect on state the other lane reads | urgent | standard |
+| --- | --- | --- | --- |
+| votes | neither domain changes | yes | yes, gated pairwise on `(action, voter)` |
+| proposals | `dom govSt` grows | yes | **no** |
+| DRep registration | `dom dreps` grows | yes | **no** |
+| DRep deregistration | `dom dreps` shrinks | yes, gated by the class above (votes *and* delegations) | **no** |
+
+Only shrinking `dom dreps` can invalidate anything, which is why deregistration is the one governance
+class needing a pairwise key and the others do not: a proposal or a registration only ever makes the
+sets the standard queue reads *larger*, so a standard vote's premise cannot break under reordering.
+
+Proposals and DRep certificates are excluded from the standard lane rather than conflict-checked, for
+a reason that is not about commuting: a proposal created by a *standard* transaction would have a
+`GovActionId` that does not exist until it is applied, so an urgent transaction voting on it has no
+key to be checked disjoint against. Confining them to one lane removes the case by construction. That
+lane must be the urgent one: when Leios falls back to Praos-mode operation, only the urgent queue
+feeds Ranking Blocks and no standard transaction gets in, so placing governance in the standard tier
+would censor it for the whole duration of the fallback. Governance-proposing transactions therefore
+always pay the urgency price.
+
+  This constraint is mempool node policy, not a ledger validity rule: no rule in
+  [Ledger Rule Changes](#ledger-rule-changes) restricts governance-proposing or DRep-(de)registration
+  transactions to the urgent tier, and the chain accepts such a transaction at any tier that pays its
+  quote. It is not a chain security requirement — the ledger stays safe either way — it is needed only
+  so a node's mempool keeps governance transactions reachable during a Praos-mode fallback. A node
+  that fails to enforce it degrades only its own mempool's fallback behaviour, and gains no
+  consensus-level advantage from doing so.
 
 To address these conflicts and maintain a better than linear (in the size of the `standardTxs` queue) time 
 for including incoming urgent transactions, we adopt the following strategy, proved correct in the
@@ -423,8 +536,9 @@ On any conflict, the urgent transaction is simply discarded.
 
 The lookups use one counted multiset (a map from key to occurrence count) per conflict source, maintained
 alongside the standard queue: non-consumption reads keyed by `TxIn`, certificate targets and withdrawal
-credentials keyed by `Credential`, deposit keys keyed by `DepositPurpose`, and vote targets keyed by
-`(GovActionId, Voter)`. Disjointness from these unions indicates a lack of conflict, so admission
+credentials keyed by `Credential`, deposit keys keyed by `DepositPurpose`, vote targets keyed by
+`(GovActionId, Voter)`, and — both keyed by `Credential` — the DRep credentials the queue votes with
+and the DRep credentials it delegates to. Disjointness from these unions indicates a lack of conflict, so admission
 costs `O(|footprint of the incoming transaction|)` lookups. Counts are incremented at standard admission,
 decremented when a single transaction leaves, and rebuilt for free during events that already reapply the
 whole queue. There may be some over-approximation in this strategy; however, users of the same Voter 
@@ -435,72 +549,36 @@ ones is not a necessary feature to support.
 
 ##### Alternative: a lazy inclusion buffer for non-commuting transactions
 
-An alternative to discarding a conflicting urgent transaction is to hold it rather than drop it.
-Besides `priorityTxs` and `standardTxs`, the mempool keeps a third list, `lazyTxs`, reserved for
-incoming urgent transactions that fail the conflict check above. Instead of being applied against
-`priorityUpdatedLedger` or the standard queue's ledger state, a `lazyTxs` entry is applied against the
-ledger state of the currently selected chain (i.e. the state before any mempool transaction is applied),
-and `lazyTxs` behaves as an ordinary FIFO queue on top of that state.
+An alternative to discarding a conflicting urgent transaction is to hold it. Besides `urgentTxs` and
+`standardTxs`, the mempool keeps a third list, `lazyTxs`, for incoming urgent transactions that fail the
+conflict check above. A `lazyTxs` entry is applied against the ledger state of the currently selected
+chain — before any mempool transaction — and the buffer behaves as an ordinary FIFO queue on top of it.
 
-`lazyTxs` is flushed on every new chain selection: its contents are appended to the end of `priorityTxs`,
-and the whole queue is then revalidated exactly as it already is whenever a new block arrives (see
-[Capacity, eviction, and DoS](#capacity-eviction-and-dos)). Basing `lazyTxs` on the chain-selected state
-rather than on `priorityUpdatedLedger` or the standard queue's ledger state is what makes this flush cheap
-to reason about: once a new chain is selected, none of the existing guarantees about which transactions
-from `priorityTxs` or `standardTxs` survive revalidation hold anyway, so merging `lazyTxs` in at that
-point adds no new uncertainty. Diffusion of `lazyTxs` contents is unchanged: they propagate to peers
-exactly as any other mempool transaction does.
+`lazyTxs` is flushed on every new chain selection: its contents are appended to `urgentTxs` and the whole
+queue revalidated, as it already is whenever a new block arrives (see
+[Capacity, eviction, and DoS](#capacity-eviction-and-dos)). Basing the buffer on the chain-selected state
+is what makes the flush cheap to reason about — once a new chain is selected, no existing guarantee about
+which queued transactions survive revalidation holds anyway. Diffusion is unchanged.
 
 **Evaluation against the discard mechanism above.**
 
-- *Loss of transactions.* The discard mechanism above drops a conflicting urgent transaction outright;
-  the submitter must notice and resubmit. The lazy buffer instead holds it, so a transaction that only
-  conflicted transiently (the standard transaction it clashed with is later evicted, or a new chain
-  changes the picture entirely) gets a chance at inclusion without user action.
-- *Latency.* A transaction sitting in `lazyTxs` cannot be selected into an RB or EB until the next
-  chain-selection event flushes it into `priorityTxs`. The discard mechanism resolves immediately
-  (accept or reject at submission); the lazy buffer trades that immediacy for a wait of up to one block.
-- *State and complexity.* The lazy buffer is a third piece of mempool state, with its own admission
-  logic (Phase-1 validation against the chain-tip ledger state) and its own capacity/eviction policy,
-  which is not yet specified here and would need the same treatment
-  [Capacity, eviction, and DoS](#capacity-eviction-and-dos) gives `priorityTxs` and `standardTxs` —
-  otherwise it is a new, uncapped surface for a submitter to fill with non-commuting transactions.
-- *Cost at the point it matters.* Because `lazyTxs` is only merged in at a chain-selection boundary, and
-  the entire queue is revalidated at that boundary regardless, the merge itself adds no revalidation pass
-  beyond what [Capacity, eviction, and DoS](#capacity-eviction-and-dos) already performs. The counted-multiset
-  conflict check above runs once, at admission to `lazyTxs`; nothing pays for it again while the transaction waits.
-- *Intra-buffer conflicts.* The design does not yet say what happens when two `lazyTxs` entries conflict
-  with each other rather than with `standardTxs`. Treating `lazyTxs` as an ordinary FIFO queue over the
-  chain-tip state (as `standardTxs` is treated today) resolves this the same way order-of-arrival resolves
-  any other queue conflict, but this should be stated explicitly if the buffer is adopted.
-
-**Behaviour change**.
-Both mechanisms are compatible with the commutativity result above. The main deciding factor should be
-the change in behaviour in terms of what transactions survive in the `standardTxs` queue once an RB 
-is released containing the `lazyTxs`. Because flushed `lazyTxs` entries are appended ahead of
-`standardTxs` before the whole queue is revalidated, any standard transaction they still conflict
-with will now fail validation and be evicted — the lazy buffer gives urgent transactions a way to
-evict standard ones on purpose. That is precisely what admission is designed to prevent (see
-[Dependencies and conflicts](#dependencies-and-conflicts): a conflicting urgent transaction is
-discarded rather than admitted because admitting it would require evicting a standard transaction).
-If adopted, the flush should therefore re-apply the same rule — dropping or re-buffering any entry
-that would still evict a standard transaction — rather than letting it through unconditionally.
-
-The evictions enabled by an unconditional flush are not limited to a user displacing their own
-transactions: most of the conflict classes above can arise between transactions with fully disjoint
-signature sets. Reference inputs are unwitnessed reads, so an urgent transaction consuming a shared
-UTxO (an oracle updating its datum, a maintainer rotating a reference script) would evict every
-standard transaction of strangers who merely read it; two unrelated users contending for the same
-script UTxO (a DEX pool, a batcher) would resolve the race in favour of whoever paid the urgent
-quote; and a registration certificate requires no witness at all, so an urgent transaction could
-evict a targeted standard transaction without any authorization from its victim. An unconditional
-flush would therefore amount to a purchasable eviction mechanism over contested state — exactly the
-kind of priority auction this CIP does not intend to create.
-
-Building `lazyTxs` in the first place does not avoid this conflict-detection work either: deciding
-whether an incoming urgent transaction may be admitted to `lazyTxs` (as opposed to 
-dropped) requires the same conflict check the discard mechanism would run
-for reference inputs and collateral inputs. 
+- *Behaviour change.* Discarding relies on the commutativity result. Conflict-freedom is the
+  theorem's hypothesis, and the buffer bypasses it, admitting conflicting transactions and
+  re-establishing validity by revalidating the whole queue. Flushed entries of incoming urgent 
+  txs land ahead of the standard queue, so where one consumes an input a
+  standard transaction reads without consuming, that standard transaction is evicted contrary to the intent of 
+  this CIP.
+- *Loss of transactions.* Discarding forces the submitter to notice and resubmit; the buffer holds the
+  transaction, so one that conflicted only transiently gets a chance at inclusion without user action.
+- *Latency.* A buffered transaction cannot be selected into an RB or EB until the next chain-selection
+  event flushes it, trading the discard mechanism's immediate accept/reject for a wait of up to one block.
+- *State and complexity.* A third piece of mempool state, needing its own capacity and eviction policy —
+  otherwise an uncapped surface for filling with non-commuting transactions. Buffering cannot be used to
+  avoid conflict detection either: the check is what decides buffer-versus-queue in the first place.
+- *Cost.* Under an unconditional flush the merge is nearly free — the queue is revalidated at a
+  chain-selection boundary regardless, so the flush adds no extra pass, only a longer one. Under the
+  conditional flush the first bullet requires, most of that saving goes: the conflict check must run
+  again for every buffered entry at every chain selection, rather than once at admission.
 
 Note that while the queue structure in the 
 specification is made up of two lists, it can also be expressed via a view (as discussed next).
@@ -554,10 +632,15 @@ The ledger enforces none of this, since mempool state is not observable on-chain
 #### Dependencies and conflicts
 
 An urgent transaction may be in conflict with transactions in the standard queue.
-Conflict is detected whenever a transaction `tx` is Phase-1 validated both at the end of the urgent 
-queue and the end of the standard queue, and one of those validations fails. Then, `tx` will not be 
+Conflict may be detected at the time a transaction `tx` is Phase-1 validated both at the end 
+of the urgent 
+queue and the end of the standard queue (and one of those validations fails), as well as when additional conflict 
+checks are performed. 
+Then, `tx` will not be 
 admitted to the mempool because doing so requires evicting one or more standard transactions from the 
-standard queue, which is outside the scope of the kind of urgency signaling this CIP is designed to enable. 
+standard queue (or, potentially,
+changes the result of their application), 
+which is outside the scope of the kind of urgency signaling this CIP is designed to enable. 
 A common cause of such conflict is that `tx` is spending the same UTxO entry as some transaction in the 
 standard queue. Additional conflicts requiring rejection of an incoming urgent transaction may arise,
 see [Safe Reordering of Urgent Transactions](#safe-reordering-of-urgent-transactions).
@@ -583,83 +666,146 @@ The CDDL changes are as follows :
 
 ```
 tier_no    = 0 / 1          ; 0 = urgent, 1 = standard
-tier_coeff = uint           ; price multiplier γ, ≥ 1 
+tier_coeff = uint           ; price multiplier with fixed decimal places number tierDec
 tx_tier    = [tier_no, tier_coeff]
 
 transaction_body = { ...
-  , 23 : tx_tier          ; claimed tier
-  , ? 24 : reward_account   ; fee change address
+  , ? 23 : tx_tier          ; claimed tier, defaults to standard if omitted
+  , ? 24 : account_address  ; feeChangeAccount, per CIP-0192
   }
 ```
 
-That is, a transaction body must specify the `tier_no` which indicates whether it's an urgent or standard transaction, 
-and a positive integer `tier_coeff`. This tier coefficient 
+A transaction body may optionally specify the `tier_no` which indicates whether it's an urgent or standard transaction, 
+and a `tier_coeff` in the fixed-point representation above. This tier coefficient 
 is what the transaction expects its `minfee` will be multiplied by to obtain the amount 
-of fee it has to pay to get into its specified tier. 
+of fee it has to pay to get into its specified tier. If `tx_tier` is omitted, the transaction is priced as a 
+standard transaction at the ledger's current standard coefficient (see 
+[Ledger Rule Changes](#ledger-rule-changes)).
 
-The `reward_account` specifies the address of the account to which change is returned when a transaction 
-specifies a `txfee` that is larger than necessary. 
+Tier coefficients operate on a fixed number of decimal places: a `tier_coeff`/`rawCoeff`/`PolicyClause.coeff` value `c` always
+represents the real coefficient `c / 10^tierDec`, where `tierDec` is a fixed constant.
 
 
 #### Ledger Rule Changes
 
-We define an `SDPolicy` record containing five variables that are used in the following way :
 
-  1. `diversityPolicy : TierNo ⇀ PolicyClause` - a map assigning to each tier a policy clause, which specifies, 
-  in particular, the coefficient of the controller associated with that tier: the `urgent` entry holds the 
-  urgent controller's own coefficient, and the `standard` entry holds the standard controller's own coefficient 
-  (see [Controller updates and signals](#controller-updates-and-signals)). We write `rawCoeff(t)` for the 
-  coefficient `diversityPolicy` associates with tier `t`
-  1. `coeffWindow : List (TierNo ⇀ ℕ)` - the most recent `rawCoeff` values, one entry per processed block, 
-  of which at most `windowSize` (a new protocol parameter, see below) are stored; this is the data over which 
-  the moving average used by the coefficient update is computed
-  1. `totalSize : TierNo ⇀ ℕ` - the total size computed by adding up the size in bytes of all transactions in the list inside a block body, aggregated by tier
-  1. `totalRefScriptSize : TierNo ⇀ ℕ` - the total size computed by adding up the size in bytes of all reference scripts and datums 
-  referenced by all the transactions in the list inside a block body, aggregated by tier
-  1. `totalExUnits : TierNo ⇀ ExUnits` - the total amounts computed by adding up all the 
-  execution units (memory and CPU, 
-  separately) specified by all scripts in all the transactions in the list inside a block body, aggregated by tier
+We define a `PolicyClause` record, and an `SDPolicy` record containing the following variables:
 
-There is a new state variable `policyState : SDPolicy` in the `UTxOState`.
+```
+record PolicyClause : Set where
+  field
+    coeff         : ℕ         -- fixed-decimal-point tier coefficient in force while this block was processed
+    size          : ℕ         -- total tx size in bytes, this tier, this block
+    refScriptSize : ℕ         -- total reference-script/datum size in bytes, this tier, this block
+    exUnits       : ExUnits   -- total execution units (memory and CPU), this tier, this block
+    capSize       : ℕ         -- byte capacity this sample is charged against, this tier
+    capExUnits    : ExUnits   -- execution-unit capacity this sample is charged against, this tier
 
-The two controllers remain fully independent: `rawCoeff(urgent)` and `rawCoeff(standard)` each evolve from 
-their own controller's own utilisation signal alone, exactly as specified in 
-[Controller updates and signals](#controller-updates-and-signals). The coefficient used to price a transaction 
-is each tier's own controller output directly, with no sorting or combination between the two: 
-`effectiveTierCoeff(t) = rawCoeff(t)`. In particular, `rawCoeff(urgent)` and `rawCoeff(standard)` can 
-temporarily invert — that is a permitted controller state (see 
-[Revalidation and stale fees](#revalidation-and-stale-fees) for how node policy handles it), not something the 
-ledger corrects.
+record SDPolicy : Set where
+  field
+    currentClause   : TierNo ⇀ PolicyClause
+    diversityPolicy : TierNo ⇀ List PolicyClause
+```
+
+A `PolicyClause` records the lane space and `ExUnit` usage for a single block, along with the allowed 
+capacity and the lane coefficient recorded for that block. `refScriptSize` is carried for the
+[Endorser Block announcement threshold](#endorser-block-announcement-threshold) only; neither
+controller reads it.
+
+`capSize` and `capExUnits` are set differently in the two lanes
+([Controller updates and signals](#controller-updates-and-signals)):
+
+- in the `urgent` clause they are always the RB limits `maxBlockBodySize` and `maxBlockExUnits` (the
+  Agda ledger specification calls the first of these `maxBlockSize`),
+  whatever block produced the sample. Urgent traffic carried by a certified EB is therefore recorded
+  against an RB's capacity rather than the EB's, so the signal asks how many RBs' worth of urgent
+  traffic the payload carried, not how full the block was.
+- in the `standard` clause they are the producing block's own limits: the RB limits for a
+  non-certificate RB, and `maxEBSize`/`maxEBExUnits` for a certified EB. A non-certificate RB stores its
+  full capacity against a `size` of zero, since standard traffic cannot occupy an RB at all.
+
+The fee change address specifies where change is returned when a transaction specifies a `txfee` that is
+larger than necessary. This is the `feeChangeAccount` field of
+[CIP-0192](https://github.com/cardano-foundation/CIPs/tree/master/CIP-0192), and its type is an
+**account address** in the sense of CIP-159. 
+Crediting an account leaves the UTxO set changes of a transaction predictable at
+construction time, however, the resulting account balance may not be.
+
+The Agda ledger specification types this field as `Maybe RewardAddress` and credits a
+`feeRewards` map, an expedient to keep the Conway model compiling since Conway has no CIP-159 accounts.
+
+We use the `SDPolicy` fields in the following way:
+
+  1. `currentClause : TierNo ⇀ PolicyClause` - the in-progress accumulation for the block currently 
+  being processed: as each transaction in the block has its size, reference-script 
+  size, and execution units added to `size`, `refScriptSize`, and `exUnits` fields of the 
+  clause for its tier. The `coeff`, `capSize`, and `capExUnits` fields of a `currentClause` entry are 
+  not meaningful until the block is finalized, at which point they are filled in from the block type 
+  and the newly computed coefficient (see 
+  [Additional post-transaction-application validation](#additional-post-transaction-application-validation))
+
+  1. `diversityPolicy : TierNo ⇀ List PolicyClause` - a map assigning to each tier the list of that 
+  tier's *finalized* policy clauses from the most recent blocks, most recent first, of 
+  which at most `windowSize(t)` are stored (see [New PParams](#new-pparams)). 
+
+There is a new state variable 
+
+  ```
+  policyState : SDPolicy
+  ```
+
+in the `UTxOState`. At mechanism activation
+`diversityPolicy(t)` is seeded with a single initial coefficient
+(`2.0 × 10^tierDec` urgent, `1.0 × 10^tierDec` standard, per
+[The recommended construction](#the-recommended-construction)) and zero usage and capacity.
+
+The Agda ledger specification has no seeding rule, and its fallback for an empty window
+is the `10^tierDec` floor, so it would start the urgent lane at `1.0` rather than `2.0`.
+
+The urgent and standard controllers remain fully independent
+as specified in 
+[Controller updates and signals](#controller-updates-and-signals). In particular, `rawCoeff(urgent)` can 
+be either larger, smaller or the same as `rawCoeff(standard)`.
+
+In the rules below, `rawCoeff(t)` is read from `policyState` at the point of validation. It is not a
+field of its own: it is derived, as the `coeff` of the head entry of `diversityPolicy(t)`. When
+`rawCoeff(standard) = 10^tierDec`, `minfeeAt(rawCoeff(standard)) = minfee`, so the standard lane
+requires no more than the ordinary minimum fee. If `tx` omits `tx_tier`, the rules below apply as
+though `tx` had specified `tx_tier = [standard, rawCoeff(standard)]`. 
 
 Let `adjusted_tier_no` be `urgent` if `tx` was in an RB with a *transaction list*, 
 and `standard` if `tx` was in an EB. Let `adjusted_tier_coeff` be `effectiveTierCoeff(adjusted_tier_no)`. 
 The following are the key rule changes (to transaction application)
 having to do with processing the *fee payment* :
 
-  1. updated min-fee constraint (enough to cover *targeted* tier) : `tier_coeff·minfee ≤ txFee`
+  1. updated min-fee constraint (enough to cover *targeted* tier) : `minfeeAt(tier_coeff) ≤ txFee`
   1. new min-fee constraint (enough to cover the tier the transaction is actually *charged*, which may differ 
   from the targeted tier when `rawCoeff(urgent)` and `rawCoeff(standard)` are inverted) : 
-  `adjusted_tier_coeff·minfee ≤ txFee`; a transaction that fails this constraint is invalid for inclusion at 
+  `minfeeAt(adjusted_tier_coeff) ≤ txFee`; a transaction that fails this constraint is invalid for inclusion at 
   its adjusted tier
-  1. `txfee - minfee * adjusted_tier_coeff` is the amount of change sent to `reward_account` if it exists, 
-  and to the treasury if it does not
+  1. `txfee - minfeeAt(adjusted_tier_coeff)` is credited to the `feeChangeAccount` if the transaction names one and
+  it is registered, and goes to the treasury if it does not
   1. exactly `minfee` is sent to the fee pot
-  1. `minfee * (adjusted_tier_coeff - 1)` is sent to the treasury
+  1. `minfeeAt(adjusted_tier_coeff) - minfee` is sent to the treasury
 
 The following changes to transaction application ensure correct tier specification 
 with respect to `policyState` :
 
   1. `effectiveTierCoeff(tier_no)` — the coefficient derived from `diversityPolicy` as above, for the `tier_no` 
-  specified in the `tx_tier` in the transaction body — is `≤ tier_coeff` in `tx_tier`
+  specified in the `tx_tier` in the transaction body — is `≤ tier_coeff` in `tx_tier`. This is an
+  inequality, not an equality: a transaction may post a coefficient above the current quote as headroom
+  against the quote moving between construction and inclusion, and the excess is refunded by rule 3 above
+  rather than charged
   1. The tier number in `tx_tier` must be either `urgent` or `standard`
   1. The tier number in `tx_tier` is `≤ adjusted_tier_no` 
-  1. `policyState` is updated so that the current aggregated values 2-4 reflect `tx`
+  1. `policyState` is updated so that `currentClause`'s aggregated values 2-4 reflect `tx`, as described above
 
-Note that these constraints together guarantee that the change amount is never negative: the explicit 
-`adjusted_tier_coeff·minfee ≤ txFee` constraint above requires the posted fee to cover whatever coefficient the 
-transaction is actually charged at its adjusted tier, so `txfee - minfee * adjusted_tier_coeff` cannot be 
-negative. This holds regardless of how `rawCoeff(urgent)` and `rawCoeff(standard)` compare to one another — 
-no ordering between the two controllers is required. A transaction that does not post enough to cover its 
+Rule 3 depends on the numeric encoding of the tier labels, so it is worth stating what it relies on:
+`urgent = 0` and `standard = 1`, i.e. **the more urgent tier is the numerically smaller one**. Under that
+encoding `tier_no ≤ adjusted_tier_no`.
+
+Note that these constraints together guarantee that the change amount is never negative.
+A transaction that does not post enough to cover its 
 adjusted tier's coefficient is simply invalid for inclusion at that tier (see 
 [Revalidation and stale fees](#revalidation-and-stale-fees) for the resulting eviction risk).
 
@@ -698,31 +844,122 @@ the block type, with the following steps:
 
   1. Check that if the block containing the transaction list is an EB, it qualifies under the 
   [Endorser Block announcement threshold](#endorser-block-announcement-threshold) rule: unless the age escape applies, 
-  at least one of the resource totals (`totalSize`, `totalRefScriptSize`, or either component of `totalExUnits`) 
+  at least one of the resource totals in `currentClause` (`size`, `refScriptSize`, or either component of `exUnits`) 
   reaches the threshold fraction of the corresponding per-block RB limit specified in the protocol parameters
-  1. Reset `totalSize , totalRefScriptSize , totalExUnits` to be empty, so that the variables can be reused to 
-  track data in the next block
-  1. Update the `diversityPolicy : TierNo ⇀ PolicyClause` field of the `SDPolicy` state to specify new 
-  `rawCoeff` values for each tier's controller, computed using the moving average over `coeffWindow`. This 
-  step updates each controller's own coefficient independently; it does not combine `rawCoeff(urgent)` and 
-  `rawCoeff(standard)` in any way — `effectiveTierCoeff(t) = rawCoeff(t)` reads each tier's coefficient off 
-  its own controller directly (see [Ledger Rule Changes](#ledger-rule-changes))
-  1. Append the newly computed `rawCoeff` values to `coeffWindow`, dropping the oldest entry whenever 
-  the window exceeds `windowSize` (the protocol parameter) entries
-  
-**NOTE : The calculation in the final step is left unspecified only in the Agda specification, where it is kept 
-abstract. The recommended update rule is the controller formula given in the 
-[Controller updates and signals](#controller-updates-and-signals) section; its final calibration will be the 
-result of further experimental data**. 
+  1. For each tier `t`, fill in the capacity fields of `currentClause(t)` from the block type, as described 
+  under [Ledger Rule Changes](#ledger-rule-changes): the RB urgent reservation capacity for the `urgent` 
+  clause, and the producing block's own capacity (full RB limits for a non-certificate Ranking Block, EB 
+  limits for a certified Endorser Block) for the `standard` clause
+  1. For each tier `t`, prepend `currentClause(t)` to `diversityPolicy(t)`, dropping the oldest entry 
+  whenever the list exceeds `windowSize(t)` entries. Write the resulting list as 
+  `P_t = [p_0, p_1, …, p_{k−1}]`, most recent first, with `k = min(windowSize(t), |P_t|)`: `p_0` is the 
+  clause for the block being finalized, and `p_1` the clause for the previous payload-bearing block
+  1. For each tier `t`, set `p_0.coeff` to the coefficient produced by applying the controller update of 
+  [Controller updates and signals](#controller-updates-and-signals) to `p_1.coeff`, at the utilisation 
+  `u_t` computed over `p_0 … p_{k−1}` as set out in 
+  [Computing the windowed utilisation](#computing-the-windowed-utilisation) below. The update reads 
+  *utilisation*, never past coefficients: `p_1.coeff` is the value being adjusted, and `u_t` comes from 
+  the usage and capacity fields alone. Each controller is updated independently — `rawCoeff(urgent)` and 
+  `rawCoeff(standard)` are never combined, and `effectiveTierCoeff(t) = rawCoeff(t)` reads each tier's 
+  coefficient off its own controller (see [Ledger Rule Changes](#ledger-rule-changes))
+  1. Update the age-escape counter: set `rbsSinceCert` to zero if this block is a certified Endorser 
+  Block, since accepting its certificate resets the count, and otherwise increment it by one. 
+  Certificate-carrying Ranking Blocks carry no transaction payload and so never reach this rule at all 
+  (see [Endorser Block announcement threshold](#endorser-block-announcement-threshold))
+  1. Reset `currentClause` to the empty clause for every tier (`size = refScriptSize = 0`, `exUnits`, 
+  `capSize` and `capExUnits` all zero), so it can accumulate the next block's totals
 
-#### New protocol parameter
+Setting `p_0.coeff` from a window that contains `p_0` is not circular: the utilisation reads only the
+usage and capacity fields, never `coeff`. The lag is therefore one block — a block's utilisation sets
+the coefficient that prices the next block, since `effectiveTierCoeff(t)` reads `p_0.coeff`.
 
-This CIP introduces a new protocol parameter `windowSize : ℕ`. It specifies the maximum number of per-block 
-tier coefficient entries retained in the `coeffWindow` variable of `policyState`, and therefore the length 
-of the sliding window over which the moving average used by the coefficient update is computed. Like other 
-protocol parameters, it is updatable by governance. Larger values smooth the coefficient trajectory at the 
-cost of a slower response to changes in demand; a natural initial value is the largest signal window used 
-by the recommended construction (20 blocks, the standard controller's window). 
+##### Computing the windowed utilisation
+
+Let `P_t = [p_0, …, p_{k−1}]` be tier `t`'s window as of step 3 — `diversityPolicy(t)` after the
+prepend and truncation. For each resource dimension `d` (byte size, execution-unit memory, and
+execution-unit steps), reading `size`/`exUnits.memory`/`exUnits.steps` for usage and the matching
+`capSize`/`capExUnits.memory`/`capExUnits.steps` for capacity:
+
+```
+used(t, d)  = Σ over i in 0 … k−1 of min(usage(p_i, d), capacity(p_i, d))
+avail(t, d) = Σ over i in 0 … k−1 of capacity(p_i, d)
+u(t)        = max { used(t, d) / avail(t, d)  |  d with avail(t, d) > 0 }
+```
+
+Capping each sample at its own capacity is what makes the urgent signal a count of
+Ranking-Block-loads rather than a raw ratio, and it bounds every dimension's ratio at 1 without a
+separate clamp. If no dimension has positive capacity, `p_0.coeff` is set to `p_1.coeff` unchanged.
+
+Writing `N` and `C` for `used(t, d)` and `avail(t, d)` at the maximising dimension,
+`target(t) = tNum / tDen`, `D` for the max-change denominator and `F = 10^tierDec`, the update of
+[Shared update rule](#shared-update-rule) is evaluated entirely in natural-number arithmetic:
+
+```
+p_0.coeff = max( F, ( p_1.coeff × (C·tNum·D + tDen·N − tNum·C) ) / (C·tNum·D) )
+```
+
+with the division truncating toward zero. The multiplier's numerator is never negative, since `D ≥ 1`,
+so the real-valued form's `max(0, …)` is discharged rather than dropped. The outer `max` with `F` is a
+ledger invariant rather than a controller recommendation: settlement sends
+`minfeeAt(adjusted_tier_coeff) − minfee` to the treasury, which underflows if a coefficient ever falls
+below `F`. Floating-point arithmetic is not part of consensus.
+
+**NOTE: the state shape above is normative. What the Agda specification keeps abstract is the update
+function in step 4, instantiated from the `target`, `D` and window-length protocol parameters (see
+[New PParams](#new-pparams)) whose final calibration awaits further experimental data.**
+
+The Agda ledger specification takes `u(t)` from the byte dimension alone rather than the
+maximum over all three, because its `ExUnits` is abstract and exposes only a comparison relation, so
+ratios across dimensions cannot be compared — this changes only the size of a price step, never whether a
+block is valid.*
+
+#### New PParams
+
+This CIP introduces the following new protocol parameters. All are updatable by governance in the ordinary
+way:
+
+**Window lengths.** `windowSize` is *per tier*, because the two controllers are specified over windows of
+different lengths and different sample kinds:
+
+- `urgentWindowSize : ℕ` — the maximum number of finalized `PolicyClause` entries retained in
+  `diversityPolicy(urgent)`, and therefore the length of the urgent controller's sliding window.
+  Recommended initial value **5** payload samples.
+- `standardWindowSize : ℕ` — likewise for `diversityPolicy(standard)`. Recommended initial value **20**
+  block summaries.
+
+We write `windowSize(t)` for whichever of the two applies to tier `t`. Larger values smooth a coefficient's
+trajectory at the cost of a slower response to changes in demand. A single shared parameter would not do:
+the recommended construction requires 5 for urgent and 20 for standard, and
+[Controller updates and signals](#controller-updates-and-signals) records that windows of 10–20 samples
+measurably reduce urgent retained value.
+
+**Controller calibration.** Each controller's update, specified under
+[Computing the windowed utilisation](#computing-the-windowed-utilisation), is instantiated from:
+
+- `urgentTarget`, `standardTarget : UnitInterval` — the per-lane target utilisation `p/q`,
+  recommended `1/2` and `3/4` respectively. `urgentTarget` additionally determines
+  `thresholdFraction` in the
+  [Endorser Block announcement threshold](#endorser-block-announcement-threshold) rule.
+- `maxChangeDenominator : ℕ` (`D`) — bounds the size of a single coefficient update. Recommended **16**,
+  applied to both lanes.
+
+**Endorser Block certificate rules.**
+
+- `ebAgeEscape : ℕ` (`K`) — the number of Ranking Blocks after which a certificate for a below-threshold
+  Endorser Block may enter the chain. Recommended **10**. The accompanying counter is ledger state, not a
+  parameter: see [Endorser Block announcement threshold](#endorser-block-announcement-threshold).
+- `maxEBSize : ℕ` and `maxEBExUnits : ExUnits` — Endorser Block capacity. These are what the standard
+  controller charges a certified-EB sample against (`capSize`/`capExUnits` of that tier's
+  `PolicyClause`), 
+
+Retuning any of these outside the grid recorded in
+[Endorser Block announcement threshold](#endorser-block-announcement-threshold) is a mechanism change
+requiring fresh analysis, not a routine parameter update.
+
+This CIP also fixes the decimal-point location of the fixed-point coefficient representation,
+**`tierDec = 6`** (so `10^tierDec = 1000000`; see [Transaction representation](#transaction-representation)
+and [Ledger Rule Changes](#ledger-rule-changes)). `tierDec` is **not** a protocol parameter: it is a
+constant fixed in the ledger specification.
 
 
 ### Block production and node policy
@@ -755,7 +992,7 @@ For an urgent transaction:
 
 $$ \mathrm{maxFee} \ge \max\left( \mathrm{quote}_{\mathrm{standard}} \times \left(1+\mathrm{stepBound}_{\mathrm{standard}}\right), \mathrm{quote}_{\mathrm{urgent}} \times \left(1+\mathrm{stepBound}_{\mathrm{urgent}}\right) \right) $$
 
-These fee-cap rules mean the bare current quote is never sufficient: a user must submit with a buffer against quote movement. With the lane-specific $\mathrm{stepBound}$ values defined under the "Revalidation and stale fees" section, a lane's quote can rise to at most $\mathrm{quote} \times (1 + \mathrm{stepBound})^k$ over $k$ worst-case updates. The ledger itself demands no buffer at all: at inclusion, the posted maximum need only cover the quote at that moment. The one-step requirements are node policy: admission checks one worst-case step ahead of the quote at admission, and an EB producer repeats the same check against the quote at selection. Anything beyond that is the user's insurance against eviction while they wait. A transaction that queues through $k$ price updates keeps its place only while its posted maximum covers the current fee-cap quote. A user who expects to wait $k$ updates must therefore post enough to cover every applicable lane's quote after $k$ worst-case steps (for an urgent transaction, the larger of the two). At the recommended $D = 16$, the urgent-lane $\mathrm{stepBound}$ is $1/16$ (target $0.5$) and the standard-lane $\mathrm{stepBound}$ is $1/48$ (target $0.75$). A transaction that expects to wait four updates therefore posts roughly 27% above the current urgent quote, or roughly 8.6% above the current standard quote. An urgent transaction posts the larger of its two lane requirements. A buffer is palatable only with a refund of the difference between the posted fee and the actual quote charged at inclusion. [The fee change CIP](https://github.com/polinavino/CIPs/tree/fee-change/CIP-%3F%3F%3F%3F) describes this refund mechanism.
+These fee-cap rules mean the bare current quote is never sufficient: a user must submit with a buffer against quote movement. With the lane-specific $\mathrm{stepBound}$ values defined under the "Revalidation and stale fees" section, a lane's quote can rise to at most $\mathrm{quote} \times (1 + \mathrm{stepBound})^k$ over $k$ worst-case updates. The ledger itself demands no buffer at all: at inclusion, the posted maximum need only cover the quote at that moment. The one-step requirements are node policy: admission checks one worst-case step ahead of the quote at admission, and an EB producer repeats the same check against the quote at selection. Anything beyond that is the user's insurance against eviction while they wait. A transaction that queues through $k$ price updates keeps its place only while its posted maximum covers the current fee-cap quote. A user who expects to wait $k$ updates must therefore post enough to cover every applicable lane's quote after $k$ worst-case steps (for an urgent transaction, the larger of the two). At the recommended $D = 16$, the urgent-lane $\mathrm{stepBound}$ is $1/16$ (target $0.5$) and the standard-lane $\mathrm{stepBound}$ is $1/48$ (target $0.75$). A transaction that expects to wait four updates therefore posts roughly 27% above the current urgent quote, or roughly 8.6% above the current standard quote. An urgent transaction posts the larger of its two lane requirements. A buffer is palatable only with a refund of the difference between the posted fee and the actual quote charged at inclusion. [CIP-0192](https://github.com/cardano-foundation/CIPs/tree/master/CIP-0192) describes this refund mechanism.
 
 The urgent premium is scoped to the Ranking Block (rb-only). An urgent transaction included via an Endorser Block instead pays the standard quote at inclusion time, and the refund returns everything above it. The premium buys the reserved lane. A user whose transaction does not receive Ranking Block inclusion does not pay for it.
 
@@ -777,12 +1014,12 @@ The name describes the producer policy: a prudent producer does not announce an 
 
 The reservation rule above creates a problem at light loads. When the RB is reserved for urgent transactions, any standard traffic, however small, can trigger the announcement of an Endorser Block. Each EB that is later certified consumes Ranking Block space for its certificate. Announcements that cannot be certified are discarded. At loads below RB saturation the EBs are thin. A certificate then costs more RB capacity than the payload it delivers, and urgent transactions lose Ranking Blocks to certificates.
 
-At certificate inclusion, the certificate-bearing RB rule evaluates the `qualifies(EB)` predicate below. The rule uses the three resource groups that `SDPolicy` accumulates for the certified EB: `totalSize`, `totalRefScriptSize`, and the memory and step components of `totalExUnits`. The rule derives the K age escape from the chain state.
+At certificate inclusion, the certificate-bearing RB rule evaluates the `qualifies(EB)` predicate below. The rule uses the three resource groups that `SDPolicy` accumulates in `currentClause` while processing the certified EB's transaction list: `size`, `refScriptSize`, and the memory and step components of `exUnits`. The rule derives the K age escape from the chain state.
 
-Each total below means the sum across tiers over the whole immutable EB. With the corresponding positive RB limits (`maxBlockBodySize`, `maxRefScriptSizePerBlock`, and `maxBlockExUnits`) from the protocol parameters that validate the certifying RB, define
+Each total below (`totalSize`, `totalRefScriptSize`, `totalExUnits`) is the sum across tiers of the corresponding `currentClause` field, over the whole immutable EB. With the corresponding positive RB limits (`maxBlockBodySize`, `maxRefScriptSizePerBlock`, and `maxBlockExUnits`) from the protocol parameters that validate the certifying RB, define
 
 ```
-thresholdFraction  = max(1 - urgentTargetUtilisation, 1/2)
+thresholdFraction  = max(1 - urgentTarget, 1/2)
 txThreshold        = ceil(thresholdFraction × maxBlockBodySize)
 refScriptThreshold = ceil(thresholdFraction × maxRefScriptSizePerBlock)
 memoryThreshold    = ceil(thresholdFraction × maxBlockExUnits.memory)
@@ -799,17 +1036,19 @@ qualifies(EB) = EB is non-empty
 
 Any single resource component reaching its threshold qualifies the EB alone. The rule neither adds ratios nor treats the resources as interchangeable. At the default urgent-controller target utilisation of 0.5, each threshold is half its corresponding RB limit, including a transaction-size threshold of 45,056 B under the simulated RB cap.
 
-Comparisons use integer totals and rounded-up integer thresholds. Floating-point arithmetic is not part of consensus. For any scalar component with usage `x` and positive RB limit `L`, if `urgentTargetUtilisation = p/q`, where `0 <= p <= q` and `q > 0`, the component reaches its threshold exactly when `q × x >= (q - p) × L` and `2 × x >= L`. Implementations evaluate products as mathematical natural numbers or with checked, sufficiently wide intermediates.
+Comparisons use integer totals and rounded-up integer thresholds. Floating-point arithmetic is not part of consensus. For any scalar component with usage `x` and positive RB limit `L`, if `urgentTarget = p/q`, where `0 <= p <= q` and `q > 0`, the component reaches its threshold exactly when `q × x >= (q - p) × L` and `2 × x >= L`. Implementations evaluate products as mathematical natural numbers or with checked, sufficiently wide intermediates.
 
 The fraction follows the urgent target because a displaced non-certificate Ranking Block carries urgent traffic. A lower urgent target runs Ranking Blocks deliberately emptier, so the urgent lane needs more of them to move the same traffic. Certificates must then be rarer, and qualifying EBs correspondingly fuller. At the default target, qualification requires half the RB limit in any single resource component. This does not claim that the resources are fungible or that an EB replaces the displaced RB component by component. When the controller target rises above 0.5, the half-RB floor holds the threshold at half. Under the threshold alone, an EB below the qualifying fraction cannot be certified, and standard transactions queue for the next worthwhile batch. The age escape below relaxes that per-certificate property to an amortised one. The Ranking Block rule remains untouched: RBs carry only urgent-paying transactions, at all loads, at all times.
 
-None of these rules requires a validator to know anything about any mempool. Fee validation enforces that every Ranking Block transaction pays the urgent quote, and the quote itself is recomputable from the chain alone: each controller update is a fixed formula over the utilisation of the blocks before it. When `LEDGERS` processes the immutable EB named by a certificate, it accumulates the `SDPolicy` resource totals, and the certificate-inclusion rule compares them with the RB-relative thresholds above. The age escape only counts Ranking Blocks since an EB certificate last entered the chain. A validator that holds only the chain can decide every rule in this section. What a producer's mempool contained never enters into it.
+None of these rules requires a validator to know anything about any mempool. Fee validation enforces that every Ranking Block transaction pays the urgent quote, and the quote itself is recomputable from the chain alone: each controller update is a fixed formula over the utilisation of the blocks before it. When `LEDGERS` processes the immutable EB named by a certificate, it accumulates the `SDPolicy` resource totals in `currentClause`, and the certificate-inclusion rule compares them with the RB-relative thresholds above. The age escape only counts Ranking Blocks since an EB certificate last entered the chain. A validator that holds only the chain can decide every rule in this section. What a producer's mempool contained never enters into it.
 
 A valid Ranking Block cannot contain a transaction whose on-ledger fee authorisation fails to cover the applicable urgent quote. The premium goes to the treasury rather than the producer, so the protocol offers the producer no direct fee revenue when it undercuts that quote or suppresses an EB. This is an incentive argument, not a broader anti-bribery guarantee: off-chain rebates and side payments, paid ordering within the urgent lane, censorship, withholding, and MEV remain open for the Incentives section. The residual behaviour here is EB suppression: a producer declines to announce a qualifying EB. The RB remains urgent-only regardless, and a later producer can announce the batch. The simulator announces eligible EBs eagerly and does not model withholding, off-protocol side payments, or other adversarial producer behaviour. We explored work-conserving variants that admitted standard transactions into underfull RBs at the standard rate. They retain more value at light loads, but they do not ledger-enforce the applicable urgent quote for RB inclusion, and they leave below-quote side-payment incentives open. We rejected them.
 
 The threshold by itself can starve a trickle load. At very light standard traffic, pooled transactions below every resource threshold can wait indefinitely, and anything that depends on their outputs waits with them. We therefore add a time-gated escape: a certificate for a below-threshold EB can enter the chain once at least K Ranking Blocks have been produced since an EB certificate was last included. The inclusion of any EB certificate resets the count. Both the threshold and the escape are ledger rules, checked when a Ranking Block includes a certificate. A Ranking Block that includes a certificate for a non-qualifying EB is invalid. The rule extends the certificate-inclusion checks that CIP-164 already defines, which every node performs before it accepts a block. Both inputs are on the chain: the count comes from the chain itself, and the certified EB's immutable body determines the `SDPolicy` resource totals that the certificate-inclusion rule checks. Because every certificate inclusion resets the count, at most one below-threshold certificate can appear per K intervals. A reset on certificate inclusion, rather than on announcement, matches what the rule rations: an announced EB that never certifies consumes no Ranking Block space, so it does not reset the count. The escape is permissive, not compulsory. Announcement remains a producer action, and the suppression analysis above is unchanged. The rule remains removable without change to any other rule.
 
 For a candidate certificate-bearing RB `R`, the age count is the number of Ranking Blocks in `(lastCertificateRb, R]`, including `R` itself. Acceptance of any EB certificate resets the count, whether the EB qualified by resource use or by age. If no earlier EB certificate exists, the count starts at mechanism activation.
+
+So that this never requires walking back an unbounded stretch of chain, the count is carried explicitly as ledger state rather than recovered by search: a counter `rbsSinceCert : ℕ` alongside `policyState`, initialised to zero at mechanism activation, incremented once per non-certificate Ranking Block, and reset to zero whenever an EB certificate is accepted. Because a certificate-bearing Ranking Block carries no transaction payload, it never increments the counter itself, so the candidate block `R` is counted by adding one: the age escape applies exactly when `rbsSinceCert + 1 ≥ K` at the point the certificate is checked. That `+ 1` is what makes the counter agree with the half-open interval `(lastCertificateRb, R]` above, which includes `R`. This is bookkeeping, not a change of rule: the counter is a deterministic function of the chain, so it records what "the count comes from the chain itself" above already means, at O(1) cost per block.
 
 The certificate-inclusion decision for a non-empty certified payload:
 
@@ -878,7 +1117,7 @@ The threshold fraction tracks the urgent controller's headroom, but never falls 
 
 The historical parameter stress test (ten seeds, four load profiles, detailed in the experiment report) motivates each half of the fraction separately. The sweep derived its byte thresholds from the headroom term at each swept urgent target, while it moved both controller targets together. Fixed-byte-threshold comparison runs at targets 0.25 and 0.75 favoured a qualifying bar that never drops below half the RB byte cap.
 
-In the corrected target-0.25 low-load comparison there were no conditional retry draws, so same-seed runs of the two configurations faced the same exogenous demand and Ranking Block opportunities. The lane and submission outcomes that differ are part of the simulated threshold response. The target-0.75 comparison remains descriptive because no equivalent path audit was preserved. At urgent targets at or below 0.5 the floor does not bind (`1 - urgentTargetUtilisation` is at least `1/2`), so those grid runs realise the completed fraction's values. The completed max() expression was therefore exercised through them and the target-0.75 fixed variant, rather than swept as a unit.
+In the corrected target-0.25 low-load comparison there were no conditional retry draws, so same-seed runs of the two configurations faced the same exogenous demand and Ranking Block opportunities. The lane and submission outcomes that differ are part of the simulated threshold response. The target-0.75 comparison remains descriptive because no equivalent path audit was preserved. At urgent targets at or below 0.5 the floor does not bind (`1 - urgentTarget` is at least `1/2`), so those grid runs realise the completed fraction's values. The completed max() expression was therefore exercised through them and the target-0.75 fixed variant, rather than swept as a unit.
 
 The intuition has two parts. A low urgent target deliberately runs Ranking Blocks emptier, so the urgent lane needs more of them to move the same traffic, and certificates must be correspondingly rarer: the threshold rises with urgent-lane headroom. But a certificate's cost does not shrink when the urgent controller runs blocks hotter, so the threshold must not follow shrinking headroom downward: hence a conservative half-RB floor that limits certificate overhead as headroom shrinks.
 
@@ -888,17 +1127,17 @@ At the tested grid points with both targets at 0.5 or both at 0.75, and max-chan
 
 With both targets at 0.5 the advantage holds at every contended load. At 0.75 the EB-saturating result is 31.4% urgent-class retained value against flat fee's 30.1%, without an equivalence margin. With both targets at the tested 0.25, the mechanism retains less value than a flat fee under launch-day load.
 
-The threshold expression uses the urgent-controller target. The historical sweep changed both targets together, so it does not estimate independent standard-controller retuning. The controller parameters are specified as updatable protocol parameters, with the tested grid recorded alongside them. Retuning to untested settings is a mechanism change that requires re-analysis, not a routine parameter update. The parameters, their recommended defaults, and the tested points:
+The threshold expression uses the urgent-controller target. The historical sweep changed both targets together, so it does not estimate independent standard-controller retuning. The controller parameters are specified as updatable protocol parameters, declared in [New PParams](#new-pparams), with the tested grid recorded alongside them. Retuning to untested settings is a mechanism change that requires re-analysis, not a routine parameter update. The parameters, their recommended defaults, and the tested points:
 
 | Parameter | Recommended default | Tested points and observations |
 |---|---|---|
 | Target utilisation (standard and urgent controllers, swept in lockstep) | 0.5 urgent, 0.75 standard | lockstep grid points 0.5 and 0.75 tested. 0.25 tested and excluded (retains less value than flat fee under launch-day load). At lockstep 0.75 the EB-saturating result is 31.4% urgent-class retained value against flat fee's 30.1%, with no equivalence margin. The independent standard-lane target of 0.75 (urgent held at 0.5) was screened on seeds 0-199 and confirmed on seeds 200-299; see [Independent standard-lane target screen and confirmation](#independent-standard-lane-target-screen-and-confirmation) |
 | Max-change denominator (both lanes, swept in lockstep) | 16 | grid points 8 and 16 tested. 4 tested and excluded (price instability at every load). Independent per-lane settings not swept |
-| Urgent signal window | 5 samples | {3, 5}. Windows of 10-20 trade retention for larger price swings |
-| Standard signal window | 20 blocks, capacity-weighted | not swept |
-| EB announcement threshold | `thresholdFraction = max(1 - urgentTargetUtilisation, 1/2)`. Unless the age escape applies, a non-empty EB qualifies when any single resource component (transaction size, reference-script size, or either execution-unit component) reaches `ceil(thresholdFraction × corresponding RB limit)`. The default fraction is 1/2 (45,056 B for the simulated transaction-size component) | only the transaction-size threshold was tested: the headroom branch was swept while both controller targets moved together over 0.25-0.75. Historical shared-stream fixed-byte-threshold comparisons exercised 45,056 B at targets 0.25 and 0.75. The reference-script and execution-unit branches remain untested |
+| Urgent signal window (`urgentWindowSize`) | 5 samples | {3, 5}. Windows of 10-20 trade retention for larger price swings |
+| Standard signal window (`standardWindowSize`) | 20 blocks, capacity-weighted | not swept |
+| EB announcement threshold | `thresholdFraction = max(1 - urgentTarget, 1/2)`. Unless the age escape applies, a non-empty EB qualifies when any single resource component (transaction size, reference-script size, or either execution-unit component) reaches `ceil(thresholdFraction × corresponding RB limit)`. The default fraction is 1/2 (45,056 B for the simulated transaction-size component) | only the transaction-size threshold was tested: the headroom branch was swept while both controller targets moved together over 0.25-0.75. Historical shared-stream fixed-byte-threshold comparisons exercised 45,056 B at targets 0.25 and 0.75. The reference-script and execution-unit branches remain untested |
 | EB announcement age escape (K) | 10 RB intervals | K ∈ {5, 10, 20} swept under the simulator's announcement-reset policy. 10 is bit-identical to no escape at ordinary low load and repairs trickle starvation with no statistically detectable urgent-class cost |
-| Absolute coefficient floor | 1.0 × ordinary min fee | not swept |
+| Absolute coefficient floor | 1.0 × ordinary min fee (i.e. `10^tierDec` in the fixed-point representation) | not swept |
 | Cross-lane multiplier floor | none. Temporary quote crossings are permitted, and urgent max-fee checks use the larger current quote | tested at 3× and 16×, rejected |
 
 <!-- PORTABILITY: blob/main link; replace with a commit-pinned permalink before the CIPs-repo PR -->
@@ -970,6 +1209,36 @@ Settlement is conservative: for every included transaction, the base fee, premiu
 
 Finally, the urgency signal may reveal that a transaction is latency-sensitive or high-value. Faster settlement can shorten its exposure to some forms of MEV, but it does not provide general MEV protection and may itself reveal useful information to block producers. A sensitive transaction may still be submitted privately, but private submission and protection from reordering or chain forks are outside the guarantees of this mechanism.
 
+#### Producer influence over the quotes
+
+Both coefficients are computed from block contents, and block contents are chosen by producers. The
+arguments above establish that a producer earns no direct *fee revenue* from moving a quote, since the
+premium goes to the treasury. They do not establish that moving a quote is without value, because a quote
+governs what everyone else must pay. The simulator does not model adversarial producer behaviour, so what
+follows names the levers for the independent audit required in
+[Path to Active](#acceptance-criteria) rather than bounding them.
+
+- **Empty Ranking Blocks suppress the standard quote.** A non-certificate RB contributes full capacity and
+  zero standard usage, so producing one pushes `standardUtilisation` down. This is free: the producer
+  forgoes only the urgent transactions it declined to include.
+- **Announcing or withholding an Endorser Block moves the standard quote by a large step.** A certified EB
+  carries roughly 133 times an RB's weight in the standard window, so the decision to announce is
+  effectively the decision of what the standard quote will be for the next several blocks. The existing
+  argument that withholding does limited harm — a later producer can announce the batch — addresses
+  latency, not the price signal.
+- **Self-paid urgent traffic raises the urgent quote.** A producer can fill its own Ranking Blocks with
+  transactions it pays for itself. The premium is a real cost, but the `minfee` component returns to the
+  fee pot and is redistributed to all producers, so a large producer recovers a share of what it spends.
+  The MMIC argument above, that fake traffic is self-deterring, counts only forgone fee revenue and does
+  not price the value of setting a coefficient that competitors' transactions must then meet.
+
+The common structure is that the mechanism prices what a producer *includes* but not what a producer
+*declines to include*, and both controllers read inclusion. Two things limit the damage: every step is
+bounded by `maxChangeDenominator`, so no single block moves a quote more than a few percent, and the
+windows mean a sustained campaign rather than a single block is needed to hold a quote away from its
+demand-implied level. Quantifying the cost of such a campaign against the benefit of a suppressed standard
+quote or an inflated urgent one is exactly the analysis the audit should carry out.
+
 
 
 
@@ -1005,7 +1274,7 @@ CPS-0031 sets four constraints on candidate solutions.
 
 **Ledger determinism.** Every rule this CIP adds is a deterministic function of the chain. Each lane's quote follows from a fixed update formula over the utilisation of the blocks before it, the threshold comparisons use integer totals against rounded-up integer thresholds with no floating-point arithmetic, and the age escape counts Ranking Blocks on the chain itself. A validator that holds only the chain can decide every rule. Mempool contents, wall-clock time, and producer behaviour never enter validation.
 
-**On-chain record.** The cost of signalling and its update rule are ledger state and ledger rules. The per-tier coefficients live in the `SDPolicy` state inside `UTxOState`, the `DIVUP` rule updates them during block processing, and the controller parameters are protocol parameters. Anyone can read the current cost of urgency from the chain and verify that every update was computed correctly, which is the equal access the constraint asks for.
+**On-chain record.** The cost of signalling and its update rule are ledger state and ledger rules. The per-tier coefficients live in the `SDPolicy` state inside `UTxOState`, the [post-transaction-application validation](#additional-post-transaction-application-validation) rule updates them during block processing from the windowed utilisation each `PolicyClause` records, and the controller parameters are [protocol parameters](#new-pparams). Anyone can read the current cost of urgency from the chain and verify that every update was computed correctly, which is the equal access the constraint asks for.
 
 **Censorship resistance.** Access to priority is by posted price alone, as argued under Goal 2, so the mechanism replaces the pressure toward opaque off-chain priority with a public channel. The premium goes to the treasury, so preferential treatment earns a producer no direct fee revenue. The constraint also asks for an evaluation of new opportunities for selective exclusion, and there are two. The public lane field gives a censoring producer one extra bit to select on, which is inseparable from having a signal at all. A producer can also suppress a qualifying Endorser Block by declining to announce it. The harm is limited, because a later producer can announce the batch and Ranking Blocks remain urgent-only regardless ([Endorser Block announcement threshold](#endorser-block-announcement-threshold)). Censorship and withholding beyond these arguments stay within the scope of the independent audit required in [Path to Active](#acceptance-criteria).
 
@@ -1019,11 +1288,11 @@ CPS-0031 closes with seven open questions. Each is answered in turn.
 
 This CIP separates protocol commitments, which ledger rules enforce, from implementation policies, which incentives hold in place. The "Enforcement boundary" row in [The recommended construction](#the-recommended-construction) records the split. The ledger enforces the protocol commitments: Ranking Block lane eligibility, inclusion-point fee validity, settlement, deterministic quote updates, and Endorser Block certificate eligibility. A block that breaks any of them is invalid, so every validating node enforces them and no trust in the producer is needed. Mempool organisation, transaction ordering, admission headroom, revalidation, and eviction are implementation policies rather than protocol commitments. The reference policy preserves the canonical FIFO queue and adds an urgent view, providing an efficient implementation. [Incentives](#incentives) argues that the fee flows support the policies: the producer keeps its existing protocol rewards while the premium goes to the treasury, a user can post its maximum willingness to pay without automatically paying it, and selling below-quote Ranking Block access earns a producer nothing. The same section records the limits of these arguments. Sending the premium to the treasury removes the key bribery incentive, because a producer cannot earn anything by placing a standard-paying transaction in a Ranking Block. Two producer behaviours remain outside ledger enforcement: suppression of a qualifying Endorser Block, and off-chain side payments. Suppression does limited harm: a later producer can announce the withheld Endorser Block, and Ranking Blocks stay urgent-only in the meantime ([Endorser Block announcement threshold](#endorser-block-announcement-threshold)). The incentive argument above removes the direct fee benefit of side payments, but it does not rule them out.
 
-**How should updated fee or priority quotes be propagated?**
+**How should updated fee or urgent quotes be propagated?**
 
 They do not need to be propagated at all. Each lane's quote is recomputable from the chain alone: every controller update is a fixed formula over the utilisation of the blocks before it, so any two nodes that agree on the chain tip agree on both quotes. Quote propagation therefore reduces to block propagation, which linear-Leios already provides, and a wallet reads the current quotes from any synchronised node. What remains is drift between the quote at submission and the quote at inclusion. That is a validity question, not a propagation question, and the repricing-interval answer below covers it.
 
-**How would a priority signal interact with the linear-Leios block structure?**
+**How would an urgent signal interact with the linear-Leios block structure?**
 
 The signal is built out of the block structure rather than layered over it. Linear-Leios provides two block types with different latencies, and the mechanism assigns one lane to each: Ranking Blocks carry only urgent-paying transactions, while Endorser Blocks can carry both lanes. Vanilla linear-Leios uses Endorser Blocks only when traffic exceeds Ranking Block capacity; this proposal routes standard traffic through them at every load, and the resulting latency gap between the two paths is what the urgent premium buys. The structural point of friction is that a certificate-carrying Ranking Block is payload-free, so Endorser Block certificates and urgent transactions compete for the same Ranking Block space. The announcement threshold and its age escape exist to manage exactly that competition. The interaction extends into transaction diffusion: the transaction envelope repeats the lane field, so a mempool can request urgent transactions from its peers before standard ones without inspecting transaction bodies ([Mempool](#mempool)).
 
@@ -1070,9 +1339,9 @@ At mid load the mechanism beats flat fee by +3.69 ± 1.06 percentage points (ten
 
 We eliminated the other families as follows. Flat fee and single-lane EIP-1559 provide no way to signal urgency, and they leave urgent-class value on the table at every contended load. The historical open-versus-reserved runs record a small gap where capacity is slack (~1-1.6 percentage points at low and mid load). Because the variants differ in more than ledger enforcement, this is a descriptive tradeoff rather than an isolated price of enforcement. Plain reservation falls below the flat-fee baseline at low load, because any standard overflow, however small, triggers a thin EB whose certificate consumes Ranking Block space. Work-conserving variants that admitted standard transactions into underfull RBs at the standard rate retained the most value at light loads. But they likewise leave below-quote RB access and side-payment incentives open, so we rejected them. Long signal windows (10-20 samples) reduce shock counts but trade retention for larger peak-to-trough price swings. The 5-sample window is the compromise point. We prefer both-dynamic over priority-only for two reasons. First, under the EB-stressing load (37.50% vs 32.92% urgent-class retained value), the recorded behaviour is consistent with a standard-lane price that sheds the demand that saturates the Endorser Block. Second, under the historical launch-day load, reservation over a statically-priced standard lane showed no statistically detectable improvement over flat fee, while both-dynamic under the same reservation rule recorded a clear improvement. Within the tested simulator designs, this favours both-dynamic rather than making it a protocol-level requirement. At low and mid load the two families produce identical results: standard traffic never touches the Ranking Block and the standard controller rests at its floor, so both-dynamic degenerates to its priority-only counterpart. Under severe congestion they differ slightly on the denominator-8 anchor tables (51.55% vs 50.74% urgent-class retained value, with both-dynamic carrying roughly five fewer transactions per slot as the standard price sheds demand).
 
-The launch-day contrast is visible in the demand-fate and value panels for a representative seed. In the first figure, note the priority (Pri) rows: under reservation over a statically-priced standard lane, priority demand itself is heavily abandoned, because it bounces at admission behind the standard-lane jam. Under both-dynamic with the same reservation rule, most demand is included and most value retained.
+The launch-day contrast is visible in the demand-fate and value panels for a representative seed. In the first figure, note the urgent (Pri) rows: under reservation over a statically-priced standard lane, urgent demand itself is heavily abandoned, because it bounces at admission behind the standard-lane jam. Under both-dynamic with the same reservation rule, most demand is included and most value retained.
 
-![Demand fate and retained value by urgency class under launch-day load with reservation over a statically-priced standard lane: heavy abandonment and lost value across both standard and priority classes](images/launch-day-priority-only-reserved-seed-2.png)
+![Demand fate and retained value by urgency class under launch-day load with reservation over a statically-priced standard lane: heavy abandonment and lost value across both standard and urgent classes](images/launch-day-priority-only-reserved-seed-2.png)
 
 ![Demand fate and retained value by urgency class under launch-day load with the recommended both-dynamic mechanism: most demand included and most value retained](images/launch-day-both-dynamic-strict-threshold-seed-2.png)
 
@@ -1263,7 +1532,7 @@ A hard-fork event enables the mechanism, either as part of the linear-Leios hard
 
 <!-- PORTABILITY: the fee change CIP link below points at a fork branch; repoint at its CIPs-repo PR (or CIP number) once one exists -->
 
-This CIP also depends on [the fee change CIP](https://github.com/polinavino/CIPs/tree/fee-change/CIP-%3F%3F%3F%3F).
+This CIP also depends on [the fee change CIP](https://github.com/cardano-foundation/CIPs/tree/master/CIP-0192).
 
 ### Relationship to CIP-183: conflict-based fee priority
 

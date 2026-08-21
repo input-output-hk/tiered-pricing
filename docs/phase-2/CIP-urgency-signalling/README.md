@@ -206,7 +206,7 @@ The settled recommendation in one place. Each component is specified in detail i
 | Lanes | Two: standard and urgent |
 | Ranking Blocks | Urgent-only at all loads (ledger-enforced). FIFO selection over the urgent view |
 | Endorser Blocks | Open to both lanes. FIFO selection over the canonical queue |
-| EB announcement threshold | Let `thresholdFraction = max(1 - urgentTarget, 1/2)`. Unless the age escape applies, a non-empty certified EB qualifies when any one of its serialised transaction size, its reference-script size, or either component of its execution-unit budget reaches that fraction of the corresponding RB limit. The default fraction is 1/2 (45,056 B for the simulated transaction-size component) |
+| EB announcement threshold | Let `thresholdFraction = max(1 - urgentTargetUtilisation, 1/2)`. Unless the age escape applies, a non-empty certified EB qualifies when any one of its serialised transaction size, its reference-script size, or either component of its execution-unit budget reaches that fraction of the corresponding RB limit. The default fraction is 1/2 (45,056 B for the simulated transaction-size component) |
 | EB announcement age escape | A certificate for a non-empty EB below the threshold can enter an RB once at least K = 10 Ranking Blocks have been produced since the last certified EB |
 | Fee semantics | Per-lane EIP-1559: each lane's quote is its pricing coefficient × the ordinary min fee |
 | Fee-cap basis | For an urgent transaction under rb-only settlement, wallet choice and every max-fee validity check use max(standard quote, urgent quote). Temporary quote crossings are permitted and do not alter either controller |
@@ -330,27 +330,21 @@ This is a capacity-weighted signal: each block affects the result in proportion 
 
 The size of the non-certificate contribution is a measured choice, not an assumption. A dedicated experiment replaced it with alternatives from zero up to a third of an empty EB, and with a controller that updates only on certified EBs ([Non-certificate window contribution](#non-certificate-window-contribution)). Every contribution larger than the Ranking Block's own capacity lost retained value under launch-day load, and so did the certificate-only controller. Contributions smaller than the Ranking Block's capacity changed outcomes by less than half a percent.
 
-**The standard signal measures service, not demand.** A consequence of the three contribution rules above
-is worth stating plainly, because it is not what one would assume of a congestion price. Every
-non-certificate Ranking Block adds a full block's capacity to the denominator while contributing
-structurally zero standard usage to the numerator, since standard transactions cannot occupy a Ranking
-Block at all. A stretch of chain with few certified Endorser Blocks therefore drives
-`standardUtilisation` toward zero and pins the standard coefficient to its floor — including in exactly
-the situation where standard transactions are piling up unserved because no Endorser Block is being
-certified. The signal reads "underused" when the lane is most backed up.
+**The standard signal measures service, not demand.** Every non-certificate Ranking Block adds a full
+block's capacity to the denominator while contributing structurally zero standard usage, so a stretch of
+chain with few certified Endorser Blocks pins the standard coefficient to its floor — including when
+standard transactions are piling up unserved precisely because no Endorser Block is being certified.
 
-This is deliberate, and it is the price of the determinism argument in
-[Block validity](#block-validity): the quote must be recomputable from the chain by every node, and mempool
-depth is not on the chain. A backlog-sensitive standard price would require consensus over what nodes are
-holding, which this design specifically avoids. The consequence is that the standard lane's relief
-mechanism is temporal rather than economic — the
-[age escape](#endorser-block-announcement-threshold) bounds how long a below-threshold Endorser Block can
-be held back, and it is what prevents indefinite starvation. Note what that does and does not buy: the
-escape bounds *latency* at one certificate per `K` Ranking Blocks, not queue *depth*. Under sustained
-standard demand that exceeds what one Endorser Block per `K` blocks can clear, the queue grows without the
-standard price rising to shed demand, and transactions leave by stale-fee eviction rather than by pricing.
-Sizing `K` against expected standard throughput is therefore a calibration question with a liveness
-consequence, not only a latency one.
+This is the price of the determinism argument in [Block validity](#block-validity): a backlog-sensitive
+price would need consensus over what nodes are holding, and mempool depth is not on the chain.
+
+The standard lane's relief is therefore temporal rather than economic, via the
+[age escape](#endorser-block-announcement-threshold), which bounds *latency* at one certificate per `K`
+Ranking Blocks but not queue *depth*.
+
+Under sustained standard demand exceeding what one Endorser Block per `K` blocks can clear the queue
+grows without the price rising to shed it, so sizing `K` is a liveness question and not only a latency
+one.
 
 
 ### Mempool
@@ -936,8 +930,8 @@ measurably reduce urgent retained value.
 **Controller calibration.** Each controller's update, specified under
 [Computing the windowed utilisation](#computing-the-windowed-utilisation), is instantiated from:
 
-- `urgentTarget`, `standardTarget : UnitInterval` — the per-lane target utilisation `p/q`,
-  recommended `1/2` and `3/4` respectively. `urgentTarget` additionally determines
+- `urgentTargetUtilisation`, `standardTargetUtilisation : UnitInterval` — the per-lane target utilisation `p/q`,
+  recommended `1/2` and `3/4` respectively. `urgentTargetUtilisation` additionally determines
   `thresholdFraction` in the
   [Endorser Block announcement threshold](#endorser-block-announcement-threshold) rule.
 - `maxChangeDenominator : ℕ` (`D`) — bounds the size of a single coefficient update. Recommended **16**,
@@ -1019,7 +1013,7 @@ At certificate inclusion, the certificate-bearing RB rule evaluates the `qualifi
 Each total below (`totalSize`, `totalRefScriptSize`, `totalExUnits`) is the sum across tiers of the corresponding `currentClause` field, over the whole immutable EB. With the corresponding positive RB limits (`maxBlockBodySize`, `maxRefScriptSizePerBlock`, and `maxBlockExUnits`) from the protocol parameters that validate the certifying RB, define
 
 ```
-thresholdFraction  = max(1 - urgentTarget, 1/2)
+thresholdFraction  = max(1 - urgentTargetUtilisation, 1/2)
 txThreshold        = ceil(thresholdFraction × maxBlockBodySize)
 refScriptThreshold = ceil(thresholdFraction × maxRefScriptSizePerBlock)
 memoryThreshold    = ceil(thresholdFraction × maxBlockExUnits.memory)
@@ -1036,7 +1030,7 @@ qualifies(EB) = EB is non-empty
 
 Any single resource component reaching its threshold qualifies the EB alone. The rule neither adds ratios nor treats the resources as interchangeable. At the default urgent-controller target utilisation of 0.5, each threshold is half its corresponding RB limit, including a transaction-size threshold of 45,056 B under the simulated RB cap.
 
-Comparisons use integer totals and rounded-up integer thresholds. Floating-point arithmetic is not part of consensus. For any scalar component with usage `x` and positive RB limit `L`, if `urgentTarget = p/q`, where `0 <= p <= q` and `q > 0`, the component reaches its threshold exactly when `q × x >= (q - p) × L` and `2 × x >= L`. Implementations evaluate products as mathematical natural numbers or with checked, sufficiently wide intermediates.
+Comparisons use integer totals and rounded-up integer thresholds. Floating-point arithmetic is not part of consensus. For any scalar component with usage `x` and positive RB limit `L`, if `urgentTargetUtilisation = p/q`, where `0 <= p <= q` and `q > 0`, the component reaches its threshold exactly when `q × x >= (q - p) × L` and `2 × x >= L`. Implementations evaluate products as mathematical natural numbers or with checked, sufficiently wide intermediates.
 
 The fraction follows the urgent target because a displaced non-certificate Ranking Block carries urgent traffic. A lower urgent target runs Ranking Blocks deliberately emptier, so the urgent lane needs more of them to move the same traffic. Certificates must then be rarer, and qualifying EBs correspondingly fuller. At the default target, qualification requires half the RB limit in any single resource component. This does not claim that the resources are fungible or that an EB replaces the displaced RB component by component. When the controller target rises above 0.5, the half-RB floor holds the threshold at half. Under the threshold alone, an EB below the qualifying fraction cannot be certified, and standard transactions queue for the next worthwhile batch. The age escape below relaxes that per-certificate property to an amortised one. The Ranking Block rule remains untouched: RBs carry only urgent-paying transactions, at all loads, at all times.
 
@@ -1117,7 +1111,7 @@ The threshold fraction tracks the urgent controller's headroom, but never falls 
 
 The historical parameter stress test (ten seeds, four load profiles, detailed in the experiment report) motivates each half of the fraction separately. The sweep derived its byte thresholds from the headroom term at each swept urgent target, while it moved both controller targets together. Fixed-byte-threshold comparison runs at targets 0.25 and 0.75 favoured a qualifying bar that never drops below half the RB byte cap.
 
-In the corrected target-0.25 low-load comparison there were no conditional retry draws, so same-seed runs of the two configurations faced the same exogenous demand and Ranking Block opportunities. The lane and submission outcomes that differ are part of the simulated threshold response. The target-0.75 comparison remains descriptive because no equivalent path audit was preserved. At urgent targets at or below 0.5 the floor does not bind (`1 - urgentTarget` is at least `1/2`), so those grid runs realise the completed fraction's values. The completed max() expression was therefore exercised through them and the target-0.75 fixed variant, rather than swept as a unit.
+In the corrected target-0.25 low-load comparison there were no conditional retry draws, so same-seed runs of the two configurations faced the same exogenous demand and Ranking Block opportunities. The lane and submission outcomes that differ are part of the simulated threshold response. The target-0.75 comparison remains descriptive because no equivalent path audit was preserved. At urgent targets at or below 0.5 the floor does not bind (`1 - urgentTargetUtilisation` is at least `1/2`), so those grid runs realise the completed fraction's values. The completed max() expression was therefore exercised through them and the target-0.75 fixed variant, rather than swept as a unit.
 
 The intuition has two parts. A low urgent target deliberately runs Ranking Blocks emptier, so the urgent lane needs more of them to move the same traffic, and certificates must be correspondingly rarer: the threshold rises with urgent-lane headroom. But a certificate's cost does not shrink when the urgent controller runs blocks hotter, so the threshold must not follow shrinking headroom downward: hence a conservative half-RB floor that limits certificate overhead as headroom shrinks.
 
@@ -1135,7 +1129,7 @@ The threshold expression uses the urgent-controller target. The historical sweep
 | Max-change denominator (both lanes, swept in lockstep) | 16 | grid points 8 and 16 tested. 4 tested and excluded (price instability at every load). Independent per-lane settings not swept |
 | Urgent signal window (`urgentWindowSize`) | 5 samples | {3, 5}. Windows of 10-20 trade retention for larger price swings |
 | Standard signal window (`standardWindowSize`) | 20 blocks, capacity-weighted | not swept |
-| EB announcement threshold | `thresholdFraction = max(1 - urgentTarget, 1/2)`. Unless the age escape applies, a non-empty EB qualifies when any single resource component (transaction size, reference-script size, or either execution-unit component) reaches `ceil(thresholdFraction × corresponding RB limit)`. The default fraction is 1/2 (45,056 B for the simulated transaction-size component) | only the transaction-size threshold was tested: the headroom branch was swept while both controller targets moved together over 0.25-0.75. Historical shared-stream fixed-byte-threshold comparisons exercised 45,056 B at targets 0.25 and 0.75. The reference-script and execution-unit branches remain untested |
+| EB announcement threshold | `thresholdFraction = max(1 - urgentTargetUtilisation, 1/2)`. Unless the age escape applies, a non-empty EB qualifies when any single resource component (transaction size, reference-script size, or either execution-unit component) reaches `ceil(thresholdFraction × corresponding RB limit)`. The default fraction is 1/2 (45,056 B for the simulated transaction-size component) | only the transaction-size threshold was tested: the headroom branch was swept while both controller targets moved together over 0.25-0.75. Historical shared-stream fixed-byte-threshold comparisons exercised 45,056 B at targets 0.25 and 0.75. The reference-script and execution-unit branches remain untested |
 | EB announcement age escape (K) | 10 RB intervals | K ∈ {5, 10, 20} swept under the simulator's announcement-reset policy. 10 is bit-identical to no escape at ordinary low load and repairs trickle starvation with no statistically detectable urgent-class cost |
 | Absolute coefficient floor | 1.0 × ordinary min fee (i.e. `10^tierDec` in the fixed-point representation) | not swept |
 | Cross-lane multiplier floor | none. Temporary quote crossings are permitted, and urgent max-fee checks use the larger current quote | tested at 3× and 16×, rejected |

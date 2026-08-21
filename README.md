@@ -23,9 +23,25 @@ The repository contains:
   inspecting and comparing simulator traces
 - [`docs/`](docs/) - research notes, mechanism design, experiment reports, and
   the draft urgency-signalling CPS
+- [`cardano-prototype/`](cardano-prototype/) - the live two-lane pricing
+  prototype on the Cardano stack — see
+  [The live Cardano prototype](#the-live-cardano-prototype) below
 
 This is a proof of concept and a research artifact, not a production-ready
 transaction-pricing implementation.
+
+## The live Cardano prototype
+
+Beyond the simulator, the mechanism has been implemented end-to-end on the
+Cardano stack (Dijkstra era, on top of the Linear Leios consensus prototype):
+a real 3-node devnet forging two priced lanes, driven from a live dashboard,
+with an 8 min 50 s recorded walkthrough.
+
+It all lives in [`cardano-prototype/`](cardano-prototype/): the walkthrough
+video, the dashboard, the design docs, and the component repos (ledger,
+consensus, node, api, cli, leios devnet) pinned as submodules, so one
+recursive clone gives you the runnable network. Start with
+[`cardano-prototype/README.md`](cardano-prototype/README.md).
 
 ## Getting Started
 

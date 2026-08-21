@@ -16,7 +16,7 @@ This folder carries the demo material and the design docs.
 
 ## The walkthrough (8 min 50 s)
 
-[`demo-walkthrough.mp4`](demo-walkthrough.mp4)
+https://github.com/user-attachments/assets/6a4ef69a-516f-4517-bfbd-d7b8a97b09cf
 
 The two lanes live on the devnet: rush hour, a price squeeze with real
 evictions, the measured pots, a certification miss and its heal, the quiet

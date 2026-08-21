@@ -23,9 +23,22 @@ The repository contains:
   inspecting and comparing simulator traces
 - [`docs/`](docs/) - research notes, mechanism design, experiment reports, and
   the draft urgency-signalling CPS
+- [`cardano-prototype/`](cardano-prototype/) - the live two-lane pricing
+  prototype on the Cardano stack: the
+  recorded demo walkthrough, the demo dashboard, and the design docs
 
 This is a proof of concept and a research artifact, not a production-ready
 transaction-pricing implementation.
+
+## Demo walkthrough (8 min 50 s)
+
+A recorded walkthrough of the live demo — a 3-node devnet running the two-lane
+dynamic-pricing prototype, driven from its dashboard: rush hour, a price
+squeeze with real evictions, the measured pots, a certification miss and its
+heal, the quiet end. Captions included.
+
+Watch it at
+[`cardano-prototype/demo-walkthrough.mp4`](cardano-prototype/demo-walkthrough.mp4).
 
 ## Getting Started
 

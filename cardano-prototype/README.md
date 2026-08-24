@@ -2,17 +2,18 @@
 
 A working prototype of **dynamic, two-lane transaction pricing** for Cardano
 (**Dijkstra** era, on top of the **Linear Leios** consensus prototype), with a
-live 3-node network and a dashboard to drive it. The implementation lives in
-development forks of the component repos (ledger, consensus, node, api, cli,
-leios devnet), pinned together by the
-[dynamic-pricing super-repo](https://github.com/nhenin/dynamic-pricing) —
-one recursive clone gives you the whole runnable thing:
+live 3-node network and a dashboard to drive it. This folder pins every repo
+that carries the work (as submodules of development forks), plus the demo
+dashboard and the design docs — one recursive clone gives you the whole
+runnable thing:
 
 ```bash
-git clone --recursive https://github.com/nhenin/dynamic-pricing.git
+git clone --recursive https://github.com/input-output-hk/tiered-pricing.git
+cd tiered-pricing/cardano-prototype
 ```
 
-This folder carries the demo material and the design docs.
+(A plain clone stays light: the component repos are only fetched with
+`--recursive`, or on demand with `git submodule update --init`.)
 
 ## The walkthrough (8 min 50 s)
 
@@ -20,8 +21,9 @@ https://github.com/user-attachments/assets/6a4ef69a-516f-4517-bfbd-d7b8a97b09cf
 
 The two lanes live on the devnet: rush hour, a price squeeze with real
 evictions, the measured pots, a certification miss and its heal, the quiet
-end. Captions included. Stills from the dashboard are in
-[`screenshots/`](screenshots/).
+end. Captions included. The file also ships in the repo:
+[`demo/demo-walkthrough.mp4`](demo/demo-walkthrough.mp4); stills from the
+dashboard are in [`demo/screenshots/`](demo/screenshots/).
 
 ## The idea in one minute
 
@@ -101,32 +103,79 @@ comments) of the `nicolas/dynamic-pricing` branch versus its upstream base.
 | [`cardano-api`](https://github.com/nhenin/cardano-api) (submodule) | Dijkstra tx-body support for the new fields | [diff](https://github.com/nhenin/cardano-api/compare/leios-prototype...nicolas/dynamic-pricing) |
 | [`cardano-cli`](https://github.com/nhenin/cardano-cli-dp) (submodule) | Dijkstra tx-body CLI support | [diff](https://github.com/nhenin/cardano-cli-dp/compare/leios-prototype...nicolas/dynamic-pricing) |
 | [`ouroboros-leios`](https://github.com/nhenin/ouroboros-leios-dp) (submodule) | The 3-node proto-devnet, the run supervisor, the trace tailer and the demo web server | [diff](https://github.com/nhenin/ouroboros-leios-dp/compare/main...nicolas/dynamic-pricing) |
-| [`demo-dashboard.html`](demo-dashboard.html) | The dashboard (a single self-contained page) | — |
+| [`demo/index.html`](demo/index.html) | The dashboard (a single self-contained page) | — |
 | [`docs/`](docs/) | The design docs: ledger rules, two-lane mempool, lifecycle diagram | — |
 
 ## Running the demo
 
-The demo runs from the super-repo workspace (the recursive clone above,
-where the component forks are checked out side by side); this folder keeps
-the launch wrapper ([`launch-demo.sh`](launch-demo.sh)) for reference.
-Prerequisites: **nix** (with flakes), ~16 GB RAM, macOS or Linux.
+### Prerequisites
+
+- macOS or Linux, **~16 GB RAM**, and **~20 GB free disk** (the recursive
+  clone is ~2 GB, the build artefacts ~2 GB, the nix store pulls the
+  toolchain on the first run — and the run script refuses to start below
+  20 GB free; see `MIN_FREE_GB` under troubleshooting)
+- [**Nix**](https://nixos.org/download/) (multi-user install) with **flakes
+  enabled**: add this line to `/etc/nix/nix.conf` (needs `sudo`) —
+
+  ```
+  experimental-features = nix-command flakes
+  ```
+
+  Skipping it surfaces later as `nix develop` failing with
+  *"experimental Nix feature 'nix-command' is disabled"*.
+- **The IOG binary cache** — without it, nix ignores the prebuilt toolchain
+  and compiles GHC and the entire Haskell world from source (many hours,
+  tens of GB). In the same `/etc/nix/nix.conf`, also add:
+
+  ```
+  extra-substituters = https://cache.iog.io
+  extra-trusted-public-keys = hydra.iohk.io:f/Ea+s+dFdN+3Y/G+FDgSq+a5NEWhJGzdjvKNGv0/EQ=
+  trusted-users = root YOUR_USERNAME
+  ```
+
+  then restart the nix daemon so both edits take effect:
+
+  ```bash
+  sudo launchctl kickstart -k system/org.nixos.nix-daemon   # macOS
+  sudo systemctl restart nix-daemon                         # Linux
+  ```
+
+  (When the first `nix develop` asks whether to allow the flake's extra
+  substituters, answer `y` — the `trusted-users` line is what makes that
+  answer actually stick.)
+- `git`. Nothing else: GHC, cabal, `process-compose` and the rest are
+  provided by the nix shells — no Haskell toolchain needed on the host.
+
+### From scratch
 
 ```bash
+git clone --recursive https://github.com/input-output-hk/tiered-pricing.git
+cd tiered-pricing/cardano-prototype
 ./launch-demo.sh
 ```
 
-The wrapper builds the node and feeder, then starts the 3-node devnet and
-dashboard. The equivalent manual steps are:
+The `--recursive` matters: the launcher needs all six component submodules
+checked out. If you already have a plain clone (or the recursive clone was
+interrupted), run `git submodule update --init` from the repo root first —
+and a GitHub "Download ZIP" cannot run the demo at all.
+
+The wrapper builds the node, the CLI and the lane feeder — **the first build
+is long** (expect 30–60 minutes *with the IOG binary cache configured*; the
+cabal cache makes every later run a no-op) — then boots the devnet and the
+dashboard. It also raises the open-files limit (macOS's default 256 makes
+node1 restart under feeder load), clears stale listeners on the demo ports,
+and checks the built binaries before launch — so prefer it over the manual
+route. The equivalent (reduced) manual steps, to see what it does:
 
 ```bash
 # 1. Build the node and the lane feeder (one cabal project; first build is long)
 cd cardano-node
-DEV_SHELL="path:$(git rev-parse --show-superproject-working-tree)?dir=cardano-node"
+DEV_SHELL="path:$(git rev-parse --show-superproject-working-tree)?dir=cardano-prototype/cardano-node"
 nix develop "$DEV_SHELL" --command cabal build exe:cardano-node exe:cardano-cli exe:dijkstra-lane-feeder
 
 # 2. Point the run script at the binaries and the dashboard, then launch
-NODE_BIN_DIR=$(dirname $(nix develop "$DEV_SHELL" --command cabal list-bin exe:cardano-node))
-CLI_BIN_DIR=$(dirname $(nix develop "$DEV_SHELL" --command cabal list-bin exe:cardano-cli))
+NODE_BIN_DIR=$(dirname "$(nix develop "$DEV_SHELL" --command cabal list-bin exe:cardano-node)")
+CLI_BIN_DIR=$(dirname "$(nix develop "$DEV_SHELL" --command cabal list-bin exe:cardano-cli)")
 FEEDER_BIN=$(nix develop "$DEV_SHELL" --command cabal list-bin exe:dijkstra-lane-feeder)
 cd ../ouroboros-leios/demo/proto-devnet
 PATH="$NODE_BIN_DIR:$CLI_BIN_DIR:$PATH" \
@@ -141,12 +190,36 @@ dashboard:
 
 - **Presenter (drives everything): <http://localhost:8780>**
 - **Audience copy (read-only, share this one): <http://localhost:8781>** — to
-  put it on the internet for a call: `cloudflared tunnel --url
-  http://localhost:8781` (viewers see the live network; only the presenter's
-  port accepts commands).
+  put it on the internet for a call: `nix shell nixpkgs#cloudflared
+  --command cloudflared tunnel --url http://localhost:8781` (viewers see the
+  live network; only the presenter's port accepts commands).
 
 `Ctrl-C` tears everything down. A fresh boot takes ~3 minutes (chain starts at
 block 0).
+
+### If something goes wrong
+
+- **`Build artefact not found where cabal reported it` (launcher) or
+  `required commands are not available: cardano-node` (devnet supervisor)
+  right after the first build** — a transient of the very first launch (the
+  freshly built binaries were not picked up); run `./launch-demo.sh` again:
+  the build is cached, so the second start goes straight to the devnet.
+- **`path '…' does not contain a 'flake.nix'`, or `cardano-node/` is empty**
+  — the component submodules aren't checked out; run
+  `git submodule update --init` from the repo root.
+- **The first build compiles GHC itself / runs for hours** — the IOG binary
+  cache isn't trusted; revisit the `extra-substituters` / `trusted-users`
+  lines in the prerequisites and restart the nix daemon.
+- **Ports** — the demo owns 3001–3003 (nodes) and 8780/8781 (dashboards).
+  The launcher kills **whatever** is listening on those ports at startup —
+  a crashed earlier run never blocks a new one, but move anything of yours
+  off those ports first.
+- **The dashboard shows text but no charts or live cards** — the page needs
+  [`demo/vendor/`](demo/vendor/) (d3 + Observable Plot, shipped in this
+  folder); hard-reload the page (Cmd-Shift-R) so the browser picks them up.
+- **`Only N GB free … need M GB`** — the run script refuses to start on a
+  nearly full disk. Free some space, or lower the threshold for one run:
+  `MIN_FREE_GB=10 ./launch-demo.sh` (an environment variable; default 20).
 
 ### Driving it
 

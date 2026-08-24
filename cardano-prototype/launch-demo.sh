@@ -56,6 +56,17 @@ NODE_BIN_DIR=$(dirname "$(nix develop "$DEV_SHELL" --command cabal list-bin exe:
 CLI_BIN_DIR=$(dirname "$(nix develop "$DEV_SHELL" --command cabal list-bin exe:cardano-cli)")
 FEEDER_BIN=$(nix develop "$DEV_SHELL" --command cabal list-bin exe:dijkstra-lane-feeder)
 
+# Refuse to hand the devnet a PATH that doesn't actually hold the binaries:
+# a bad list-bin resolution otherwise surfaces much later as a confusing
+# "cardano-node not available" from the devnet supervisor.
+for exe in "$NODE_BIN_DIR/cardano-node" "$CLI_BIN_DIR/cardano-cli" "$FEEDER_BIN"; do
+  if [ ! -x "$exe" ]; then
+    echo "Build artefact not found where cabal reported it: $exe" >&2
+    echo "This can happen on a very first launch — run ./launch-demo.sh again (the build is cached)." >&2
+    exit 1
+  fi
+done
+
 cd "$ROOT/ouroboros-leios/demo/proto-devnet"
 release_restart_lock
 trap - EXIT

@@ -893,8 +893,6 @@ The instability that excludes denominator 4 is visible directly in the price tra
 
 ### Incentives
 
-#### Giorgos
-
 From an incentives perspective, we focus on three properties introduced in the [analysis](https://timroughgarden.org/papers/eip1559.pdf) of EIP-1559:
 
 **Incentive-compatibility for myopic miners (MMIC):** Block producers should be incentivized to follow the prescribed transaction inclusion rule.
@@ -903,55 +901,27 @@ From an incentives perspective, we focus on three properties introduced in the [
 
 **Off-chain agreement proof (OCA-proof):** It should not be profitable for a user and a block producer to collude in order to include some transaction in the blockchain.
 
-Next, we briefly argue that our design satisfies all three properties outlined above.
+Before arguing for these properties, it helps to fix where each component of a posted bid flows at settlement. Every bid splits into three parts:
 
-**MMIC:** The utility maximizing strategy for the block producer is to include all transactions that pay their fees (if possible), and avoid including any "fake" traffic it generates as it will have to pay the cost. This is exactly the transaction inclusion rule defined by our mechanism. Note, that in Cardano fees are redistributed through the reward mechanism to all block producers.
+- the ordinary min-fee component, which enters the existing fee pot and is redistributed through the reward mechanism to all block producers;
+- the urgent premium, which is donated to the treasury rather than paid to the current block producer, so no producer directly captures the congestion rent; and
+- any excess above the applicable quote, which is returned to the transaction's refund account, making `maxFee` a spending ceiling rather than the amount the user necessarily pays.
 
-**UIC:** When prices are not set excessively low, which should be the typical case as prices dynamically adapt to traffic, the optimal bidding strategy for an *urgent* user is to set its fee cap to the maximum value it is willing to pay and submit to the urgent lane. Otherwise, it may either (i) not get the best possible service, if it sets a lower fee-cap or submits its tx to the standard lane, or (ii) risk losing money, if it sets a higher fee-cap.
+Settlement is conservative: for every included transaction the three components sum to the posted bid, each is checkable from on-chain data, and fee handling neither mints nor destroys value.
 
-**OCP:** A user directly paying/bribing a block producer for quick inclusion does not increase their joint utility; someone at the end of the day has to pay the inclusion fee.
+Next, we briefly argue that our design satisfies all three properties outlined above. As in the EIP-1559 analysis, the arguments are phrased in a limited model — myopic block producers, no off-chain payments or MEV; the limitations that appear as the model is expanded are described at the end of this section.
 
+**MMIC:** The utility maximizing strategy for the block producer is to include all transactions that pay their fees (if possible), and avoid including any "fake" traffic it generates as it will have to pay the cost — the min-fee component is shared with all producers through the reward mechanism, and the urgent premium goes to the treasury, so the producer recovers only a fraction of what its fake traffic pays. This is exactly the transaction inclusion rule defined by our mechanism.
 
-As a side-effect, the mechanism proposed may reveal/leak information about the value of certain transactions; a transaction submitted to the urgent lane may be correlated 
-with high-value, and further with high miner extractable value (MEV). While this may make MEV attacks simpler to launch, as it would be easier to identify 
-potential targets, we note that the quick inclusion of txs submitted to the urgent lane offers some protection against them--high value urgent txs settle faster through our mechanism. 
-Further, a tx that is highly sensitive to MEV attacks can still be submitted privately to some node operator first. 
-Note also, that in Cardano today high-MEV txs are not fully  protected against attacks, i.e., a block producer that 
-observes such a tx in some block, may decide to fork the chain in order to take the MEV opportunity itself. Thus, besides possibly leaking some information about a tx's value,  
-a public urgency signal does not create extra/new MEV opportunities compared to a publicly submitted txs in current mainnet. 
+**UIC:** When prices are not set excessively low, which should be the typical case as prices dynamically adapt to traffic, the optimal bidding strategy for an *urgent* user is to set its fee cap to the maximum value it is willing to pay and submit to the urgent lane. Otherwise, it may either (i) not get the best possible service, if it sets a lower fee-cap or submits its tx to the standard lane, or (ii) risk losing money, if it sets a higher fee-cap. The refund of any excess above the applicable quote is what makes the high fee-cap safe to post, and the premium is charged only on Ranking Block delivery: an urgent transaction included via an Endorser Block pays the standard quote, so the user never pays for a lane it did not get.
 
-#### Nicolas
+**OCP:** A user directly paying/bribing a block producer for quick inclusion does not increase their joint utility; someone at the end of the day has to pay the inclusion fee. Ledger validation additionally rejects Ranking Block inclusion below the urgent quote, and the premium's destination (the treasury) leaves the producer nothing to discount against.
 
-From an incentives perspective, we use three properties introduced in the [analysis](https://timroughgarden.org/papers/eip1559.pdf) of EIP-1559 as evaluation criteria:
+The standard lane is insulated from urgent demand: its quote responds only to standard-lane utilisation and cannot fall below the ordinary min fee, so an uncontended standard transaction pays the same protocol fee as today. The trade-off is batching latency — standard transactions wait until the selected Endorser Block payload reaches the announcement threshold or until the `K = 10` age escape opens.
 
-- **Myopic miner incentive compatibility (MMIC):** a block producer should be incentivised to follow the prescribed transaction-inclusion rule.
-- **User incentive compatibility (UIC):** a user should have a clear bidding strategy when creating a transaction.
-- **Off-chain agreement proofness (OCA-proofness):** a user and a block producer should not be able to increase their joint utility by replacing the protocol payment with an off-chain agreement.
+Beyond the limited model, the arguments above are not a formal proof. FIFO ordering is node policy rather than a ledger rule, so tips, paid ordering among already eligible transactions, censorship, and Endorser Block withholding remain possible; off-chain rebates and side payments likewise. The mechanism closes a specific collusion channel — selling below-quote Ranking Block access — rather than establishing the properties in full generality.
 
-The mechanism is designed to improve these properties, but the arguments below do not constitute a formal proof that all three hold in the presence of off-chain payments, paid ordering, censorship, Endorser Block withholding, or other forms of MEV.
-
-Settlement splits every posted bid into three components:
-
-- the ordinary min-fee component, which enters the existing fee pot;
-- the urgency premium, which is donated to the treasury rather than paid to the current block producer; and
-- any excess above the applicable quote, which is returned to the transaction's refund account.
-
-Each destination has an incentive effect. Keeping the ordinary min fee in the fee pot preserves the existing protocol fee flow. Sending the urgency premium to the treasury prevents the current producer from directly capturing the congestion rent; burning the premium would be similarly neutral for that producer, but donating it keeps the value within the protocol. Refunding the excess makes `maxFee` a spending ceiling rather than the amount the user necessarily pays.
-
-| Property | Contribution of the mechanism | Remaining limitations |
-| --- | --- | --- |
-| **MMIC** | The producer continues to receive protocol rewards through the existing fee pot, while the urgency premium is not paid directly to the current producer. Ledger validation also prevents Ranking Block inclusion below the urgent quote. | FIFO ordering is node policy, not a ledger rule. Tips, paid ordering among eligible urgent transactions, fake traffic, censorship, and Endorser Block withholding remain possible. |
-| **UIC** | A user can set `maxFee` to the maximum amount it is willing to pay without automatically paying that amount. The urgency premium is charged only when the transaction receives Ranking Block delivery; an urgent transaction delivered through an Endorser Block is charged the standard quote. | Lane choice and the required fee-cap headroom still depend on changing quotes, congestion, and the user's latency requirements. This section does not establish a dominant bidding strategy. |
-| **OCA-proofness** | Routing the premium to the treasury and enforcing the urgent quote remove the direct benefit of selling below-quote Ranking Block access. | Off-chain rebates, side payments, paid ordering among already eligible transactions, and other agreements remain possible. The mechanism therefore closes a specific collusion channel rather than establishing full OCA-proofness. |
-
-The standard lane is insulated from urgent demand because its quote responds only to standard-lane utilisation and cannot fall below the ordinary min fee. An uncontended standard transaction therefore pays the same protocol fee as today. The trade-off is batching latency: standard transactions wait until the selected Endorser Block payload reaches the announcement threshold or until the `K = 10` age escape opens.
-
-Settlement is conservative: for every included transaction, the base fee, premium, and refund sum to the posted bid, and every component is checkable from on-chain data. Fee handling therefore neither mints nor destroys value.
-
-Finally, the urgency signal may reveal that a transaction is latency-sensitive or high-value. Faster settlement can shorten its exposure to some forms of MEV, but it does not provide general MEV protection and may itself reveal useful information to block producers. A sensitive transaction may still be submitted privately, but private submission and protection from reordering or chain forks are outside the guarantees of this mechanism.
-
-
-
+As a side-effect, the mechanism proposed may reveal/leak information about the value of certain transactions; a transaction submitted to the urgent lane may be correlated with high-value, and further with high miner extractable value (MEV). While this may make MEV attacks simpler to launch, as it would be easier to identify potential targets, we note that the quick inclusion of txs submitted to the urgent lane offers some protection against them--high value urgent txs settle faster through our mechanism. Further, a tx that is highly sensitive to MEV attacks can still be submitted privately to some node operator first. Note also, that in Cardano today high-MEV txs are not fully protected against attacks, i.e., a block producer that observes such a tx in some block, may decide to fork the chain in order to take the MEV opportunity itself. Thus, besides possibly leaking some information about a tx's value, a public urgency signal does not create extra/new MEV opportunities compared to a publicly submitted txs in current mainnet.
 
 ## Rationale: how does this CIP achieve its goals?
 

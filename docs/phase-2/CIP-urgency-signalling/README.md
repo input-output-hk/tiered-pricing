@@ -924,7 +924,7 @@ different lengths and different sample kinds:
 - `urgentWindowSize : ℕ` — the maximum number of finalized `PolicyClause` entries retained in
   `diversityPolicy(urgent)`, and therefore the length of the urgent controller's sliding window.
   Recommended initial value **5** payload samples.
-- `standardWindowSize : ℕ` — likewise for `diversityPolicy(standard)`. Recommended initial value **20**
+- `standardWindowSize : ℕ` — likewise for `diversityPolicy(standard)`. Recommended initial value **10**
   block summaries.
 
 We write `windowSize(t)` for whichever of the two applies to tier `t`. Larger values smooth a coefficient's

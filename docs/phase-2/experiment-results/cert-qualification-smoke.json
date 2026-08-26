@@ -1,0 +1,4371 @@
+{
+  "schema_version": 1,
+  "experiment": "cert-qualification-smoke",
+  "method": "paired mean difference with two-sided 95% Student-t confidence interval",
+  "evidence_scope": "Exploratory directional smoke test. The committed default is ten paired seeds; this run is not powered to establish equivalence, select protocol parameters, or show that an unobserved practically important effect is absent.",
+  "difference_direction": "specified certificate-inclusion qualification minus announcement-time qualification",
+  "manifest": "config/sweeps/cert-qualification-smoke.json",
+  "variants": {
+    "adopted": {
+      "label": "Announcement-time qualification (adopted)",
+      "config": "config/variants/standard-window-confirm/block-window-10-cert-reset.json"
+    },
+    "qualify-at-cert": {
+      "label": "Certificate-inclusion qualification (specified)",
+      "config": "config/variants/cert-qualification/qualify-at-cert.json"
+    }
+  },
+  "contrasts": {
+    "qualify-at-cert-minus-adopted": {
+      "label": "Certificate-inclusion qualification \u2212 announcement-time qualification",
+      "candidate": "qualify-at-cert",
+      "reference": "adopted",
+      "primary": true
+    }
+  },
+  "seeds": [
+    450,
+    451,
+    452,
+    453,
+    454,
+    455,
+    456,
+    457,
+    458,
+    459
+  ],
+  "slots": 2000,
+  "provenance": {
+    "git_revision": "9dab5a601bab2fef5247db45a1537d33a3608bf8",
+    "abstract_sim_worktree_clean": false,
+    "dirty_patch": {
+      "path": "source.patch",
+      "sha256": "392a05daa5f435055553f431fad6a926bdfe7fe38716a2cb1153662fcb62a83b",
+      "bytes": 203043
+    },
+    "simulator_sha256": "8b5f08e2d6d46443a4b12934f723c5a754aab41928ec7d7115e25a7db21d4b17"
+  },
+  "loads": [
+    {
+      "load": "low",
+      "label": "Low",
+      "source": {
+        "summary": "sweep-results/cert-qualification-smoke/low/summary.json",
+        "effective_configs": {
+          "adopted": "sweep-results/cert-qualification-smoke/low/adopted.config.json",
+          "qualify-at-cert": "sweep-results/cert-qualification-smoke/low/qualify-at-cert.config.json"
+        }
+      },
+      "paired_seeds": 10,
+      "exactly_equal_all_scalars": {
+        "qualify-at-cert-minus-adopted": 7
+      },
+      "metric_groups": [
+        {
+          "id": "absolute",
+          "label": "Absolute retained value and submitted demand",
+          "metrics": [
+            {
+              "key": "value.retainedLovelace",
+              "label": "Overall retained value",
+              "unit": "G lovelace",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "adopted": 9.786893883200001,
+                "qualify-at-cert": 9.772616994200002
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": -0.014276889000000103,
+                  "ci95_low": -0.04657121191800034,
+                  "ci95_high": 0.018017433918000127,
+                  "candidate_higher": 0,
+                  "reference_higher": 1,
+                  "ties": 9
+                }
+              }
+            },
+            {
+              "key": "value.standard.retainedLovelace",
+              "label": "Standard-lane retained value",
+              "unit": "G lovelace",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "adopted": 2.7631447902,
+                "qualify-at-cert": 2.7500868188000003
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": -0.013057971400000002,
+                  "ci95_low": -0.0425951027068,
+                  "ci95_high": 0.016479159906800003,
+                  "candidate_higher": 0,
+                  "reference_higher": 1,
+                  "ties": 9
+                }
+              }
+            },
+            {
+              "key": "value.priority.retainedLovelace",
+              "label": "Priority-lane retained value",
+              "unit": "G lovelace",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "adopted": 7.023749093000001,
+                "qualify-at-cert": 7.0225301754
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": -0.0012189175999999691,
+                  "ci95_low": -0.003976109211199899,
+                  "ci95_high": 0.0015382740111999605,
+                  "candidate_higher": 0,
+                  "reference_higher": 1,
+                  "ties": 9
+                }
+              }
+            },
+            {
+              "key": "value.urgent.retainedLovelace",
+              "label": "Urgent-class retained value",
+              "unit": "G lovelace",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "adopted": 0.0904353769,
+                "qualify-at-cert": 0.09011788100000001
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": -0.0003174958999999991,
+                  "ci95_low": -0.001035671625799997,
+                  "ci95_high": 0.00040067982579999883,
+                  "candidate_higher": 0,
+                  "reference_higher": 1,
+                  "ties": 9
+                }
+              }
+            },
+            {
+              "key": "units.total",
+              "label": "Observed submitted demand",
+              "unit": "units",
+              "digits": 1,
+              "preference": null,
+              "arm_means": {
+                "adopted": 5925.8,
+                "qualify-at-cert": 5925.8
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "inclusion.standard.submitted",
+              "label": "Standard-lane submissions",
+              "unit": "transactions",
+              "digits": 1,
+              "preference": null,
+              "arm_means": {
+                "adopted": 2095.6,
+                "qualify-at-cert": 2082.9
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": -12.7,
+                  "ci95_low": -41.427400000000006,
+                  "ci95_high": 16.027400000000004,
+                  "candidate_higher": 0,
+                  "reference_higher": 1,
+                  "ties": 9
+                }
+              }
+            },
+            {
+              "key": "inclusion.priority.submitted",
+              "label": "Priority-lane submissions",
+              "unit": "transactions",
+              "digits": 1,
+              "preference": null,
+              "arm_means": {
+                "adopted": 3830.2,
+                "qualify-at-cert": 3842.9
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 12.7,
+                  "ci95_low": -16.027400000000004,
+                  "ci95_high": 41.427400000000006,
+                  "candidate_higher": 1,
+                  "reference_higher": 0,
+                  "ties": 9
+                }
+              }
+            },
+            {
+              "key": "inclusion.urgent.submitted",
+              "label": "Urgent-class submissions",
+              "unit": "transactions",
+              "digits": 1,
+              "preference": null,
+              "arm_means": {
+                "adopted": 84.5,
+                "qualify-at-cert": 84.5
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": "conditional",
+          "label": "Conditional retained-value and service ratios",
+          "metrics": [
+            {
+              "key": "value.retainedRatio",
+              "label": "Overall retained-value ratio",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "adopted": 95.32579989924658,
+                "qualify-at-cert": 95.31563615646768
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": -0.010163742778900087,
+                  "ci95_low": -0.033154128944772085,
+                  "ci95_high": 0.012826643386971908,
+                  "candidate_higher": 0,
+                  "reference_higher": 1,
+                  "ties": 9
+                }
+              }
+            },
+            {
+              "key": "value.standard.retainedRatio",
+              "label": "Standard-lane retained-value ratio",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "adopted": 96.40850363431642,
+                "qualify-at-cert": 96.39661537650026
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": -0.011888257816146108,
+                  "ci95_low": -0.038779496996268606,
+                  "ci95_high": 0.01500298136397639,
+                  "candidate_higher": 0,
+                  "reference_higher": 1,
+                  "ties": 9
+                }
+              }
+            },
+            {
+              "key": "value.priority.retainedRatio",
+              "label": "Priority-lane retained-value ratio",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "adopted": 94.8954321303471,
+                "qualify-at-cert": 94.88702058421337
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": -0.008411546133730496,
+                  "ci95_low": -0.027438463488228884,
+                  "ci95_high": 0.01061537122076789,
+                  "candidate_higher": 0,
+                  "reference_higher": 1,
+                  "ties": 9
+                }
+              }
+            },
+            {
+              "key": "value.urgent.retainedRatio",
+              "label": "Urgent-class retained-value ratio",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "adopted": 59.76567612734116,
+                "qualify-at-cert": 59.59545153214731
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": -0.1702245951938494,
+                  "ci95_low": -0.5552726295223367,
+                  "ci95_high": 0.2148234391346379,
+                  "candidate_higher": 0,
+                  "reference_higher": 1,
+                  "ties": 9
+                }
+              }
+            },
+            {
+              "key": "inclusion.standard.serviceRate",
+              "label": "Standard-lane service rate",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "adopted": 98.34255922485787,
+                "qualify-at-cert": 98.38409608882463
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.041536863966770456,
+                  "ci95_low": -0.05241952232606432,
+                  "ci95_high": 0.13549325025960524,
+                  "candidate_higher": 1,
+                  "reference_higher": 0,
+                  "ties": 9
+                }
+              }
+            },
+            {
+              "key": "inclusion.priority.serviceRate",
+              "label": "Priority-lane service rate",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "adopted": 98.32357215661368,
+                "qualify-at-cert": 98.11763118295008
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": -0.20594097366361125,
+                  "ci95_low": -0.6717794560907,
+                  "ci95_high": 0.25989750876347745,
+                  "candidate_higher": 0,
+                  "reference_higher": 1,
+                  "ties": 9
+                }
+              }
+            },
+            {
+              "key": "inclusion.urgent.serviceRate",
+              "label": "Urgent-class service rate",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "adopted": 98.88237692540018,
+                "qualify-at-cert": 98.88237692540018
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": "latency",
+          "label": "Lane and urgent-class latency",
+          "metrics": [
+            {
+              "key": "latency.standard.meanBlocks",
+              "label": "Standard-lane mean wait",
+              "unit": "blocks",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "adopted": 2.964335392545542,
+                "qualify-at-cert": 2.9708325138172946
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.006497121271752749,
+                  "ci95_low": -0.008199367044951968,
+                  "ci95_high": 0.021193609588457465,
+                  "candidate_higher": 1,
+                  "reference_higher": 0,
+                  "ties": 9
+                }
+              }
+            },
+            {
+              "key": "latency.standard.p95Blocks",
+              "label": "Standard-lane p95 wait",
+              "unit": "blocks",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "adopted": 5.7,
+                "qualify-at-cert": 5.7
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "latency.priority.meanBlocks",
+              "label": "Priority-lane mean wait",
+              "unit": "blocks",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "adopted": 1.7516465208742118,
+                "qualify-at-cert": 1.7543198996564418
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0026733787822300625,
+                  "ci95_low": -0.0033738040231743385,
+                  "ci95_high": 0.008720561587634464,
+                  "candidate_higher": 1,
+                  "reference_higher": 0,
+                  "ties": 9
+                }
+              }
+            },
+            {
+              "key": "latency.priority.p95Blocks",
+              "label": "Priority-lane p95 wait",
+              "unit": "blocks",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "adopted": 2.5,
+                "qualify-at-cert": 2.5
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "latency.urgent.meanBlocks",
+              "label": "Urgent-class mean wait",
+              "unit": "blocks",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "adopted": 1.7749359833725038,
+                "qualify-at-cert": 1.7822276500391705
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.007291666666666674,
+                  "ci95_low": -0.009202083333333345,
+                  "ci95_high": 0.02378541666666669,
+                  "candidate_higher": 1,
+                  "reference_higher": 0,
+                  "ties": 9
+                }
+              }
+            },
+            {
+              "key": "latency.urgent.p95Blocks",
+              "label": "Urgent-class p95 wait",
+              "unit": "blocks",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "adopted": 2.6,
+                "qualify-at-cert": 2.6
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": "throughput-retries",
+          "label": "Throughput, capacity, and retries",
+          "metrics": [
+            {
+              "key": "throughput.txPerSlot",
+              "label": "Throughput",
+              "unit": "tx/slot",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "adopted": 2.91295,
+                "qualify-at-cert": 2.90885
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": -0.004100000000000037,
+                  "ci95_low": -0.01337420000000012,
+                  "ci95_high": 0.005174200000000046,
+                  "candidate_higher": 0,
+                  "reference_higher": 1,
+                  "ties": 9
+                }
+              }
+            },
+            {
+              "key": "throughput.ebUtilization",
+              "label": "EB utilisation",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": null,
+              "arm_means": {
+                "adopted": 0.9772600140385134,
+                "qualify-at-cert": 0.975159819203267
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": -0.002100194835246183,
+                  "ci95_low": -0.005231098480362223,
+                  "ci95_high": 0.001030708809869857,
+                  "candidate_higher": 0,
+                  "reference_higher": 3,
+                  "ties": 7
+                }
+              }
+            },
+            {
+              "key": "load.amplification",
+              "label": "Retry load amplification",
+              "unit": "attempts/unit",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "adopted": 1.0,
+                "qualify-at-cert": 1.0
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": "oscillation",
+          "label": "Combined-lane price oscillation",
+          "metrics": [
+            {
+              "key": "price.oscillationReversalCount",
+              "label": "Oscillation reversals",
+              "unit": "reversals",
+              "digits": 2,
+              "preference": "lower",
+              "arm_means": {
+                "adopted": 1.9,
+                "qualify-at-cert": 1.9
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "price.oscillationCycleCount",
+              "label": "Oscillation cycles",
+              "unit": "cycles",
+              "digits": 2,
+              "preference": "lower",
+              "arm_means": {
+                "adopted": 0.7,
+                "qualify-at-cert": 0.7
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "price.oscillationExcessTravel",
+              "label": "Oscillation excess log travel",
+              "unit": "log coefficient",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "adopted": 0.19382891186732487,
+                "qualify-at-cert": 0.19421287848462462
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.000383966617299758,
+                  "ci95_low": -0.00048456587103229453,
+                  "ci95_high": 0.0012524991056318104,
+                  "candidate_higher": 1,
+                  "reference_higher": 0,
+                  "ties": 9
+                }
+              }
+            },
+            {
+              "key": "price.oscillationMaxAmplitude",
+              "label": "Maximum oscillation amplitude",
+              "unit": "coefficient",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "adopted": 0.7496208675246245,
+                "qualify-at-cert": 0.7496208675246245
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "price.settledCoefficientRange",
+              "label": "Settled coefficient range",
+              "unit": "coefficient",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "adopted": 0.13649766069342145,
+                "qualify-at-cert": 0.13605479929040523
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": -0.000442861403016237,
+                  "ci95_low": -0.0014446138966389653,
+                  "ci95_high": 0.0005588910906064912,
+                  "candidate_higher": 0,
+                  "reference_higher": 1,
+                  "ties": 9
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "load": "mid-load",
+      "label": "Mid load",
+      "source": {
+        "summary": "sweep-results/cert-qualification-smoke/mid-load/summary.json",
+        "effective_configs": {
+          "adopted": "sweep-results/cert-qualification-smoke/mid-load/adopted.config.json",
+          "qualify-at-cert": "sweep-results/cert-qualification-smoke/mid-load/qualify-at-cert.config.json"
+        }
+      },
+      "paired_seeds": 10,
+      "exactly_equal_all_scalars": {
+        "qualify-at-cert-minus-adopted": 10
+      },
+      "metric_groups": [
+        {
+          "id": "absolute",
+          "label": "Absolute retained value and submitted demand",
+          "metrics": [
+            {
+              "key": "value.retainedLovelace",
+              "label": "Overall retained value",
+              "unit": "G lovelace",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "adopted": 16.266223590200003,
+                "qualify-at-cert": 16.266223590200003
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "value.standard.retainedLovelace",
+              "label": "Standard-lane retained value",
+              "unit": "G lovelace",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "adopted": 6.8580942096,
+                "qualify-at-cert": 6.8580942096
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "value.priority.retainedLovelace",
+              "label": "Priority-lane retained value",
+              "unit": "G lovelace",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "adopted": 9.4081293806,
+                "qualify-at-cert": 9.4081293806
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "value.urgent.retainedLovelace",
+              "label": "Urgent-class retained value",
+              "unit": "G lovelace",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "adopted": 0.1421562398,
+                "qualify-at-cert": 0.1421562398
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "units.total",
+              "label": "Observed submitted demand",
+              "unit": "units",
+              "digits": 1,
+              "preference": null,
+              "arm_means": {
+                "adopted": 9907.7,
+                "qualify-at-cert": 9907.7
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "inclusion.standard.submitted",
+              "label": "Standard-lane submissions",
+              "unit": "transactions",
+              "digits": 1,
+              "preference": null,
+              "arm_means": {
+                "adopted": 5088.7,
+                "qualify-at-cert": 5088.7
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "inclusion.priority.submitted",
+              "label": "Priority-lane submissions",
+              "unit": "transactions",
+              "digits": 1,
+              "preference": null,
+              "arm_means": {
+                "adopted": 4819.0,
+                "qualify-at-cert": 4819.0
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "inclusion.urgent.submitted",
+              "label": "Urgent-class submissions",
+              "unit": "transactions",
+              "digits": 1,
+              "preference": null,
+              "arm_means": {
+                "adopted": 142.2,
+                "qualify-at-cert": 142.2
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": "conditional",
+          "label": "Conditional retained-value and service ratios",
+          "metrics": [
+            {
+              "key": "value.retainedRatio",
+              "label": "Overall retained-value ratio",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "adopted": 94.76340734933507,
+                "qualify-at-cert": 94.76340734933507
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "value.standard.retainedRatio",
+              "label": "Standard-lane retained-value ratio",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "adopted": 96.54173398479983,
+                "qualify-at-cert": 96.54173398479983
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "value.priority.retainedRatio",
+              "label": "Priority-lane retained-value ratio",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "adopted": 93.4989924814191,
+                "qualify-at-cert": 93.4989924814191
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "value.urgent.retainedRatio",
+              "label": "Urgent-class retained-value ratio",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "adopted": 56.07883888169274,
+                "qualify-at-cert": 56.07883888169274
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "inclusion.standard.serviceRate",
+              "label": "Standard-lane service rate",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "adopted": 97.55465695402049,
+                "qualify-at-cert": 97.55465695402049
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "inclusion.priority.serviceRate",
+              "label": "Priority-lane service rate",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "adopted": 98.46439711878455,
+                "qualify-at-cert": 98.46439711878455
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "inclusion.urgent.serviceRate",
+              "label": "Urgent-class service rate",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "adopted": 99.01019896218573,
+                "qualify-at-cert": 99.01019896218573
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": "latency",
+          "label": "Lane and urgent-class latency",
+          "metrics": [
+            {
+              "key": "latency.standard.meanBlocks",
+              "label": "Standard-lane mean wait",
+              "unit": "blocks",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "adopted": 2.8362994102308483,
+                "qualify-at-cert": 2.8362994102308483
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "latency.standard.p95Blocks",
+              "label": "Standard-lane p95 wait",
+              "unit": "blocks",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "adopted": 5.3,
+                "qualify-at-cert": 5.3
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "latency.priority.meanBlocks",
+              "label": "Priority-lane mean wait",
+              "unit": "blocks",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "adopted": 2.0294039396258863,
+                "qualify-at-cert": 2.0294039396258863
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "latency.priority.p95Blocks",
+              "label": "Priority-lane p95 wait",
+              "unit": "blocks",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "adopted": 3.1,
+                "qualify-at-cert": 3.1
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "latency.urgent.meanBlocks",
+              "label": "Urgent-class mean wait",
+              "unit": "blocks",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "adopted": 1.9767750968133169,
+                "qualify-at-cert": 1.9767750968133169
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "latency.urgent.p95Blocks",
+              "label": "Urgent-class p95 wait",
+              "unit": "blocks",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "adopted": 2.6,
+                "qualify-at-cert": 2.6
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": "throughput-retries",
+          "label": "Throughput, capacity, and retries",
+          "metrics": [
+            {
+              "key": "throughput.txPerSlot",
+              "label": "Throughput",
+              "unit": "tx/slot",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "adopted": 4.85135,
+                "qualify-at-cert": 4.85135
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "throughput.ebUtilization",
+              "label": "EB utilisation",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": null,
+              "arm_means": {
+                "adopted": 1.5950507479194371,
+                "qualify-at-cert": 1.5950507479194371
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "load.amplification",
+              "label": "Retry load amplification",
+              "unit": "attempts/unit",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "adopted": 1.0,
+                "qualify-at-cert": 1.0
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": "oscillation",
+          "label": "Combined-lane price oscillation",
+          "metrics": [
+            {
+              "key": "price.oscillationReversalCount",
+              "label": "Oscillation reversals",
+              "unit": "reversals",
+              "digits": 2,
+              "preference": "lower",
+              "arm_means": {
+                "adopted": 2.1,
+                "qualify-at-cert": 2.1
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "price.oscillationCycleCount",
+              "label": "Oscillation cycles",
+              "unit": "cycles",
+              "digits": 2,
+              "preference": "lower",
+              "arm_means": {
+                "adopted": 0.6,
+                "qualify-at-cert": 0.6
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "price.oscillationExcessTravel",
+              "label": "Oscillation excess log travel",
+              "unit": "log coefficient",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "adopted": 0.3420171024313691,
+                "qualify-at-cert": 0.3420171024313691
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "price.oscillationMaxAmplitude",
+              "label": "Maximum oscillation amplitude",
+              "unit": "coefficient",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "adopted": 0.9320249302200401,
+                "qualify-at-cert": 0.9320249302200401
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "price.settledCoefficientRange",
+              "label": "Settled coefficient range",
+              "unit": "coefficient",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "adopted": 0.05108912894912088,
+                "qualify-at-cert": 0.05108912894912088
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "load": "severe-congestion",
+      "label": "Severe congestion",
+      "source": {
+        "summary": "sweep-results/cert-qualification-smoke/severe-congestion/summary.json",
+        "effective_configs": {
+          "adopted": "sweep-results/cert-qualification-smoke/severe-congestion/adopted.config.json",
+          "qualify-at-cert": "sweep-results/cert-qualification-smoke/severe-congestion/qualify-at-cert.config.json"
+        }
+      },
+      "paired_seeds": 10,
+      "exactly_equal_all_scalars": {
+        "qualify-at-cert-minus-adopted": 10
+      },
+      "metric_groups": [
+        {
+          "id": "absolute",
+          "label": "Absolute retained value and submitted demand",
+          "metrics": [
+            {
+              "key": "value.retainedLovelace",
+              "label": "Overall retained value",
+              "unit": "G lovelace",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "adopted": 420.9007465109,
+                "qualify-at-cert": 420.9007465109
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "value.standard.retainedLovelace",
+              "label": "Standard-lane retained value",
+              "unit": "G lovelace",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "adopted": 403.35842286340005,
+                "qualify-at-cert": 403.35842286340005
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "value.priority.retainedLovelace",
+              "label": "Priority-lane retained value",
+              "unit": "G lovelace",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "adopted": 17.5423236475,
+                "qualify-at-cert": 17.5423236475
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "value.urgent.retainedLovelace",
+              "label": "Urgent-class retained value",
+              "unit": "G lovelace",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "adopted": 3.2093139354,
+                "qualify-at-cert": 3.2093139354
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "units.total",
+              "label": "Observed submitted demand",
+              "unit": "units",
+              "digits": 1,
+              "preference": null,
+              "arm_means": {
+                "adopted": 257230.0,
+                "qualify-at-cert": 257230.0
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "inclusion.standard.submitted",
+              "label": "Standard-lane submissions",
+              "unit": "transactions",
+              "digits": 1,
+              "preference": null,
+              "arm_means": {
+                "adopted": 250115.7,
+                "qualify-at-cert": 250115.7
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "inclusion.priority.submitted",
+              "label": "Priority-lane submissions",
+              "unit": "transactions",
+              "digits": 1,
+              "preference": null,
+              "arm_means": {
+                "adopted": 7114.3,
+                "qualify-at-cert": 7114.3
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "inclusion.urgent.submitted",
+              "label": "Urgent-class submissions",
+              "unit": "transactions",
+              "digits": 1,
+              "preference": null,
+              "arm_means": {
+                "adopted": 3421.0,
+                "qualify-at-cert": 3421.0
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": "conditional",
+          "label": "Conditional retained-value and service ratios",
+          "metrics": [
+            {
+              "key": "value.retainedRatio",
+              "label": "Overall retained-value ratio",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "adopted": 93.55742881371944,
+                "qualify-at-cert": 93.55742881371944
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "value.standard.retainedRatio",
+              "label": "Standard-lane retained-value ratio",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "adopted": 94.40129443454026,
+                "qualify-at-cert": 94.40129443454026
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "value.priority.retainedRatio",
+              "label": "Priority-lane retained-value ratio",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "adopted": 77.55851010663886,
+                "qualify-at-cert": 77.55851010663886
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "value.urgent.retainedRatio",
+              "label": "Urgent-class retained-value ratio",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "adopted": 50.66626245155672,
+                "qualify-at-cert": 50.66626245155672
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "inclusion.standard.serviceRate",
+              "label": "Standard-lane service rate",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "adopted": 99.17191011977609,
+                "qualify-at-cert": 99.17191011977609
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "inclusion.priority.serviceRate",
+              "label": "Priority-lane service rate",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "adopted": 98.69128073522776,
+                "qualify-at-cert": 98.69128073522776
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "inclusion.urgent.serviceRate",
+              "label": "Urgent-class service rate",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "adopted": 98.62124525116734,
+                "qualify-at-cert": 98.62124525116734
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": "latency",
+          "label": "Lane and urgent-class latency",
+          "metrics": [
+            {
+              "key": "latency.standard.meanBlocks",
+              "label": "Standard-lane mean wait",
+              "unit": "blocks",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "adopted": 2.953884021915065,
+                "qualify-at-cert": 2.953884021915065
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "latency.standard.p95Blocks",
+              "label": "Standard-lane p95 wait",
+              "unit": "blocks",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "adopted": 5.7,
+                "qualify-at-cert": 5.7
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "latency.priority.meanBlocks",
+              "label": "Priority-lane mean wait",
+              "unit": "blocks",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "adopted": 2.1265980021466064,
+                "qualify-at-cert": 2.1265980021466064
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "latency.priority.p95Blocks",
+              "label": "Priority-lane p95 wait",
+              "unit": "blocks",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "adopted": 3.3,
+                "qualify-at-cert": 3.3
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "latency.urgent.meanBlocks",
+              "label": "Urgent-class mean wait",
+              "unit": "blocks",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "adopted": 2.5259459417957877,
+                "qualify-at-cert": 2.5259459417957877
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "latency.urgent.p95Blocks",
+              "label": "Urgent-class p95 wait",
+              "unit": "blocks",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "adopted": 4.9,
+                "qualify-at-cert": 4.9
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": "throughput-retries",
+          "label": "Throughput, capacity, and retries",
+          "metrics": [
+            {
+              "key": "throughput.txPerSlot",
+              "label": "Throughput",
+              "unit": "tx/slot",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "adopted": 127.53115,
+                "qualify-at-cert": 127.53115
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "throughput.ebUtilization",
+              "label": "EB utilisation",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": null,
+              "arm_means": {
+                "adopted": 48.18803790467158,
+                "qualify-at-cert": 48.18803790467158
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "load.amplification",
+              "label": "Retry load amplification",
+              "unit": "attempts/unit",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "adopted": 1.0423938393337568,
+                "qualify-at-cert": 1.0423938393337568
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": "oscillation",
+          "label": "Combined-lane price oscillation",
+          "metrics": [
+            {
+              "key": "price.oscillationReversalCount",
+              "label": "Oscillation reversals",
+              "unit": "reversals",
+              "digits": 2,
+              "preference": "lower",
+              "arm_means": {
+                "adopted": 1.4,
+                "qualify-at-cert": 1.4
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "price.oscillationCycleCount",
+              "label": "Oscillation cycles",
+              "unit": "cycles",
+              "digits": 2,
+              "preference": "lower",
+              "arm_means": {
+                "adopted": 0.6,
+                "qualify-at-cert": 0.6
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "price.oscillationExcessTravel",
+              "label": "Oscillation excess log travel",
+              "unit": "log coefficient",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "adopted": 0.4627287810346002,
+                "qualify-at-cert": 0.4627287810346002
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "price.oscillationMaxAmplitude",
+              "label": "Maximum oscillation amplitude",
+              "unit": "coefficient",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "adopted": 0.5931710102680572,
+                "qualify-at-cert": 0.5931710102680572
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "price.settledCoefficientRange",
+              "label": "Settled coefficient range",
+              "unit": "coefficient",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "adopted": 0.065126301851306,
+                "qualify-at-cert": 0.065126301851306
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "load": "eb-capacity-stress",
+      "label": "EB-capacity stress",
+      "source": {
+        "summary": "sweep-results/cert-qualification-smoke/eb-capacity-stress/summary.json",
+        "effective_configs": {
+          "adopted": "sweep-results/cert-qualification-smoke/eb-capacity-stress/adopted.config.json",
+          "qualify-at-cert": "sweep-results/cert-qualification-smoke/eb-capacity-stress/qualify-at-cert.config.json"
+        }
+      },
+      "paired_seeds": 10,
+      "exactly_equal_all_scalars": {
+        "qualify-at-cert-minus-adopted": 10
+      },
+      "metric_groups": [
+        {
+          "id": "absolute",
+          "label": "Absolute retained value and submitted demand",
+          "metrics": [
+            {
+              "key": "value.retainedLovelace",
+              "label": "Overall retained value",
+              "unit": "G lovelace",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "adopted": 576.3295848305,
+                "qualify-at-cert": 576.3295848305
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "value.standard.retainedLovelace",
+              "label": "Standard-lane retained value",
+              "unit": "G lovelace",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "adopted": 552.7135124367001,
+                "qualify-at-cert": 552.7135124367001
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "value.priority.retainedLovelace",
+              "label": "Priority-lane retained value",
+              "unit": "G lovelace",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "adopted": 23.616072393800003,
+                "qualify-at-cert": 23.616072393800003
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "value.urgent.retainedLovelace",
+              "label": "Urgent-class retained value",
+              "unit": "G lovelace",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "adopted": 3.081231519,
+                "qualify-at-cert": 3.081231519
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "units.total",
+              "label": "Observed submitted demand",
+              "unit": "units",
+              "digits": 1,
+              "preference": null,
+              "arm_means": {
+                "adopted": 382172.5,
+                "qualify-at-cert": 382172.5
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "inclusion.standard.submitted",
+              "label": "Standard-lane submissions",
+              "unit": "transactions",
+              "digits": 1,
+              "preference": null,
+              "arm_means": {
+                "adopted": 371780.6,
+                "qualify-at-cert": 371780.6
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "inclusion.priority.submitted",
+              "label": "Priority-lane submissions",
+              "unit": "transactions",
+              "digits": 1,
+              "preference": null,
+              "arm_means": {
+                "adopted": 10391.9,
+                "qualify-at-cert": 10391.9
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "inclusion.urgent.submitted",
+              "label": "Urgent-class submissions",
+              "unit": "transactions",
+              "digits": 1,
+              "preference": null,
+              "arm_means": {
+                "adopted": 4994.5,
+                "qualify-at-cert": 4994.5
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": "conditional",
+          "label": "Conditional retained-value and service ratios",
+          "metrics": [
+            {
+              "key": "value.retainedRatio",
+              "label": "Overall retained-value ratio",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "adopted": 85.87131097000221,
+                "qualify-at-cert": 85.87131097000221
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "value.standard.retainedRatio",
+              "label": "Standard-lane retained-value ratio",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "adopted": 86.57465948544925,
+                "qualify-at-cert": 86.57465948544925
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "value.priority.retainedRatio",
+              "label": "Priority-lane retained-value ratio",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "adopted": 72.0648207999946,
+                "qualify-at-cert": 72.0648207999946
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "value.urgent.retainedRatio",
+              "label": "Urgent-class retained-value ratio",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "adopted": 33.01236822166905,
+                "qualify-at-cert": 33.01236822166905
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "inclusion.standard.serviceRate",
+              "label": "Standard-lane service rate",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "adopted": 93.73168993380725,
+                "qualify-at-cert": 93.73168993380725
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "inclusion.priority.serviceRate",
+              "label": "Priority-lane service rate",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "adopted": 98.30789387815396,
+                "qualify-at-cert": 98.30789387815396
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "inclusion.urgent.serviceRate",
+              "label": "Urgent-class service rate",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "adopted": 76.8714313755958,
+                "qualify-at-cert": 76.8714313755958
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": "latency",
+          "label": "Lane and urgent-class latency",
+          "metrics": [
+            {
+              "key": "latency.standard.meanBlocks",
+              "label": "Standard-lane mean wait",
+              "unit": "blocks",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "adopted": 4.717485908053385,
+                "qualify-at-cert": 4.717485908053385
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "latency.standard.p95Blocks",
+              "label": "Standard-lane p95 wait",
+              "unit": "blocks",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "adopted": 11.0,
+                "qualify-at-cert": 11.0
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "latency.priority.meanBlocks",
+              "label": "Priority-lane mean wait",
+              "unit": "blocks",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "adopted": 2.996277535121994,
+                "qualify-at-cert": 2.996277535121994
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "latency.priority.p95Blocks",
+              "label": "Priority-lane p95 wait",
+              "unit": "blocks",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "adopted": 6.1,
+                "qualify-at-cert": 6.1
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "latency.urgent.meanBlocks",
+              "label": "Urgent-class mean wait",
+              "unit": "blocks",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "adopted": 3.4579483824499726,
+                "qualify-at-cert": 3.4579483824499726
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "latency.urgent.p95Blocks",
+              "label": "Urgent-class p95 wait",
+              "unit": "blocks",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "adopted": 7.5,
+                "qualify-at-cert": 7.5
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": "throughput-retries",
+          "label": "Throughput, capacity, and retries",
+          "metrics": [
+            {
+              "key": "throughput.txPerSlot",
+              "label": "Throughput",
+              "unit": "tx/slot",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "adopted": 179.36185,
+                "qualify-at-cert": 179.36185
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "throughput.ebUtilization",
+              "label": "EB utilisation",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": null,
+              "arm_means": {
+                "adopted": 68.51605131746858,
+                "qualify-at-cert": 68.51605131746858
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "load.amplification",
+              "label": "Retry load amplification",
+              "unit": "attempts/unit",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "adopted": 2.0180340502774206,
+                "qualify-at-cert": 2.0180340502774206
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": "oscillation",
+          "label": "Combined-lane price oscillation",
+          "metrics": [
+            {
+              "key": "price.oscillationReversalCount",
+              "label": "Oscillation reversals",
+              "unit": "reversals",
+              "digits": 2,
+              "preference": "lower",
+              "arm_means": {
+                "adopted": 5.8,
+                "qualify-at-cert": 5.8
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "price.oscillationCycleCount",
+              "label": "Oscillation cycles",
+              "unit": "cycles",
+              "digits": 2,
+              "preference": "lower",
+              "arm_means": {
+                "adopted": 2.6,
+                "qualify-at-cert": 2.6
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "price.oscillationExcessTravel",
+              "label": "Oscillation excess log travel",
+              "unit": "log coefficient",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "adopted": 1.6081143129242943,
+                "qualify-at-cert": 1.6081143129242943
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "price.oscillationMaxAmplitude",
+              "label": "Maximum oscillation amplitude",
+              "unit": "coefficient",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "adopted": 1.2452682424703378,
+                "qualify-at-cert": 1.2452682424703378
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "price.settledCoefficientRange",
+              "label": "Settled coefficient range",
+              "unit": "coefficient",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "adopted": 0.22411709975887223,
+                "qualify-at-cert": 0.22411709975887223
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "load": "launch-day",
+      "label": "Launch day",
+      "source": {
+        "summary": "sweep-results/cert-qualification-smoke/launch-day/summary.json",
+        "effective_configs": {
+          "adopted": "sweep-results/cert-qualification-smoke/launch-day/adopted.config.json",
+          "qualify-at-cert": "sweep-results/cert-qualification-smoke/launch-day/qualify-at-cert.config.json"
+        }
+      },
+      "paired_seeds": 10,
+      "exactly_equal_all_scalars": {
+        "qualify-at-cert-minus-adopted": 10
+      },
+      "metric_groups": [
+        {
+          "id": "absolute",
+          "label": "Absolute retained value and submitted demand",
+          "metrics": [
+            {
+              "key": "value.retainedLovelace",
+              "label": "Overall retained value",
+              "unit": "G lovelace",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "adopted": 864.3500198831001,
+                "qualify-at-cert": 864.3500198831001
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "value.standard.retainedLovelace",
+              "label": "Standard-lane retained value",
+              "unit": "G lovelace",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "adopted": 841.7202592462002,
+                "qualify-at-cert": 841.7202592462002
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "value.priority.retainedLovelace",
+              "label": "Priority-lane retained value",
+              "unit": "G lovelace",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "adopted": 22.629760636900002,
+                "qualify-at-cert": 22.629760636900002
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "units.total",
+              "label": "Observed submitted demand",
+              "unit": "units",
+              "digits": 1,
+              "preference": null,
+              "arm_means": {
+                "adopted": 643408.8,
+                "qualify-at-cert": 643408.8
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "inclusion.standard.submitted",
+              "label": "Standard-lane submissions",
+              "unit": "transactions",
+              "digits": 1,
+              "preference": null,
+              "arm_means": {
+                "adopted": 631563.3,
+                "qualify-at-cert": 631563.3
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "inclusion.priority.submitted",
+              "label": "Priority-lane submissions",
+              "unit": "transactions",
+              "digits": 1,
+              "preference": null,
+              "arm_means": {
+                "adopted": 11845.5,
+                "qualify-at-cert": 11845.5
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": "conditional",
+          "label": "Conditional retained-value and service ratios",
+          "metrics": [
+            {
+              "key": "value.retainedRatio",
+              "label": "Overall retained-value ratio",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "adopted": 73.10434678665334,
+                "qualify-at-cert": 73.10434678665334
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "value.standard.retainedRatio",
+              "label": "Standard-lane retained-value ratio",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "adopted": 73.87051850910925,
+                "qualify-at-cert": 73.87051850910925
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "value.priority.retainedRatio",
+              "label": "Priority-lane retained-value ratio",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "adopted": 52.608976260907525,
+                "qualify-at-cert": 52.608976260907525
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "inclusion.standard.serviceRate",
+              "label": "Standard-lane service rate",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "adopted": 82.05258557340204,
+                "qualify-at-cert": 82.05258557340204
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "inclusion.priority.serviceRate",
+              "label": "Priority-lane service rate",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "adopted": 81.85621360610904,
+                "qualify-at-cert": 81.85621360610904
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": "latency",
+          "label": "Lane and urgent-class latency",
+          "metrics": [
+            {
+              "key": "latency.standard.meanBlocks",
+              "label": "Standard-lane mean wait",
+              "unit": "blocks",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "adopted": 4.760604673425806,
+                "qualify-at-cert": 4.760604673425806
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "latency.standard.p95Blocks",
+              "label": "Standard-lane p95 wait",
+              "unit": "blocks",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "adopted": 10.5,
+                "qualify-at-cert": 10.5
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "latency.priority.meanBlocks",
+              "label": "Priority-lane mean wait",
+              "unit": "blocks",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "adopted": 2.8996716037221235,
+                "qualify-at-cert": 2.8996716037221235
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "latency.priority.p95Blocks",
+              "label": "Priority-lane p95 wait",
+              "unit": "blocks",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "adopted": 6.0,
+                "qualify-at-cert": 6.0
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": "throughput-retries",
+          "label": "Throughput, capacity, and retries",
+          "metrics": [
+            {
+              "key": "throughput.txPerSlot",
+              "label": "Throughput",
+              "unit": "tx/slot",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "adopted": 263.6572,
+                "qualify-at-cert": 263.6572
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "throughput.ebUtilization",
+              "label": "EB utilisation",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": null,
+              "arm_means": {
+                "adopted": 89.15202963038382,
+                "qualify-at-cert": 89.15202963038382
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "load.amplification",
+              "label": "Retry load amplification",
+              "unit": "attempts/unit",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "adopted": 2.3076477662640213,
+                "qualify-at-cert": 2.3076477662640213
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": "oscillation",
+          "label": "Combined-lane price oscillation",
+          "metrics": [
+            {
+              "key": "price.oscillationReversalCount",
+              "label": "Oscillation reversals",
+              "unit": "reversals",
+              "digits": 2,
+              "preference": "lower",
+              "arm_means": {
+                "adopted": 1.5,
+                "qualify-at-cert": 1.5
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "price.oscillationCycleCount",
+              "label": "Oscillation cycles",
+              "unit": "cycles",
+              "digits": 2,
+              "preference": "lower",
+              "arm_means": {
+                "adopted": 0.7,
+                "qualify-at-cert": 0.7
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "price.oscillationExcessTravel",
+              "label": "Oscillation excess log travel",
+              "unit": "log coefficient",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "adopted": 0.05910398269003383,
+                "qualify-at-cert": 0.05910398269003383
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "price.oscillationMaxAmplitude",
+              "label": "Maximum oscillation amplitude",
+              "unit": "coefficient",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "adopted": 2.6307849009807747,
+                "qualify-at-cert": 2.6307849009807747
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "price.settledCoefficientRange",
+              "label": "Settled coefficient range",
+              "unit": "coefficient",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "adopted": 0.3381158837066509,
+                "qualify-at-cert": 0.3381158837066509
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "load": "trickle-0p1",
+      "label": "Trickle 0.1 tx/slot",
+      "source": {
+        "summary": "sweep-results/cert-qualification-smoke/trickle-0p1/summary.json",
+        "effective_configs": {
+          "adopted": "sweep-results/cert-qualification-smoke/trickle-0p1/adopted.config.json",
+          "qualify-at-cert": "sweep-results/cert-qualification-smoke/trickle-0p1/qualify-at-cert.config.json"
+        }
+      },
+      "paired_seeds": 10,
+      "exactly_equal_all_scalars": {
+        "qualify-at-cert-minus-adopted": 3
+      },
+      "metric_groups": [
+        {
+          "id": "absolute",
+          "label": "Absolute retained value and submitted demand",
+          "metrics": [
+            {
+              "key": "value.retainedLovelace",
+              "label": "Overall retained value",
+              "unit": "G lovelace",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "adopted": 0.3373856071,
+                "qualify-at-cert": 0.3375208086
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.00013520149999999287,
+                  "ci95_low": -0.0002308668554565872,
+                  "ci95_high": 0.0005012698554565729,
+                  "candidate_higher": 3,
+                  "reference_higher": 2,
+                  "ties": 5
+                }
+              }
+            },
+            {
+              "key": "value.standard.retainedLovelace",
+              "label": "Standard-lane retained value",
+              "unit": "G lovelace",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "adopted": 0.0294199826,
+                "qualify-at-cert": 0.0296231006
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0002031180000000004,
+                  "ci95_low": -0.00011437335248651683,
+                  "ci95_high": 0.0005206093524865176,
+                  "candidate_higher": 4,
+                  "reference_higher": 1,
+                  "ties": 5
+                }
+              }
+            },
+            {
+              "key": "value.priority.retainedLovelace",
+              "label": "Priority-lane retained value",
+              "unit": "G lovelace",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "adopted": 0.30796562450000003,
+                "qualify-at-cert": 0.307897708
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": -6.791649999999261e-05,
+                  "ci95_low": -0.00018293107866336011,
+                  "ci95_high": 4.709807866337489e-05,
+                  "candidate_higher": 1,
+                  "reference_higher": 4,
+                  "ties": 5
+                }
+              }
+            },
+            {
+              "key": "value.urgent.retainedLovelace",
+              "label": "Urgent-class retained value",
+              "unit": "G lovelace",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "adopted": 0.004373793,
+                "qualify-at-cert": 0.004373793
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "units.total",
+              "label": "Observed submitted demand",
+              "unit": "units",
+              "digits": 1,
+              "preference": null,
+              "arm_means": {
+                "adopted": 196.2,
+                "qualify-at-cert": 196.2
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "inclusion.standard.submitted",
+              "label": "Standard-lane submissions",
+              "unit": "transactions",
+              "digits": 1,
+              "preference": null,
+              "arm_means": {
+                "adopted": 19.0,
+                "qualify-at-cert": 19.0
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "inclusion.priority.submitted",
+              "label": "Priority-lane submissions",
+              "unit": "transactions",
+              "digits": 1,
+              "preference": null,
+              "arm_means": {
+                "adopted": 177.2,
+                "qualify-at-cert": 177.2
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "inclusion.urgent.submitted",
+              "label": "Urgent-class submissions",
+              "unit": "transactions",
+              "digits": 1,
+              "preference": null,
+              "arm_means": {
+                "adopted": 3.2,
+                "qualify-at-cert": 3.2
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": "conditional",
+          "label": "Conditional retained-value and service ratios",
+          "metrics": [
+            {
+              "key": "value.retainedRatio",
+              "label": "Overall retained-value ratio",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "adopted": 96.47140813818685,
+                "qualify-at-cert": 96.50869402833341
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0372858901465591,
+                  "ci95_low": -0.06209483824104904,
+                  "ci95_high": 0.13666661853416723,
+                  "candidate_higher": 3,
+                  "reference_higher": 2,
+                  "ties": 5
+                }
+              }
+            },
+            {
+              "key": "value.standard.retainedRatio",
+              "label": "Standard-lane retained-value ratio",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "adopted": 88.61032287708251,
+                "qualify-at-cert": 89.07193671159924
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.4616138345167101,
+                  "ci95_low": -0.3928909622934621,
+                  "ci95_high": 1.3161186313268822,
+                  "candidate_higher": 4,
+                  "reference_higher": 1,
+                  "ties": 5
+                }
+              }
+            },
+            {
+              "key": "value.priority.retainedRatio",
+              "label": "Priority-lane retained-value ratio",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "adopted": 97.22155231293063,
+                "qualify-at-cert": 97.2020010387372
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": -0.01955127419343512,
+                  "ci95_low": -0.051939367985729984,
+                  "ci95_high": 0.01283681959885975,
+                  "candidate_higher": 1,
+                  "reference_higher": 4,
+                  "ties": 5
+                }
+              }
+            },
+            {
+              "key": "value.urgent.retainedRatio",
+              "label": "Urgent-class retained-value ratio",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "adopted": 74.08179089264432,
+                "qualify-at-cert": 74.08179089264432
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "inclusion.standard.serviceRate",
+              "label": "Standard-lane service rate",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "adopted": 100.0,
+                "qualify-at-cert": 100.0
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "inclusion.priority.serviceRate",
+              "label": "Priority-lane service rate",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "adopted": 99.40302870204428,
+                "qualify-at-cert": 99.40302870204428
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "inclusion.urgent.serviceRate",
+              "label": "Urgent-class service rate",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "adopted": 100.0,
+                "qualify-at-cert": 100.0
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": "latency",
+          "label": "Lane and urgent-class latency",
+          "metrics": [
+            {
+              "key": "latency.standard.meanBlocks",
+              "label": "Standard-lane mean wait",
+              "unit": "blocks",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "adopted": 7.442413609782031,
+                "qualify-at-cert": 7.1036351645748095
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": -0.338778445207221,
+                  "ci95_low": -1.0053776641984562,
+                  "ci95_high": 0.3278207737840142,
+                  "candidate_higher": 1,
+                  "reference_higher": 3,
+                  "ties": 6
+                }
+              }
+            },
+            {
+              "key": "latency.standard.p95Blocks",
+              "label": "Standard-lane p95 wait",
+              "unit": "blocks",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "adopted": 11.8,
+                "qualify-at-cert": 11.3
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": -0.5,
+                  "ci95_low": -1.2726200877533538,
+                  "ci95_high": 0.27262008775335367,
+                  "candidate_higher": 1,
+                  "reference_higher": 3,
+                  "ties": 6
+                }
+              }
+            },
+            {
+              "key": "latency.priority.meanBlocks",
+              "label": "Priority-lane mean wait",
+              "unit": "blocks",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "adopted": 1.0202292500267034,
+                "qualify-at-cert": 1.0252088560070542
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.004979605980350854,
+                  "ci95_low": -0.004818994817099655,
+                  "ci95_high": 0.014778206777801364,
+                  "candidate_higher": 3,
+                  "reference_higher": 1,
+                  "ties": 6
+                }
+              }
+            },
+            {
+              "key": "latency.priority.p95Blocks",
+              "label": "Priority-lane p95 wait",
+              "unit": "blocks",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "adopted": 1.1,
+                "qualify-at-cert": 1.1
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "latency.urgent.meanBlocks",
+              "label": "Urgent-class mean wait",
+              "unit": "blocks",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "adopted": 1.0,
+                "qualify-at-cert": 1.0
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "latency.urgent.p95Blocks",
+              "label": "Urgent-class p95 wait",
+              "unit": "blocks",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "adopted": 1.0,
+                "qualify-at-cert": 1.0
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": "throughput-retries",
+          "label": "Throughput, capacity, and retries",
+          "metrics": [
+            {
+              "key": "throughput.txPerSlot",
+              "label": "Throughput",
+              "unit": "tx/slot",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "adopted": 0.09755,
+                "qualify-at-cert": 0.09755
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "throughput.ebUtilization",
+              "label": "EB utilisation",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": null,
+              "arm_means": {
+                "adopted": 0.15823291666666667,
+                "qualify-at-cert": 0.10829550000000002
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": -0.04993741666666667,
+                  "ci95_low": -0.1083023521608577,
+                  "ci95_high": 0.00842751882752437,
+                  "candidate_higher": 1,
+                  "reference_higher": 6,
+                  "ties": 3
+                }
+              }
+            },
+            {
+              "key": "load.amplification",
+              "label": "Retry load amplification",
+              "unit": "attempts/unit",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "adopted": 1.0,
+                "qualify-at-cert": 1.0
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": "oscillation",
+          "label": "Combined-lane price oscillation",
+          "metrics": [
+            {
+              "key": "price.oscillationReversalCount",
+              "label": "Oscillation reversals",
+              "unit": "reversals",
+              "digits": 2,
+              "preference": "lower",
+              "arm_means": {
+                "adopted": 0.0,
+                "qualify-at-cert": 0.0
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "price.oscillationCycleCount",
+              "label": "Oscillation cycles",
+              "unit": "cycles",
+              "digits": 2,
+              "preference": "lower",
+              "arm_means": {
+                "adopted": 0.0,
+                "qualify-at-cert": 0.0
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "price.oscillationExcessTravel",
+              "label": "Oscillation excess log travel",
+              "unit": "log coefficient",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "adopted": 0.0,
+                "qualify-at-cert": 0.0
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "price.oscillationMaxAmplitude",
+              "label": "Maximum oscillation amplitude",
+              "unit": "coefficient",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "adopted": 0.0,
+                "qualify-at-cert": 0.0
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            },
+            {
+              "key": "price.settledCoefficientRange",
+              "label": "Settled coefficient range",
+              "unit": "coefficient",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "adopted": 0.014834713292650448,
+                "qualify-at-cert": 0.014754225247444408
+              },
+              "contrasts": {
+                "qualify-at-cert-minus-adopted": {
+                  "candidate": "qualify-at-cert",
+                  "reference": "adopted",
+                  "primary": true,
+                  "mean": -8.04880452060397e-05,
+                  "ci95_low": -0.00026255200346210147,
+                  "ci95_high": 0.00010157591305002209,
+                  "candidate_higher": 0,
+                  "reference_higher": 1,
+                  "ties": 9
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "notes": [
+    "Both arms run the adopted configuration. The single difference is where the EB threshold-or-age qualification binds: at announcement with the announcing RB's count (historical), or at certificate inclusion with the certifying RB counted (specified). Under the historical policy the earliest below-threshold certificate lands one RB later than the specified rule allows, so the historical arm is expected to be conservative for trickle standard latency.",
+    "The age escape binds at trickle load, so trickle-0p1 is the decision-facing load. Where the byte threshold gates announcements, the arms coincide.",
+    "Independent streams align fresh-demand samples and Ranking Block opportunities within a seed; retry jitter remains mechanism-dependent.",
+    "Launch-day urgent-class slices are omitted because that profile changes the urgency-rate multiplier over time; priority-lane metrics remain usable."
+  ]
+}

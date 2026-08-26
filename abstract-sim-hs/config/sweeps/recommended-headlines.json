@@ -1,0 +1,18 @@
+{
+  "description": "Refresh of the CIP headline comparisons under the adopted recommended construction: flat fee versus the mechanism with the 0.75 standard target, the 10-block processed-block standard window, and the age-escape reset at certification. The window length and the reset rule were selected by the standard-window screen (seeds 0-99), bounded by the announcement-semantics smoke (seeds 440-449), and confirmed on disjoint seeds (700-799). The runner applies each of the five headline load profiles to this manifest, using ten paired seeds and 2,000 slots without retaining event traces.",
+  "seeds": 10,
+  "slots": 2000,
+  "summaryOnly": true,
+  "randomness": "independent-streams",
+  "out": "sweep-results/recommended-headlines",
+  "variants": [
+    {
+      "name": "flat-fee",
+      "config": "config/variants/flat-fee.json"
+    },
+    {
+      "name": "recommended",
+      "config": "config/variants/standard-window-confirm/block-window-10-cert-reset.json"
+    }
+  ]
+}

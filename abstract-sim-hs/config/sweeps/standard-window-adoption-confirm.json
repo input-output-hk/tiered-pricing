@@ -1,0 +1,23 @@
+{
+  "description": "Confirmation of the standard-window selection under the adoption criteria, on fresh seeds. The candidate is the exact configuration the CIP will specify: the standard controller's utilisation window taken over the 10 most recent processed-block summaries (announcements excluded), and the EB age-escape count reset at certified-EB application rather than at announcement. It is compared against the historical announcement-diluted 20-entry window with announcement-time reset, and against flat fee. Seeds 700-799 are disjoint from the screen (0-99) and from every other selection experiment. Adoption requires the enforceable configuration to match the historical behaviour and to keep the mechanism's margin over flat fee; it does not require superiority over the historical behaviour, so superiority is reported as an observation and is not gated. Pre-declared pass criteria, all of which must hold (conjunctive gating, so no multiplicity adjustment), evaluated mechanically by scripts/compare_standard_window_adoption_confirm.py: M1 candidate-minus-historical overall retained-value ratio at severe congestion, EB-capacity stress, and launch day has a 95% CI lower bound above -0.05 percentage points; M2 candidate-minus-historical trickle standard-lane retained-value ratio has a 95% CI lower bound above -1.0 percentage points; M3 candidate-minus-flat-fee overall retained value at severe congestion, EB-capacity stress, and launch day has a 95% CI above zero. Declared secondaries, reported and never gated: the launch-day candidate-minus-historical overall retained value with its 95% CI and seed-pair win count, and the low and mid-load deltas with exact-tie counts. Single attempt: the criteria were fixed before any seed in this range was run, and the outcome is reported regardless of result. Mid-load bit-identity to historical is expected and reported but not gated.",
+  "seedStart": 700,
+  "seeds": 100,
+  "slots": 2000,
+  "summaryOnly": true,
+  "randomness": "independent-streams",
+  "out": "sweep-results/standard-window-adoption-confirm/severe-congestion",
+  "variants": [
+    {
+      "name": "historical",
+      "config": "config/variants/standard-target-screen/s75-u50.json"
+    },
+    {
+      "name": "flat-fee",
+      "config": "config/variants/flat-fee.json"
+    },
+    {
+      "name": "block-window-10-cert-reset",
+      "config": "config/variants/standard-window-confirm/block-window-10-cert-reset.json"
+    }
+  ]
+}

@@ -1,5 +1,5 @@
 ---
-CIP: ?
+CIP: "?"
 Title: Transaction Urgency Signalling On Linear-Leios
 Category: Consensus
 Status: Proposed
@@ -9,9 +9,10 @@ Authors:
   - Nicolas Henin <nicolas.henin@iohk.io>
   - Giorgos Panagiotakos <giorgos.panagiotakos@iohk.io>
 Implementors: []
-Discussions: []
-Solution-To:
-  - CPS-0031
+Discussions:
+  - CPS-0031-PR: https://github.com/cardano-foundation/CIPs/pull/1194
+Solution To:
+  - CPS-0031?: https://github.com/cardano-foundation/CIPs/pull/1194
 Created: 2026-06-24
 License: CC-BY-4.0
 ---
@@ -20,7 +21,7 @@ License: CC-BY-4.0
 <summary><strong>Table of contents</strong></summary>
 
 - [1. Abstract](#abstract)
-- [2. Motivation: why is this CIP necessary?](#motivation-why-is-this-cip-necessary)
+- [2. Motivation: Why is this CIP necessary?](#motivation-why-is-this-cip-necessary)
 - [3. Specification](#specification)
   - [3.1 The recommended construction](#the-recommended-construction)
   - [3.2 Controller updates and signals](#controller-updates-and-signals)
@@ -55,7 +56,7 @@ License: CC-BY-4.0
     - [3.7.1 Producer influence over the quotes](#producer-influence-over-the-quotes)
     - [3.7.1 Giorgos](#giorgos)
     - [3.7.2 Nicolas](#nicolas)
-- [4. Rationale: how does this CIP achieve its goals?](#rationale-how-does-this-cip-achieve-its-goals)
+- [4. Rationale: How does this CIP achieve its goals?](#rationale-how-does-this-cip-achieve-its-goals)
   - [4.1 How this CIP addresses CPS-0031](#how-this-cip-addresses-cps-0031)
     - [4.1.1 Goal 1: reduce value destroyed by avoidable delay](#goal-1-reduce-value-destroyed-by-avoidable-delay)
     - [4.1.2 Goal 2: permissionless access](#goal-2-permissionless-access)
@@ -89,7 +90,7 @@ We propose two lanes by which a user can submit a transaction to a node: urgent 
 
 The ledger enforces the urgency signalling rule: every transaction in a valid Ranking Block must carry a fee that covers the urgent quote for that block. In simulation under severe congestion, the mechanism preserves more urgent-class transaction value than linear-Leios with today's flat fee. Retained value means the modelled gross transaction value that remains at inclusion, before fees. Urgent-class retained value improved across most simulated loads. At light load, the mechanism slightly reduces overall retained value, because transactions on the standard path wait longer while Endorser Blocks fill. The Rationale gives exact figures.
 
-## Motivation: why is this CIP necessary?
+## Motivation: Why is this CIP necessary?
 
 Some transactions lose value when delayed, but users currently have no protocol-level way to signal that urgency.
 
@@ -726,7 +727,7 @@ controller reads it.
 
 The fee change address specifies where change is returned when a transaction specifies a `txfee` that is
 larger than necessary. This is the `feeChangeAccount` field of
-[CIP-0192](https://github.com/cardano-foundation/CIPs/tree/master/CIP-0192), and its type is an
+[CIP-0192](https://github.com/cardano-foundation/CIPs/pull/1218), and its type is an
 **account address** in the sense of CIP-159. 
 Crediting an account leaves the UTxO set changes of a transaction predictable at
 construction time, however, the resulting account balance may not be.
@@ -972,8 +973,6 @@ Block producers must account for fee change over time under dynamic fees. Consid
 
 The producer-side rule follows from this: a prudent producer fills an EB only with transactions whose max fee covers the quote one price update ahead. One update can fire between selection and the certification check, and an EB filled this way cannot fail fee validation when certified. The rule is EB-specific: RB inclusion is immediate, so RB selection needs only the current quote. The "Revalidation and stale fees" section describes the admission-side counterpart of this rule.
 
-<!-- PORTABILITY: the fee change CIP link below points at a fork branch; repoint at its CIPs-repo PR (or CIP number) once one exists -->
-
 Reminder:
 
 If lane $l$ has a controller:
@@ -992,7 +991,7 @@ For an urgent transaction:
 
 $$ \mathrm{maxFee} \ge \max\left( \mathrm{quote}_{\mathrm{standard}} \times \left(1+\mathrm{stepBound}_{\mathrm{standard}}\right), \mathrm{quote}_{\mathrm{urgent}} \times \left(1+\mathrm{stepBound}_{\mathrm{urgent}}\right) \right) $$
 
-These fee-cap rules mean the bare current quote is never sufficient: a user must submit with a buffer against quote movement. With the lane-specific $\mathrm{stepBound}$ values defined under the "Revalidation and stale fees" section, a lane's quote can rise to at most $\mathrm{quote} \times (1 + \mathrm{stepBound})^k$ over $k$ worst-case updates. The ledger itself demands no buffer at all: at inclusion, the posted maximum need only cover the quote at that moment. The one-step requirements are node policy: admission checks one worst-case step ahead of the quote at admission, and an EB producer repeats the same check against the quote at selection. Anything beyond that is the user's insurance against eviction while they wait. A transaction that queues through $k$ price updates keeps its place only while its posted maximum covers the current fee-cap quote. A user who expects to wait $k$ updates must therefore post enough to cover every applicable lane's quote after $k$ worst-case steps (for an urgent transaction, the larger of the two). At the recommended $D = 16$, the urgent-lane $\mathrm{stepBound}$ is $1/16$ (target $0.5$) and the standard-lane $\mathrm{stepBound}$ is $1/48$ (target $0.75$). A transaction that expects to wait four updates therefore posts roughly 27% above the current urgent quote, or roughly 8.6% above the current standard quote. An urgent transaction posts the larger of its two lane requirements. A buffer is palatable only with a refund of the difference between the posted fee and the actual quote charged at inclusion. [CIP-0192](https://github.com/cardano-foundation/CIPs/tree/master/CIP-0192) describes this refund mechanism.
+These fee-cap rules mean the bare current quote is never sufficient: a user must submit with a buffer against quote movement. With the lane-specific $\mathrm{stepBound}$ values defined under the "Revalidation and stale fees" section, a lane's quote can rise to at most $\mathrm{quote} \times (1 + \mathrm{stepBound})^k$ over $k$ worst-case updates. The ledger itself demands no buffer at all: at inclusion, the posted maximum need only cover the quote at that moment. The one-step requirements are node policy: admission checks one worst-case step ahead of the quote at admission, and an EB producer repeats the same check against the quote at selection. Anything beyond that is the user's insurance against eviction while they wait. A transaction that queues through $k$ price updates keeps its place only while its posted maximum covers the current fee-cap quote. A user who expects to wait $k$ updates must therefore post enough to cover every applicable lane's quote after $k$ worst-case steps (for an urgent transaction, the larger of the two). At the recommended $D = 16$, the urgent-lane $\mathrm{stepBound}$ is $1/16$ (target $0.5$) and the standard-lane $\mathrm{stepBound}$ is $1/48$ (target $0.75$). A transaction that expects to wait four updates therefore posts roughly 27% above the current urgent quote, or roughly 8.6% above the current standard quote. An urgent transaction posts the larger of its two lane requirements. A buffer is palatable only with a refund of the difference between the posted fee and the actual quote charged at inclusion. [CIP-0192](https://github.com/cardano-foundation/CIPs/pull/1218) describes this refund mechanism.
 
 The urgent premium is scoped to the Ranking Block (rb-only). An urgent transaction included via an Endorser Block instead pays the standard quote at inclusion time, and the refund returns everything above it. The premium buys the reserved lane. A user whose transaction does not receive Ranking Block inclusion does not pay for it.
 
@@ -1242,7 +1241,7 @@ quote or an inflated urgent one is exactly the analysis the audit should carry o
 
 
 
-## Rationale: how does this CIP achieve its goals?
+## Rationale: How does this CIP achieve its goals?
 
 This CIP specifies a design, reinforces the design choice with experimental evidence, validates the design with formal specifications and proofs, and demonstrates the mechanism's behaviour in a working simulator.
 
@@ -1560,9 +1559,7 @@ Transaction urgency signalling changes the rules by which transactions are admit
 
 A hard-fork event enables the mechanism, either as part of the linear-Leios hard fork or in a later hard fork. Incompatible changes require a successor CIP and a subsequent protocol version.
 
-<!-- PORTABILITY: the fee change CIP link below points at a fork branch; repoint at its CIPs-repo PR (or CIP number) once one exists -->
-
-This CIP also depends on [the fee change CIP](https://github.com/cardano-foundation/CIPs/tree/master/CIP-0192).
+This CIP also depends on [the fee change CIP](https://github.com/cardano-foundation/CIPs/pull/1218).
 
 ### Relationship to CIP-183: conflict-based fee priority
 

@@ -905,9 +905,13 @@ ledger invariant rather than a controller recommendation: settlement sends
 `minfeeAt(adjusted_tier_coeff) − minfee` to the treasury, which underflows if a coefficient ever falls
 below `F`. Floating-point arithmetic is not part of consensus.
 
-**NOTE: the state shape above is normative. What the Agda specification keeps abstract is the update
-function in step 4, instantiated from the `target`, `D` and window-length protocol parameters (see
-[New PParams](#new-pparams)) whose final calibration awaits further experimental data.**
+**NOTE: This section is normative: the state shape, the windowed utilisation computation, and the
+update rule of step 4. The inputs to the rule (`target`, `D`, and the window lengths) are protocol
+parameters ([New PParams](#new-pparams)). Their definitions are ledger rules, and governance sets
+their values. The values that this CIP recommends are rationale, not rules. The Agda specification
+keeps the update function abstract, and the rule given here is the required instantiation. The
+acceptance criterion for the formal specification ([Path to Active](#acceptance-criteria)) covers
+this instantiation.**
 
 The Agda ledger specification takes `u(t)` from the byte dimension alone rather than the
 maximum over all three, because its `ExUnits` is abstract and exposes only a comparison relation, so

@@ -930,7 +930,7 @@ different lengths and different sample kinds:
 
 We write `windowSize(t)` for whichever of the two applies to tier `t`. Larger values smooth a coefficient's
 trajectory at the cost of a slower response to changes in demand. A single shared parameter would not do:
-the recommended construction requires 5 for urgent and 20 for standard, and
+the recommended construction requires 5 for urgent and 10 for standard, and
 [Controller updates and signals](#controller-updates-and-signals) records that windows of 10–20 samples
 measurably reduce urgent retained value.
 

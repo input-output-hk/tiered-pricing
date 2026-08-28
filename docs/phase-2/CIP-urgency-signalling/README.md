@@ -349,7 +349,7 @@ The standard lane's relief is therefore temporal rather than economic, via the
 [age escape](#endorser-block-announcement-threshold), which bounds *latency* at one certificate per `K`
 Ranking Blocks but not queue *depth*.
 
-Under sustained standard demand exceeding what one Endorser Block per `K` blocks can clear the queue
+Under sustained standard demand exceeding what one Endorser Block per `K` blocks can clear, the queue
 grows without the price rising to shed it, so sizing `K` is a liveness question and not only a latency
 one.
 
@@ -382,7 +382,7 @@ arrives containing a certificate for the `heldEB` block, the `ebLedger` becomes 
 with only some minor additional block-level bookkeeping. For epoch boundary blocks, a full ledger state recomputation 
 for the incoming RB/EB must be performed. The function generating blocks from mempool content, `forgeBlock`, 
 returns a pair `(RB, Maybe EB)`. The `RB` is sent across the network to be added to nodes' chain tips, whereas 
-`EB` is sent across the network to be added to the nodes' mempools `heldEB` variable. 
+`EB` is sent across the network to be added to the nodes' mempools' `heldEB` variable. 
 
 #### Urgency Signaling Mempool Specifications
 
@@ -663,7 +663,7 @@ Only transactions that pay a sufficient fee for the urgent lane can enter Rankin
 
 #### Transaction representation
 
-The CDDL changes are as follows :
+The CDDL changes are as follows:
 
 ```
 tier_no    = 0 / 1          ; 0 = urgent, 1 = standard
@@ -730,7 +730,7 @@ larger than necessary. This is the `feeChangeAccount` field of
 [CIP-0192](https://github.com/cardano-foundation/CIPs/pull/1218), and its type is an
 **account address** in the sense of CIP-159. 
 Crediting an account leaves the UTxO set changes of a transaction predictable at
-construction time, however, the resulting account balance may not be.
+construction time; however, the resulting account balance may not be.
 
 The Agda ledger specification types this field as `Maybe RewardAddress` and credits a
 `feeRewards` map, an expedient to keep the Conway model compiling since Conway has no CIP-159 accounts.
@@ -777,7 +777,7 @@ though `tx` had specified `tx_tier = [standard, rawCoeff(standard)]`.
 Let `adjusted_tier_no` be `urgent` if `tx` was in an RB with a *transaction list*, 
 and `standard` if `tx` was in an EB. Let `adjusted_tier_coeff` be `effectiveTierCoeff(adjusted_tier_no)`. 
 The following are the key rule changes (to transaction application)
-having to do with processing the *fee payment* :
+having to do with processing the *fee payment*:
 
   1. updated min-fee constraint (enough to cover *targeted* tier) : `minfeeAt(tier_coeff) ≤ txFee`
   1. new min-fee constraint (enough to cover the tier the transaction is actually *charged*, which may differ 
@@ -790,7 +790,7 @@ having to do with processing the *fee payment* :
   1. `minfeeAt(adjusted_tier_coeff) - minfee` is sent to the treasury
 
 The following changes to transaction application ensure correct tier specification 
-with respect to `policyState` :
+with respect to `policyState`:
 
   1. `effectiveTierCoeff(tier_no)` — the coefficient derived from `diversityPolicy` as above, for the `tier_no` 
   specified in the `tx_tier` in the transaction body — is `≤ tier_coeff` in `tx_tier`. This is an
@@ -817,7 +817,7 @@ The block requires an additional field `ebCert : Maybe EBCert`, which is an endo
 and the block header body also must specify the block type (`EB` or `RB`). 
 
 A block can either contain a list of transactions or an `ebCert`. If a block is of `RB` type and contains a list of transactions, 
-it is processed similarly to a Praos block :
+it is processed similarly to a Praos block:
   - block-level checks are performed (including that `ebCert` is not included), 
   - the list of transactions is processed
   - after processing the transactions, additional 
@@ -825,7 +825,7 @@ it is processed similarly to a Praos block :
   is performed to modify the state variables used to 
 keep track of dynamic pricing.
 
-A block of `RB` type that contains an `ebCert` requires that :
+A block of `RB` type that contains an `ebCert` requires that:
   - block-level checks are performed (same as above),
   - the block-processing rule is called again on the `EB` block corresponding to the `ebCert`
 
@@ -912,7 +912,7 @@ function in step 4, instantiated from the `target`, `D` and window-length protoc
 The Agda ledger specification takes `u(t)` from the byte dimension alone rather than the
 maximum over all three, because its `ExUnits` is abstract and exposes only a comparison relation, so
 ratios across dimensions cannot be compared — this changes only the size of a price step, never whether a
-block is valid.*
+block is valid.
 
 #### New PParams
 
@@ -1505,7 +1505,7 @@ With the nested transactions [CIP-0118](https://github.com/cardano-foundation/CI
 is less than its `consumed` value. The funds
 that make up the difference can be directed to any user running a nested transaction aggregator. The aggregator 
 can then construct a complete transaction `tx'` containing `tx` directing the funds difference to the aggregator's
-address. This schema for paying an agreggator and thereby incentivising them to include your
+address. This schema for paying an aggregator and thereby incentivising them to include your
 incomplete transaction in the next block they produce is how tipping is expected to work.  
 
 The schema works regardless of which aggregator receives `tx`, but only the aggregator who successfully submits 

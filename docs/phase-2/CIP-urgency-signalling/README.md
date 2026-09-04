@@ -671,10 +671,16 @@ tier_no    = 0 / 1          ; 0 = urgent, 1 = standard
 tx_tier    = [tier_no]
 
 transaction_body = { ...
-  , ? 23 : tx_tier          ; claimed tier, defaults to standard if omitted
-  , ? 24 : account_address  ; feeChangeAccount, per CIP-0192
+  , ? x     : tx_tier          ; claimed tier, defaults to standard if omitted
+  , ? x + 1 : account_address  ; feeChangeAccount, per CIP-0192
   }
 ```
+
+`x` is the first free transaction-body key in the era this CIP is deployed into. It is deliberately not
+fixed here: this CIP does not name a target era, and the keys around it are being claimed concurrently —
+`account_address` is CIP-0159's type and CIP-0192 also adds a body field — so pinning a literal number
+now would collide. Whichever era adopts this must allocate `x` against the body-key registry at that
+point, and the two fields must be allocated together.
 
 A transaction body may optionally specify the `tier_no` which indicates whether it's an urgent or standard 
 transaction. It carries no coefficient: the amount charged is the ledger's own quote for the tier the 
@@ -835,6 +841,23 @@ having to do with processing the *fee payment*:
   it is registered, and goes to the treasury if it does not
   1. exactly `minfee` is sent to the fee pot
   1. `minfeeAt(adjusted_tier_coeff) - minfee` is sent to the treasury
+
+When phase-2 validation fails and collateral is collected instead of `txfee`, settlement follows the
+same shape and the fee change credit goes to the same place: `minfee` to the fee pot,
+`minfeeAt(adjusted_tier_coeff) - minfee` to the treasury, and the remainder of the collected collateral
+to the `feeChangeAccount` if the transaction names a registered one, or to the treasury if it does not.
+The alternative — sweeping the whole collateral into the fee pot, as pre-existing eras do — interacts
+badly with a maximum-fee `txfee`: collateral is `collateralPercentage × txfee`, so a user who posts
+headroom against quote movement would forfeit collateral proportional to a ceiling they were never
+charged. Settling both paths identically keeps the amount actually owed the same whichever way the
+transaction resolves, and confines the phase-2 penalty to the fee itself.
+
+Two consequences are worth stating rather than leaving implicit. This weakens collateral as a deterrent
+relative to today, since a failing script now forfeits the applicable quote rather than the whole
+posted collateral. And it diverges from
+[CIP-0192](https://github.com/cardano-foundation/CIPs/tree/master/CIP-0192), which states that
+collateral collection needs no change and that any overpayment goes to the fee pot; that CIP's fee
+change is a smaller amount, so the interaction with posted headroom does not arise there.
 
 The following changes to transaction application ensure correct tier specification 
 with respect to `policyState`:

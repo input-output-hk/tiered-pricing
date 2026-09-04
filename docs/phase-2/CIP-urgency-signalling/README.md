@@ -45,6 +45,7 @@ License: CC-BY-4.0
     - [3.4.4 Additional post-transaction-application validation](#additional-post-transaction-application-validation)
       - [3.4.4.1 Computing the windowed utilisation](#computing-the-windowed-utilisation)
     - [3.4.5 New PParams](#new-pparams)
+    - [3.4.6 Plutus](#plutus)
   - [3.5 Block production and node policy](#block-production-and-node-policy)
   - [3.6 Endorser Block announcement threshold](#endorser-block-announcement-threshold)
     - [3.6.1 Validation evidence](#validation-evidence)
@@ -53,7 +54,7 @@ License: CC-BY-4.0
       - [3.6.1.3 Experiment 3: parameter stress](#experiment-3-parameter-stress)
       - [3.6.1.4 Experiment 4: default-point byte-threshold sensitivity](#experiment-4-default-point-byte-threshold-sensitivity)
   - [3.7 Incentives](#incentives)
-    - [3.7.1 Producer influence over the quotes](#producer-influence-over-the-quotes)
+    - [3.7.1 Levers on the quotes](#levers-on-the-quotes)
     - [3.7.1 Giorgos](#giorgos)
     - [3.7.2 Nicolas](#nicolas)
 - [4. Rationale: How does this CIP achieve its goals?](#rationale-how-does-this-cip-achieve-its-goals)
@@ -266,7 +267,7 @@ The recommended shared parameters are:
 
 With `D = 16`, a single update changes a coefficient by no more than `±6.25%`. At the urgent target of `0.5` the largest step is `6.25%` in both directions. At the standard target of `0.75` the largest upward step is `2.08%`, while the largest downward step remains `6.25%`.
 
-This section states the update rule in real-number form for readability. On-chain, a coefficient is stored as the fixed-point `uint` described in [Transaction representation](#transaction-representation) and [Ledger Rule Changes](#ledger-rule-changes): the same update is computed by substituting `10^tierDec` for `1.0` and flooring the result after scaling, so that `coeff` and `coeff'` above are always natural numbers in that representation.
+This section states the update rule in real-number form for readability. On-chain, a coefficient is stored as the fixed-point `uint` described in [Transaction representation](#transaction-representation) and [Ledger Rule Changes](#ledger-rule-changes). The update is computed by substituting `10^tierDec` for `1.0` and truncating the result after scaling. The coefficient update truncates, but the separate `minfeeAt` conversion from a coefficient to a lovelace amount rounds up (see [Ledger Rule Changes](#ledger-rule-changes)).
 
 #### When block activity enters the signals
 
@@ -667,24 +668,35 @@ The CDDL changes are as follows:
 
 ```
 tier_no    = 0 / 1          ; 0 = urgent, 1 = standard
-tier_coeff = uint           ; price multiplier with fixed decimal places number tierDec
-tx_tier    = [tier_no, tier_coeff]
+tx_tier    = [tier_no]
 
 transaction_body = { ...
-  , ? 23 : tx_tier          ; claimed tier, defaults to standard if omitted
-  , ? 24 : account_address  ; feeChangeAccount, per CIP-0192
+  , ? x     : tx_tier          ; claimed tier, defaults to standard if omitted
+  , ? x + 1 : account_address  ; feeChangeAccount, per CIP-0192
   }
 ```
 
-A transaction body may optionally specify the `tier_no` which indicates whether it's an urgent or standard transaction, 
-and a `tier_coeff` in the fixed-point representation above. This tier coefficient 
-is what the transaction expects its `minfee` will be multiplied by to obtain the amount 
-of fee it has to pay to get into its specified tier. If `tx_tier` is omitted, the transaction is priced as a 
-standard transaction at the ledger's current standard coefficient (see 
-[Ledger Rule Changes](#ledger-rule-changes)).
+`x` is the first free transaction-body key in the era this CIP is deployed into. It is not
+fixed here because this CIP does not name a target era.
 
-Tier coefficients operate on a fixed number of decimal places: a `tier_coeff`/`rawCoeff`/`PolicyClause.coeff` value `c` always
-represents the real coefficient `c / 10^tierDec`, where `tierDec` is a fixed constant.
+A transaction body may optionally specify the `tier_no` which indicates whether it's an urgent or standard 
+transaction. It carries no coefficient because the amount charged is the ledger's own quote for the tier the 
+transaction lands in ([Ledger Rule Changes](#ledger-rule-changes)). The transaction is rejected if the
+ledger quote exceeds its `txfee` amount.
+
+Tier coefficients operate on a fixed number of decimal places: a `rawCoeff`/`PolicyClause.coeff` value `c` always
+represents the real coefficient `c / 10^tierDec`, where `tierDec` is a fixed constant. 
+
+Wherever a coefficient meets a lovelace amount, the ledger computes
+
+```
+minfeeAt(c) = ⌈ (minfee × c) / 10^tierDec ⌉
+```
+
+**Rounding.** The single division rounds `minfee × c` **up**, so the ledger never 
+collects less than the quote. At
+  the floor `c = 10^tierDec` the division is exact, so `minfeeAt(10^tierDec) = minfee` and a standard
+  lane at rest charges exactly today's minimum fee.
 
 
 #### Ledger Rule Changes
@@ -696,9 +708,9 @@ We define a `PolicyClause` record, and an `SDPolicy` record containing the follo
 record PolicyClause : Set where
   field
     coeff         : ℕ         -- fixed-decimal-point tier coefficient in force while this block was processed
-    size          : ℕ         -- total tx size in bytes, this tier, this block
-    refScriptSize : ℕ         -- total reference-script/datum size in bytes, this tier, this block
-    exUnits       : ExUnits   -- total execution units (memory and CPU), this tier, this block
+    size          : ℕ         -- Σ txsize, this tier, this block
+    refScriptSize : ℕ         -- Σ refScriptsSize, this tier, this block
+    exUnits       : ExUnits   -- Σ totExUnits, this tier, this block
     capSize       : ℕ         -- byte capacity this sample is charged against, this tier
     capExUnits    : ExUnits   -- execution-unit capacity this sample is charged against, this tier
 
@@ -708,10 +720,25 @@ record SDPolicy : Set where
     diversityPolicy : TierNo ⇀ List PolicyClause
 ```
 
-A `PolicyClause` records the lane space and `ExUnit` usage for a single block, along with the allowed 
+A `PolicyClause` records the lane space, reference script, and `ExUnit` usage for a single block, 
+along with the allowed 
 capacity and the lane coefficient recorded for that block. `refScriptSize` is carried for the
 [Endorser Block announcement threshold](#endorser-block-announcement-threshold) only; neither
 controller reads it.
+
+**`size`** sums `txsize`, the serialised-transaction measure. `size` is strictly the sum of the
+  transactions, without any additional data found in the encoding of the block that carries them.
+
+**`refScriptSize`** sums `refScriptsSize`, which is reference **scripts only**. Datums are not
+  included. Treatment of inline datums (i.e. not including a separate field for the aggregate of their 
+  size in `PolicyClause`) is consistent with how the ledger itself budgets and bounds size and ExUnits 
+  usage by transactions.
+
+**`exUnits`** sums `totExUnits`, the execution-unit budgets **declared in the transaction's
+  redeemers** — not the units a script actually consumes.
+
+Per-tier attribution is by the transaction's `adjusted_tier_no`, the tier it is actually charged at, not
+the tier it claimed. Every transaction in a block contributes to exactly one tier's clause.
 
 `capSize` and `capExUnits` are set differently in the two lanes
 ([Controller updates and signals](#controller-updates-and-signals)):
@@ -746,7 +773,7 @@ We use the `SDPolicy` fields in the following way:
   [Additional post-transaction-application validation](#additional-post-transaction-application-validation))
 
   1. `diversityPolicy : TierNo ⇀ List PolicyClause` - a map assigning to each tier the list of that 
-  tier's *finalized* policy clauses from the most recent blocks, most recent first, of 
+  tier's *finalized* policy clauses from the most recent processed blocks, most recent first, of 
   which at most `windowSize(t)` are stored (see [New PParams](#new-pparams)). 
 
 There is a new state variable 
@@ -772,16 +799,15 @@ In the rules below, `rawCoeff(t)` is read from `policyState` at the point of val
 field of its own: it is derived, as the `coeff` of the head entry of `diversityPolicy(t)`. When
 `rawCoeff(standard) = 10^tierDec`, `minfeeAt(rawCoeff(standard)) = minfee`, so the standard lane
 requires no more than the ordinary minimum fee. If `tx` omits `tx_tier`, the rules below apply as
-though `tx` had specified `tx_tier = [standard, rawCoeff(standard)]`. 
+though `tx` had specified `tx_tier = [standard]`. 
 
 Let `adjusted_tier_no` be `urgent` if `tx` was in an RB with a *transaction list*, 
 and `standard` if `tx` was in an EB. Let `adjusted_tier_coeff` be `effectiveTierCoeff(adjusted_tier_no)`. 
 The following are the key rule changes (to transaction application)
 having to do with processing the *fee payment*:
 
-  1. updated min-fee constraint (enough to cover *targeted* tier) : `minfeeAt(tier_coeff) ≤ txFee`
-  1. new min-fee constraint (enough to cover the tier the transaction is actually *charged*, which may differ 
-  from the targeted tier when `rawCoeff(urgent)` and `rawCoeff(standard)` are inverted) : 
+  1. min-fee constraint (enough to cover the tier the transaction is actually *charged*, which may differ 
+  from the tier it claimed when `rawCoeff(urgent)` and `rawCoeff(standard)` are inverted) : 
   `minfeeAt(adjusted_tier_coeff) ≤ txFee`; a transaction that fails this constraint is invalid for inclusion at 
   its adjusted tier
   1. `txfee - minfeeAt(adjusted_tier_coeff)` is credited to the `feeChangeAccount` if the transaction names one and
@@ -789,19 +815,23 @@ having to do with processing the *fee payment*:
   1. exactly `minfee` is sent to the fee pot
   1. `minfeeAt(adjusted_tier_coeff) - minfee` is sent to the treasury
 
+When **phase-2 validation fails** and collateral is collected instead of `txfee`, settlement follows the
+same shape and the fee change credit goes to the same place: `minfee` to the fee pot,
+`minfeeAt(adjusted_tier_coeff) - minfee` to the treasury, and the remainder of the collected collateral
+to the `feeChangeAccount` if the transaction names a registered one, or to the treasury if it does not.
+
+Note that this diverges from
+[CIP-0192](https://github.com/cardano-foundation/CIPs/tree/master/CIP-0192), which states that
+collateral collection needs no change and that any overpayment goes to the fee pot.
+
 The following changes to transaction application ensure correct tier specification 
 with respect to `policyState`:
 
-  1. `effectiveTierCoeff(tier_no)` — the coefficient derived from `diversityPolicy` as above, for the `tier_no` 
-  specified in the `tx_tier` in the transaction body — is `≤ tier_coeff` in `tx_tier`. This is an
-  inequality, not an equality: a transaction may post a coefficient above the current quote as headroom
-  against the quote moving between construction and inclusion, and the excess is refunded by rule 3 above
-  rather than charged
   1. The tier number in `tx_tier` must be either `urgent` or `standard`
   1. The tier number in `tx_tier` is `≤ adjusted_tier_no` 
   1. `policyState` is updated so that `currentClause`'s aggregated values 2-4 reflect `tx`, as described above
 
-Rule 3 depends on the numeric encoding of the tier labels, so it is worth stating what it relies on:
+Rule 2 depends on the numeric encoding of the tier labels, so it is worth stating what it relies on:
 `urgent = 0` and `standard = 1`, i.e. **the more urgent tier is the numerically smaller one**. Under that
 encoding `tier_no ≤ adjusted_tier_no`.
 
@@ -841,7 +871,13 @@ If a block is one that corresponds to an `ebCert` (and is therefore an `EB` bloc
 The `SDPolicy` state is updated during the application of the transactions in the block. After this is complete,
 additional checks 
 are performed, and this state is further updated, given the current protocol parameters and 
-the block type, with the following steps:
+the block type, with the following steps.
+
+This rule runs once per **processed block**, i.e. a non-certificate Ranking Block, a certificate-carrying
+Ranking Block, or a certified Endorser Block. A certificate-carrying Ranking Block has no transaction payload, so it enters the window carrying zero usage *and* zero capacity
+EB announcements are not processed blocks (as they don't go on-chain until they're put in an RB).
+
+The steps are:
 
   1. Check that if the block containing the transaction list is an EB, it qualifies under the 
   [Endorser Block announcement threshold](#endorser-block-announcement-threshold) rule: unless the age escape applies, 
@@ -849,12 +885,13 @@ the block type, with the following steps:
   reaches the threshold fraction of the corresponding per-block RB limit specified in the protocol parameters
   1. For each tier `t`, fill in the capacity fields of `currentClause(t)` from the block type, as described 
   under [Ledger Rule Changes](#ledger-rule-changes): the RB urgent reservation capacity for the `urgent` 
-  clause, and the producing block's own capacity (full RB limits for a non-certificate Ranking Block, EB 
-  limits for a certified Endorser Block) for the `standard` clause
+  clause, and the producing block's own capacity for the `standard` clause. Full RB limits are for a 
+  non-certificate Ranking Block (and 0 for a 
+  certificate-carrying Ranking Block), and EB limits are for a certified Endorser Block.
   1. For each tier `t`, prepend `currentClause(t)` to `diversityPolicy(t)`, dropping the oldest entry 
   whenever the list exceeds `windowSize(t)` entries. Write the resulting list as 
   `P_t = [p_0, p_1, …, p_{k−1}]`, most recent first, with `k = min(windowSize(t), |P_t|)`: `p_0` is the 
-  clause for the block being finalized, and `p_1` the clause for the previous payload-bearing block
+  clause for the block being finalized, and `p_1` the clause for the previous processed block
   1. For each tier `t`, set `p_0.coeff` to the coefficient produced by applying the controller update of 
   [Controller updates and signals](#controller-updates-and-signals) to `p_1.coeff`, at the utilisation 
   `u_t` computed over `p_0 … p_{k−1}` as set out in 
@@ -864,8 +901,8 @@ the block type, with the following steps:
   `rawCoeff(standard)` are never combined, and `effectiveTierCoeff(t) = rawCoeff(t)` reads each tier's 
   coefficient off its own controller (see [Ledger Rule Changes](#ledger-rule-changes))
   1. Update the age-escape counter: set `rbsSinceCert` to zero if this block is a certified Endorser 
-  Block, since accepting its certificate resets the count, and otherwise increment it by one. 
-  Certificate-carrying Ranking Blocks carry no transaction payload and so never reach this rule at all 
+  Block, since the count resets at **certificate inclusion** and not at announcement, and otherwise 
+  increment it by one 
   (see [Endorser Block announcement threshold](#endorser-block-announcement-threshold))
   1. Reset `currentClause` to the empty clause for every tier (`size = refScriptSize = 0`, `exUnits`, 
   `capSize` and `capExUnits` all zero), so it can accumulate the next block's totals
@@ -931,7 +968,7 @@ different lengths and different sample kinds:
   `diversityPolicy(urgent)`, and therefore the length of the urgent controller's sliding window.
   Recommended initial value **5** payload samples.
 - `standardWindowSize : ℕ` — likewise for `diversityPolicy(standard)`. Recommended initial value **10**
-  block summaries.
+  processed-block summaries.
 
 We write `windowSize(t)` for whichever of the two applies to tier `t`. Larger values smooth a coefficient's
 trajectory at the cost of a slower response to changes in demand. A single shared parameter would not do:
@@ -956,7 +993,16 @@ measurably reduce urgent retained value.
   parameter: see [Endorser Block announcement threshold](#endorser-block-announcement-threshold).
 - `maxEBSize : ℕ` and `maxEBExUnits : ExUnits` — Endorser Block capacity. These are what the standard
   controller charges a certified-EB sample against (`capSize`/`capExUnits` of that tier's
-  `PolicyClause`), 
+  `PolicyClause`).
+
+**Bounds the ledger enforces.** A governance update proposal violating any of them is
+invalid:
+
+- `urgentWindowSize`, `standardWindowSize` **≥ 2** (must wait for settlement of lane usage data)
+- `maxChangeDenominator` **≥ 1** (cannot be 0 because it's a denominator)
+- `urgentTargetUtilisation`, `standardTargetUtilisation` **> 0** (avoiding division by 0)
+- `maxEBSize`, `maxEBExUnits`, `ebAgeEscape` **> 0** (a zero EB capacity makes the standard lane's
+  utilisation undefined, and a zero age escape exempts every Endorser Block from the threshold).
 
 Retuning any of these outside the grid recorded in
 [Endorser Block announcement threshold](#endorser-block-announcement-threshold) is a mechanism change
@@ -967,6 +1013,23 @@ This CIP also fixes the decimal-point location of the fixed-point coefficient re
 and [Ledger Rule Changes](#ledger-rule-changes)). `tierDec` is **not** a protocol parameter: it is a
 constant fixed in the ledger specification.
 
+
+#### Plutus
+
+The transaction data `TxInfo` that is shown to Plutus scripts will be affected as follows:
+
+- include the `tx_tier` as a field 
+- include `account_address` as a field
+
+For this reason, a new version of Plutus will be required. 
+The new-version Plutus scripts will be unable to see the amount of change given to the account, 
+or the tier coefficient 
+the transaction will be charged at. However, in addition to being able to view the two new fields, new-version 
+scripts must also be written with the following change in mind:
+the preservation of value calculation has been changed by this proposal in a way that 
+they would be unable to reconstruct internally. This is because new-version scripts will not have access 
+to the exact fee change or the 
+exact amount sent to the treasury.
 
 ### Block production and node policy
 
@@ -1020,7 +1083,7 @@ The reservation rule above creates a problem at light loads. When the RB is rese
 
 At certificate inclusion, the certificate-bearing RB rule evaluates the `qualifies(EB)` predicate below. The rule uses the three resource groups that `SDPolicy` accumulates in `currentClause` while processing the certified EB's transaction list: `size`, `refScriptSize`, and the memory and step components of `exUnits`. The rule derives the K age escape from the chain state.
 
-Each total below (`totalSize`, `totalRefScriptSize`, `totalExUnits`) is the sum across tiers of the corresponding `currentClause` field, over the whole immutable EB. With the corresponding positive RB limits (`maxBlockBodySize`, `maxRefScriptSizePerBlock`, and `maxBlockExUnits`) from the protocol parameters that validate the certifying RB, define
+Each total below (`totalSize`, `totalRefScriptSize`, `totalExUnits`) is the sum across tiers of the corresponding `currentClause` field, over the whole immutable EB, and so is accounted exactly as [Ledger Rule Changes](#ledger-rule-changes) defines those fields: `txsize`, reference scripts only, and declared execution-unit budgets. With the corresponding positive RB limits (`maxBlockBodySize`, `maxRefScriptSizePerBlock`, and `maxBlockExUnits`) from the protocol parameters that validate the certifying RB, define
 
 ```
 thresholdFraction  = max(1 - urgentTargetUtilisation, 1/2)
@@ -1046,7 +1109,7 @@ The fraction follows the urgent target because a displaced non-certificate Ranki
 
 None of these rules requires a validator to know anything about any mempool. Fee validation enforces that every Ranking Block transaction pays the urgent quote, and the quote itself is recomputable from the chain alone: each controller update is a fixed formula over the utilisation of the blocks before it. When `LEDGERS` processes the immutable EB named by a certificate, it accumulates the `SDPolicy` resource totals in `currentClause`, and the certificate-inclusion rule compares them with the RB-relative thresholds above. The age escape only counts Ranking Blocks since an EB certificate last entered the chain. A validator that holds only the chain can decide every rule in this section. What a producer's mempool contained never enters into it.
 
-A valid Ranking Block cannot contain a transaction whose on-ledger fee authorisation fails to cover the applicable urgent quote. The premium goes to the treasury rather than the producer, so the protocol offers the producer no direct fee revenue when it undercuts that quote or suppresses an EB. This is an incentive argument, not a broader anti-bribery guarantee: off-chain rebates and side payments, paid ordering within the urgent lane, censorship, withholding, and MEV remain open for the Incentives section. The residual behaviour here is EB suppression: a producer declines to announce a qualifying EB. The RB remains urgent-only regardless, and a later producer can announce the batch. This argument addresses latency only. Withholding also moves the standard quote ([Producer influence over the quotes](#producer-influence-over-the-quotes)). The simulator announces eligible EBs eagerly and does not model withholding, off-protocol side payments, or other adversarial producer behaviour. We explored work-conserving variants that admitted standard transactions into underfull RBs at the standard rate. They retain more value at light loads, but they do not ledger-enforce the applicable urgent quote for RB inclusion, and they leave below-quote side-payment incentives open. We rejected them.
+A valid Ranking Block cannot contain a transaction whose on-ledger fee authorisation fails to cover the applicable urgent quote. The premium goes to the treasury rather than the producer, so the protocol offers the producer no direct fee revenue when it undercuts that quote or suppresses an EB. This is an incentive argument, not a broader anti-bribery guarantee: off-chain rebates and side payments, paid ordering within the urgent lane, censorship, withholding, and MEV remain open for the Incentives section. The residual behaviour here is EB suppression: a producer declines to announce a qualifying EB. The RB remains urgent-only regardless, and a later producer can announce the batch. This argument addresses latency only. Withholding also moves the standard quote ([Levers on the quotes](#levers-on-the-quotes)). The simulator announces eligible EBs eagerly and does not model withholding, off-protocol side payments, or other adversarial producer behaviour. We explored work-conserving variants that admitted standard transactions into underfull RBs at the standard rate. They retain more value at light loads, but they do not ledger-enforce the applicable urgent quote for RB inclusion, and they leave below-quote side-payment incentives open. We rejected them.
 
 The threshold by itself can starve a trickle load. At very light standard traffic, pooled transactions below every resource threshold can wait indefinitely, and anything that depends on their outputs waits with them. We therefore add a time-gated escape: a certificate for a below-threshold EB can enter the chain once at least K Ranking Blocks have been produced since an EB certificate was last included. The inclusion of any EB certificate resets the count. Both the threshold and the escape are ledger rules, checked when a Ranking Block includes a certificate. A Ranking Block that includes a certificate for a non-qualifying EB is invalid. The rule extends the certificate-inclusion checks that CIP-164 already defines, which every node performs before it accepts a block. Both inputs are on the chain: the count comes from the chain itself, and the certified EB's immutable body determines the `SDPolicy` resource totals that the certificate-inclusion rule checks. Because every certificate inclusion resets the count, at most one below-threshold certificate can appear per K intervals. A reset on certificate inclusion, rather than on announcement, matches what the rule rations: an announced EB that never certifies consumes no Ranking Block space, so it does not reset the count. The escape is permissive, not compulsory. Announcement remains a producer action, and the suppression analysis above is unchanged. The rule remains removable without change to any other rule.
 
@@ -1213,37 +1276,29 @@ Settlement is conservative: for every included transaction, the base fee, premiu
 
 Finally, the urgency signal may reveal that a transaction is latency-sensitive or high-value. Faster settlement can shorten its exposure to some forms of MEV, but it does not provide general MEV protection and may itself reveal useful information to block producers. A sensitive transaction may still be submitted privately, but private submission and protection from reordering or chain forks are outside the guarantees of this mechanism.
 
-#### Producer influence over the quotes
+#### Levers on the quotes
 
-Both coefficients are computed from block contents, and block contents are chosen by producers. The
-arguments above establish that a producer earns no direct *fee revenue* from moving a quote, since the
-premium goes to the treasury. They do not establish that moving a quote is without value, because a quote
-governs what everyone else must pay. The simulator does not model adversarial producer behaviour, so what
-follows names the levers for the independent audit required in
-[Path to Active](#acceptance-criteria) rather than bounding them.
+Block contents set the coefficients, and producers choose block contents. The premium going to the
+treasury removes the direct fee revenue from moving a quote, but not the value of moving a price everyone
+else must pay. The simulator does not model adversarial producers, so the levers are named here for the
+audit required in [Path to Active](#acceptance-criteria):
 
-- **Empty Ranking Blocks suppress the standard quote.** A non-certificate RB contributes full capacity and
-  zero standard usage, so producing one pushes `standardUtilisation` down. This is free: the producer
-  forgoes only the urgent transactions it declined to include.
-- **Announcing or withholding an Endorser Block moves the standard quote by a large step.** A certified EB
-  carries roughly 133 times an RB's weight in the standard window, so the decision to announce is
-  effectively the decision of what the standard quote will be for the next several blocks. The existing
-  argument that withholding does limited harm — a later producer can announce the batch — addresses
-  latency, not the price signal.
-- **Self-paid urgent traffic raises the urgent quote.** A producer can fill its own Ranking Blocks with
-  transactions it pays for itself. The premium is a real cost, but the `minfee` component returns to the
-  fee pot and is redistributed to all producers, so a large producer recovers a share of what it spends.
-  The MMIC argument above, that fake traffic is self-deterring, counts only forgone fee revenue and does
-  not price the value of setting a coefficient that competitors' transactions must then meet.
+- **Under-filling Ranking Blocks affects the urgent quote.** At the price of the loss of income 
+  due to the reduced rewards (which come from transaction fees), a block producer can withhold 
+  transactions from RBs. This affects the urgent quote, likely lowering it by making the lane 
+  seem less popular than it is.
+- **Withholding an Endorser Block moves the standard quote by a large step.** A certified
+  EB carries roughly 133 times an RB's weight in the standard window. A withheld 
+  EB can be included by another producer later; however, the standard price is affected at the time 
+  of withholding.
+- **Self-paid urgent traffic in EBs raises the urgent quote.** A producer 
+  can fill an EB with their own transactions, all marked `urgent`. This is allowed, and these transactions
+  will be paying the regular price since they are in an EB. This makes the urgent lane 
+  appear more full, and as a result, raises the price. The cost is the transaction fees this 
+  producer must pay. A producer may include urgent transactions in an RB also, which is an even 
+  more costly way to raise the urgent price.
 
-The common structure is that the mechanism prices what a producer *includes* but not what a producer
-*declines to include*, and both controllers read inclusion. Two things limit the damage: every step is
-bounded by `maxChangeDenominator`, so no single block moves a quote more than a few percent, and the
-windows mean a sustained campaign rather than a single block is needed to hold a quote away from its
-demand-implied level. Quantifying the cost of such a campaign against the benefit of a suppressed standard
-quote or an inflated urgent one is exactly the analysis the audit should carry out.
-
-
+Each step is bounded by `maxChangeDenominator`.
 
 
 ## Rationale: How does this CIP achieve its goals?
@@ -1280,7 +1335,7 @@ CPS-0031 sets four constraints on candidate solutions.
 
 **On-chain record.** The cost of signalling and its update rule are ledger state and ledger rules. The per-tier coefficients live in the `SDPolicy` state inside `UTxOState`, the [post-transaction-application validation](#additional-post-transaction-application-validation) rule updates them during block processing from the windowed utilisation each `PolicyClause` records, and the controller parameters are [protocol parameters](#new-pparams). Anyone can read the current cost of urgency from the chain and verify that every update was computed correctly, which is the equal access the constraint asks for.
 
-**Censorship resistance.** Access to priority is by posted price alone, as argued under Goal 2, so the mechanism replaces the pressure toward opaque off-chain priority with a public channel. The premium goes to the treasury, so preferential treatment earns a producer no direct fee revenue. The constraint also asks for an evaluation of new opportunities for selective exclusion, and there are two. The public lane field gives a censoring producer one extra bit to select on, which is inseparable from having a signal at all. A producer can also suppress a qualifying Endorser Block by declining to announce it. The latency harm is limited, because a later producer can announce the batch and Ranking Blocks remain urgent-only regardless ([Endorser Block announcement threshold](#endorser-block-announcement-threshold)). Withholding also moves the standard quote ([Producer influence over the quotes](#producer-influence-over-the-quotes)). Censorship and withholding beyond these arguments stay within the scope of the independent audit required in [Path to Active](#acceptance-criteria).
+**Censorship resistance.** Access to priority is by posted price alone, as argued under Goal 2, so the mechanism replaces the pressure toward opaque off-chain priority with a public channel. The premium goes to the treasury, so preferential treatment earns a producer no direct fee revenue. The constraint also asks for an evaluation of new opportunities for selective exclusion, and there are two. The public lane field gives a censoring producer one extra bit to select on, which is inseparable from having a signal at all. A producer can also suppress a qualifying Endorser Block by declining to announce it. The latency harm is limited, because a later producer can announce the batch and Ranking Blocks remain urgent-only regardless ([Endorser Block announcement threshold](#endorser-block-announcement-threshold)). Withholding also moves the standard quote ([Levers on the quotes](#levers-on-the-quotes)). Censorship and withholding beyond these arguments stay within the scope of the independent audit required in [Path to Active](#acceptance-criteria).
 
 **Linear-Leios compatibility.** The mechanism is not an existing design ported onto linear-Leios: it is made of linear-Leios parts. Its two lanes are the two CIP-164 block types, its certificate rules extend the certificate-inclusion checks that CIP-164 already defines, and the acceptance criteria require CIP-164 to be active before or with this mechanism. The block-structure question below gives the detail.
 
@@ -1290,7 +1345,7 @@ CPS-0031 closes with seven open questions. Each is answered in turn.
 
 **How can whatever protocol-level commitments are decided upon be enforced or incentivised?**
 
-This CIP separates protocol commitments, which ledger rules enforce, from implementation policies, which incentives hold in place. The "Enforcement boundary" row in [The recommended construction](#the-recommended-construction) records the split. The ledger enforces the protocol commitments: Ranking Block lane eligibility, inclusion-point fee validity, settlement, deterministic quote updates, and Endorser Block certificate eligibility. A block that breaks any of them is invalid, so every validating node enforces them and no trust in the producer is needed. Mempool organisation, transaction ordering, admission headroom, revalidation, and eviction are implementation policies rather than protocol commitments. The reference policy preserves the canonical FIFO queue and adds an urgent view, providing an efficient implementation. [Incentives](#incentives) argues that the fee flows support the policies: the producer keeps its existing protocol rewards while the premium goes to the treasury, a user can post its maximum willingness to pay without automatically paying it, and selling below-quote Ranking Block access earns a producer nothing. The same section records the limits of these arguments. Sending the premium to the treasury removes the key bribery incentive, because a producer cannot earn anything by placing a standard-paying transaction in a Ranking Block. Two producer behaviours remain outside ledger enforcement: suppression of a qualifying Endorser Block, and off-chain side payments. Suppression does limited harm to latency: a later producer can announce the withheld Endorser Block, and Ranking Blocks stay urgent-only in the meantime ([Endorser Block announcement threshold](#endorser-block-announcement-threshold)). Withholding also moves the standard quote ([Producer influence over the quotes](#producer-influence-over-the-quotes)). The incentive argument above removes the direct fee benefit of side payments, but it does not rule them out.
+This CIP separates protocol commitments, which ledger rules enforce, from implementation policies, which incentives hold in place. The "Enforcement boundary" row in [The recommended construction](#the-recommended-construction) records the split. The ledger enforces the protocol commitments: Ranking Block lane eligibility, inclusion-point fee validity, settlement, deterministic quote updates, and Endorser Block certificate eligibility. A block that breaks any of them is invalid, so every validating node enforces them and no trust in the producer is needed. Mempool organisation, transaction ordering, admission headroom, revalidation, and eviction are implementation policies rather than protocol commitments. The reference policy preserves the canonical FIFO queue and adds an urgent view, providing an efficient implementation. [Incentives](#incentives) argues that the fee flows support the policies: the producer keeps its existing protocol rewards while the premium goes to the treasury, a user can post its maximum willingness to pay without automatically paying it, and selling below-quote Ranking Block access earns a producer nothing. The same section records the limits of these arguments. Sending the premium to the treasury removes the key bribery incentive, because a producer cannot earn anything by placing a standard-paying transaction in a Ranking Block. Two producer behaviours remain outside ledger enforcement: suppression of a qualifying Endorser Block, and off-chain side payments. Suppression does limited harm to latency: a later producer can announce the withheld Endorser Block, and Ranking Blocks stay urgent-only in the meantime ([Endorser Block announcement threshold](#endorser-block-announcement-threshold)). Withholding also moves the standard quote ([Levers on the quotes](#levers-on-the-quotes)). The incentive argument above removes the direct fee benefit of side payments, but it does not rule them out.
 
 **How should updated fee or urgent quotes be propagated?**
 

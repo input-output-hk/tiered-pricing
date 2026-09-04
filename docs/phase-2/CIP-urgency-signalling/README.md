@@ -44,6 +44,7 @@ License: CC-BY-4.0
     - [3.4.4 Additional post-transaction-application validation](#additional-post-transaction-application-validation)
       - [3.4.4.1 Computing the windowed utilisation](#computing-the-windowed-utilisation)
     - [3.4.5 New PParams](#new-pparams)
+    - [3.4.6 Plutus](#plutus)
   - [3.5 Block production and node policy](#block-production-and-node-policy)
   - [3.6 Endorser Block announcement threshold](#endorser-block-announcement-threshold)
     - [3.6.1 Validation evidence](#validation-evidence)
@@ -264,7 +265,7 @@ The recommended shared parameters are:
 
 With `D = 16`, a single update changes a coefficient by no more than `±6.25%`. At the urgent target of `0.5` the largest step is `6.25%` in both directions. At the standard target of `0.75` the largest upward step is `2.08%`, while the largest downward step remains `6.25%`.
 
-This section states the update rule in real-number form for readability. On-chain, a coefficient is stored as the fixed-point `uint` described in [Transaction representation](#transaction-representation) and [Ledger Rule Changes](#ledger-rule-changes): the same update is computed by substituting `10^tierDec` for `1.0` and flooring the result after scaling, so that `coeff` and `coeff'` above are always natural numbers in that representation.
+This section states the update rule in real-number form for readability. On-chain, a coefficient is stored as the fixed-point `uint` described in [Transaction representation](#transaction-representation) and [Ledger Rule Changes](#ledger-rule-changes): the same update is computed by substituting `10^tierDec` for `1.0` and truncating the result after scaling, so that `coeff` and `coeff'` above are always natural numbers in that representation. (The coefficient update truncates; the separate `minfeeAt` conversion from a coefficient to a lovelace amount rounds up — see [Ledger Rule Changes](#ledger-rule-changes).)
 
 #### When block activity enters the signals
 
@@ -679,6 +680,30 @@ standard transaction at the ledger's current standard coefficient (see
 Tier coefficients operate on a fixed number of decimal places: a `tier_coeff`/`rawCoeff`/`PolicyClause.coeff` value `c` always
 represents the real coefficient `c / 10^tierDec`, where `tierDec` is a fixed constant.
 
+Wherever a coefficient meets a lovelace amount, the ledger computes
+
+```
+minfeeAt(c) = ⌈ (minfee × c) / 10^tierDec ⌉
+```
+
+This is the only place a coefficient becomes an amount, and it is consensus-critical: a one-lovelace
+disagreement between nodes changes a transaction's validity, so the following are normative rather than
+implementation advice.
+
+- **What is multiplied.** `minfee` is the transaction's whole ordinary minimum fee, including its size,
+  execution-unit and reference-script components. The coefficient scales all of it, not any sub-part.
+- **Rounding.** The single division rounds **up**, so the ledger never collects less than the quote. At
+  the floor `c = 10^tierDec` the division is exact, so `minfeeAt(10^tierDec) = minfee` and a standard
+  lane at rest charges exactly today's minimum fee.
+- **Order.** Form the product `minfee × c` first and divide once. Dividing before multiplying, or
+  rounding at any intermediate step, gives a different integer.
+- **Width.** The product must be evaluated as a mathematical natural, or in an integer type wide enough
+  to hold it without wrapping. It exceeds 64 bits for attainable values, so a 64-bit multiply is not
+  sufficient.
+
+Floating-point arithmetic is not part of consensus. The simulator computes coefficients in floating
+point and is therefore not a reference for this formula.
+
 
 #### Ledger Rule Changes
 
@@ -689,9 +714,9 @@ We define a `PolicyClause` record, and an `SDPolicy` record containing the follo
 record PolicyClause : Set where
   field
     coeff         : ℕ         -- fixed-decimal-point tier coefficient in force while this block was processed
-    size          : ℕ         -- total tx size in bytes, this tier, this block
-    refScriptSize : ℕ         -- total reference-script/datum size in bytes, this tier, this block
-    exUnits       : ExUnits   -- total execution units (memory and CPU), this tier, this block
+    size          : ℕ         -- Σ txsize, this tier, this block
+    refScriptSize : ℕ         -- Σ refScriptsSize, this tier, this block
+    exUnits       : ExUnits   -- Σ totExUnits, this tier, this block
     capSize       : ℕ         -- byte capacity this sample is charged against, this tier
     capExUnits    : ExUnits   -- execution-unit capacity this sample is charged against, this tier
 
@@ -705,6 +730,29 @@ A `PolicyClause` records the lane space and `ExUnit` usage for a single block, a
 capacity and the lane coefficient recorded for that block. `refScriptSize` is carried for the
 [Endorser Block announcement threshold](#endorser-block-announcement-threshold) only; neither
 controller reads it.
+
+The three usage fields are not new measures. Each is the sum, over the transactions of that tier in that
+block, of an accounting function the ledger already defines and already uses in the minimum-fee
+calculation, so a node computes them with the code it has rather than a second serialisation pass. Being
+explicit, since a one-byte disagreement between nodes is a chain split at certificate validation:
+
+- **`size`** sums `txsize`, the serialised-transaction measure that `minfee` multiplies by `a`. It is a
+  per-transaction quantity, so block-body framing, the surrounding CBOR structure and any other
+  whole-block serialisation overhead are **not** included — `size` is strictly the sum of the
+  transactions, not the size of the block that carries them.
+- **`refScriptSize`** sums `refScriptsSize`, which is reference **scripts only**. Datums are not
+  included, matching the existing `maxRefScriptSizePerBlock` parameter that the threshold compares
+  against. Within one transaction the referenced scripts form a set, so a script referenced twice by the
+  same transaction counts once; across transactions the per-transaction values are summed, so a script
+  referenced by two transactions counts twice. This is the existing per-block accounting, inherited
+  unchanged.
+- **`exUnits`** sums `totExUnits`, the execution-unit budgets **declared in the transaction's
+  redeemers** — not the units a script actually consumes. The ledger charges declared budgets and this
+  CIP does the same, so a transaction contributes its full declared budget whether or not its scripts
+  use it.
+
+Per-tier attribution is by the transaction's `adjusted_tier_no`, the tier it is actually charged at, not
+the tier it claimed. Every transaction in a block contributes to exactly one tier's clause.
 
 `capSize` and `capExUnits` are set differently in the two lanes
 ([Controller updates and signals](#controller-updates-and-signals)):
@@ -944,7 +992,20 @@ measurably reduce urgent retained value.
   parameter: see [Endorser Block announcement threshold](#endorser-block-announcement-threshold).
 - `maxEBSize : ℕ` and `maxEBExUnits : ExUnits` — Endorser Block capacity. These are what the standard
   controller charges a certified-EB sample against (`capSize`/`capExUnits` of that tier's
-  `PolicyClause`), 
+  `PolicyClause`), and they are much larger than the corresponding Ranking Block limits, which is why
+  the standard lane needs its own capacity parameters rather than reusing the RB ones. 
+
+**Bounds the ledger enforces.** Governance may not set these freely: outside the ranges below the update
+rule is undefined rather than merely badly calibrated, so an update proposal violating any of them is
+invalid.
+
+- `urgentWindowSize`, `standardWindowSize` **≥ 2** — the update reads `p_1`, the entry behind the one it
+  is setting, so a window of 0 or 1 has no such entry.
+- `maxChangeDenominator` **≥ 1** — it divides.
+- `urgentTargetUtilisation`, `standardTargetUtilisation` **> 0** — a target of zero makes the divisor
+  `C·tNum·D` zero.
+- `maxEBSize`, `maxEBExUnits`, `ebAgeEscape` **> 0** — a zero EB capacity makes the standard lane's
+  utilisation undefined, and a zero age escape exempts every Endorser Block from the threshold.
 
 Retuning any of these outside the grid recorded in
 [Endorser Block announcement threshold](#endorser-block-announcement-threshold) is a mechanism change
@@ -955,6 +1016,25 @@ This CIP also fixes the decimal-point location of the fixed-point coefficient re
 and [Ledger Rule Changes](#ledger-rule-changes)). `tierDec` is **not** a protocol parameter: it is a
 constant fixed in the ledger specification.
 
+
+#### Plutus
+
+No changes to `TxInfo` are required: the tier fields are ordinary transaction-body fields, and nothing
+this CIP adds needs to be surfaced to a script that is not already there.
+
+A new Plutus version is nonetheless required, because the expectations a script may hold about the
+produced/consumed calculation change. Until now the fee a transaction pays is fixed at construction
+time, so a script can reconstruct the transaction's value balance from data it can see. Under this CIP
+the amount actually charged is the applicable quote at inclusion, and the remainder is credited to the
+`feeChangeAccount` — neither is known when the transaction is built, and neither is visible to the
+script. A script that reconstructs a local preservation-of-value check from `txInfoFee` and the outputs
+would therefore be wrong, and scripts compiled against the old expectation must not be run against
+transactions carrying the new fields.
+
+This mirrors the treatment in [CIP-0192](https://github.com/cardano-foundation/CIPs/tree/master/CIP-0192),
+which introduces the same construction-time-unknown fee change: `txInfoFee` continues to report the
+posted `txfee`, and old-version scripts are not permitted on transactions that provide a
+`feeChangeAccount`.
 
 ### Block production and node policy
 
@@ -1010,7 +1090,7 @@ The reservation rule above creates a problem at light loads. When the RB is rese
 
 At certificate inclusion, the certificate-bearing RB rule evaluates the `qualifies(EB)` predicate below. The rule uses the three resource groups that `SDPolicy` accumulates in `currentClause` while processing the certified EB's transaction list: `size`, `refScriptSize`, and the memory and step components of `exUnits`. The rule derives the K age escape from the chain state.
 
-Each total below (`totalSize`, `totalRefScriptSize`, `totalExUnits`) is the sum across tiers of the corresponding `currentClause` field, over the whole immutable EB. With the corresponding positive RB limits (`maxBlockBodySize`, `maxRefScriptSizePerBlock`, and `maxBlockExUnits`) from the protocol parameters that validate the certifying RB, define
+Each total below (`totalSize`, `totalRefScriptSize`, `totalExUnits`) is the sum across tiers of the corresponding `currentClause` field, over the whole immutable EB, and so is accounted exactly as [Ledger Rule Changes](#ledger-rule-changes) defines those fields: `txsize`, reference scripts only, and declared execution-unit budgets. The threshold introduces no measure of its own. With the corresponding positive RB limits (`maxBlockBodySize`, `maxRefScriptSizePerBlock`, and `maxBlockExUnits`) from the protocol parameters that validate the certifying RB, define
 
 ```
 thresholdFraction  = max(1 - urgentTargetUtilisation, 1/2)
@@ -1225,6 +1305,17 @@ follows names the levers for the independent audit required in
   fee pot and is redistributed to all producers, so a large producer recovers a share of what it spends.
   The MMIC argument above, that fake traffic is self-deterring, counts only forgone fee revenue and does
   not price the value of setting a coefficient that competitors' transactions must then meet.
+- **Urgent-labelled traffic in the producer's own Endorser Block moves the urgent signal without paying
+  the premium.** An urgent-labelled transaction routed through an EB still lands in the `urgent` tier's
+  `PolicyClause`, so it moves the urgent signal, but its `adjusted_tier_no` is `standard` and it is
+  charged the standard quote. The premium is therefore avoidable on this route, which makes the lever
+  cheap and means the MMIC deterrence argument above holds only for RB-routed traffic. The payoff is
+  nonetheless bounded and the mechanism stands: the urgent lane's denominator is the RB reservation
+  whatever block carried the sample, so a producer must supply a Ranking Block's worth of traffic per
+  sample to move the signal by one block's utilisation; the step is capped at `1/D`; and the effect
+  decays out of the window within `urgentWindowSize` samples. Raising the urgent quote also raises what
+  the producer's own urgent transactions must cover on the RB route, so sustaining the lever costs it
+  the thing it is trying to buy.
 
 The common structure is that the mechanism prices what a producer *includes* but not what a producer
 *declines to include*, and both controllers read inclusion. Two things limit the damage: every step is

@@ -1,0 +1,35 @@
+{
+  "description": "Exploratory screen of the standard controller's window length under the enforceable processed-block window semantics. The announcement-semantics smoke showed that the historical signal's zero-width EbAnnounced entries shorten the effective window at contended loads (to roughly 10-13 processed blocks), and that a clean 20-processed-block window loses launch-day retained value against it. Announcement entries are not adoptable in the ledger rule: an announcement is a costless, unpunishable producer claim, so counting it would hand producers a free lever on the standard quote. This screen therefore asks whether a shorter processed-block window recovers the historical performance. Arms: the historical announcement-diluted 20-entry window (reference), flat fee (baseline), and processed-block windows of 10, 13, 15, and 20. Everything else is fixed at S=.75/U=.50, D16, half-RB threshold, K10, announcement-time age reset. One hundred paired seeds across the five headline loads plus the 0.1 tx/slot trickle. This is a screen: any selected length needs confirmation on disjoint seeds before adoption.",
+  "seedStart": 0,
+  "seeds": 100,
+  "slots": 2000,
+  "summaryOnly": true,
+  "randomness": "independent-streams",
+  "out": "sweep-results/standard-window-screen/severe-congestion",
+  "variants": [
+    {
+      "name": "historical",
+      "config": "config/variants/standard-target-screen/s75-u50.json"
+    },
+    {
+      "name": "flat-fee",
+      "config": "config/variants/flat-fee.json"
+    },
+    {
+      "name": "block-window-10",
+      "config": "config/variants/standard-window-screen/block-window-10.json"
+    },
+    {
+      "name": "block-window-13",
+      "config": "config/variants/standard-window-screen/block-window-13.json"
+    },
+    {
+      "name": "block-window-15",
+      "config": "config/variants/standard-window-screen/block-window-15.json"
+    },
+    {
+      "name": "block-window-20",
+      "config": "config/variants/standard-window-screen/block-window-20.json"
+    }
+  ]
+}

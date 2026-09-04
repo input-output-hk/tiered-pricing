@@ -1,0 +1,19 @@
+{
+  "description": "Exploratory paired two-arm ablation of where the EB threshold-or-age qualification binds. Both arms run the adopted configuration (0.75 standard target, 10-block processed-block standard window, age-escape reset at certification). The adopted arm keeps the historical announcement-time qualification, under which the earliest below-threshold certificate lands one RB later than the specified certificate-inclusion rule allows. The qualify-at-cert arm implements the specified rule: a prudent producer announces one RB earlier, and certification enforces the qualification with the certifying RB counted. Ten paired seeds across the five headline loads plus the 0.1 tx/slot trickle (where the age escape binds) are intended as a directional smoke test, not confirmatory evidence.",
+  "seedStart": 450,
+  "seeds": 10,
+  "slots": 2000,
+  "summaryOnly": true,
+  "randomness": "independent-streams",
+  "out": "sweep-results/cert-qualification-smoke/severe-congestion",
+  "variants": [
+    {
+      "name": "adopted",
+      "config": "config/variants/standard-window-confirm/block-window-10-cert-reset.json"
+    },
+    {
+      "name": "qualify-at-cert",
+      "config": "config/variants/cert-qualification/qualify-at-cert.json"
+    }
+  ]
+}

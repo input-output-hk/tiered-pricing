@@ -1,0 +1,19 @@
+{
+  "description": "Exploratory paired two-arm ablation of the fee-cap headroom bound. Holds the S=.75/U=.50, D16, half-RB threshold, K10 mechanism fixed while comparing the historical worst-case next-price bound max(1/D, (1-target)/(target*D)) against the pure worst-case upward step (1-target)/(target*D). The two coincide at the urgent target 0.5, so only the standard lane's admission and EB-producer checks differ. Ten paired seeds across the five headline loads are intended as a directional smoke test, not confirmatory evidence.",
+  "seedStart": 430,
+  "seeds": 10,
+  "slots": 2000,
+  "summaryOnly": true,
+  "randomness": "independent-streams",
+  "out": "sweep-results/headroom-bound-smoke/severe-congestion",
+  "variants": [
+    {
+      "name": "legacy-floor",
+      "config": "config/variants/standard-target-screen/s75-u50.json"
+    },
+    {
+      "name": "upward-step",
+      "config": "config/variants/headroom-bound/upward-step.json"
+    }
+  ]
+}

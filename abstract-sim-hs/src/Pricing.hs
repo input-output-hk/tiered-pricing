@@ -237,10 +237,13 @@ priceStepsAhead controllers steps prices =
 
 {- | Conservative upper bound on prices after the next controller update.
 The maximum upward adjustment is @(1 - target) / (target * denominator)@.
-Retaining @1 / denominator@ as a floor on that bound preserves the existing
-conservative headroom for targets at or above 0.5. Price floors are applied
-before and after the step, matching 'updatePrices'; lanes without a controller
-do not scale, but can still be raised by those floor applications.
+Under 'headroomLegacyFloor' (the historical policy, and the default),
+@1 / denominator@ is retained as a floor on that bound, preserving the
+existing conservative headroom for targets at or above 0.5; without it the
+bound is the pure worst-case upward step, which is smaller for targets above
+0.5 and identical otherwise. Price floors are applied before and after the
+step, matching 'updatePrices'; lanes without a controller do not scale, but
+can still be raised by those floor applications.
 -}
 worstCaseNextPrices :: ControllerConfig -> Prices -> Prices
 worstCaseNextPrices controllers prices =
@@ -251,12 +254,15 @@ worstCaseNextPrices controllers prices =
     Prices (scale <$> controllers.laneControllers <*> currentPrices.laneCoeffs)
   scale Nothing coeff = coeff
   scale (Just controller) coeff =
-    coeff * (1 + max legacyAdjustment maximumUpwardAdjustment)
+    coeff * (1 + bound)
    where
     target = max 0.000_001 controller.controllerTargetUtilisation
     denominator = fromIntegral (max 1 controller.controllerMaxChangeDenominator)
     legacyAdjustment = 1 / denominator
     maximumUpwardAdjustment = ((1 - target) / target) / denominator
+    bound
+      | controllers.headroomLegacyFloor = max legacyAdjustment maximumUpwardAdjustment
+      | otherwise = maximumUpwardAdjustment
 
 applyPriceFloors :: ControllerConfig -> Prices -> Prices
 applyPriceFloors controllers =
@@ -302,6 +308,8 @@ controllerUtilisation lane input controller =
       Just (capacityWeightedUtilisation lane input.currentProduction)
     signal@CapacityWeightedWindow{} ->
       Just (capacityWeightedWindowUtilisation lane (signalWindow signal) input.recentBlocks)
+    CapacityWeightedBlockWindow windowSize ->
+      Just (capacityWeightedBlockWindowUtilisation lane (max 1 windowSize) input.recentBlocks)
     PriorityReservationUtil ->
       Just (priorityReservationUtilisation input.currentProduction)
     PriorityReservationWindow windowSize ->
@@ -331,6 +339,10 @@ signalWindow :: ControllerSignal -> Int
 signalWindow = \case
   CapacityWeightedUtil -> 0
   CapacityWeightedWindow windowSize -> max 1 windowSize
+  -- Every block production contributes at least one processed-block summary
+  -- and at most one announcement summary, so twice the window always retains
+  -- enough history to fill it after announcements are filtered out.
+  CapacityWeightedBlockWindow windowSize -> 2 * max 1 windowSize
   PriorityReservationUtil -> 0
   PriorityReservationWindow windowSize -> 3 * max 1 windowSize
   CertGatedCapacityUtil -> 0
@@ -361,6 +373,20 @@ applyEip1559Update controller oldCoeff utilisationValue =
 capacityWeightedWindowUtilisation :: Lane -> Int -> Seq BlockSummary -> Double
 capacityWeightedWindowUtilisation lane windowSize recentBlocks =
   capacityWeightedUtilisation lane (takeLast windowSize recentBlocks)
+
+{- | 'capacityWeightedWindowUtilisation' over processed blocks only: EB
+announcements are filtered out before the window is cut, so a zero-width
+announcement summary cannot occupy a window position or push a
+capacity-bearing block out of the window. Certificate-carrying RBs remain
+as zero-capacity entries — they are processed blocks.
+-}
+capacityWeightedBlockWindowUtilisation :: Lane -> Int -> Seq BlockSummary -> Double
+capacityWeightedBlockWindowUtilisation lane windowSize recentBlocks =
+  capacityWeightedUtilisation lane (takeLast windowSize (filter isProcessedBlock (Foldable.toList recentBlocks)))
+ where
+  isProcessedBlock = \case
+    EbAnnounced _ _ -> False
+    _ -> True
 
 capacityWeightedUtilisation :: (Foldable f) => Lane -> f BlockSummary -> Double
 capacityWeightedUtilisation =

@@ -482,6 +482,7 @@ assertWorstCaseNextPrices = do
           { laneControllers = PerLane standard priority
           , multiplierFloor = multiplier
           , absoluteCoeffFloor = floorCoeff
+          , headroomLegacyFloor = True
           }
       input standardUsed priorityUsed =
         ControllerInput
@@ -509,6 +510,7 @@ assertWorstCaseNextPrices = do
                 }
           , multiplierFloor = Nothing
           , absoluteCoeffFloor = 0
+          , headroomLegacyFloor = True
           }
       withMultiplierFloor =
         noFloor
@@ -534,6 +536,10 @@ assertWorstCaseNextPrices = do
     "target below 0.5 uses the full upward bound while target above 0.5 preserves legacy headroom"
     (Prices (PerLane 11 18))
     (worstCaseNextPrices noFloor (Prices (PerLane 8 16)))
+  assertEqual
+    "without the legacy floor, target above 0.5 uses the pure upward step and target below 0.5 is unchanged"
+    (Prices (PerLane 11 (16 * (1 + (1 - 0.75) / 0.75 / 8))))
+    (worstCaseNextPrices noFloor{headroomLegacyFloor = False} (Prices (PerLane 8 16)))
   assertEqual
     "worst-case bound propagates a faster standard lane through the multiplier floor"
     (Prices (PerLane 11 110))
@@ -649,6 +655,7 @@ assertPriorityControllerReadsCurrentProduction = do
                 }
           , multiplierFloor = Nothing
           , absoluteCoeffFloor = 1.0
+          , headroomLegacyFloor = True
           }
       input =
         ControllerInput
@@ -713,6 +720,7 @@ assertCapacityWeightedControllerReadsCurrentProduction = do
                 }
           , multiplierFloor = Nothing
           , absoluteCoeffFloor = 1.0
+          , headroomLegacyFloor = True
           }
       input =
         ControllerInput
@@ -778,6 +786,7 @@ assertCertGatedControllerSamplesOnlyCertifiedEbs = do
                 }
           , multiplierFloor = Nothing
           , absoluteCoeffFloor = 1.0
+          , headroomLegacyFloor = True
           }
       certInput =
         ControllerInput
@@ -853,6 +862,7 @@ assertCertVoidWindowBackfillsVoidCapacity = do
                 }
           , multiplierFloor = Nothing
           , absoluteCoeffFloor = 1.0
+          , headroomLegacyFloor = True
           }
       history =
         Seq.fromList
@@ -917,6 +927,7 @@ assertPriorityReservationWindowUsesRbEquivalentCapacity = do
                 }
           , multiplierFloor = Nothing
           , absoluteCoeffFloor = 1.0
+          , headroomLegacyFloor = True
           }
       input =
         ControllerInput
@@ -958,6 +969,7 @@ assertPriorityReservationWindowRetention = do
                 }
           , multiplierFloor = Nothing
           , absoluteCoeffFloor = 1.0
+          , headroomLegacyFloor = True
           }
   assertEqual "priority-reservation window retention" 60 (retentionWindow priorityWindow)
 
@@ -1002,6 +1014,7 @@ assertCapacityWeightedWindowCountsCertifiedEbs = do
                 }
           , multiplierFloor = Nothing
           , absoluteCoeffFloor = 1.0
+          , headroomLegacyFloor = True
           }
       input =
         ControllerInput
@@ -1053,6 +1066,7 @@ assertCapacityWeightedWindowUsesExUnits = do
                 }
           , multiplierFloor = Nothing
           , absoluteCoeffFloor = 1.0
+          , headroomLegacyFloor = True
           }
       input =
         ControllerInput

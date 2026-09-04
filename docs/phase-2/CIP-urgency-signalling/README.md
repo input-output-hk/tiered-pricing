@@ -54,7 +54,7 @@ License: CC-BY-4.0
       - [3.6.1.3 Experiment 3: parameter stress](#experiment-3-parameter-stress)
       - [3.6.1.4 Experiment 4: default-point byte-threshold sensitivity](#experiment-4-default-point-byte-threshold-sensitivity)
   - [3.7 Incentives](#incentives)
-    - [3.7.1 Producer influence over the quotes](#producer-influence-over-the-quotes)
+    - [3.7.1 Levers on the quotes](#levers-on-the-quotes)
     - [3.7.1 Giorgos](#giorgos)
     - [3.7.2 Nicolas](#nicolas)
 - [4. Rationale: How does this CIP achieve its goals?](#rationale-how-does-this-cip-achieve-its-goals)
@@ -1156,7 +1156,7 @@ The fraction follows the urgent target because a displaced non-certificate Ranki
 
 None of these rules requires a validator to know anything about any mempool. Fee validation enforces that every Ranking Block transaction pays the urgent quote, and the quote itself is recomputable from the chain alone: each controller update is a fixed formula over the utilisation of the blocks before it. When `LEDGERS` processes the immutable EB named by a certificate, it accumulates the `SDPolicy` resource totals in `currentClause`, and the certificate-inclusion rule compares them with the RB-relative thresholds above. The age escape only counts Ranking Blocks since an EB certificate last entered the chain. A validator that holds only the chain can decide every rule in this section. What a producer's mempool contained never enters into it.
 
-A valid Ranking Block cannot contain a transaction whose on-ledger fee authorisation fails to cover the applicable urgent quote. The premium goes to the treasury rather than the producer, so the protocol offers the producer no direct fee revenue when it undercuts that quote or suppresses an EB. This is an incentive argument, not a broader anti-bribery guarantee: off-chain rebates and side payments, paid ordering within the urgent lane, censorship, withholding, and MEV remain open for the Incentives section. The residual behaviour here is EB suppression: a producer declines to announce a qualifying EB. The RB remains urgent-only regardless, and a later producer can announce the batch. This argument addresses latency only. Withholding also moves the standard quote ([Producer influence over the quotes](#producer-influence-over-the-quotes)). The simulator announces eligible EBs eagerly and does not model withholding, off-protocol side payments, or other adversarial producer behaviour. We explored work-conserving variants that admitted standard transactions into underfull RBs at the standard rate. They retain more value at light loads, but they do not ledger-enforce the applicable urgent quote for RB inclusion, and they leave below-quote side-payment incentives open. We rejected them.
+A valid Ranking Block cannot contain a transaction whose on-ledger fee authorisation fails to cover the applicable urgent quote. The premium goes to the treasury rather than the producer, so the protocol offers the producer no direct fee revenue when it undercuts that quote or suppresses an EB. This is an incentive argument, not a broader anti-bribery guarantee: off-chain rebates and side payments, paid ordering within the urgent lane, censorship, withholding, and MEV remain open for the Incentives section. The residual behaviour here is EB suppression: a producer declines to announce a qualifying EB. The RB remains urgent-only regardless, and a later producer can announce the batch. This argument addresses latency only. Withholding also moves the standard quote ([Levers on the quotes](#levers-on-the-quotes)). The simulator announces eligible EBs eagerly and does not model withholding, off-protocol side payments, or other adversarial producer behaviour. We explored work-conserving variants that admitted standard transactions into underfull RBs at the standard rate. They retain more value at light loads, but they do not ledger-enforce the applicable urgent quote for RB inclusion, and they leave below-quote side-payment incentives open. We rejected them.
 
 The threshold by itself can starve a trickle load. At very light standard traffic, pooled transactions below every resource threshold can wait indefinitely, and anything that depends on their outputs waits with them. We therefore add a time-gated escape: a certificate for a below-threshold EB can enter the chain once at least K Ranking Blocks have been produced since an EB certificate was last included. The inclusion of any EB certificate resets the count. Both the threshold and the escape are ledger rules, checked when a Ranking Block includes a certificate. A Ranking Block that includes a certificate for a non-qualifying EB is invalid. The rule extends the certificate-inclusion checks that CIP-164 already defines, which every node performs before it accepts a block. Both inputs are on the chain: the count comes from the chain itself, and the certified EB's immutable body determines the `SDPolicy` resource totals that the certificate-inclusion rule checks. Because every certificate inclusion resets the count, at most one below-threshold certificate can appear per K intervals. A reset on certificate inclusion, rather than on announcement, matches what the rule rations: an announced EB that never certifies consumes no Ranking Block space, so it does not reset the count. The escape is permissive, not compulsory. Announcement remains a producer action, and the suppression analysis above is unchanged. The rule remains removable without change to any other rule.
 
@@ -1323,46 +1323,32 @@ Settlement is conservative: for every included transaction, the base fee, premiu
 
 Finally, the urgency signal may reveal that a transaction is latency-sensitive or high-value. Faster settlement can shorten its exposure to some forms of MEV, but it does not provide general MEV protection and may itself reveal useful information to block producers. A sensitive transaction may still be submitted privately, but private submission and protection from reordering or chain forks are outside the guarantees of this mechanism.
 
-#### Producer influence over the quotes
+#### Levers on the quotes
 
-Both coefficients are computed from block contents, and block contents are chosen by producers. The
-arguments above establish that a producer earns no direct *fee revenue* from moving a quote, since the
-premium goes to the treasury. They do not establish that moving a quote is without value, because a quote
-governs what everyone else must pay. The simulator does not model adversarial producer behaviour, so what
-follows names the levers for the independent audit required in
-[Path to Active](#acceptance-criteria) rather than bounding them.
+Block contents set the coefficients, and producers choose block contents. The premium going to the
+treasury removes the direct fee revenue from moving a quote, but not the value of moving a price everyone
+else must pay. The simulator does not model adversarial producers, so the levers are named here for the
+audit required in [Path to Active](#acceptance-criteria) rather than bounded:
 
-- **Empty Ranking Blocks suppress the standard quote.** A non-certificate RB contributes full capacity and
-  zero standard usage, so producing one pushes `standardUtilisation` down. This is free: the producer
-  forgoes only the urgent transactions it declined to include.
-- **Announcing or withholding an Endorser Block moves the standard quote by a large step.** A certified EB
-  carries roughly 133 times an RB's weight in the standard window, so the decision to announce is
-  effectively the decision of what the standard quote will be for the next several blocks. The existing
-  argument that withholding does limited harm — a later producer can announce the batch — addresses
-  latency, not the price signal.
-- **Self-paid urgent traffic raises the urgent quote.** A producer can fill its own Ranking Blocks with
-  transactions it pays for itself. The premium is a real cost, but the `minfee` component returns to the
-  fee pot and is redistributed to all producers, so a large producer recovers a share of what it spends.
-  The MMIC argument above, that fake traffic is self-deterring, counts only forgone fee revenue and does
-  not price the value of setting a coefficient that competitors' transactions must then meet.
-- **Urgent-labelled traffic in the producer's own Endorser Block moves the urgent signal without paying
-  the premium.** An urgent-labelled transaction routed through an EB still lands in the `urgent` tier's
-  `PolicyClause`, so it moves the urgent signal, but its `adjusted_tier_no` is `standard` and it is
-  charged the standard quote. The premium is therefore avoidable on this route, which makes the lever
-  cheap and means the MMIC deterrence argument above holds only for RB-routed traffic. The payoff is
-  nonetheless bounded and the mechanism stands: the urgent lane's denominator is the RB reservation
-  whatever block carried the sample, so a producer must supply a Ranking Block's worth of traffic per
-  sample to move the signal by one block's utilisation; the step is capped at `1/D`; and the effect
-  decays out of the window within `urgentWindowSize` samples. Raising the urgent quote also raises what
-  the producer's own urgent transactions must cover on the RB route, so sustaining the lever costs it
-  the thing it is trying to buy.
+- **Empty Ranking Blocks suppress the standard quote.** A non-certificate RB contributes full capacity
+  and zero standard usage. Free, but for the forgone urgent transactions.
+- **Announcing or withholding an Endorser Block moves the standard quote by a large step.** A certified
+  EB carries roughly 133 times an RB's weight in the standard window. The argument that withholding does
+  limited harm — a later producer can announce the batch — addresses latency, not the price signal.
+- **Self-paid urgent traffic in Ranking Blocks raises the urgent quote.** The premium is a real cost,
+  but the `minfee` component is redistributed to all producers, so a large producer recovers a share.
+  The MMIC argument counts only forgone fee revenue, not the value of setting a coefficient competitors
+  must meet.
+- **Urgent-labelled traffic in the producer's own Endorser Block moves the urgent signal at the standard
+  price.** Such a transaction lands in the `urgent` tier's `PolicyClause` but is charged as `standard`,
+  so the MMIC deterrence holds only for RB-routed traffic. The payoff is bounded: the urgent denominator
+  is the RB reservation whatever block carried the sample, the step is capped at `1/D`, the effect decays
+  within `urgentWindowSize` samples — and a raised urgent quote is what the producer's own RB-routed
+  transactions must then cover.
 
-The common structure is that the mechanism prices what a producer *includes* but not what a producer
-*declines to include*, and both controllers read inclusion. Two things limit the damage: every step is
-bounded by `maxChangeDenominator`, so no single block moves a quote more than a few percent, and the
-windows mean a sustained campaign rather than a single block is needed to hold a quote away from its
-demand-implied level. Quantifying the cost of such a campaign against the benefit of a suppressed standard
-quote or an inflated urgent one is exactly the analysis the audit should carry out.
+The common structure: the mechanism prices what a producer *includes*, never what it *declines to
+include*. Each step is bounded by `maxChangeDenominator` and the windows force a sustained campaign, so
+the audit's question is the cost of such a campaign against the value of the displaced quote.
 
 
 
@@ -1401,7 +1387,7 @@ CPS-0031 sets four constraints on candidate solutions.
 
 **On-chain record.** The cost of signalling and its update rule are ledger state and ledger rules. The per-tier coefficients live in the `SDPolicy` state inside `UTxOState`, the [post-transaction-application validation](#additional-post-transaction-application-validation) rule updates them during block processing from the windowed utilisation each `PolicyClause` records, and the controller parameters are [protocol parameters](#new-pparams). Anyone can read the current cost of urgency from the chain and verify that every update was computed correctly, which is the equal access the constraint asks for.
 
-**Censorship resistance.** Access to priority is by posted price alone, as argued under Goal 2, so the mechanism replaces the pressure toward opaque off-chain priority with a public channel. The premium goes to the treasury, so preferential treatment earns a producer no direct fee revenue. The constraint also asks for an evaluation of new opportunities for selective exclusion, and there are two. The public lane field gives a censoring producer one extra bit to select on, which is inseparable from having a signal at all. A producer can also suppress a qualifying Endorser Block by declining to announce it. The latency harm is limited, because a later producer can announce the batch and Ranking Blocks remain urgent-only regardless ([Endorser Block announcement threshold](#endorser-block-announcement-threshold)). Withholding also moves the standard quote ([Producer influence over the quotes](#producer-influence-over-the-quotes)). Censorship and withholding beyond these arguments stay within the scope of the independent audit required in [Path to Active](#acceptance-criteria).
+**Censorship resistance.** Access to priority is by posted price alone, as argued under Goal 2, so the mechanism replaces the pressure toward opaque off-chain priority with a public channel. The premium goes to the treasury, so preferential treatment earns a producer no direct fee revenue. The constraint also asks for an evaluation of new opportunities for selective exclusion, and there are two. The public lane field gives a censoring producer one extra bit to select on, which is inseparable from having a signal at all. A producer can also suppress a qualifying Endorser Block by declining to announce it. The latency harm is limited, because a later producer can announce the batch and Ranking Blocks remain urgent-only regardless ([Endorser Block announcement threshold](#endorser-block-announcement-threshold)). Withholding also moves the standard quote ([Levers on the quotes](#levers-on-the-quotes)). Censorship and withholding beyond these arguments stay within the scope of the independent audit required in [Path to Active](#acceptance-criteria).
 
 **Linear-Leios compatibility.** The mechanism is not an existing design ported onto linear-Leios: it is made of linear-Leios parts. Its two lanes are the two CIP-164 block types, its certificate rules extend the certificate-inclusion checks that CIP-164 already defines, and the acceptance criteria require CIP-164 to be active before or with this mechanism. The block-structure question below gives the detail.
 
@@ -1411,7 +1397,7 @@ CPS-0031 closes with seven open questions. Each is answered in turn.
 
 **How can whatever protocol-level commitments are decided upon be enforced or incentivised?**
 
-This CIP separates protocol commitments, which ledger rules enforce, from implementation policies, which incentives hold in place. The "Enforcement boundary" row in [The recommended construction](#the-recommended-construction) records the split. The ledger enforces the protocol commitments: Ranking Block lane eligibility, inclusion-point fee validity, settlement, deterministic quote updates, and Endorser Block certificate eligibility. A block that breaks any of them is invalid, so every validating node enforces them and no trust in the producer is needed. Mempool organisation, transaction ordering, admission headroom, revalidation, and eviction are implementation policies rather than protocol commitments. The reference policy preserves the canonical FIFO queue and adds an urgent view, providing an efficient implementation. [Incentives](#incentives) argues that the fee flows support the policies: the producer keeps its existing protocol rewards while the premium goes to the treasury, a user can post its maximum willingness to pay without automatically paying it, and selling below-quote Ranking Block access earns a producer nothing. The same section records the limits of these arguments. Sending the premium to the treasury removes the key bribery incentive, because a producer cannot earn anything by placing a standard-paying transaction in a Ranking Block. Two producer behaviours remain outside ledger enforcement: suppression of a qualifying Endorser Block, and off-chain side payments. Suppression does limited harm to latency: a later producer can announce the withheld Endorser Block, and Ranking Blocks stay urgent-only in the meantime ([Endorser Block announcement threshold](#endorser-block-announcement-threshold)). Withholding also moves the standard quote ([Producer influence over the quotes](#producer-influence-over-the-quotes)). The incentive argument above removes the direct fee benefit of side payments, but it does not rule them out.
+This CIP separates protocol commitments, which ledger rules enforce, from implementation policies, which incentives hold in place. The "Enforcement boundary" row in [The recommended construction](#the-recommended-construction) records the split. The ledger enforces the protocol commitments: Ranking Block lane eligibility, inclusion-point fee validity, settlement, deterministic quote updates, and Endorser Block certificate eligibility. A block that breaks any of them is invalid, so every validating node enforces them and no trust in the producer is needed. Mempool organisation, transaction ordering, admission headroom, revalidation, and eviction are implementation policies rather than protocol commitments. The reference policy preserves the canonical FIFO queue and adds an urgent view, providing an efficient implementation. [Incentives](#incentives) argues that the fee flows support the policies: the producer keeps its existing protocol rewards while the premium goes to the treasury, a user can post its maximum willingness to pay without automatically paying it, and selling below-quote Ranking Block access earns a producer nothing. The same section records the limits of these arguments. Sending the premium to the treasury removes the key bribery incentive, because a producer cannot earn anything by placing a standard-paying transaction in a Ranking Block. Two producer behaviours remain outside ledger enforcement: suppression of a qualifying Endorser Block, and off-chain side payments. Suppression does limited harm to latency: a later producer can announce the withheld Endorser Block, and Ranking Blocks stay urgent-only in the meantime ([Endorser Block announcement threshold](#endorser-block-announcement-threshold)). Withholding also moves the standard quote ([Levers on the quotes](#levers-on-the-quotes)). The incentive argument above removes the direct fee benefit of side payments, but it does not rule them out.
 
 **How should updated fee or urgent quotes be propagated?**
 

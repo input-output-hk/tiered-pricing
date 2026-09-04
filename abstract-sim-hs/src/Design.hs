@@ -28,20 +28,46 @@ data Design = Design
   -- quote, without the one-further-step producer headroom; announced EBs can
   -- then fail fee validation at the certification check. True in every real
   -- construction; False exists to measure that failure rate.
+  , designAgeResetAtCertification :: Bool
+  -- ^ When the EB age-escape count restarts. False (the historical policy)
+  -- resets it at every EB announcement, including announcements whose EB is
+  -- later dropped without certifying. True resets it only when a certified
+  -- EB is applied, matching the specified rule's "Ranking Blocks since an EB
+  -- certificate last entered the chain". The announcement decision still
+  -- reads the same counter either way.
+  , designEbQualifyAtCertification :: Bool
+  -- ^ Where the EB threshold-or-age qualification binds. False (the
+  -- historical policy) fixes eligibility at announcement, using the count at
+  -- the announcing RB, so the earliest below-threshold certificate lands one
+  -- RB later than the specified rule allows. True matches the specified
+  -- certificate-inclusion rule: a prudent producer announces one RB earlier
+  -- (the count at the certifying RB, which the specified interval includes,
+  -- is at least one more than at announcement), and certification enforces
+  -- the qualification with the certifying RB counted.
   }
   deriving stock (Eq, Show)
 
 instance FromJSON Design where
   parseJSON =
-    withObject "Design" \obj ->
-      Design
-        <$> obj .: "laneStructure"
-        <*> obj .: "reservationPolicy"
-        <*> obj .: "selection"
-        <*> obj .: "feeSemantics"
-        <*> obj .: "priorityPremiumScope"
-        <*> obj .: "controllers"
-        <*> obj .:? "producerHeadroom" .!= True
+    withObject "Design" \obj -> do
+      design <-
+        Design
+          <$> obj .: "laneStructure"
+          <*> obj .: "reservationPolicy"
+          <*> obj .: "selection"
+          <*> obj .: "feeSemantics"
+          <*> obj .: "priorityPremiumScope"
+          <*> obj .: "controllers"
+          <*> obj .:? "producerHeadroom" .!= True
+          <*> obj .:? "ageResetAtCertification" .!= False
+          <*> obj .:? "ebQualifyAtCertification" .!= False
+      if designEbQualifyAtCertification design && not (designAgeResetAtCertification design)
+        then
+          fail
+            "ebQualifyAtCertification requires ageResetAtCertification: with the \
+            \announcement-time reset, an age-escape announcement zeroes the counter \
+            \the certification check reads, so every below-threshold EB is dropped"
+        else pure design
 
 data SelectionPolicy
   = Fifo
@@ -142,6 +168,8 @@ defaultDesign =
     , designPriorityPremiumScope = PremiumEverywhere
     , designControllers = defaultControllerConfig
     , designProducerHeadroom = True
+    , designAgeResetAtCertification = False
+    , designEbQualifyAtCertification = False
     }
 
 data Eip1559Controller = Eip1559Controller
@@ -164,6 +192,14 @@ instance FromJSON Eip1559Controller where
 data ControllerSignal
   = CapacityWeightedUtil
   | CapacityWeightedWindow Int
+  | -- | Comparison arm: as 'CapacityWeightedWindow', except the window is
+    -- taken over processed-block summaries only — EB announcements are
+    -- filtered out before the window is cut, so a zero-width announcement
+    -- summary cannot occupy a window position. Certificate-carrying RBs
+    -- stay in the window as zero-capacity entries: they are processed
+    -- blocks. This is the spec-faithful reading of the CIP's
+    -- "twenty most recent block summaries".
+    CapacityWeightedBlockWindow Int
   | PriorityReservationUtil
   | PriorityReservationWindow Int
   | -- | Sample-and-hold comparison arm: the controller updates only in a
@@ -186,6 +222,7 @@ instance FromJSON ControllerSignal where
       , ("priority-reservation-util", Nullary PriorityReservationUtil)
       , ("priority-reservation-window", WithFields \obj -> PriorityReservationWindow <$> obj .: "window")
       , ("capacity-weighted-window", WithFields \obj -> CapacityWeightedWindow <$> obj .: "window")
+      , ("capacity-weighted-block-window", WithFields \obj -> CapacityWeightedBlockWindow <$> obj .: "window")
       , ("cert-gated-capacity-util", Nullary CertGatedCapacityUtil)
       , ("cert-void-capacity-window", WithFields \obj -> CertVoidCapacityWindow <$> obj .: "window" <*> obj .: "voidBytes" <*> obj .: "voidExUnits")
       ]

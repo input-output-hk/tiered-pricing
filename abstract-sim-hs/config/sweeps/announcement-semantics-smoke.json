@@ -1,0 +1,27 @@
+{
+  "description": "Exploratory paired four-arm ablation of the simulator's announcement semantics against the CIP's specified semantics. Holds the S=.75/U=.50, D16, half-RB threshold, K10 mechanism fixed while varying two independent knobs: (1) block-window takes the standard controller's 20-entry window over processed-block summaries only, filtering out the zero-width EbAnnounced entries that the historical signal lets occupy window positions; (2) cert-reset restarts the EB age-escape count when a certified EB is applied, matching the specified 'Ranking Blocks since an EB certificate last entered the chain', instead of at every announcement (including announcements whose EB is later dropped without certifying). The fourth arm applies both. Ten paired seeds across the five headline loads plus the 0.1 tx/slot trickle (where the age escape binds) are intended as a directional smoke test, not confirmatory evidence.",
+  "seedStart": 440,
+  "seeds": 10,
+  "slots": 2000,
+  "summaryOnly": true,
+  "randomness": "independent-streams",
+  "out": "sweep-results/announcement-semantics-smoke/severe-congestion",
+  "variants": [
+    {
+      "name": "historical",
+      "config": "config/variants/standard-target-screen/s75-u50.json"
+    },
+    {
+      "name": "block-window",
+      "config": "config/variants/announcement-semantics/block-window.json"
+    },
+    {
+      "name": "cert-reset",
+      "config": "config/variants/announcement-semantics/cert-reset.json"
+    },
+    {
+      "name": "block-window-cert-reset",
+      "config": "config/variants/announcement-semantics/block-window-cert-reset.json"
+    }
+  ]
+}

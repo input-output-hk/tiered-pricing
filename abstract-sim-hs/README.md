@@ -3,13 +3,19 @@
 ## Canonical phase-2 recommendation
 
 The canonical simulator configuration for the phase-2 recommendation is
+[`config/variants/standard-window-confirm/block-window-10-cert-reset.json`](config/variants/standard-window-confirm/block-window-10-cert-reset.json).
+It combines the D16 controllers, the 0.75/0.5 targets, the 10-block
+processed-block standard window (announcements get no entry), the 5-sample
+urgent window, the half-RB announcement threshold, the K = 10 age escape
+with its count reset at certification, rb-only premium scope, absolute
+coefficient floor 1, and no cross-lane multiplier floor. The max-of-two
+fee-cap rule is the simulator's rb-only fee semantics rather than a
+configuration switch. The historical canonical configuration, with the
+20-entry announcement-diluted standard window and the announcement-time
+reset, is preserved at
 [`config/variants/trickle-aging/thr-k10.json`](config/variants/trickle-aging/thr-k10.json).
-It combines the D16 controllers, 20/5 signal windows, half-RB announcement
-threshold, K = 10 age escape, rb-only premium scope, absolute coefficient
-floor 1, and no cross-lane multiplier floor. The max-of-two fee-cap rule is
-the simulator's rb-only fee semantics rather than a configuration switch.
-Its embedded load is a default for direct runs; sweep load overrides do not
-change the recommended mechanism.
+Each file's embedded load is a default for direct runs; sweep load overrides
+do not change the recommended mechanism.
 
 Run the bounded post-correction launch-day integration check with:
 

@@ -1,0 +1,3613 @@
+{
+  "schema_version": 1,
+  "experiment": "recommended-headlines",
+  "method": "paired mean difference with two-sided 95% Student-t confidence interval",
+  "evidence_scope": "Headline refresh under the adopted recommended construction. Ten paired seeds match the original headline design. The thousand-seed replication bounds seed-sampling error separately at low and severe-congestion load; its record for this configuration is thousand-seed-low-severe-recommended.json.",
+  "difference_direction": "recommended construction minus flat fee",
+  "manifest": "config/sweeps/recommended-headlines.json",
+  "variants": {
+    "flat-fee": {
+      "label": "Flat fee",
+      "config": "config/variants/flat-fee.json"
+    },
+    "recommended": {
+      "label": "Recommended construction",
+      "config": "config/variants/standard-window-confirm/block-window-10-cert-reset.json"
+    }
+  },
+  "contrasts": {
+    "recommended-minus-flat-fee": {
+      "label": "Recommended construction \u2212 flat fee",
+      "candidate": "recommended",
+      "reference": "flat-fee",
+      "primary": true
+    }
+  },
+  "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9
+  ],
+  "slots": 2000,
+  "provenance": {
+    "git_revision": "9dab5a601bab2fef5247db45a1537d33a3608bf8",
+    "abstract_sim_worktree_clean": false,
+    "dirty_patch": {
+      "path": "source.patch",
+      "sha256": "4c2abb896796b1e3e6d9b1d667351f05fe4a761fc9e046a5d8ed426b37e82461",
+      "bytes": 206601
+    },
+    "simulator_sha256": "22feb9bb662eced31fd467892d73e9cbbc54b1c135b8854b25938f0fb2ce686d"
+  },
+  "loads": [
+    {
+      "load": "low",
+      "label": "Low",
+      "source": {
+        "summary": "sweep-results/recommended-headlines/low/summary.json",
+        "effective_configs": {
+          "flat-fee": "sweep-results/recommended-headlines/low/flat-fee.config.json",
+          "recommended": "sweep-results/recommended-headlines/low/recommended.config.json"
+        }
+      },
+      "paired_seeds": 10,
+      "metric_groups": [
+        {
+          "id": "absolute",
+          "label": "Absolute retained value and submitted demand",
+          "metrics": [
+            {
+              "key": "value.retainedLovelace",
+              "label": "Overall retained value",
+              "unit": "G lovelace",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "flat-fee": 9.7274013204,
+                "recommended": 9.6726245543
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": -0.05477676610000017,
+                  "ci95_low": -0.08625169248634801,
+                  "ci95_high": -0.023301839713652336,
+                  "candidate_higher": 1,
+                  "reference_higher": 9,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "value.standard.retainedLovelace",
+              "label": "Standard-lane retained value",
+              "unit": "G lovelace",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "flat-fee": 9.7274013204,
+                "recommended": 2.7254723019000004
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": -7.0019290185,
+                  "ci95_low": -7.431983613755374,
+                  "ci95_high": -6.571874423244626,
+                  "candidate_higher": 0,
+                  "reference_higher": 10,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "value.priority.retainedLovelace",
+              "label": "Priority-lane retained value",
+              "unit": "G lovelace",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "flat-fee": 0.0,
+                "recommended": 6.9471522524000004
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 6.9471522524000004,
+                  "ci95_low": 6.521605427737865,
+                  "ci95_high": 7.372699077062136,
+                  "candidate_higher": 10,
+                  "reference_higher": 0,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "value.urgent.retainedLovelace",
+              "label": "Urgent-class retained value",
+              "unit": "G lovelace",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "flat-fee": 0.0850279317,
+                "recommended": 0.08761324470000001
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 0.002585312999999999,
+                  "ci95_low": 0.0004021242145779316,
+                  "ci95_high": 0.004768501785422066,
+                  "candidate_higher": 8,
+                  "reference_higher": 2,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "units.total",
+              "label": "Observed submitted demand",
+              "unit": "units",
+              "digits": 1,
+              "preference": null,
+              "arm_means": {
+                "flat-fee": 5941.4,
+                "recommended": 5949.5
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 8.1,
+                  "ci95_low": 6.036463026742675,
+                  "ci95_high": 10.163536973257324,
+                  "candidate_higher": 10,
+                  "reference_higher": 0,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "inclusion.standard.submitted",
+              "label": "Standard-lane submissions",
+              "unit": "transactions",
+              "digits": 1,
+              "preference": null,
+              "arm_means": {
+                "flat-fee": 5941.4,
+                "recommended": 2117.6
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": -3823.8,
+                  "ci95_low": -4088.15261505981,
+                  "ci95_high": -3559.44738494019,
+                  "candidate_higher": 0,
+                  "reference_higher": 10,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "inclusion.priority.submitted",
+              "label": "Priority-lane submissions",
+              "unit": "transactions",
+              "digits": 1,
+              "preference": null,
+              "arm_means": {
+                "flat-fee": 0.0,
+                "recommended": 3831.9
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 3831.9,
+                  "ci95_low": 3566.584670354614,
+                  "ci95_high": 4097.215329645386,
+                  "candidate_higher": 10,
+                  "reference_higher": 0,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "inclusion.urgent.submitted",
+              "label": "Urgent-class submissions",
+              "unit": "transactions",
+              "digits": 1,
+              "preference": null,
+              "arm_means": {
+                "flat-fee": 76.1,
+                "recommended": 80.0
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 3.9,
+                  "ci95_low": 2.412879547581972,
+                  "ci95_high": 5.387120452418028,
+                  "candidate_higher": 10,
+                  "reference_higher": 0,
+                  "ties": 0
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": "conditional",
+          "label": "Conditional retained-value and service ratios",
+          "metrics": [
+            {
+              "key": "value.retainedRatio",
+              "label": "Overall retained-value ratio",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "flat-fee": 95.66162355331761,
+                "recommended": 95.36485822889618
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": -0.2967653244214219,
+                  "ci95_low": -0.4537586948284952,
+                  "ci95_high": -0.13977195401434858,
+                  "candidate_higher": 1,
+                  "reference_higher": 9,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "value.standard.retainedRatio",
+              "label": "Standard-lane retained-value ratio",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "flat-fee": 95.66162355331761,
+                "recommended": 96.30432306138148
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 0.6426995080638704,
+                  "ci95_low": 0.1932310106574422,
+                  "ci95_high": 1.0921680054702987,
+                  "candidate_higher": 7,
+                  "reference_higher": 3,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "value.priority.retainedRatio",
+              "label": "Priority-lane retained-value ratio",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "flat-fee": 0.0,
+                "recommended": 94.9664988117351
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 94.9664988117351,
+                  "ci95_low": 94.71110312262948,
+                  "ci95_high": 95.2218945008407,
+                  "candidate_higher": 10,
+                  "reference_higher": 0,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "value.urgent.retainedRatio",
+              "label": "Urgent-class retained-value ratio",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "flat-fee": 59.39785816289301,
+                "recommended": 59.76383169094912
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 0.3659735280561101,
+                  "ci95_low": -1.265082034831225,
+                  "ci95_high": 1.9970290909434452,
+                  "candidate_higher": 5,
+                  "reference_higher": 5,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "inclusion.standard.serviceRate",
+              "label": "Standard-lane service rate",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "flat-fee": 97.18987792108628,
+                "recommended": 96.17660517421945
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": -1.0132727468668334,
+                  "ci95_low": -3.5364199266751437,
+                  "ci95_high": 1.5098744329414768,
+                  "candidate_higher": 3,
+                  "reference_higher": 7,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "inclusion.priority.serviceRate",
+              "label": "Priority-lane service rate",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "flat-fee": 0.0,
+                "recommended": 97.19486535245025
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 97.19486535245025,
+                  "ci95_low": 95.17602045893055,
+                  "ci95_high": 99.21371024596995,
+                  "candidate_higher": 10,
+                  "reference_higher": 0,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "inclusion.urgent.serviceRate",
+              "label": "Urgent-class service rate",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "flat-fee": 97.64214269477984,
+                "recommended": 97.62537117656375
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": -0.016771518216073387,
+                  "ci95_low": -0.316983014476871,
+                  "ci95_high": 0.28343997804472426,
+                  "candidate_higher": 7,
+                  "reference_higher": 1,
+                  "ties": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": "latency",
+          "label": "Lane and urgent-class latency",
+          "metrics": [
+            {
+              "key": "latency.standard.meanBlocks",
+              "label": "Standard-lane mean wait",
+              "unit": "blocks",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "flat-fee": 1.803569378674959,
+                "recommended": 3.033336625482632
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 1.2297672468076732,
+                  "ci95_low": 0.9300223941650548,
+                  "ci95_high": 1.5295120994502915,
+                  "candidate_higher": 10,
+                  "reference_higher": 0,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "latency.standard.p95Blocks",
+              "label": "Standard-lane p95 wait",
+              "unit": "blocks",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "flat-fee": 3.0,
+                "recommended": 5.5
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 2.5,
+                  "ci95_low": 1.7273799122466462,
+                  "ci95_high": 3.272620087753354,
+                  "candidate_higher": 10,
+                  "reference_higher": 0,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "latency.priority.meanBlocks",
+              "label": "Priority-lane mean wait",
+              "unit": "blocks",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "flat-fee": 0.0,
+                "recommended": 1.7417042173610053
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 1.7417042173610053,
+                  "ci95_low": 1.6662484133788442,
+                  "ci95_high": 1.8171600213431665,
+                  "candidate_higher": 10,
+                  "reference_higher": 0,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "latency.priority.p95Blocks",
+              "label": "Priority-lane p95 wait",
+              "unit": "blocks",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "flat-fee": 0.0,
+                "recommended": 2.4
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 2.4,
+                  "ci95_low": 1.8998529816144056,
+                  "ci95_high": 2.900147018385594,
+                  "candidate_higher": 10,
+                  "reference_higher": 0,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "latency.urgent.meanBlocks",
+              "label": "Urgent-class mean wait",
+              "unit": "blocks",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "flat-fee": 1.7907703598020652,
+                "recommended": 1.768667297333792
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": -0.022103062468273604,
+                  "ci95_low": -0.08777814352400572,
+                  "ci95_high": 0.0435720185874585,
+                  "candidate_higher": 4,
+                  "reference_higher": 6,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "latency.urgent.p95Blocks",
+              "label": "Urgent-class p95 wait",
+              "unit": "blocks",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "flat-fee": 2.9,
+                "recommended": 2.2
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": -0.7,
+                  "ci95_low": -1.0455262073996703,
+                  "ci95_high": -0.35447379260032963,
+                  "candidate_higher": 0,
+                  "reference_higher": 7,
+                  "ties": 3
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": "throughput-retries",
+          "label": "Throughput, capacity, and retries",
+          "metrics": [
+            {
+              "key": "throughput.txPerSlot",
+              "label": "Throughput",
+              "unit": "tx/slot",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "flat-fee": 2.88735,
+                "recommended": 2.87865
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": -0.008700000000000018,
+                  "ci95_low": -0.020796002552909816,
+                  "ci95_high": 0.003396002552909779,
+                  "candidate_higher": 5,
+                  "reference_higher": 5,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "throughput.ebUtilization",
+              "label": "EB utilisation",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": null,
+              "arm_means": {
+                "flat-fee": 0.8233365141066251,
+                "recommended": 1.0215590287334928
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 0.19822251462686769,
+                  "ci95_low": 0.16704329479663163,
+                  "ci95_high": 0.22940173445710374,
+                  "candidate_higher": 10,
+                  "reference_higher": 0,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "load.amplification",
+              "label": "Retry load amplification",
+              "unit": "attempts/unit",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "flat-fee": 1.0,
+                "recommended": 1.0
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": "oscillation",
+          "label": "Combined-lane price oscillation",
+          "metrics": [
+            {
+              "key": "price.oscillationReversalCount",
+              "label": "Oscillation reversals",
+              "unit": "reversals",
+              "digits": 2,
+              "preference": "lower",
+              "arm_means": {
+                "flat-fee": 0.0,
+                "recommended": 2.6
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 2.6,
+                  "ci95_low": 0.9758342941682336,
+                  "ci95_high": 4.2241657058317665,
+                  "candidate_higher": 8,
+                  "reference_higher": 0,
+                  "ties": 2
+                }
+              }
+            },
+            {
+              "key": "price.oscillationCycleCount",
+              "label": "Oscillation cycles",
+              "unit": "cycles",
+              "digits": 2,
+              "preference": "lower",
+              "arm_means": {
+                "flat-fee": 0.0,
+                "recommended": 1.0
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 1.0,
+                  "ci95_low": 0.24599999999999989,
+                  "ci95_high": 1.754,
+                  "candidate_higher": 6,
+                  "reference_higher": 0,
+                  "ties": 4
+                }
+              }
+            },
+            {
+              "key": "price.oscillationExcessTravel",
+              "label": "Oscillation excess log travel",
+              "unit": "log coefficient",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "flat-fee": 0.0,
+                "recommended": 0.28179734883331287
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 0.28179734883331287,
+                  "ci95_low": 0.11944798762846354,
+                  "ci95_high": 0.4441467100381622,
+                  "candidate_higher": 8,
+                  "reference_higher": 0,
+                  "ties": 2
+                }
+              }
+            },
+            {
+              "key": "price.oscillationMaxAmplitude",
+              "label": "Maximum oscillation amplitude",
+              "unit": "coefficient",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "flat-fee": 0.0,
+                "recommended": 0.753268399519446
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 0.753268399519446,
+                  "ci95_low": 0.4691528029108237,
+                  "ci95_high": 1.0373839961280684,
+                  "candidate_higher": 8,
+                  "reference_higher": 0,
+                  "ties": 2
+                }
+              }
+            },
+            {
+              "key": "price.settledCoefficientRange",
+              "label": "Settled coefficient range",
+              "unit": "coefficient",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "flat-fee": 0.0,
+                "recommended": 0.04710972362784729
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 0.04710972362784729,
+                  "ci95_low": 0.028795143415522795,
+                  "ci95_high": 0.06542430384017178,
+                  "candidate_higher": 10,
+                  "reference_higher": 0,
+                  "ties": 0
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "load": "mid-load",
+      "label": "Mid load",
+      "source": {
+        "summary": "sweep-results/recommended-headlines/mid-load/summary.json",
+        "effective_configs": {
+          "flat-fee": "sweep-results/recommended-headlines/mid-load/flat-fee.config.json",
+          "recommended": "sweep-results/recommended-headlines/mid-load/recommended.config.json"
+        }
+      },
+      "paired_seeds": 10,
+      "metric_groups": [
+        {
+          "id": "absolute",
+          "label": "Absolute retained value and submitted demand",
+          "metrics": [
+            {
+              "key": "value.retainedLovelace",
+              "label": "Overall retained value",
+              "unit": "G lovelace",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "flat-fee": 16.0483513746,
+                "recommended": 16.043249434099998
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": -0.005101940500000168,
+                  "ci95_low": -0.025520390311372806,
+                  "ci95_high": 0.015316509311372468,
+                  "candidate_higher": 5,
+                  "reference_higher": 5,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "value.standard.retainedLovelace",
+              "label": "Standard-lane retained value",
+              "unit": "G lovelace",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "flat-fee": 16.0483513746,
+                "recommended": 7.198670396200001
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": -8.8496809784,
+                  "ci95_low": -9.498186062912886,
+                  "ci95_high": -8.201175893887115,
+                  "candidate_higher": 0,
+                  "reference_higher": 10,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "value.priority.retainedLovelace",
+              "label": "Priority-lane retained value",
+              "unit": "G lovelace",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "flat-fee": 0.0,
+                "recommended": 8.8445790379
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 8.8445790379,
+                  "ci95_low": 8.205406255982208,
+                  "ci95_high": 9.483751819817794,
+                  "candidate_higher": 10,
+                  "reference_higher": 0,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "value.urgent.retainedLovelace",
+              "label": "Urgent-class retained value",
+              "unit": "G lovelace",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "flat-fee": 0.12461387670000001,
+                "recommended": 0.13762356260000003
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 0.013009685900000002,
+                  "ci95_low": 0.010587419467172201,
+                  "ci95_high": 0.015431952332827802,
+                  "candidate_higher": 10,
+                  "reference_higher": 0,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "units.total",
+              "label": "Observed submitted demand",
+              "unit": "units",
+              "digits": 1,
+              "preference": null,
+              "arm_means": {
+                "flat-fee": 9931.2,
+                "recommended": 9941.9
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 10.7,
+                  "ci95_low": 8.592843157237695,
+                  "ci95_high": 12.807156842762303,
+                  "candidate_higher": 10,
+                  "reference_higher": 0,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "inclusion.standard.submitted",
+              "label": "Standard-lane submissions",
+              "unit": "transactions",
+              "digits": 1,
+              "preference": null,
+              "arm_means": {
+                "flat-fee": 9931.2,
+                "recommended": 5231.1
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": -4700.1,
+                  "ci95_low": -5056.8042354366435,
+                  "ci95_high": -4343.395764563357,
+                  "candidate_higher": 0,
+                  "reference_higher": 10,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "inclusion.priority.submitted",
+              "label": "Priority-lane submissions",
+              "unit": "transactions",
+              "digits": 1,
+              "preference": null,
+              "arm_means": {
+                "flat-fee": 0.0,
+                "recommended": 4710.8
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 4710.8,
+                  "ci95_low": 4352.577178940035,
+                  "ci95_high": 5069.022821059965,
+                  "candidate_higher": 10,
+                  "reference_higher": 0,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "inclusion.urgent.submitted",
+              "label": "Urgent-class submissions",
+              "unit": "transactions",
+              "digits": 1,
+              "preference": null,
+              "arm_means": {
+                "flat-fee": 133.2,
+                "recommended": 141.2
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 8.0,
+                  "ci95_low": 6.005103511457299,
+                  "ci95_high": 9.994896488542702,
+                  "candidate_higher": 10,
+                  "reference_higher": 0,
+                  "ties": 0
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": "conditional",
+          "label": "Conditional retained-value and service ratios",
+          "metrics": [
+            {
+              "key": "value.retainedRatio",
+              "label": "Overall retained-value ratio",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "flat-fee": 94.7221489865378,
+                "recommended": 94.6932461368155
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": -0.028902849722292956,
+                  "ci95_low": -0.15834384536173898,
+                  "ci95_high": 0.10053814591715307,
+                  "candidate_higher": 5,
+                  "reference_higher": 5,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "value.standard.retainedRatio",
+              "label": "Standard-lane retained-value ratio",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "flat-fee": 94.7221489865378,
+                "recommended": 96.41885478349707
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 1.6967057969592703,
+                  "ci95_low": 1.3437029074945244,
+                  "ci95_high": 2.049708686424016,
+                  "candidate_higher": 10,
+                  "reference_higher": 0,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "value.priority.retainedRatio",
+              "label": "Priority-lane retained-value ratio",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "flat-fee": 0.0,
+                "recommended": 93.2766106531811
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 93.2766106531811,
+                  "ci95_low": 92.91712737152528,
+                  "ci95_high": 93.63609393483691,
+                  "candidate_higher": 10,
+                  "reference_higher": 0,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "value.urgent.retainedRatio",
+              "label": "Urgent-class retained-value ratio",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "flat-fee": 52.318271317521386,
+                "recommended": 56.005040252385264
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 3.686768934863886,
+                  "ci95_low": 2.6299622502595055,
+                  "ci95_high": 4.743575619468267,
+                  "candidate_higher": 10,
+                  "reference_higher": 0,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "inclusion.standard.serviceRate",
+              "label": "Standard-lane service rate",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "flat-fee": 96.72469073772791,
+                "recommended": 97.57338972468543
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 0.8486989869575197,
+                  "ci95_low": -0.9221122059309637,
+                  "ci95_high": 2.619510179846003,
+                  "candidate_higher": 6,
+                  "reference_higher": 4,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "inclusion.priority.serviceRate",
+              "label": "Priority-lane service rate",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "flat-fee": 0.0,
+                "recommended": 95.70013656753864
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 95.70013656753864,
+                  "ci95_low": 92.93800921204424,
+                  "ci95_high": 98.46226392303303,
+                  "candidate_higher": 10,
+                  "reference_higher": 0,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "inclusion.urgent.serviceRate",
+              "label": "Urgent-class service rate",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "flat-fee": 97.07128249799304,
+                "recommended": 97.17115264486658
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 0.09987014687353905,
+                  "ci95_low": -0.24130866721175848,
+                  "ci95_high": 0.4410489609588366,
+                  "candidate_higher": 7,
+                  "reference_higher": 2,
+                  "ties": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": "latency",
+          "label": "Lane and urgent-class latency",
+          "metrics": [
+            {
+              "key": "latency.standard.meanBlocks",
+              "label": "Standard-lane mean wait",
+              "unit": "blocks",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "flat-fee": 2.2228170474249316,
+                "recommended": 2.8754410314253844
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 0.6526239840004529,
+                  "ci95_low": 0.4406514049178945,
+                  "ci95_high": 0.8645965630830112,
+                  "candidate_higher": 10,
+                  "reference_higher": 0,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "latency.standard.p95Blocks",
+              "label": "Standard-lane p95 wait",
+              "unit": "blocks",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "flat-fee": 3.5,
+                "recommended": 5.6
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 2.1,
+                  "ci95_low": 0.7745889543239803,
+                  "ci95_high": 3.42541104567602,
+                  "candidate_higher": 8,
+                  "reference_higher": 0,
+                  "ties": 2
+                }
+              }
+            },
+            {
+              "key": "latency.priority.meanBlocks",
+              "label": "Priority-lane mean wait",
+              "unit": "blocks",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "flat-fee": 0.0,
+                "recommended": 2.081507713359835
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 2.081507713359835,
+                  "ci95_low": 1.9964198852174817,
+                  "ci95_high": 2.166595541502188,
+                  "candidate_higher": 10,
+                  "reference_higher": 0,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "latency.priority.p95Blocks",
+              "label": "Priority-lane p95 wait",
+              "unit": "blocks",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "flat-fee": 0.0,
+                "recommended": 3.2
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 3.2,
+                  "ci95_low": 2.7476000000000003,
+                  "ci95_high": 3.6524,
+                  "candidate_higher": 10,
+                  "reference_higher": 0,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "latency.urgent.meanBlocks",
+              "label": "Urgent-class mean wait",
+              "unit": "blocks",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "flat-fee": 2.2328279402799476,
+                "recommended": 1.9922201540951772
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": -0.24060778618477058,
+                  "ci95_low": -0.30853440773968,
+                  "ci95_high": -0.17268116462986116,
+                  "candidate_higher": 0,
+                  "reference_higher": 10,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "latency.urgent.p95Blocks",
+              "label": "Urgent-class p95 wait",
+              "unit": "blocks",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "flat-fee": 3.4,
+                "recommended": 3.1
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": -0.3,
+                  "ci95_low": -0.6455262073996703,
+                  "ci95_high": 0.04552620739967028,
+                  "candidate_higher": 0,
+                  "reference_higher": 3,
+                  "ties": 7
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": "throughput-retries",
+          "label": "Throughput, capacity, and retries",
+          "metrics": [
+            {
+              "key": "throughput.txPerSlot",
+              "label": "Throughput",
+              "unit": "tx/slot",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "flat-fee": 4.8031,
+                "recommended": 4.8042
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 0.0010999999999998344,
+                  "ci95_low": -0.005918278011022638,
+                  "ci95_high": 0.008118278011022306,
+                  "candidate_higher": 8,
+                  "reference_higher": 2,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "throughput.ebUtilization",
+              "label": "EB utilisation",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": null,
+              "arm_means": {
+                "flat-fee": 1.437961820584786,
+                "recommended": 1.6696139238029097
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 0.23165210321812388,
+                  "ci95_low": 0.18271030024498175,
+                  "ci95_high": 0.280593906191266,
+                  "candidate_higher": 10,
+                  "reference_higher": 0,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "load.amplification",
+              "label": "Retry load amplification",
+              "unit": "attempts/unit",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "flat-fee": 1.0,
+                "recommended": 1.0
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 0.0,
+                  "ci95_low": 0.0,
+                  "ci95_high": 0.0,
+                  "candidate_higher": 0,
+                  "reference_higher": 0,
+                  "ties": 10
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": "oscillation",
+          "label": "Combined-lane price oscillation",
+          "metrics": [
+            {
+              "key": "price.oscillationReversalCount",
+              "label": "Oscillation reversals",
+              "unit": "reversals",
+              "digits": 2,
+              "preference": "lower",
+              "arm_means": {
+                "flat-fee": 0.0,
+                "recommended": 3.6
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 3.6,
+                  "ci95_low": 2.6952,
+                  "ci95_high": 4.5048,
+                  "candidate_higher": 10,
+                  "reference_higher": 0,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "price.oscillationCycleCount",
+              "label": "Oscillation cycles",
+              "unit": "cycles",
+              "digits": 2,
+              "preference": "lower",
+              "arm_means": {
+                "flat-fee": 0.0,
+                "recommended": 1.4
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 1.4,
+                  "ci95_low": 0.8998529816144056,
+                  "ci95_high": 1.9001470183855942,
+                  "candidate_higher": 9,
+                  "reference_higher": 0,
+                  "ties": 1
+                }
+              }
+            },
+            {
+              "key": "price.oscillationExcessTravel",
+              "label": "Oscillation excess log travel",
+              "unit": "log coefficient",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "flat-fee": 0.0,
+                "recommended": 0.5369853522865985
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 0.5369853522865985,
+                  "ci95_low": 0.36699884786893133,
+                  "ci95_high": 0.7069718567042657,
+                  "candidate_higher": 10,
+                  "reference_higher": 0,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "price.oscillationMaxAmplitude",
+              "label": "Maximum oscillation amplitude",
+              "unit": "coefficient",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "flat-fee": 0.0,
+                "recommended": 0.9164825784908393
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 0.9164825784908393,
+                  "ci95_low": 0.884165774108206,
+                  "ci95_high": 0.9487993828734725,
+                  "candidate_higher": 10,
+                  "reference_higher": 0,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "price.settledCoefficientRange",
+              "label": "Settled coefficient range",
+              "unit": "coefficient",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "flat-fee": 0.0,
+                "recommended": 0.04211415765409543
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 0.04211415765409543,
+                  "ci95_low": 0.03412125597601494,
+                  "ci95_high": 0.05010705933217592,
+                  "candidate_higher": 10,
+                  "reference_higher": 0,
+                  "ties": 0
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "load": "severe-congestion",
+      "label": "Severe congestion",
+      "source": {
+        "summary": "sweep-results/recommended-headlines/severe-congestion/summary.json",
+        "effective_configs": {
+          "flat-fee": "sweep-results/recommended-headlines/severe-congestion/flat-fee.config.json",
+          "recommended": "sweep-results/recommended-headlines/severe-congestion/recommended.config.json"
+        }
+      },
+      "paired_seeds": 10,
+      "metric_groups": [
+        {
+          "id": "absolute",
+          "label": "Absolute retained value and submitted demand",
+          "metrics": [
+            {
+              "key": "value.retainedLovelace",
+              "label": "Overall retained value",
+              "unit": "G lovelace",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "flat-fee": 418.70835037380004,
+                "recommended": 419.69200160310004
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 0.9836512292999998,
+                  "ci95_low": 0.718037813181666,
+                  "ci95_high": 1.2492646454183336,
+                  "candidate_higher": 10,
+                  "reference_higher": 0,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "value.standard.retainedLovelace",
+              "label": "Standard-lane retained value",
+              "unit": "G lovelace",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "flat-fee": 418.70835037380004,
+                "recommended": 402.87000960970005
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": -15.838340764099996,
+                  "ci95_low": -17.703615981001033,
+                  "ci95_high": -13.97306554719896,
+                  "candidate_higher": 0,
+                  "reference_higher": 10,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "value.priority.retainedLovelace",
+              "label": "Priority-lane retained value",
+              "unit": "G lovelace",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "flat-fee": 0.0,
+                "recommended": 16.8219919934
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 16.8219919934,
+                  "ci95_low": 14.86035769350676,
+                  "ci95_high": 18.783626293293242,
+                  "candidate_higher": 10,
+                  "reference_higher": 0,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "value.urgent.retainedLovelace",
+              "label": "Urgent-class retained value",
+              "unit": "G lovelace",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "flat-fee": 2.7521785549000004,
+                "recommended": 3.1645920414
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 0.41241348649999987,
+                  "ci95_low": 0.33954566331767055,
+                  "ci95_high": 0.4852813096823292,
+                  "candidate_higher": 10,
+                  "reference_higher": 0,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "units.total",
+              "label": "Observed submitted demand",
+              "unit": "units",
+              "digits": 1,
+              "preference": null,
+              "arm_means": {
+                "flat-fee": 257644.7,
+                "recommended": 257481.6
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": -163.1,
+                  "ci95_low": -331.4999372685156,
+                  "ci95_high": 5.2999372685156345,
+                  "candidate_higher": 0,
+                  "reference_higher": 10,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "inclusion.standard.submitted",
+              "label": "Standard-lane submissions",
+              "unit": "transactions",
+              "digits": 1,
+              "preference": null,
+              "arm_means": {
+                "flat-fee": 257644.7,
+                "recommended": 250590.7
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": -7054.0,
+                  "ci95_low": -7939.615032335834,
+                  "ci95_high": -6168.384967664166,
+                  "candidate_higher": 0,
+                  "reference_higher": 10,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "inclusion.priority.submitted",
+              "label": "Priority-lane submissions",
+              "unit": "transactions",
+              "digits": 1,
+              "preference": null,
+              "arm_means": {
+                "flat-fee": 0.0,
+                "recommended": 6890.9
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 6890.9,
+                  "ci95_low": 6020.336128844276,
+                  "ci95_high": 7761.463871155724,
+                  "candidate_higher": 10,
+                  "reference_higher": 0,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "inclusion.urgent.submitted",
+              "label": "Urgent-class submissions",
+              "unit": "transactions",
+              "digits": 1,
+              "preference": null,
+              "arm_means": {
+                "flat-fee": 3426.0,
+                "recommended": 3416.6
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": -9.4,
+                  "ci95_low": -18.46808437543454,
+                  "ci95_high": -0.3319156245654611,
+                  "candidate_higher": 0,
+                  "reference_higher": 9,
+                  "ties": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": "conditional",
+          "label": "Conditional retained-value and service ratios",
+          "metrics": [
+            {
+              "key": "value.retainedRatio",
+              "label": "Overall retained-value ratio",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "flat-fee": 93.20324407375567,
+                "recommended": 93.45224548598975
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 0.24900141223407105,
+                  "ci95_low": 0.20510189790684494,
+                  "ci95_high": 0.2929009265612972,
+                  "candidate_higher": 10,
+                  "reference_higher": 0,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "value.standard.retainedRatio",
+              "label": "Standard-lane retained-value ratio",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "flat-fee": 93.20324407375567,
+                "recommended": 94.30795778460154
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 1.104713710845853,
+                  "ci95_low": 1.0242573508716022,
+                  "ci95_high": 1.1851700708201036,
+                  "candidate_higher": 10,
+                  "reference_higher": 0,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "value.priority.retainedRatio",
+              "label": "Priority-lane retained-value ratio",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "flat-fee": 0.0,
+                "recommended": 76.62023950108082
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 76.62023950108082,
+                  "ci95_low": 75.60203015838674,
+                  "ci95_high": 77.6384488437749,
+                  "candidate_higher": 10,
+                  "reference_higher": 0,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "value.urgent.retainedRatio",
+              "label": "Urgent-class retained-value ratio",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "flat-fee": 43.559917292600666,
+                "recommended": 50.103196238759786
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 6.5432789461591145,
+                  "ci95_low": 5.397497173546185,
+                  "ci95_high": 7.689060718772044,
+                  "candidate_higher": 10,
+                  "reference_higher": 0,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "inclusion.standard.serviceRate",
+              "label": "Standard-lane service rate",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "flat-fee": 98.92264974548648,
+                "recommended": 98.93608129991989
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 0.013431554433418568,
+                  "ci95_low": -0.007438838382487897,
+                  "ci95_high": 0.03430194724932503,
+                  "candidate_higher": 9,
+                  "reference_higher": 1,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "inclusion.priority.serviceRate",
+              "label": "Priority-lane service rate",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "flat-fee": 0.0,
+                "recommended": 98.22205504922235
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 98.22205504922235,
+                  "ci95_low": 97.3216051422511,
+                  "ci95_high": 99.1225049561936,
+                  "candidate_higher": 10,
+                  "reference_higher": 0,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "inclusion.urgent.serviceRate",
+              "label": "Urgent-class service rate",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "flat-fee": 98.32835375363484,
+                "recommended": 98.40507947008643
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 0.07672571645158258,
+                  "ci95_low": -0.051225861241769366,
+                  "ci95_high": 0.20467729414493452,
+                  "candidate_higher": 6,
+                  "reference_higher": 4,
+                  "ties": 0
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": "latency",
+          "label": "Lane and urgent-class latency",
+          "metrics": [
+            {
+              "key": "latency.standard.meanBlocks",
+              "label": "Standard-lane mean wait",
+              "unit": "blocks",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "flat-fee": 2.9926052882033694,
+                "recommended": 3.0208605262745634
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 0.02825523807119401,
+                  "ci95_low": 0.01778091456341096,
+                  "ci95_high": 0.03872956157897706,
+                  "candidate_higher": 10,
+                  "reference_higher": 0,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "latency.standard.p95Blocks",
+              "label": "Standard-lane p95 wait",
+              "unit": "blocks",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "flat-fee": 5.9,
+                "recommended": 6.0
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 0.1,
+                  "ci95_low": -0.1262,
+                  "ci95_high": 0.32620000000000005,
+                  "candidate_higher": 1,
+                  "reference_higher": 0,
+                  "ties": 9
+                }
+              }
+            },
+            {
+              "key": "latency.priority.meanBlocks",
+              "label": "Priority-lane mean wait",
+              "unit": "blocks",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "flat-fee": 0.0,
+                "recommended": 2.1763619892622748
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 2.1763619892622748,
+                  "ci95_low": 2.0771521328079343,
+                  "ci95_high": 2.275571845716615,
+                  "candidate_higher": 10,
+                  "reference_higher": 0,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "latency.priority.p95Blocks",
+              "label": "Priority-lane p95 wait",
+              "unit": "blocks",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "flat-fee": 0.0,
+                "recommended": 3.5
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 3.5,
+                  "ci95_low": 2.9942014234895478,
+                  "ci95_high": 4.005798576510452,
+                  "candidate_higher": 10,
+                  "reference_higher": 0,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "latency.urgent.meanBlocks",
+              "label": "Urgent-class mean wait",
+              "unit": "blocks",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "flat-fee": 2.982857125645855,
+                "recommended": 2.596117544795743
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": -0.38673958085011245,
+                  "ci95_low": -0.4647464820919165,
+                  "ci95_high": -0.3087326796083084,
+                  "candidate_higher": 0,
+                  "reference_higher": 10,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "latency.urgent.p95Blocks",
+              "label": "Urgent-class p95 wait",
+              "unit": "blocks",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "flat-fee": 5.8,
+                "recommended": 5.0
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": -0.8,
+                  "ci95_low": -1.3642419339255105,
+                  "ci95_high": -0.23575806607448968,
+                  "candidate_higher": 0,
+                  "reference_higher": 6,
+                  "ties": 4
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": "throughput-retries",
+          "label": "Throughput, capacity, and retries",
+          "metrics": [
+            {
+              "key": "throughput.txPerSlot",
+              "label": "Throughput",
+              "unit": "tx/slot",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "flat-fee": 127.43424999999999,
+                "recommended": 127.34545
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": -0.08880000000000195,
+                  "ci95_low": -0.17761102233709436,
+                  "ci95_high": 1.1022337090466072e-05,
+                  "candidate_higher": 0,
+                  "reference_higher": 10,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "throughput.ebUtilization",
+              "label": "EB utilisation",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": null,
+              "arm_means": {
+                "flat-fee": 50.894871789132125,
+                "recommended": 51.009772775342924
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 0.1149009862107981,
+                  "ci95_low": -0.08992254412857383,
+                  "ci95_high": 0.31972451655017003,
+                  "candidate_higher": 8,
+                  "reference_higher": 2,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "load.amplification",
+              "label": "Retry load amplification",
+              "unit": "attempts/unit",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "flat-fee": 1.0311924496993783,
+                "recommended": 1.0306950059874072
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": -0.0004974437119712238,
+                  "ci95_low": -0.001991161722855895,
+                  "ci95_high": 0.000996274298913447,
+                  "candidate_higher": 5,
+                  "reference_higher": 4,
+                  "ties": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": "oscillation",
+          "label": "Combined-lane price oscillation",
+          "metrics": [
+            {
+              "key": "price.oscillationReversalCount",
+              "label": "Oscillation reversals",
+              "unit": "reversals",
+              "digits": 2,
+              "preference": "lower",
+              "arm_means": {
+                "flat-fee": 0.0,
+                "recommended": 1.8
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 1.8,
+                  "ci95_low": 1.0612338935765935,
+                  "ci95_high": 2.538766106423407,
+                  "candidate_higher": 10,
+                  "reference_higher": 0,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "price.oscillationCycleCount",
+              "label": "Oscillation cycles",
+              "unit": "cycles",
+              "digits": 2,
+              "preference": "lower",
+              "arm_means": {
+                "flat-fee": 0.0,
+                "recommended": 0.6
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 0.6,
+                  "ci95_low": 0.0998529816144057,
+                  "ci95_high": 1.1001470183855941,
+                  "candidate_higher": 5,
+                  "reference_higher": 0,
+                  "ties": 5
+                }
+              }
+            },
+            {
+              "key": "price.oscillationExcessTravel",
+              "label": "Oscillation excess log travel",
+              "unit": "log coefficient",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "flat-fee": 0.0,
+                "recommended": 0.5129922569296057
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 0.5129922569296057,
+                  "ci95_low": 0.2700345290672526,
+                  "ci95_high": 0.7559499847919589,
+                  "candidate_higher": 10,
+                  "reference_higher": 0,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "price.oscillationMaxAmplitude",
+              "label": "Maximum oscillation amplitude",
+              "unit": "coefficient",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "flat-fee": 0.0,
+                "recommended": 0.79420136782878
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 0.79420136782878,
+                  "ci95_low": 0.6582895939606017,
+                  "ci95_high": 0.9301131416969584,
+                  "candidate_higher": 10,
+                  "reference_higher": 0,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "price.settledCoefficientRange",
+              "label": "Settled coefficient range",
+              "unit": "coefficient",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "flat-fee": 0.0,
+                "recommended": 0.06671735700016775
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 0.06671735700016775,
+                  "ci95_low": 0.04515792117334547,
+                  "ci95_high": 0.08827679282699002,
+                  "candidate_higher": 10,
+                  "reference_higher": 0,
+                  "ties": 0
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "load": "eb-capacity-stress",
+      "label": "EB-capacity stress",
+      "source": {
+        "summary": "sweep-results/recommended-headlines/eb-capacity-stress/summary.json",
+        "effective_configs": {
+          "flat-fee": "sweep-results/recommended-headlines/eb-capacity-stress/flat-fee.config.json",
+          "recommended": "sweep-results/recommended-headlines/eb-capacity-stress/recommended.config.json"
+        }
+      },
+      "paired_seeds": 10,
+      "metric_groups": [
+        {
+          "id": "absolute",
+          "label": "Absolute retained value and submitted demand",
+          "metrics": [
+            {
+              "key": "value.retainedLovelace",
+              "label": "Overall retained value",
+              "unit": "G lovelace",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "flat-fee": 571.2700925187,
+                "recommended": 573.3381098681
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 2.068017349399986,
+                  "ci95_low": 0.6391478822832628,
+                  "ci95_high": 3.4968868165167093,
+                  "candidate_higher": 9,
+                  "reference_higher": 1,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "value.standard.retainedLovelace",
+              "label": "Standard-lane retained value",
+              "unit": "G lovelace",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "flat-fee": 571.2700925187,
+                "recommended": 550.0480860235
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": -21.222006495200027,
+                  "ci95_low": -26.670731237991596,
+                  "ci95_high": -15.773281752408458,
+                  "candidate_higher": 0,
+                  "reference_higher": 10,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "value.priority.retainedLovelace",
+              "label": "Priority-lane retained value",
+              "unit": "G lovelace",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "flat-fee": 0.0,
+                "recommended": 23.2900238446
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 23.2900238446,
+                  "ci95_low": 18.287714671638,
+                  "ci95_high": 28.292333017562,
+                  "candidate_higher": 10,
+                  "reference_higher": 0,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "value.urgent.retainedLovelace",
+              "label": "Urgent-class retained value",
+              "unit": "G lovelace",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "flat-fee": 2.7998426371000003,
+                "recommended": 3.1193776135
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 0.3195349764,
+                  "ci95_low": 0.24548512577063752,
+                  "ci95_high": 0.3935848270293625,
+                  "candidate_higher": 10,
+                  "reference_higher": 0,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "units.total",
+              "label": "Observed submitted demand",
+              "unit": "units",
+              "digits": 1,
+              "preference": null,
+              "arm_means": {
+                "flat-fee": 384435.5,
+                "recommended": 382407.3
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": -2028.2,
+                  "ci95_low": -2761.2861541997368,
+                  "ci95_high": -1295.1138458002633,
+                  "candidate_higher": 0,
+                  "reference_higher": 10,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "inclusion.standard.submitted",
+              "label": "Standard-lane submissions",
+              "unit": "transactions",
+              "digits": 1,
+              "preference": null,
+              "arm_means": {
+                "flat-fee": 384435.5,
+                "recommended": 372163.9
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": -12271.6,
+                  "ci95_low": -15008.703254458305,
+                  "ci95_high": -9534.496745541695,
+                  "candidate_higher": 0,
+                  "reference_higher": 10,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "inclusion.priority.submitted",
+              "label": "Priority-lane submissions",
+              "unit": "transactions",
+              "digits": 1,
+              "preference": null,
+              "arm_means": {
+                "flat-fee": 0.0,
+                "recommended": 10243.4
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 10243.4,
+                  "ci95_low": 7979.345549079387,
+                  "ci95_high": 12507.454450920613,
+                  "candidate_higher": 10,
+                  "reference_higher": 0,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "inclusion.urgent.submitted",
+              "label": "Urgent-class submissions",
+              "unit": "transactions",
+              "digits": 1,
+              "preference": null,
+              "arm_means": {
+                "flat-fee": 5142.8,
+                "recommended": 5029.7
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": -113.1,
+                  "ci95_low": -143.11346226012586,
+                  "ci95_high": -83.08653773987412,
+                  "candidate_higher": 0,
+                  "reference_higher": 10,
+                  "ties": 0
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": "conditional",
+          "label": "Conditional retained-value and service ratios",
+          "metrics": [
+            {
+              "key": "value.retainedRatio",
+              "label": "Overall retained-value ratio",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "flat-fee": 85.62439670743518,
+                "recommended": 86.06268531516636
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 0.4382886077311724,
+                  "ci95_low": 0.30060218794352833,
+                  "ci95_high": 0.5759750275188165,
+                  "candidate_higher": 10,
+                  "reference_higher": 0,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "value.standard.retainedRatio",
+              "label": "Standard-lane retained-value ratio",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "flat-fee": 85.62439670743518,
+                "recommended": 86.78368862968098
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 1.1592919222457951,
+                  "ci95_low": 0.9825092020073452,
+                  "ci95_high": 1.3360746424842451,
+                  "candidate_higher": 10,
+                  "reference_higher": 0,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "value.priority.retainedRatio",
+              "label": "Priority-lane retained-value ratio",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "flat-fee": 0.0,
+                "recommended": 71.64940801235977
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 71.64940801235977,
+                  "ci95_low": 69.4239176881667,
+                  "ci95_high": 73.87489833655285,
+                  "candidate_higher": 10,
+                  "reference_higher": 0,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "value.urgent.retainedRatio",
+              "label": "Urgent-class retained-value ratio",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "flat-fee": 29.39845508782676,
+                "recommended": 33.07912447969655
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 3.680669391869796,
+                  "ci95_low": 2.857709016279711,
+                  "ci95_high": 4.503629767459881,
+                  "candidate_higher": 10,
+                  "reference_higher": 0,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "inclusion.standard.serviceRate",
+              "label": "Standard-lane service rate",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "flat-fee": 92.85579102092547,
+                "recommended": 92.94845842200898
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 0.09266740108350575,
+                  "ci95_low": -0.13756439351938038,
+                  "ci95_high": 0.3228991956863919,
+                  "candidate_higher": 4,
+                  "reference_higher": 6,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "inclusion.priority.serviceRate",
+              "label": "Priority-lane service rate",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "flat-fee": 0.0,
+                "recommended": 98.01919267988538
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 98.01919267988538,
+                  "ci95_low": 96.62764799873234,
+                  "ci95_high": 99.41073736103841,
+                  "candidate_higher": 10,
+                  "reference_higher": 0,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "inclusion.urgent.serviceRate",
+              "label": "Urgent-class service rate",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "flat-fee": 76.64382176939189,
+                "recommended": 76.20115317719498
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": -0.4426685921969124,
+                  "ci95_low": -0.6939858895768141,
+                  "ci95_high": -0.19135129481701074,
+                  "candidate_higher": 2,
+                  "reference_higher": 8,
+                  "ties": 0
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": "latency",
+          "label": "Lane and urgent-class latency",
+          "metrics": [
+            {
+              "key": "latency.standard.meanBlocks",
+              "label": "Standard-lane mean wait",
+              "unit": "blocks",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "flat-fee": 4.520044449283934,
+                "recommended": 4.5188447603544715
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": -0.0011996889294619173,
+                  "ci95_low": -0.031034157818384624,
+                  "ci95_high": 0.028634779959460788,
+                  "candidate_higher": 6,
+                  "reference_higher": 4,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "latency.standard.p95Blocks",
+              "label": "Standard-lane p95 wait",
+              "unit": "blocks",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "flat-fee": 9.8,
+                "recommended": 9.9
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 0.1,
+                  "ci95_low": -0.1262,
+                  "ci95_high": 0.32620000000000005,
+                  "candidate_higher": 1,
+                  "reference_higher": 0,
+                  "ties": 9
+                }
+              }
+            },
+            {
+              "key": "latency.priority.meanBlocks",
+              "label": "Priority-lane mean wait",
+              "unit": "blocks",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "flat-fee": 0.0,
+                "recommended": 2.9927449464749936
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 2.9927449464749936,
+                  "ci95_low": 2.6812065294850305,
+                  "ci95_high": 3.3042833634649567,
+                  "candidate_higher": 10,
+                  "reference_higher": 0,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "latency.priority.p95Blocks",
+              "label": "Priority-lane p95 wait",
+              "unit": "blocks",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "flat-fee": 0.0,
+                "recommended": 5.6
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 5.6,
+                  "ci95_low": 4.831067857350208,
+                  "ci95_high": 6.368932142649792,
+                  "candidate_higher": 10,
+                  "reference_higher": 0,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "latency.urgent.meanBlocks",
+              "label": "Urgent-class mean wait",
+              "unit": "blocks",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "flat-fee": 3.8103075265215436,
+                "recommended": 3.413057829298072
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": -0.3972496972234711,
+                  "ci95_low": -0.48320935070129534,
+                  "ci95_high": -0.31129004374564684,
+                  "candidate_higher": 0,
+                  "reference_higher": 10,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "latency.urgent.p95Blocks",
+              "label": "Urgent-class p95 wait",
+              "unit": "blocks",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "flat-fee": 7.7,
+                "recommended": 7.3
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": -0.4,
+                  "ci95_low": -0.7693830532117033,
+                  "ci95_high": -0.03061694678829674,
+                  "candidate_higher": 0,
+                  "reference_higher": 4,
+                  "ties": 6
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": "throughput-retries",
+          "label": "Throughput, capacity, and retries",
+          "metrics": [
+            {
+              "key": "throughput.txPerSlot",
+              "label": "Throughput",
+              "unit": "tx/slot",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "flat-fee": 178.49025,
+                "recommended": 177.96715
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": -0.5230999999999938,
+                  "ci95_low": -1.0489694553468853,
+                  "ci95_high": 0.0027694553468977645,
+                  "candidate_higher": 1,
+                  "reference_higher": 9,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "throughput.ebUtilization",
+              "label": "EB utilisation",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": null,
+              "arm_means": {
+                "flat-fee": 68.77728917413772,
+                "recommended": 67.98667477466704
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": -0.7906143994706767,
+                  "ci95_low": -1.1869202163871548,
+                  "ci95_high": -0.3943085825541985,
+                  "candidate_higher": 0,
+                  "reference_higher": 10,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "load.amplification",
+              "label": "Retry load amplification",
+              "unit": "attempts/unit",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "flat-fee": 2.068343320770885,
+                "recommended": 2.030099176305896
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": -0.03824414446498918,
+                  "ci95_low": -0.054441108864230515,
+                  "ci95_high": -0.022047180065747844,
+                  "candidate_higher": 0,
+                  "reference_higher": 10,
+                  "ties": 0
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": "oscillation",
+          "label": "Combined-lane price oscillation",
+          "metrics": [
+            {
+              "key": "price.oscillationReversalCount",
+              "label": "Oscillation reversals",
+              "unit": "reversals",
+              "digits": 2,
+              "preference": "lower",
+              "arm_means": {
+                "flat-fee": 0.0,
+                "recommended": 5.9
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 5.9,
+                  "ci95_low": 5.273680560735977,
+                  "ci95_high": 6.526319439264023,
+                  "candidate_higher": 10,
+                  "reference_higher": 0,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "price.oscillationCycleCount",
+              "label": "Oscillation cycles",
+              "unit": "cycles",
+              "digits": 2,
+              "preference": "lower",
+              "arm_means": {
+                "flat-fee": 0.0,
+                "recommended": 2.6
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 2.6,
+                  "ci95_low": 2.230616946788297,
+                  "ci95_high": 2.969383053211703,
+                  "candidate_higher": 10,
+                  "reference_higher": 0,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "price.oscillationExcessTravel",
+              "label": "Oscillation excess log travel",
+              "unit": "log coefficient",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "flat-fee": 0.0,
+                "recommended": 1.8561117744233673
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 1.8561117744233673,
+                  "ci95_low": 1.3035669708018576,
+                  "ci95_high": 2.408656578044877,
+                  "candidate_higher": 10,
+                  "reference_higher": 0,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "price.oscillationMaxAmplitude",
+              "label": "Maximum oscillation amplitude",
+              "unit": "coefficient",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "flat-fee": 0.0,
+                "recommended": 1.2187192410547265
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 1.2187192410547265,
+                  "ci95_low": 0.9757385639374915,
+                  "ci95_high": 1.4616999181719614,
+                  "candidate_higher": 10,
+                  "reference_higher": 0,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "price.settledCoefficientRange",
+              "label": "Settled coefficient range",
+              "unit": "coefficient",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "flat-fee": 0.0,
+                "recommended": 0.6005520725224123
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 0.6005520725224123,
+                  "ci95_low": 0.011887824794849289,
+                  "ci95_high": 1.1892163202499753,
+                  "candidate_higher": 10,
+                  "reference_higher": 0,
+                  "ties": 0
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "load": "launch-day",
+      "label": "Launch day",
+      "source": {
+        "summary": "sweep-results/recommended-headlines/launch-day/summary.json",
+        "effective_configs": {
+          "flat-fee": "sweep-results/recommended-headlines/launch-day/flat-fee.config.json",
+          "recommended": "sweep-results/recommended-headlines/launch-day/recommended.config.json"
+        }
+      },
+      "paired_seeds": 10,
+      "metric_groups": [
+        {
+          "id": "absolute",
+          "label": "Absolute retained value and submitted demand",
+          "metrics": [
+            {
+              "key": "value.retainedLovelace",
+              "label": "Overall retained value",
+              "unit": "G lovelace",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "flat-fee": 692.9451811382,
+                "recommended": 815.601377619
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 122.6561964808,
+                  "ci95_low": 112.7979076887916,
+                  "ci95_high": 132.51448527280843,
+                  "candidate_higher": 10,
+                  "reference_higher": 0,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "value.standard.retainedLovelace",
+              "label": "Standard-lane retained value",
+              "unit": "G lovelace",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "flat-fee": 692.9451811382,
+                "recommended": 794.1786364563001
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 101.23345531809998,
+                  "ci95_low": 92.1499627657676,
+                  "ci95_high": 110.31694787043237,
+                  "candidate_higher": 10,
+                  "reference_higher": 0,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "value.priority.retainedLovelace",
+              "label": "Priority-lane retained value",
+              "unit": "G lovelace",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "flat-fee": 0.0,
+                "recommended": 21.4227411627
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 21.4227411627,
+                  "ci95_low": 19.244666954742367,
+                  "ci95_high": 23.60081537065763,
+                  "candidate_higher": 10,
+                  "reference_higher": 0,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "units.total",
+              "label": "Observed submitted demand",
+              "unit": "units",
+              "digits": 1,
+              "preference": null,
+              "arm_means": {
+                "flat-fee": 757507.8,
+                "recommended": 653111.9
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": -104395.9,
+                  "ci95_low": -120779.06281360521,
+                  "ci95_high": -88012.73718639478,
+                  "candidate_higher": 0,
+                  "reference_higher": 10,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "inclusion.standard.submitted",
+              "label": "Standard-lane submissions",
+              "unit": "transactions",
+              "digits": 1,
+              "preference": null,
+              "arm_means": {
+                "flat-fee": 757507.8,
+                "recommended": 641149.3
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": -116358.5,
+                  "ci95_low": -133321.35235561087,
+                  "ci95_high": -99395.64764438912,
+                  "candidate_higher": 0,
+                  "reference_higher": 10,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "inclusion.priority.submitted",
+              "label": "Priority-lane submissions",
+              "unit": "transactions",
+              "digits": 1,
+              "preference": null,
+              "arm_means": {
+                "flat-fee": 0.0,
+                "recommended": 11962.6
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 11962.6,
+                  "ci95_low": 10728.76009509992,
+                  "ci95_high": 13196.43990490008,
+                  "candidate_higher": 10,
+                  "reference_higher": 0,
+                  "ties": 0
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": "conditional",
+          "label": "Conditional retained-value and service ratios",
+          "metrics": [
+            {
+              "key": "value.retainedRatio",
+              "label": "Overall retained-value ratio",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "flat-fee": 56.31139841228479,
+                "recommended": 69.42563923584302
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 13.11424082355823,
+                  "ci95_low": 11.690391838006214,
+                  "ci95_high": 14.538089809110247,
+                  "candidate_higher": 10,
+                  "reference_higher": 0,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "value.standard.retainedRatio",
+              "label": "Standard-lane retained-value ratio",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "flat-fee": 56.31139841228479,
+                "recommended": 70.14820650081114
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 13.83680808852634,
+                  "ci95_low": 12.310040428406822,
+                  "ci95_high": 15.363575748645857,
+                  "candidate_higher": 10,
+                  "reference_higher": 0,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "value.priority.retainedRatio",
+              "label": "Priority-lane retained-value ratio",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "flat-fee": 0.0,
+                "recommended": 50.45782957997493
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 50.45782957997493,
+                  "ci95_low": 48.192330228818186,
+                  "ci95_high": 52.72332893113167,
+                  "candidate_higher": 10,
+                  "reference_higher": 0,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "inclusion.standard.serviceRate",
+              "label": "Standard-lane service rate",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "flat-fee": 62.15934040043561,
+                "recommended": 77.17369824752059
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 15.014357847084984,
+                  "ci95_low": 13.203147139537794,
+                  "ci95_high": 16.825568554632174,
+                  "candidate_higher": 10,
+                  "reference_higher": 0,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "inclusion.priority.serviceRate",
+              "label": "Priority-lane service rate",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "flat-fee": 0.0,
+                "recommended": 76.66362865146917
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 76.66362865146917,
+                  "ci95_low": 72.44673586308643,
+                  "ci95_high": 80.8805214398519,
+                  "candidate_higher": 10,
+                  "reference_higher": 0,
+                  "ties": 0
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": "latency",
+          "label": "Lane and urgent-class latency",
+          "metrics": [
+            {
+              "key": "latency.standard.meanBlocks",
+              "label": "Standard-lane mean wait",
+              "unit": "blocks",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "flat-fee": 5.582289480270701,
+                "recommended": 5.020807568529288
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": -0.5614819117414127,
+                  "ci95_low": -0.7997953126833687,
+                  "ci95_high": -0.32316851079945674,
+                  "candidate_higher": 0,
+                  "reference_higher": 10,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "latency.standard.p95Blocks",
+              "label": "Standard-lane p95 wait",
+              "unit": "blocks",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "flat-fee": 12.0,
+                "recommended": 11.3
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": -0.7,
+                  "ci95_low": -1.2888928255633616,
+                  "ci95_high": -0.11110717443663831,
+                  "candidate_higher": 0,
+                  "reference_higher": 5,
+                  "ties": 5
+                }
+              }
+            },
+            {
+              "key": "latency.priority.meanBlocks",
+              "label": "Priority-lane mean wait",
+              "unit": "blocks",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "flat-fee": 0.0,
+                "recommended": 2.987374935630542
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 2.987374935630542,
+                  "ci95_low": 2.7556235068074173,
+                  "ci95_high": 3.2191263644536665,
+                  "candidate_higher": 10,
+                  "reference_higher": 0,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "latency.priority.p95Blocks",
+              "label": "Priority-lane p95 wait",
+              "unit": "blocks",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "flat-fee": 0.0,
+                "recommended": 6.4
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 6.4,
+                  "ci95_low": 5.631067857350208,
+                  "ci95_high": 7.168932142649792,
+                  "candidate_higher": 10,
+                  "reference_higher": 0,
+                  "ties": 0
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": "throughput-retries",
+          "label": "Throughput, capacity, and retries",
+          "metrics": [
+            {
+              "key": "throughput.txPerSlot",
+              "label": "Throughput",
+              "unit": "tx/slot",
+              "digits": 3,
+              "preference": "higher",
+              "arm_means": {
+                "flat-fee": 235.43514999999996,
+                "recommended": 251.5607
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 16.125549999999997,
+                  "ci95_low": 11.036489946039701,
+                  "ci95_high": 21.214610053960293,
+                  "candidate_higher": 10,
+                  "reference_higher": 0,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "throughput.ebUtilization",
+              "label": "EB utilisation",
+              "unit": "percentage points",
+              "digits": 3,
+              "preference": null,
+              "arm_means": {
+                "flat-fee": 91.29390205929276,
+                "recommended": 88.74757935504603
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": -2.546322704246731,
+                  "ci95_low": -4.911040444707929,
+                  "ci95_high": -0.18160496378553326,
+                  "candidate_higher": 2,
+                  "reference_higher": 8,
+                  "ties": 0
+                }
+              }
+            },
+            {
+              "key": "load.amplification",
+              "label": "Retry load amplification",
+              "unit": "attempts/unit",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "flat-fee": 3.3241647289907776,
+                "recommended": 2.5314737346010143
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": -0.7926909943897634,
+                  "ci95_low": -0.902492706755048,
+                  "ci95_high": -0.6828892820244788,
+                  "candidate_higher": 0,
+                  "reference_higher": 10,
+                  "ties": 0
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": "oscillation",
+          "label": "Combined-lane price oscillation",
+          "metrics": [
+            {
+              "key": "price.oscillationReversalCount",
+              "label": "Oscillation reversals",
+              "unit": "reversals",
+              "digits": 2,
+              "preference": "lower",
+              "arm_means": {
+                "flat-fee": 0.0,
+                "recommended": 1.9
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 1.9,
+                  "ci95_low": 0.663348052199003,
+                  "ci95_high": 3.136651947800997,
+                  "candidate_higher": 7,
+                  "reference_higher": 0,
+                  "ties": 3
+                }
+              }
+            },
+            {
+              "key": "price.oscillationCycleCount",
+              "label": "Oscillation cycles",
+              "unit": "cycles",
+              "digits": 2,
+              "preference": "lower",
+              "arm_means": {
+                "flat-fee": 0.0,
+                "recommended": 0.8
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 0.8,
+                  "ci95_low": 0.23575806607448968,
+                  "ci95_high": 1.3642419339255105,
+                  "candidate_higher": 6,
+                  "reference_higher": 0,
+                  "ties": 4
+                }
+              }
+            },
+            {
+              "key": "price.oscillationExcessTravel",
+              "label": "Oscillation excess log travel",
+              "unit": "log coefficient",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "flat-fee": 0.0,
+                "recommended": 0.20638606474117216
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 0.20638606474117216,
+                  "ci95_low": 0.020130736370481628,
+                  "ci95_high": 0.3926413931118627,
+                  "candidate_higher": 6,
+                  "reference_higher": 0,
+                  "ties": 4
+                }
+              }
+            },
+            {
+              "key": "price.oscillationMaxAmplitude",
+              "label": "Maximum oscillation amplitude",
+              "unit": "coefficient",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "flat-fee": 0.0,
+                "recommended": 2.37081567920287
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 2.37081567920287,
+                  "ci95_low": 1.0387650300594047,
+                  "ci95_high": 3.7028663283463352,
+                  "candidate_higher": 7,
+                  "reference_higher": 0,
+                  "ties": 3
+                }
+              }
+            },
+            {
+              "key": "price.settledCoefficientRange",
+              "label": "Settled coefficient range",
+              "unit": "coefficient",
+              "digits": 3,
+              "preference": "lower",
+              "arm_means": {
+                "flat-fee": 0.0,
+                "recommended": 0.2816156329285147
+              },
+              "contrasts": {
+                "recommended-minus-flat-fee": {
+                  "candidate": "recommended",
+                  "reference": "flat-fee",
+                  "primary": true,
+                  "mean": 0.2816156329285147,
+                  "ci95_low": 0.2045408039661463,
+                  "ci95_high": 0.35869046189088316,
+                  "candidate_higher": 10,
+                  "reference_higher": 0,
+                  "ties": 0
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "notes": [
+    "The recommended construction here is the full adopted configuration: 0.75 standard target, 0.5 urgent target, D = 16, half-RB threshold, K = 10, the 10-block processed-block standard window, and the age-escape reset at certification.",
+    "The window length and the reset rule were selected on seeds 0-99, bounded on seeds 440-449, and confirmed on seeds 700-799. This refresh reuses the original headline seeds 0-9, which overlap the selecting screen's seed range; the disjoint-seed confirmation is the guard against selection bias, not this refresh.",
+    "Independent streams align fresh-demand samples and Ranking Block opportunities within a seed; retry jitter remains mechanism-dependent.",
+    "Launch-day urgent-class slices are omitted because that profile changes the urgency-rate multiplier over time; priority-lane metrics remain usable."
+  ]
+}

@@ -12,7 +12,7 @@ module Sim (
 import Actor (Actor (..), ActorId, SubmissionEnv (..), TxSubmission (TxSubmission), generateTransaction, resubmitTransaction)
 import Block (BlockSummary (..), EbId, EndorserBlock (..), InclusionPoint (..), PendingEb (..), mkBlockUsage, nextEbId, prioritySignalCapacity, selectRbTxs, selectTxsByPolicy, txsBytes)
 import Config (SimConfig (..))
-import Control.Monad (join, replicateM)
+import Control.Monad (join, replicateM, when)
 import Control.Monad.Reader (MonadReader (..), ReaderT, asks)
 import Control.Monad.State.Strict (MonadState (..), State, gets, modify')
 import Data.Either (partitionEithers)
@@ -63,8 +63,9 @@ data SimSt = SimSt
   -- ^ pending resubmissions keyed by wake slot (jitter already drawn);
   -- within a slot, enqueue order is preserved
   , _simRbsSinceEbAnnounce :: Int
-  -- ^ ranking blocks produced since the last EB announcement; read by the
-  -- EB-threshold age escape, reset to 0 on every announcement
+  -- ^ ranking blocks counted by the EB-threshold age escape; reset to 0 on
+  -- every announcement under the historical policy, or only when a certified
+  -- EB is applied under 'designAgeResetAtCertification'
   }
 
 newtype SimM a = SimM {unSimM :: ReaderT SimConfig (State SimSt) a}
@@ -436,18 +437,24 @@ produceRankingBlock = do
   design <- asks simConfigDesign
   slot <- gets _simSlot
   let rbSignalCapacity = prioritySignalCapacity design.designReservationPolicy rbCapacity
-  rbEvents <- case pendingEb of
+  (rbEvents, certifiedNow) <- case pendingEb of
     Just pending -> do
       certEb <- ebCertifiedAt slot pending
       ebValid <- pendingEbStillValid design slot pending
+      certQualified <- pendingEbQualifies design pending
       modify' \st -> st{_simPendingEb = Nothing}
-      if certEb && ebValid
-        then certifyPendingEb slot rbSignalCapacity pending
-        else producePraosBlock design slot rbCapacity
+      if certEb && ebValid && certQualified
+        then (,True) <$> certifyPendingEb slot rbSignalCapacity pending
+        else (,False) <$> producePraosBlock design slot rbCapacity
     Nothing ->
-      producePraosBlock design slot rbCapacity
+      (,False) <$> producePraosBlock design slot rbCapacity
   -- the RB just produced counts toward the EB-announcement age
   modify' \st -> st{_simRbsSinceEbAnnounce = st._simRbsSinceEbAnnounce + 1}
+  -- under cert-inclusion reset semantics the certifying RB itself is the
+  -- interval boundary, so the count restarts at zero after this production
+  -- (the announcement-time reset in 'announceEndorserBlock' is then off)
+  when (design.designAgeResetAtCertification && certifiedNow) $
+    modify' \st -> st{_simRbsSinceEbAnnounce = 0}
   ebEvents <- announceEndorserBlock slot rbSignalCapacity
   pure (rbEvents >< ebEvents)
 
@@ -468,6 +475,28 @@ ebCertifiedAt :: SlotNo -> PendingEb -> SimM Bool
 ebCertifiedAt slot pending = do
   d <- asks simConfigD
   pure (diffSlots slot pending.pendingEbAnnounced >= Duration d)
+
+{- | The ledger's certificate-inclusion qualification: the certified EB's
+payload reaches the byte threshold, or the age escape holds counting the
+certifying RB itself (the specified interval includes it, and the counter
+has not yet been incremented for this production, hence the +1). Only
+enforced under 'designEbQualifyAtCertification'; the historical policy fixes
+eligibility at announcement instead and always passes here.
+-}
+pendingEbQualifies :: Design -> PendingEb -> SimM Bool
+pendingEbQualifies design pending
+  | not design.designEbQualifyAtCertification = pure True
+  | otherwise =
+      case design.designReservationPolicy of
+        PriorityReservationRbEbThreshold _ thresholdBytes ageEscape -> do
+          ebs <- gets _simEbs
+          rbsSinceAnnounce <- gets _simRbsSinceEbAnnounce
+          let ebTxs = maybe [] _ebTxs (Map.lookup pending.pendingEbId ebs)
+          pure
+            ( txsBytes (Seq.fromList ebTxs) >= thresholdBytes
+                || maybe False ((rbsSinceAnnounce + 1) >=) ageEscape
+            )
+        _ -> pure True
 
 {- | An EB containing any stale tx fails certification validation outright;
 it is discarded like a timing failure. Its txs were never removed from the
@@ -567,11 +596,17 @@ announceEndorserBlock slot rbSignalCapacity = do
       (selectedTxs, _remainingTxs, _usage) =
         selectTxsByPolicy design.designSelection ebCapacity (Seq.filter ebEligible feeCheckedMempool.mempoolTxs)
       selectedTxList = toList selectedTxs
+      -- Under qualification-at-certification, a prudent producer announces
+      -- one RB earlier: the specified count at the certifying RB includes
+      -- that RB itself, so it is at least one more than the count here.
+      ageSatisfied k
+        | design.designEbQualifyAtCertification = rbsSinceAnnounce + 1 >= k
+        | otherwise = rbsSinceAnnounce >= k
       ebNeeded =
         case design.designReservationPolicy of
           PriorityReservationRbEbThreshold _ thresholdBytes ageEscape ->
             txsBytes selectedTxs >= thresholdBytes
-              || maybe False (rbsSinceAnnounce >=) ageEscape
+              || maybe False ageSatisfied ageEscape
           _ -> True
   if null selectedTxList || not ebNeeded
     then do
@@ -591,7 +626,10 @@ announceEndorserBlock slot rbSignalCapacity = do
           { _simMempool = feeCheckedMempool
           , _simEbs = Map.insert ebId eb st._simEbs
           , _simPendingEb = Just (PendingEb ebId slot)
-          , _simRbsSinceEbAnnounce = 0
+          , _simRbsSinceEbAnnounce =
+              if design.designAgeResetAtCertification
+                then st._simRbsSinceEbAnnounce
+                else 0
           }
       pure $ evictionEvents |> BlockProduced slot summary
 

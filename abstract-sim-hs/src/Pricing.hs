@@ -308,6 +308,8 @@ controllerUtilisation lane input controller =
       Just (capacityWeightedUtilisation lane input.currentProduction)
     signal@CapacityWeightedWindow{} ->
       Just (capacityWeightedWindowUtilisation lane (signalWindow signal) input.recentBlocks)
+    CapacityWeightedBlockWindow windowSize ->
+      Just (capacityWeightedBlockWindowUtilisation lane (max 1 windowSize) input.recentBlocks)
     PriorityReservationUtil ->
       Just (priorityReservationUtilisation input.currentProduction)
     PriorityReservationWindow windowSize ->
@@ -337,6 +339,10 @@ signalWindow :: ControllerSignal -> Int
 signalWindow = \case
   CapacityWeightedUtil -> 0
   CapacityWeightedWindow windowSize -> max 1 windowSize
+  -- Every block production contributes at least one processed-block summary
+  -- and at most one announcement summary, so twice the window always retains
+  -- enough history to fill it after announcements are filtered out.
+  CapacityWeightedBlockWindow windowSize -> 2 * max 1 windowSize
   PriorityReservationUtil -> 0
   PriorityReservationWindow windowSize -> 3 * max 1 windowSize
   CertGatedCapacityUtil -> 0
@@ -367,6 +373,20 @@ applyEip1559Update controller oldCoeff utilisationValue =
 capacityWeightedWindowUtilisation :: Lane -> Int -> Seq BlockSummary -> Double
 capacityWeightedWindowUtilisation lane windowSize recentBlocks =
   capacityWeightedUtilisation lane (takeLast windowSize recentBlocks)
+
+{- | 'capacityWeightedWindowUtilisation' over processed blocks only: EB
+announcements are filtered out before the window is cut, so a zero-width
+announcement summary cannot occupy a window position or push a
+capacity-bearing block out of the window. Certificate-carrying RBs remain
+as zero-capacity entries — they are processed blocks.
+-}
+capacityWeightedBlockWindowUtilisation :: Lane -> Int -> Seq BlockSummary -> Double
+capacityWeightedBlockWindowUtilisation lane windowSize recentBlocks =
+  capacityWeightedUtilisation lane (takeLast windowSize (filter isProcessedBlock (Foldable.toList recentBlocks)))
+ where
+  isProcessedBlock = \case
+    EbAnnounced _ _ -> False
+    _ -> True
 
 capacityWeightedUtilisation :: (Foldable f) => Lane -> f BlockSummary -> Double
 capacityWeightedUtilisation =

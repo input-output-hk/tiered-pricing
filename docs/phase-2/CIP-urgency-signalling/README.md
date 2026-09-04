@@ -668,8 +668,7 @@ The CDDL changes are as follows:
 
 ```
 tier_no    = 0 / 1          ; 0 = urgent, 1 = standard
-tier_coeff = uint           ; price multiplier with fixed decimal places number tierDec
-tx_tier    = [tier_no, tier_coeff]
+tx_tier    = [tier_no]
 
 transaction_body = { ...
   , ? 23 : tx_tier          ; claimed tier, defaults to standard if omitted
@@ -677,14 +676,15 @@ transaction_body = { ...
   }
 ```
 
-A transaction body may optionally specify the `tier_no` which indicates whether it's an urgent or standard transaction, 
-and a `tier_coeff` in the fixed-point representation above. This tier coefficient 
-is what the transaction expects its `minfee` will be multiplied by to obtain the amount 
-of fee it has to pay to get into its specified tier. If `tx_tier` is omitted, the transaction is priced as a 
-standard transaction at the ledger's current standard coefficient (see 
-[Ledger Rule Changes](#ledger-rule-changes)).
+A transaction body may optionally specify the `tier_no` which indicates whether it's an urgent or standard 
+transaction. It carries no coefficient: the amount charged is the ledger's own quote for the tier the 
+transaction lands in, and what bounds the transaction's spend is the ordinary `txfee` field, which is a 
+ceiling on what it will pay ([Ledger Rule Changes](#ledger-rule-changes)). A declared coefficient would 
+be a second ceiling denominated in a different unit, redundant against `txfee` and able to go stale: a 
+transaction whose coefficient fell behind the quote would be invalid even when its posted `txfee` still 
+covered the amount owed. If `tx_tier` is omitted, the transaction is priced as a standard transaction.
 
-Tier coefficients operate on a fixed number of decimal places: a `tier_coeff`/`rawCoeff`/`PolicyClause.coeff` value `c` always
+Tier coefficients operate on a fixed number of decimal places: a `rawCoeff`/`PolicyClause.coeff` value `c` always
 represents the real coefficient `c / 10^tierDec`, where `tierDec` is a fixed constant.
 
 Wherever a coefficient meets a lovelace amount, the ledger computes
@@ -794,7 +794,7 @@ We use the `SDPolicy` fields in the following way:
   [Additional post-transaction-application validation](#additional-post-transaction-application-validation))
 
   1. `diversityPolicy : TierNo ⇀ List PolicyClause` - a map assigning to each tier the list of that 
-  tier's *finalized* policy clauses from the most recent blocks, most recent first, of 
+  tier's *finalized* policy clauses from the most recent processed blocks, most recent first, of 
   which at most `windowSize(t)` are stored (see [New PParams](#new-pparams)). 
 
 There is a new state variable 
@@ -820,16 +820,15 @@ In the rules below, `rawCoeff(t)` is read from `policyState` at the point of val
 field of its own: it is derived, as the `coeff` of the head entry of `diversityPolicy(t)`. When
 `rawCoeff(standard) = 10^tierDec`, `minfeeAt(rawCoeff(standard)) = minfee`, so the standard lane
 requires no more than the ordinary minimum fee. If `tx` omits `tx_tier`, the rules below apply as
-though `tx` had specified `tx_tier = [standard, rawCoeff(standard)]`. 
+though `tx` had specified `tx_tier = [standard]`. 
 
 Let `adjusted_tier_no` be `urgent` if `tx` was in an RB with a *transaction list*, 
 and `standard` if `tx` was in an EB. Let `adjusted_tier_coeff` be `effectiveTierCoeff(adjusted_tier_no)`. 
 The following are the key rule changes (to transaction application)
 having to do with processing the *fee payment*:
 
-  1. updated min-fee constraint (enough to cover *targeted* tier) : `minfeeAt(tier_coeff) ≤ txFee`
-  1. new min-fee constraint (enough to cover the tier the transaction is actually *charged*, which may differ 
-  from the targeted tier when `rawCoeff(urgent)` and `rawCoeff(standard)` are inverted) : 
+  1. min-fee constraint (enough to cover the tier the transaction is actually *charged*, which may differ 
+  from the tier it claimed when `rawCoeff(urgent)` and `rawCoeff(standard)` are inverted) : 
   `minfeeAt(adjusted_tier_coeff) ≤ txFee`; a transaction that fails this constraint is invalid for inclusion at 
   its adjusted tier
   1. `txfee - minfeeAt(adjusted_tier_coeff)` is credited to the `feeChangeAccount` if the transaction names one and
@@ -840,16 +839,11 @@ having to do with processing the *fee payment*:
 The following changes to transaction application ensure correct tier specification 
 with respect to `policyState`:
 
-  1. `effectiveTierCoeff(tier_no)` — the coefficient derived from `diversityPolicy` as above, for the `tier_no` 
-  specified in the `tx_tier` in the transaction body — is `≤ tier_coeff` in `tx_tier`. This is an
-  inequality, not an equality: a transaction may post a coefficient above the current quote as headroom
-  against the quote moving between construction and inclusion, and the excess is refunded by rule 3 above
-  rather than charged
   1. The tier number in `tx_tier` must be either `urgent` or `standard`
   1. The tier number in `tx_tier` is `≤ adjusted_tier_no` 
   1. `policyState` is updated so that `currentClause`'s aggregated values 2-4 reflect `tx`, as described above
 
-Rule 3 depends on the numeric encoding of the tier labels, so it is worth stating what it relies on:
+Rule 2 depends on the numeric encoding of the tier labels, so it is worth stating what it relies on:
 `urgent = 0` and `standard = 1`, i.e. **the more urgent tier is the numerically smaller one**. Under that
 encoding `tier_no ≤ adjusted_tier_no`.
 
@@ -889,7 +883,19 @@ If a block is one that corresponds to an `ebCert` (and is therefore an `EB` bloc
 The `SDPolicy` state is updated during the application of the transactions in the block. After this is complete,
 additional checks 
 are performed, and this state is further updated, given the current protocol parameters and 
-the block type, with the following steps:
+the block type, with the following steps.
+
+This rule runs once per **processed block** — a non-certificate Ranking Block, a certificate-carrying
+Ranking Block, or a certified Endorser Block — so every processed block occupies exactly one window
+position in each tier. A certificate-carrying Ranking Block has no transaction payload, so its
+`currentClause` is the empty clause and it enters the window carrying zero usage *and* zero capacity;
+it dilutes the window without contributing to either side of the ratio, which is what makes an RB spent
+on a certificate visible to the controller as forgone capacity. Announcements are not processed blocks
+and get no entry at all: an announcement is a claim in an RB header that no ledger rule can check, so
+counting it would let a producer move the standard quote with cost-free fake announcements
+([Controller updates and signals](#controller-updates-and-signals)).
+
+The steps are:
 
   1. Check that if the block containing the transaction list is an EB, it qualifies under the 
   [Endorser Block announcement threshold](#endorser-block-announcement-threshold) rule: unless the age escape applies, 
@@ -897,12 +903,13 @@ the block type, with the following steps:
   reaches the threshold fraction of the corresponding per-block RB limit specified in the protocol parameters
   1. For each tier `t`, fill in the capacity fields of `currentClause(t)` from the block type, as described 
   under [Ledger Rule Changes](#ledger-rule-changes): the RB urgent reservation capacity for the `urgent` 
-  clause, and the producing block's own capacity (full RB limits for a non-certificate Ranking Block, EB 
-  limits for a certified Endorser Block) for the `standard` clause
+  clause, and the producing block's own capacity for the `standard` clause — full RB limits for a 
+  non-certificate Ranking Block, EB limits for a certified Endorser Block, and **zero for a 
+  certificate-carrying Ranking Block**, whose entry carries neither usage nor capacity
   1. For each tier `t`, prepend `currentClause(t)` to `diversityPolicy(t)`, dropping the oldest entry 
   whenever the list exceeds `windowSize(t)` entries. Write the resulting list as 
   `P_t = [p_0, p_1, …, p_{k−1}]`, most recent first, with `k = min(windowSize(t), |P_t|)`: `p_0` is the 
-  clause for the block being finalized, and `p_1` the clause for the previous payload-bearing block
+  clause for the block being finalized, and `p_1` the clause for the previous processed block
   1. For each tier `t`, set `p_0.coeff` to the coefficient produced by applying the controller update of 
   [Controller updates and signals](#controller-updates-and-signals) to `p_1.coeff`, at the utilisation 
   `u_t` computed over `p_0 … p_{k−1}` as set out in 
@@ -912,8 +919,8 @@ the block type, with the following steps:
   `rawCoeff(standard)` are never combined, and `effectiveTierCoeff(t) = rawCoeff(t)` reads each tier's 
   coefficient off its own controller (see [Ledger Rule Changes](#ledger-rule-changes))
   1. Update the age-escape counter: set `rbsSinceCert` to zero if this block is a certified Endorser 
-  Block, since accepting its certificate resets the count, and otherwise increment it by one. 
-  Certificate-carrying Ranking Blocks carry no transaction payload and so never reach this rule at all 
+  Block, since the count resets at **certificate inclusion** and not at announcement, and otherwise 
+  increment it by one 
   (see [Endorser Block announcement threshold](#endorser-block-announcement-threshold))
   1. Reset `currentClause` to the empty clause for every tier (`size = refScriptSize = 0`, `exUnits`, 
   `capSize` and `capExUnits` all zero), so it can accumulate the next block's totals
@@ -979,7 +986,7 @@ different lengths and different sample kinds:
   `diversityPolicy(urgent)`, and therefore the length of the urgent controller's sliding window.
   Recommended initial value **5** payload samples.
 - `standardWindowSize : ℕ` — likewise for `diversityPolicy(standard)`. Recommended initial value **10**
-  block summaries.
+  processed-block summaries.
 
 We write `windowSize(t)` for whichever of the two applies to tier `t`. Larger values smooth a coefficient's
 trajectory at the cost of a slower response to changes in demand. A single shared parameter would not do:

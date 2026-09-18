@@ -833,7 +833,9 @@ Any Plutus script run by the transaction would not have access to the amount of 
 given to the change account address. For this reason, a script cannot use the fee change amount 
 as input to decide whether its constraints are satisfied. So, the fee change credit cannot affect the 
 outcome of script validation locally vs. 
-at block-application time. 
+at block-application time. The double satisfaction problem does not apply here, as it is not possible to 
+express a Plutus script constraint that depends on the change fee (due to it not being included in
+TxInfo). The change fee cannot, therefore, satisfy (or fail to satisfy) either one or two constraints. 
 
 The following changes to transaction application ensure correct tier specification 
 with respect to `policyState`:
